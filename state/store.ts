@@ -62,6 +62,11 @@ export interface AppState {
   magicNodes: number[] | null;
   magicFlux: Float32Array | null;
   magePopulation: Uint32Array | null;
+
+  // Marine Physical Simulation
+  oceanCurrents: Float32Array | null;  // packed x,y wind-driven current vectors
+  oceanNutrients: Float32Array | null; // nutrient level mapping
+  upwellingFlux: Float32Array | null;  // reverse-flux ocean current upwelling
 }
 
 export interface MagicVectorWeights {
@@ -117,6 +122,10 @@ class StateStore {
       magicNodes: null,
       magicFlux: null,
       magePopulation: null,
+
+      oceanCurrents: null,
+      oceanNutrients: null,
+      upwellingFlux: null,
 
       magicTypes: [
         {

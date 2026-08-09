@@ -6,15 +6,16 @@ export interface EcologyState {
   predators: Float32Array;
 }
 
-export function initializeEcology(cellsCount: number): EcologyState {
+export function initializeEcology(cellsCount: number, heights?: Uint8Array): EcologyState {
   const plants = new Float32Array(cellsCount);
   const herbivores = new Float32Array(cellsCount);
   const predators = new Float32Array(cellsCount);
 
   for (let i = 0; i < cellsCount; i++) {
-    plants[i] = 100.0;     // Initial plant population
-    herbivores[i] = 20.0;   // Initial herbivore population
-    predators[i] = 5.0;     // Initial predator population
+    const isOcean = heights ? heights[i] < 20 : false;
+    plants[i] = isOcean ? 50.0 : 100.0;      // Initial plant/phytoplankton population
+    herbivores[i] = isOcean ? 10.0 : 20.0;    // Initial herbivore/zooplankton population
+    predators[i] = isOcean ? 2.0 : 5.0;       // Initial predator/marine carnivore population
   }
 
   return { plants, herbivores, predators };
@@ -46,7 +47,8 @@ export function simulateEcologyStep(
   farmingCells: Uint8Array,
   loggingCells: Uint8Array,
   rates: EcologyRates,
-  magicEcologyWeights?: Float32Array
+  magicEcologyWeights?: Float32Array,
+  oceanNutrients?: Float32Array
 ): Uint8Array {
   const pointsN = heights.length;
   const nextPlants = new Float32Array(pointsN);
@@ -74,8 +76,11 @@ export function simulateEcologyStep(
     if (pVal < 10) precFactor = 0.1;
     else if (pVal < 30) precFactor = 0.6;
 
-    const baseK = 800.0;
-    const K = baseK * tempFactor * precFactor;
+    const baseK = heights[i] < 20 ? 100.0 : 800.0;
+    let K = baseK * tempFactor * precFactor;
+    if (heights[i] < 20 && oceanNutrients) {
+      K = Math.max(10.0, oceanNutrients[i] * 5.0);
+    }
 
     // Lotka-Volterra dynamics with logistical limits
     const magMult = magicEcologyWeights ? magicEcologyWeights[i] : 1.0;

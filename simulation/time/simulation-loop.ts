@@ -13,6 +13,11 @@ import {
   applyMagicGeopoliticalVectors,
   runMagicVolatilityChecks
 } from "../magic/magic-system";
+import {
+  calculateOceanCurrents,
+  calculateUpwellingFlux,
+  calculateOceanNutrients
+} from "../climate/marine-simulator";
 
 export class SimulationLoop {
   private tickSystem: TickSystem | null = null;
@@ -57,7 +62,7 @@ export class SimulationLoop {
 
     if (pointsN > 0) {
       if (!plants) {
-        const eco = initializeEcology(pointsN);
+        const eco = initializeEcology(pointsN, currentState.heights);
         plants = eco.plants;
         herbivores = eco.herbivores;
         predators = eco.predators;
@@ -87,6 +92,31 @@ export class SimulationLoop {
           ? Float32Array.from(currentState.grid.cells.prec)
           : new Float32Array(pointsN).fill(100.0);
         magePopulation = calculateMagePopulations(magicFlux, safePops, magicTypes);
+      }
+    }
+
+    // Initialize Marine Physical Simulation state if needed
+    let oceanCurrents = currentState.oceanCurrents;
+    let oceanNutrients = currentState.oceanNutrients;
+    let upwellingFlux = currentState.upwellingFlux;
+
+    if (pointsN > 0 && currentState.grid && currentState.heights) {
+      if (!oceanCurrents) {
+        oceanCurrents = calculateOceanCurrents(currentState.grid, currentState.heights);
+      }
+      if (!upwellingFlux) {
+        upwellingFlux = calculateUpwellingFlux(currentState.grid, currentState.heights);
+      }
+      if (!oceanNutrients) {
+        const flowDirs = currentState.flowDirections || new Int32Array(pointsN).fill(-1);
+        const landFlux = currentState.flux || new Float32Array(pointsN).fill(1.0);
+        oceanNutrients = calculateOceanNutrients(
+          currentState.grid,
+          currentState.heights,
+          flowDirs,
+          landFlux,
+          upwellingFlux
+        );
       }
     }
 
@@ -142,7 +172,20 @@ export class SimulationLoop {
           biomes = nextBiomes;
         }
 
-        // 2. Ecology CA step
+        // 2. Coastal Nutrient Diffusion & Upwelling Run
+        if (oceanNutrients && currentState.grid) {
+          const flowDirs = currentState.flowDirections || new Int32Array(pointsN).fill(-1);
+          const landFlux = currentState.flux || new Float32Array(pointsN).fill(1.0);
+          oceanNutrients = calculateOceanNutrients(
+            currentState.grid,
+            currentState.heights,
+            flowDirs,
+            landFlux,
+            upwellingFlux || new Float32Array(pointsN).fill(0)
+          );
+        }
+
+        // 3. Ecology CA step (processes marine plants growth using oceanNutrients)
         if (plants && currentState.grid) {
           const ecoState = { plants, herbivores, predators };
           const nextBiomes = simulateEcologyStep(
@@ -155,12 +198,13 @@ export class SimulationLoop {
             farmingCells,
             loggingCells,
             ecologyRates,
-            magicEcologyWeights
+            magicEcologyWeights,
+            oceanNutrients
           );
           biomes = nextBiomes;
         }
 
-        // 3. Crop/Food resource harvesting & collection (agricultural index 2 = Grain, 4 = Fruit)
+        // 4. Crop/Food resource harvesting & collection (agricultural index 2 = Grain, 4 = Fruit)
         const grainId = 2;
         const fruitId = 4;
         const foodHarvest = Math.round(5 * activeMods.precMod * (activeMods.tempMod > -8 ? 1.2 : 0.2));
@@ -175,7 +219,7 @@ export class SimulationLoop {
           m.supply[fruitId] = (m.supply[fruitId] || 0) + Math.round(finalHarvest * 0.5);
         }
 
-        // 4. Food Consumption, Manpower, and Demographics
+        // 5. Food Consumption, Manpower, and Demographics
         for (const m of updatedMarkets) {
           const burg = burgMap.get(m.burgId);
           if (!burg) continue;
@@ -204,7 +248,7 @@ export class SimulationLoop {
           }
         }
 
-        // 5. State Treasury Accumulation & Military Payments
+        // 6. State Treasury Accumulation & Military Payments
         // Zero state stats to accumulate daily totals
         for (const state of updatedStates) {
           state.population = 0;
@@ -225,7 +269,7 @@ export class SimulationLoop {
           const upkeep = Math.round(state.militaryPower * 0.2);
           state.treasury = Math.max(0, state.treasury - upkeep);
 
-          // 6. Manpower recruitment & dynamic Military solvency
+          // 7. Manpower recruitment & dynamic Military solvency
           if (state.treasury <= 0) {
             // Insolvency decay
             state.militaryPower = Math.max(0, state.militaryPower - 5);
@@ -237,7 +281,7 @@ export class SimulationLoop {
             }
           }
 
-          // 7. Geopolitical Border Expansionism feedback
+          // 8. Geopolitical Border Expansionism feedback
           const isStarving = state.population === 0 || updatedBurgs.some((b: any) => {
             const stateId = currentState.cellStates ? currentState.cellStates[b.cell] : 0;
             return stateId === state.id && b.growthRate < 0;
@@ -267,7 +311,10 @@ export class SimulationLoop {
         loggingCells,
         magicNodes,
         magicFlux,
-        magePopulation
+        magePopulation,
+        oceanCurrents,
+        oceanNutrients,
+        upwellingFlux
       } as any);
       return;
     }
@@ -326,7 +373,10 @@ export class SimulationLoop {
       loggingCells,
       magicNodes,
       magicFlux,
-      magePopulation
+      magePopulation,
+      oceanCurrents,
+      oceanNutrients,
+      upwellingFlux
     } as any);
   }
 
