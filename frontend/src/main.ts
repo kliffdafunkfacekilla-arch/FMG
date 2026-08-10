@@ -10,6 +10,7 @@ import { generateRoutes } from "../../simulation/civilization/route-generator";
 import { generateProvinces } from "../../simulation/civilization/province-generator";
 import { generateMilitary } from "../../simulation/civilization/military-generator";
 import { generateReligions } from "../../simulation/civilization/religions-generator";
+import { generateDiplomacy } from "../../simulation/civilization/diplomacy-generator";
 import { generateZones } from "../../simulation/civilization/zones-generator";
 import { generateMarkers } from "../../simulation/civilization/markers-generator";
 import { bakeErosion } from "../../simulation/heightmap/erosion-bake";
@@ -23,10 +24,14 @@ import { drawMinimap } from "../../renderer/minimap-renderer";
 import { ThreeRenderer } from "../../renderer/three-renderer";
 import { mountBurgEditor } from "../../ui/burg-editor";
 import { mountStateEditor } from "../../ui/state-editor";
+import { mountDiplomacyEditor } from "../../ui/diplomacy-editor";
+import { mountBiomesEditor } from "../../ui/biomes-editor";
+import { mountMarkersEditor } from "../../ui/markers-editor";
+import { mountMagicEditor } from "../../ui/magic-editor";
+import { mountEcologyEditor } from "../../ui/ecology-editor";
 import { mountConfigurator, SetupConfig } from "../../ui/configurator-dialogs";
 import { mountStyleAndBiomeEditor } from "../../ui/dialogs-sections";
-import { mountHeightBrush } from "../../ui/heightmap-brush";
-import { mountImageImporter } from "../../ui/image-importer";
+import { mountHeightmapEditor } from "../../ui/heightmap-editor";
 import { mountLabelEditor } from "../../ui/label-editor";
 import { mountExportOptions } from "../../ui/export-options";
 import { mountLanguageEditor } from "../../ui/language-editor";
@@ -97,18 +102,44 @@ if (app) {
       </div>
 
       <!-- Menu panel -->
-      <div id="options" style="display: none; flex-direction: column; background: rgba(30, 30, 38, 0.95); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; overflow: hidden; pointer-events: auto; max-height: 80vh; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+      <div id="options" style="display: none; flex-direction: column; background: rgba(30, 30, 38, 0.95); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; overflow: hidden; pointer-events: auto; max-height: 85vh; box-shadow: 0 10px 30px rgba(0,0,0,0.5); min-width: 280px; max-width: 340px;">
         
         <!-- Tabs headers -->
         <div class="tab" style="display: flex; background: rgba(0, 0, 0, 0.3); border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
           <button id="optionsHide" class="options" style="background: transparent; color: #ef4444; border: none; padding: 0.8rem; font-weight: bold; cursor: pointer; font-size: 1.1rem;">◄</button>
-          <button id="layersTab" class="tablinks active" style="flex: 1; padding: 0.8rem 0.2rem; background: transparent; border: none; color: #e2e8f0; font-weight: 600; cursor: pointer; font-size: 0.85rem; border-bottom: 2px solid transparent;">Layers</button>
-          <button id="toolsTab" class="tablinks" style="flex: 1; padding: 0.8rem 0.2rem; background: transparent; border: none; color: #94a3b8; font-weight: 600; cursor: pointer; font-size: 0.85rem; border-bottom: 2px solid transparent;">Tools</button>
-          <button id="configTab" class="tablinks" style="flex: 1; padding: 0.8rem 0.2rem; background: transparent; border: none; color: #94a3b8; font-weight: 600; cursor: pointer; font-size: 0.85rem; border-bottom: 2px solid transparent;">Config</button>
+          <button id="optionsTab" class="tablinks active" style="flex: 1; padding: 0.8rem 0.1rem; background: transparent; border: none; color: #e2e8f0; font-weight: 600; cursor: pointer; font-size: 0.8rem; border-bottom: 2px solid #3b82f6;">Options</button>
+          <button id="layersTab" class="tablinks" style="flex: 1; padding: 0.8rem 0.1rem; background: transparent; border: none; color: #94a3b8; font-weight: 600; cursor: pointer; font-size: 0.8rem; border-bottom: 2px solid transparent;">Layers</button>
+          <button id="styleTab" class="tablinks" style="flex: 1; padding: 0.8rem 0.1rem; background: transparent; border: none; color: #94a3b8; font-weight: 600; cursor: pointer; font-size: 0.8rem; border-bottom: 2px solid transparent;">Style</button>
+          <button id="toolsTab" class="tablinks" style="flex: 1; padding: 0.8rem 0.1rem; background: transparent; border: none; color: #94a3b8; font-weight: 600; cursor: pointer; font-size: 0.8rem; border-bottom: 2px solid transparent;">Tools</button>
+        </div>
+
+        <!-- Options Tab Content -->
+        <div id="optionsContent" class="tabcontent" style="padding: 1rem; overflow-y: auto; display: flex; flex-direction: column; gap: 0.8rem; box-sizing: border-box;">
+          <h4 style="margin: 0; color: #fbbf24; font-size: 0.95rem;">World Setup</h4>
+          <div id="configuratorMount"></div>
+          <div id="importerMount"></div>
+          <div id="exporterMount"></div>
+          
+          <h4 style="margin: 0.5rem 0 0 0; color: #fbbf24; font-size: 0.95rem;">Calendar Options</h4>
+          <button id="openCalendarEditorBtn" style="width: 100%; text-align: left; background: #2563eb; border: none; color: white; padding: 0.35rem 0.6rem; cursor: pointer; font-weight: bold; font-size: 0.8rem; border-radius: 4px;">📅 Config Custom Calendar</button>
+          <div id="calendarMount"></div>
+
+          <h4 style="margin: 0.5rem 0 0 0; color: #fbbf24; font-size: 0.95rem;">Time Controls</h4>
+          <div style="display: flex; gap: 0.4rem; margin-bottom: 0.5rem;">
+            <button id="tickDayBtn" style="flex: 1; padding: 0.35rem; background: #eab308; color: black; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">+1 Day</button>
+            <button id="tickMonthBtn" style="flex: 1; padding: 0.35rem; background: #3b82f6; color: white; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">+1 Month</button>
+            <button id="tickYearBtn" style="flex: 1; padding: 0.35rem; background: #10b981; color: white; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">+1 Year</button>
+          </div>
+
+          <h4 style="margin: 0.5rem 0 0 0; color: #fbbf24; font-size: 0.95rem;">File Actions</h4>
+          <div style="display: flex; gap: 0.4rem; margin-bottom: 0.5rem;">
+            <button id="optsSaveBtn" style="flex: 1; padding: 0.35rem; background: #10b981; color: white; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">Save JSON</button>
+            <button id="optsLoadBtn" style="flex: 1; padding: 0.35rem; background: #eab308; color: white; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">Load JSON</button>
+          </div>
         </div>
 
         <!-- Layers Content -->
-        <div id="layersContent" class="tabcontent" style="padding: 1rem; overflow-y: auto; display: flex; flex-direction: column; gap: 0.8rem;">
+        <div id="layersContent" class="tabcontent" style="padding: 1rem; overflow-y: auto; display: none; flex-direction: column; gap: 0.8rem; box-sizing: border-box;">
           <h4 style="margin: 0; color: #3b82f6; font-size: 0.95rem;">Layers Preset</h4>
           <select id="layersPreset" style="width: 100%; padding: 0.4rem; background: #0f0f12; border: 1px solid rgba(255,255,255,0.1); color: white; border-radius: 6px; cursor: pointer;">
             <option value="states" selected>Political Map</option>
@@ -122,68 +153,80 @@ if (app) {
             <option value="prec">Precipitation Map</option>
           </select>
 
-          <!-- Checkboxes Layer Selector -->
-          <div style="display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.85rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 0.6rem; color: #cbd5e1;">
-            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-              <input type="checkbox" id="chkStates" checked /> Political Borders
-            </label>
-            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-              <input type="checkbox" id="chkBurgs" checked /> Burgs & Cities
-            </label>
-            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-              <input type="checkbox" id="chkRoutes" checked /> Routes & Roads
-            </label>
-            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-              <input type="checkbox" id="chkReligions" /> Religions
-            </label>
-            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-              <input type="checkbox" id="chkBiomes" /> Biomes
-            </label>
-            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-              <input type="checkbox" id="chkHeightmap" /> Heightmap
-            </label>
+          <!-- List of toggles with Eye icons -->
+          <h4 style="margin: 0.4rem 0 0 0; color: #3b82f6; font-size: 0.9rem;">Layers (Drag to Reorder)</h4>
+          <div id="layersList" style="display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 0.4rem; color: #cbd5e1; width: 100%;">
           </div>
+        </div>
 
-          <div id="styleBiomesMount"></div>
+        <!-- Style Content -->
+        <div id="styleContent" class="tabcontent" style="padding: 1rem; overflow-y: auto; display: none; flex-direction: column; gap: 0.8rem; box-sizing: border-box;">
+          <h4 style="margin: 0; color: #10b981; font-size: 0.95rem;">Visual Theme Preset</h4>
+          <select id="stylePreset" style="width: 100%; padding: 0.4rem; background: #0f0f12; border: 1px solid rgba(255,255,255,0.1); color: white; border-radius: 6px; cursor: pointer;">
+            <option value="classic">Classic (Default)</option>
+            <option value="monochrome">Grayscale (Heights)</option>
+            <option value="clean">Minimalist</option>
+          </select>
 
-          <!-- Radar Minimap inside Layers Tab -->
-          <div style="background: rgba(0, 0, 0, 0.2); border: 1px solid rgba(255, 255, 255, 0.08); padding: 0.8rem; border-radius: 8px; display: flex; flex-direction: column; align-items: center; margin-top: 0.5rem;">
-            <h5 style="margin: 0 0 0.5rem 0; font-size: 0.8rem; color: #94a3b8;">Radar Minimap</h5>
-            <canvas id="minimapCanvas" width="180" height="120" style="background: #08080a; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; display: block;"></canvas>
+          <!-- Style Editor Section -->
+          <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 0.6rem; margin-top: 0.4rem; display: flex; flex-direction: column; gap: 0.5rem; width: 100%;">
+            <h4 style="margin: 0; color: #10b981; font-size: 0.9rem;">Layer Style Customizer</h4>
+            <select id="styleLayerSelect" style="width: 100%; padding: 0.3rem; background: #0f0f12; border: 1px solid rgba(255,255,255,0.1); color: white; border-radius: 4px; cursor: pointer;">
+              <option value="heightmap">Heightmap Style</option>
+              <option value="biomes">Biomes Style</option>
+              <option value="cultures">Cultures Style</option>
+              <option value="states">States Style</option>
+              <option value="provinces">Provinces Style</option>
+              <option value="religions">Religions Style</option>
+              <option value="goods">Goods Style</option>
+              <option value="temp">Temperature Style</option>
+              <option value="prec">Precipitation Style</option>
+              <option value="grid">Grid/Cells Style</option>
+              <option value="rivers">Rivers Style</option>
+              <option value="routes">Routes Style</option>
+              <option value="burgs">Burgs Style</option>
+              <option value="military">Military Style</option>
+              <option value="markers">Markers Style</option>
+              <option value="labels">Labels Style</option>
+              <option value="zones">Zones Style</option>
+            </select>
+            <div id="styleControls" style="display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.8rem; color: #cbd5e1; width: 100%;">
+            </div>
           </div>
         </div>
 
         <!-- Tools Tab Content -->
-        <div id="toolsContent" class="tabcontent" style="padding: 1rem; overflow-y: auto; display: none; flex-direction: column; gap: 0.8rem;">
-          <h4 style="margin: 0; color: #10b981; font-size: 0.95rem;">Brushes & Editors</h4>
-          <div id="brushMount"></div>
+        <div id="toolsContent" class="tabcontent" style="padding: 1rem; overflow-y: auto; display: none; flex-direction: column; gap: 0.8rem; box-sizing: border-box;">
+          <h4 style="margin: 0; color: #10b981; font-size: 0.95rem;">Interactive Editors</h4>
+          
+          <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.4rem; margin-bottom: 0.4rem;">
+            <button id="btnOpenHeightmap" style="background: #eab308; color: black; border: none; padding: 0.35rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem;">⛰️ Heightmap</button>
+            <button id="btnOpenStates" style="background: #3b82f6; color: white; border: none; padding: 0.35rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem;">👑 States</button>
+            <button id="btnOpenDiplomacy" style="background: #a855f7; color: white; border: none; padding: 0.35rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem;">🤝 Diplomacy</button>
+            <button id="btnOpenRoutes" style="background: #f97316; color: white; border: none; padding: 0.35rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem;">🛤️ Routes</button>
+            <button id="btnOpenLabels" style="background: #10b981; color: white; border: none; padding: 0.35rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem;">🏷️ Labels</button>
+            <button id="btnOpenLanguages" style="background: #6366f1; color: white; border: none; padding: 0.35rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem;">🗣️ Languages</button>
+            <button id="btnOpenBiomes" style="background: #14b8a6; color: white; border: none; padding: 0.35rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem;">🍃 Biomes</button>
+            <button id="btnOpenMarkers" style="background: #f43f5e; color: white; border: none; padding: 0.35rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem;">📍 Markers</button>
+            <button id="btnOpenMagic" style="background: #8b5cf6; color: white; border: none; padding: 0.35rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem;">🔮 Magic</button>
+            <button id="btnOpenEcology" style="background: #22c55e; color: white; border: none; padding: 0.35rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem;">🦊 Ecology</button>
+          </div>
+
+          <!-- Popup Mounts (Hidden by default; popped up on button click) -->
+          <div id="heightmapEditorMount"></div>
           <div id="burgEditorMount"></div>
           <div id="stateEditorMount"></div>
+          <div id="diplomacyEditorMount"></div>
+          <div id="biomesEditorMount"></div>
+          <div id="markersEditorMount"></div>
+          <div id="magicEditorMount"></div>
+          <div id="ecologyEditorMount"></div>
           <div id="routeEditorMount"></div>
           <div id="labelMount"></div>
-        </div>
-
-        <!-- Config Tab Content -->
-        <div id="configContent" class="tabcontent" style="padding: 1rem; overflow-y: auto; display: none; flex-direction: column; gap: 0.8rem;">
-          <h4 style="margin: 0; color: #fbbf24; font-size: 0.95rem;">World Setup</h4>
-          <div id="configuratorMount"></div>
-          <div id="importerMount"></div>
           <div id="languageMount"></div>
-          <div id="exporterMount"></div>
           <div id="burgTypeMount"></div>
           <div id="militaryUnitMount"></div>
-           
-           <h4 style="margin: 0.8rem 0 0.4rem 0; color: #fbbf24; font-size: 0.95rem;">Calendar & Celestial Options</h4>
-           <button id="openCalendarEditorBtn" style="width: 100%; text-align: left; background: #2563eb; border: none; color: white; padding: 0.35rem 0.6rem; cursor: pointer; font-weight: bold; font-size: 0.8rem; border-radius: 4px; margin-bottom: 0.8rem;">📅 Config Custom Calendar</button>
-           <div id="calendarMount"></div>
-
-           <h4 style="margin: 0.5rem 0 0.4rem 0; color: #fbbf24; font-size: 0.95rem;">Time Controls</h4>
-           <div style="display: flex; gap: 0.4rem; margin-bottom: 0.8rem;">
-             <button id="tickDayBtn" style="flex: 1; padding: 0.35rem; background: #eab308; color: black; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">+1 Day</button>
-             <button id="tickMonthBtn" style="flex: 1; padding: 0.35rem; background: #3b82f6; color: white; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">+1 Month</button>
-             <button id="tickYearBtn" style="flex: 1; padding: 0.35rem; background: #10b981; color: white; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">+1 Year</button>
-           </div>
-         </div>
+        </div>
       </div>
     </div>
 
@@ -214,6 +257,13 @@ if (app) {
   const statsEl = document.getElementById("stats") as HTMLDivElement;
   const statusEl = document.getElementById("connectionStatus") as HTMLSpanElement;
 
+  (window as any).triggerLayerSelect = (layerName: string) => {
+    currentLayer = layerName as any;
+    if (layersPresetSelect) layersPresetSelect.value = layerName;
+    renderLayersChecklist();
+    renderCurrentLayer();
+  };
+
   // Mount Editors & Panels
   mountBurgEditor("burgEditorMount", () => renderCurrentLayer());
   mountStateEditor("stateEditorMount", () => {
@@ -221,8 +271,7 @@ if (app) {
     if (minimapCanvas) drawMinimap(minimapCanvas, store.getState());
   });
 
-  mountHeightBrush("brushMount");
-  mountImageImporter("importerMount", () => {
+  mountHeightmapEditor("heightmapEditorMount", () => {
     renderCurrentLayer();
     if (minimapCanvas) drawMinimap(minimapCanvas, store.getState());
   });
@@ -238,6 +287,109 @@ if (app) {
   mountRouteEditor("routeEditorMount", () => {
     renderCurrentLayer();
   });
+  mountDiplomacyEditor("diplomacyEditorMount", () => {
+    renderCurrentLayer();
+  });
+  mountBiomesEditor("biomesEditorMount", () => {
+    renderCurrentLayer();
+  });
+  mountMarkersEditor("markersEditorMount", () => {
+    renderCurrentLayer();
+  });
+  mountMagicEditor("magicEditorMount", () => {
+    renderCurrentLayer();
+  });
+  mountEcologyEditor("ecologyEditorMount", () => {
+    renderCurrentLayer();
+  });
+
+  // Bind Interactive Editors button group click listeners
+  const btnOpenHeightmap = document.getElementById("btnOpenHeightmap");
+  const btnOpenStates = document.getElementById("btnOpenStates");
+  const btnOpenDiplomacy = document.getElementById("btnOpenDiplomacy");
+  const btnOpenRoutes = document.getElementById("btnOpenRoutes");
+  const btnOpenLabels = document.getElementById("btnOpenLabels");
+  const btnOpenLanguages = document.getElementById("btnOpenLanguages");
+  const btnOpenBiomes = document.getElementById("btnOpenBiomes");
+  const btnOpenMarkers = document.getElementById("btnOpenMarkers");
+  const btnOpenMagic = document.getElementById("btnOpenMagic");
+  const btnOpenEcology = document.getElementById("btnOpenEcology");
+
+  if (btnOpenHeightmap) {
+    btnOpenHeightmap.addEventListener("click", () => {
+      const win = window as any;
+      if (win.triggerLayerSelect) win.triggerLayerSelect("heightmap");
+      const editorPanel = document.getElementById("hmPaintSection")?.parentElement;
+      if (editorPanel) editorPanel.style.display = "flex";
+    });
+  }
+
+  if (btnOpenStates) {
+    btnOpenStates.addEventListener("click", () => {
+      const win = window as any;
+      if (win.openStatesList) win.openStatesList();
+    });
+  }
+
+  if (btnOpenDiplomacy) {
+    btnOpenDiplomacy.addEventListener("click", () => {
+      const win = window as any;
+      if (win.openDiplomacyEditor) win.openDiplomacyEditor();
+    });
+  }
+
+  if (btnOpenRoutes) {
+    btnOpenRoutes.addEventListener("click", () => {
+      const win = window as any;
+      if (win.triggerLayerSelect) win.triggerLayerSelect("states");
+      const editorPanel = document.getElementById("routeEditorPanel");
+      if (editorPanel) editorPanel.style.display = "block";
+    });
+  }
+
+  if (btnOpenLabels) {
+    btnOpenLabels.addEventListener("click", () => {
+      const win = window as any;
+      if (win.triggerLayerSelect) win.triggerLayerSelect("states");
+      const editorPanel = document.getElementById("labelEditorPanel");
+      if (editorPanel) editorPanel.style.display = "block";
+    });
+  }
+
+  if (btnOpenLanguages) {
+    btnOpenLanguages.addEventListener("click", () => {
+      const editorPanel = document.getElementById("languageEditorPanel");
+      if (editorPanel) editorPanel.style.display = "block";
+    });
+  }
+
+  if (btnOpenBiomes) {
+    btnOpenBiomes.addEventListener("click", () => {
+      const win = window as any;
+      if (win.openBiomesEditor) win.openBiomesEditor();
+    });
+  }
+
+  if (btnOpenMarkers) {
+    btnOpenMarkers.addEventListener("click", () => {
+      const win = window as any;
+      if (win.openMarkersEditor) win.openMarkersEditor();
+    });
+  }
+
+  if (btnOpenMagic) {
+    btnOpenMagic.addEventListener("click", () => {
+      const win = window as any;
+      if (win.openMagicEditor) win.openMagicEditor();
+    });
+  }
+
+  if (btnOpenEcology) {
+    btnOpenEcology.addEventListener("click", () => {
+      const win = window as any;
+      if (win.openEcologyEditor) win.openEcologyEditor();
+    });
+  }
 
   // Mount Custom Calendar Editor
   mountCalendarEditor("calendarMount", () => {
@@ -248,6 +400,47 @@ if (app) {
       updateCalendarText();
     }
   });
+
+  // Intercept editor openings and brush actions to automatically switch active layers matching FMG workflow
+  const originalOpenBurgEditor = (window as any).openBurgEditor;
+  (window as any).openBurgEditor = (burg: any) => {
+    currentLayer = "states";
+    if (layersPresetSelect) layersPresetSelect.value = "states";
+    renderLayersChecklist();
+    renderCurrentLayer();
+    if (originalOpenBurgEditor) originalOpenBurgEditor(burg);
+  };
+
+  const originalOpenStateEditor = (window as any).openStateEditor;
+  (window as any).openStateEditor = (state: any) => {
+    currentLayer = "states";
+    if (layersPresetSelect) layersPresetSelect.value = "states";
+    renderLayersChecklist();
+    renderCurrentLayer();
+    if (originalOpenStateEditor) originalOpenStateEditor(state);
+  };
+
+  const originalOpenRouteEditor = (window as any).openRouteEditor;
+  (window as any).openRouteEditor = (route: any) => {
+    currentLayer = "states";
+    if (layersPresetSelect) layersPresetSelect.value = "states";
+    renderLayersChecklist();
+    renderCurrentLayer();
+    if (originalOpenRouteEditor) originalOpenRouteEditor(route);
+  };
+
+  const originalOpenLabelEditor = (window as any).openLabelEditor;
+  if (originalOpenLabelEditor) {
+    (window as any).openLabelEditor = (label: any) => {
+      currentLayer = "states";
+      if (layersPresetSelect) layersPresetSelect.value = "states";
+      renderLayersChecklist();
+      renderCurrentLayer();
+      originalOpenLabelEditor(label);
+    };
+  }
+
+
 
   const updateCalendarText = () => {
     const calendarEl = document.getElementById("calendarStatus");
@@ -344,8 +537,8 @@ if (app) {
   }
 
   // Wire up Tab switching
-  const tabs = ["layersTab", "toolsTab", "configTab"];
-  const contents = ["layersContent", "toolsContent", "configContent"];
+  const tabs = ["optionsTab", "layersTab", "styleTab", "toolsTab"];
+  const contents = ["optionsContent", "layersContent", "styleContent", "toolsContent"];
 
   tabs.forEach((tabId, idx) => {
     const tabBtn = document.getElementById(tabId) as HTMLButtonElement;
@@ -425,16 +618,24 @@ if (app) {
     if (!canvas || !loadingOverlay) return;
     loadingOverlay.style.display = "flex";
 
+    // Set canvas dimensions based on config
+    canvas.width = config.canvasWidth;
+    canvas.height = config.canvasHeight;
+    if (threeRenderer) {
+      threeRenderer.resize(config.canvasWidth, config.canvasHeight);
+    }
+
     setTimeout(() => {
       try {
         const t0 = performance.now();
-        const width = canvas.width;
-        const height = canvas.height;
-        const seed = "map-" + Math.floor(Math.random() * 1000000);
+        const width = config.canvasWidth;
+        const height = config.canvasHeight;
+        const seed = config.seed;
 
         const grid = generateJitteredGrid(width, height, config.cellsCount, seed);
         const hg = new HeightmapGenerator(grid, width, height, seed);
-        let rawHeights = hg.executeTemplate(`
+        
+        let templateStr = `
           Hill 1 80-85 60-80 40-60
           Hill 1 80-85 20-30 40-60
           Hill 6-7 15-30 25-75 15-85
@@ -444,7 +645,28 @@ if (app) {
           Strait 1 vertical 0 0
           Smooth 3 0 0 0
           Mask 3 0 0 0
-        `);
+        `;
+        if (config.heightmapType === "Volcano") {
+          templateStr = `
+            Hill 1 90-95 50-50 20-30
+            Hill 4 10-20 20-80 20-80
+            Multiply 0.8
+            Smooth 5
+          `;
+        } else if (config.heightmapType === "High Island" || config.heightmapType === "Low Island") {
+          templateStr = `
+            Hill 2 70-80 40-60 30-50
+            Smooth 4
+          `;
+        } else if (config.heightmapType === "Archipelago" || config.heightmapType === "Atoll") {
+          templateStr = `
+            Hill 10 5-15 10-90 10-90
+            Multiply 0.5
+            Smooth 3
+          `;
+        }
+
+        let rawHeights = hg.executeTemplate(templateStr);
 
         const climateOpts = {
           temperatureEquator: config.tempEquator,
@@ -457,8 +679,8 @@ if (app) {
         const hydro = generateHydrology(grid, rawHeights, prec);
         const heights = bakeErosion(grid, hydro.heights, hydro.flowDirections, 3);
         const biomes = generateBiomes(grid, heights, temp, prec, hydro.rivers);
-        const { cultures, cellCultures } = generateCultures(grid, heights, biomes, 6, seed, hydro.flux, hydro.rivers);
-        const burgs = generateBurgs(grid, heights, biomes, hydro.rivers, hydro.flux, config.burgsCount, cellCultures, cultures);
+        const { cultures, cellCultures } = generateCultures(grid, heights, biomes, config.culturesCount, seed, hydro.flux, hydro.rivers);
+        const burgs = generateBurgs(grid, heights, biomes, hydro.rivers, hydro.flux, config.townsCount, cellCultures, cultures);
         const { states, cellStates } = generateStates(grid, heights, cellCultures, burgs, config.statesCount, biomes, hydro.rivers, hydro.flux, undefined, cultures);
         const routes = generateRoutes(grid, heights, burgs);
         const { provinces, cellProvinces } = generateProvinces(grid, heights, cellStates, burgs, states);
@@ -466,6 +688,7 @@ if (app) {
         const { religions, cellReligions } = generateReligions(grid, heights, cellCultures, config.religionsCount, seed);
         const zones = generateZones(grid, heights, seed);
         const markers = generateMarkers(grid, heights, biomes, seed);
+        const relations = generateDiplomacy(states, seed);
 
         const cellGoods = generateGoods(grid, heights, biomes);
         const markets = generateMarkets(grid, burgs, cellGoods);
@@ -499,6 +722,9 @@ if (app) {
           markers,
           markets,
           production,
+          states,
+          relations,
+          cultures,
           labels: []
         } as any);
 
@@ -537,6 +763,31 @@ if (app) {
 
   mountConfigurator("configuratorMount", (config) => runSimulation(config));
 
+  (window as any).runClimateRegen = (tempEquator: number, windsAngle: number, precInput: number) => {
+    const state = store.getState() as any;
+    if (!state.grid || !state.heights) return;
+
+    const climateOpts = {
+      temperatureEquator: tempEquator,
+      temperatureNorthPole: -30,
+      temperatureSouthPole: -15,
+      winds: [windsAngle, 45, 225, 315, 135, 315],
+      precInput: precInput
+    };
+
+    const { temp, prec } = generateClimate(state.grid, state.heights, state.width, state.height, climateOpts);
+    const biomes = generateBiomes(state.grid, state.heights, temp, prec, state.rivers || new Uint8Array(state.heights.length));
+
+    store.updateState({
+      temp,
+      prec,
+      biomes
+    });
+
+    renderCurrentLayer();
+    if (minimapCanvas) drawMinimap(minimapCanvas, store.getState());
+  };
+
   const renderCurrentLayer = () => {
     if (!canvas || is3DMode) return;
     renderMap(canvas, store.getState(), currentLayer);
@@ -555,6 +806,10 @@ if (app) {
     }
   };
 
+  let isPanning = false;
+  let startX = 0;
+  let startY = 0;
+
   canvas.addEventListener("mousedown", (e) => {
     if (is3DMode) return;
     const state = store.getState() as any;
@@ -564,9 +819,14 @@ if (app) {
     const clickX = ((e.clientX - rect.left) / rect.width) * canvas.width;
     const clickY = ((e.clientY - rect.top) / rect.height) * canvas.height;
 
+    // Apply transform inverse mapping to hit-test in map space
+    const mapX = (clickX - state.offsetX) / state.zoom;
+    const mapY = (clickY - state.offsetY) / state.zoom;
+
+    // Check if we click a burg
     if (state.burgs) {
       for (const b of state.burgs) {
-        const dist = Math.hypot(b.x - clickX, b.y - clickY);
+        const dist = Math.hypot(b.x - mapX, b.y - mapY);
         if (dist < 12) {
           ensureToolsTabVisible();
           (window as any).openBurgEditor(b);
@@ -575,8 +835,9 @@ if (app) {
       }
     }
 
-    const cellId = findClosestCellIndex(clickX, clickY, state.grid.points);
+    const cellId = findClosestCellIndex(mapX, mapY, state.grid.points);
 
+    // Check if we click a route
     if (state.routes) {
       for (const r of state.routes) {
         if (r.path && r.path.includes(cellId)) {
@@ -586,8 +847,12 @@ if (app) {
         }
       }
     }
+
+    // Check if we click a state
     const sId = state.cellStates ? state.cellStates[cellId] : 0;
-    if (sId > 0 && state.states) {
+    const brush = (window as any).getCurrentBrushConfig ? (window as any).getCurrentBrushConfig() : { mode: "none" };
+
+    if (sId > 0 && state.states && brush.mode === "none") {
       const activeState = state.states.find((s: any) => s.id === sId);
       if (activeState) {
         ensureToolsTabVisible();
@@ -596,77 +861,382 @@ if (app) {
       }
     }
 
-    const brush = (window as any).getCurrentBrushConfig();
-    const originalHeight = state.heights[cellId];
-    let newHeight = originalHeight;
+    // If brush is active, perform brush painting
+    if (brush.mode !== "none") {
+      const originalHeight = state.heights[cellId];
+      let newHeight = originalHeight;
 
-    if (brush.mode === "add") {
-      newHeight = Math.min(originalHeight + 15, 100);
-    } else if (brush.mode === "sub") {
-      newHeight = Math.max(originalHeight - 15, 0);
-    } else if (brush.mode === "set") {
-      newHeight = brush.value;
-    } else if (brush.mode === "smooth") {
-      const neighbors = state.grid.cells.c[cellId] || [];
-      const sum = neighbors.reduce((acc: number, n: number) => acc + state.heights[n], originalHeight);
-      newHeight = Math.round(sum / (neighbors.length + 1));
+      if (brush.mode === "add") {
+        newHeight = Math.min(originalHeight + 15, 100);
+      } else if (brush.mode === "sub") {
+        newHeight = Math.max(originalHeight - 15, 0);
+      } else if (brush.mode === "set") {
+        newHeight = brush.value;
+      } else if (brush.mode === "smooth") {
+        const neighbors = state.grid.cells.c[cellId] || [];
+        const sum = neighbors.reduce((acc: number, n: number) => acc + state.heights[n], originalHeight);
+        newHeight = Math.round(sum / (neighbors.length + 1));
+      }
+
+      const updatedHeights = new Uint8Array(state.heights);
+      updatedHeights[cellId] = newHeight;
+      store.updateState({ heights: updatedHeights });
+      renderCurrentLayer();
+      if (minimapCanvas) drawMinimap(minimapCanvas, store.getState());
+
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+          op: "MUTATE_CELL",
+          cellId,
+          changes: { height: newHeight / 100.0 }
+        }));
+      }
+      return;
     }
 
-    state.heights[cellId] = newHeight;
-    renderCurrentLayer();
-    if (minimapCanvas) drawMinimap(minimapCanvas, store.getState());
+    // Otherwise, start panning!
+    isPanning = true;
+    startX = e.clientX;
+    startY = e.clientY;
+  });
 
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({
-        op: "MUTATE_CELL",
-        cellId,
-        changes: { height: newHeight / 100.0 }
-      }));
+  canvas.addEventListener("mousemove", (e) => {
+    if (isPanning) {
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      startX = e.clientX;
+      startY = e.clientY;
+
+      const state = store.getState() as any;
+      store.updateState({
+        offsetX: state.offsetX + dx,
+        offsetY: state.offsetY + dy
+      });
+      renderCurrentLayer();
     }
   });
 
-  const layersPresetSelect = document.getElementById("layersPreset") as HTMLSelectElement;
+  window.addEventListener("mouseup", () => {
+    isPanning = false;
+  });
+
+  canvas.addEventListener("wheel", (e) => {
+    if (is3DMode) return;
+    e.preventDefault();
+
+    const state = store.getState() as any;
+    const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85;
+    const nextZoom = Math.min(Math.max(state.zoom * zoomFactor, 1.0), 8.0);
+
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = ((e.clientX - rect.left) / rect.width) * canvas.width;
+    const mouseY = ((e.clientY - rect.top) / rect.height) * canvas.height;
+
+    const mapX = (mouseX - state.offsetX) / state.zoom;
+    const mapY = (mouseY - state.offsetY) / state.zoom;
+
+    store.updateState({
+      zoom: nextZoom,
+      offsetX: mouseX - mapX * nextZoom,
+      offsetY: mouseY - mapY * nextZoom
+    });
+    renderCurrentLayer();
+  });
+
+  const renderLayersChecklist = () => {
+    const listEl = document.getElementById("layersList");
+    if (!listEl) return;
+
+    const state = store.getState() as any;
+    const order = state.layerOrder || ["primary", "grid", "rivers", "zones", "routes", "markers", "burgs", "military", "labels"];
+
+    // Mapping layer order items to display properties
+    const layerMeta: Record<string, { name: string; isPrimary: boolean; toggleId?: string }> = {
+      primary: { name: `Primary Layer (${currentLayer.toUpperCase()})`, isPrimary: true },
+      grid: { name: "Grid Cells", isPrimary: false, toggleId: "showGrid" },
+      rivers: { name: "Rivers", isPrimary: false, toggleId: "showRivers" },
+      zones: { name: "Special Zones", isPrimary: false, toggleId: "showZones" },
+      routes: { name: "Routes & Roads", isPrimary: false, toggleId: "showRoutes" },
+      markers: { name: "Markers & Icons", isPrimary: false, toggleId: "showMarkers" },
+      burgs: { name: "Burgs & Cities", isPrimary: false, toggleId: "showBurgs" },
+      military: { name: "Military Units", isPrimary: false, toggleId: "showMilitary" },
+      labels: { name: "Text Labels", isPrimary: false, toggleId: "showLabels" }
+    };
+
+    listEl.innerHTML = order.map((layerId, idx) => {
+      const meta = layerMeta[layerId] || { name: layerId, isPrimary: false };
+      const isVisible = meta.isPrimary ? true : (state[meta.toggleId!] ?? false);
+      const eyeIcon = isVisible ? "👁️" : "🙈";
+      const iconColor = isVisible ? "#3b82f6" : "#475569";
+      const rowBackground = meta.isPrimary ? "rgba(59, 130, 246, 0.15)" : "transparent";
+
+      return `
+        <div class="draggable-layer-row" draggable="true" data-index="${idx}" data-layer-id="${layerId}" style="display: flex; align-items: center; justify-content: space-between; padding: 0.3rem 0.5rem; border-radius: 4px; background: ${rowBackground}; width: 100%; box-sizing: border-box; gap: 0.5rem; cursor: grab; border: 1px solid rgba(255,255,255,0.05); user-select: none;">
+          <span style="font-weight: ${meta.isPrimary ? "bold" : "normal"}; color: ${meta.isPrimary ? "#f1f5f9" : "#cbd5e1"}; font-size: 0.8rem; pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;">
+            ⋮⋮ ${meta.name}
+          </span>
+          <button class="layer-toggle-btn" data-id="${layerId}" data-toggle-id="${meta.toggleId || ""}" style="background: transparent; border: none; font-size: 0.95rem; cursor: pointer; color: ${iconColor}; padding: 0 0.2rem; outline: none;">
+            ${eyeIcon}
+          </button>
+        </div>
+      `;
+    }).join("");
+
+    // Bind eye button visibility toggles
+    const toggles = listEl.querySelectorAll(".layer-toggle-btn");
+    toggles.forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const id = btn.getAttribute("data-id")!;
+        const toggleId = btn.getAttribute("data-toggle-id")!;
+
+        if (id !== "primary") {
+          const propName = toggleId as keyof AppState;
+          const currentVal = state[propName];
+          store.updateState({ [propName]: !currentVal });
+        }
+
+        renderLayersChecklist();
+        renderCurrentLayer();
+      });
+    });
+
+    // Bind HTML5 drag-and-drop events
+    let dragSrcIndex: number | null = null;
+    const rows = listEl.querySelectorAll(".draggable-layer-row");
+
+    rows.forEach(row => {
+      row.addEventListener("dragstart", (e: any) => {
+        dragSrcIndex = parseInt(row.getAttribute("data-index")!, 10);
+        row.style.opacity = "0.4";
+        e.dataTransfer.effectAllowed = "move";
+      });
+
+      row.addEventListener("dragover", (e: any) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+      });
+
+      row.addEventListener("dragend", () => {
+        row.style.opacity = "1";
+      });
+
+      row.addEventListener("drop", (e: any) => {
+        e.preventDefault();
+        const targetIndex = parseInt(row.getAttribute("data-index")!, 10);
+        if (dragSrcIndex !== null && dragSrcIndex !== targetIndex) {
+          const nextOrder = [...order];
+          const [dragged] = nextOrder.splice(dragSrcIndex, 1);
+          nextOrder.splice(targetIndex, 0, dragged);
+
+          store.updateState({ layerOrder: nextOrder });
+          renderLayersChecklist();
+          renderCurrentLayer();
+        }
+      });
+    });
+  };
+
+  // Wire up the Layer Style controls
+  const styleLayerSelect = document.getElementById("styleLayerSelect") as HTMLSelectElement;
+  const styleControls = document.getElementById("styleControls") as HTMLDivElement;
+
+  const renderStyleControls = () => {
+    if (!styleLayerSelect || !styleControls) return;
+    const selectedLayer = styleLayerSelect.value;
+    const state = store.getState() as any;
+    const styles = state.layerStyles || {};
+    const style = styles[selectedLayer] || { opacity: 1.0, color: "#ffffff", size: 1.0 };
+
+    // Determine custom controls based on selected layer type
+    const showColor = ["grid", "rivers", "routes", "burgs", "markers"].includes(selectedLayer);
+    const showSize = ["grid", "rivers", "routes", "burgs", "military", "markers", "labels"].includes(selectedLayer);
+
+    let html = `
+      <div style="display: flex; flex-direction: column; gap: 0.3rem;">
+        <div style="display: flex; justify-content: space-between;">
+          <span>Opacity:</span>
+          <span id="opacityVal" style="font-weight: bold; color: #10b981;">${Math.round(style.opacity * 100)}%</span>
+        </div>
+        <input type="range" id="layerOpacitySlider" min="0" max="1" step="0.05" value="${style.opacity}" style="width: 100%; cursor: pointer;" />
+      </div>
+    `;
+
+    if (showColor) {
+      html += `
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.3rem;">
+          <span>Outline Color:</span>
+          <input type="color" id="layerColorPicker" value="${style.color.startsWith("rgba") ? "#ffffff" : style.color}" style="background: transparent; border: none; cursor: pointer; width: 40px; height: 25px;" />
+        </div>
+      `;
+    }
+
+    if (showSize) {
+      const minSize = selectedLayer === "labels" ? 5 : 0.2;
+      const maxSize = selectedLayer === "labels" ? 36 : 10;
+      html += `
+        <div style="display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.3rem;">
+          <div style="display: flex; justify-content: space-between;">
+            <span>Line/Size scale:</span>
+            <span id="sizeVal" style="font-weight: bold; color: #10b981;">${style.size.toFixed(1)}</span>
+          </div>
+          <input type="range" id="layerSizeSlider" min="${minSize}" max="${maxSize}" step="0.1" value="${style.size}" style="width: 100%; cursor: pointer;" />
+        </div>
+      `;
+    }
+
+    styleControls.innerHTML = html;
+
+    // Add listeners to update styles in real-time
+    const opacitySlider = document.getElementById("layerOpacitySlider") as HTMLInputElement;
+    opacitySlider.addEventListener("input", () => {
+      const nextOpacity = parseFloat(opacitySlider.value);
+      const opacityVal = document.getElementById("opacityVal");
+      if (opacityVal) opacityVal.innerText = `${Math.round(nextOpacity * 100)}%`;
+
+      const nextStyles = { ...state.layerStyles };
+      nextStyles[selectedLayer] = { ...nextStyles[selectedLayer], opacity: nextOpacity };
+      store.updateState({ layerStyles: nextStyles });
+      renderCurrentLayer();
+    });
+
+    if (showColor) {
+      const colorPicker = document.getElementById("layerColorPicker") as HTMLInputElement;
+      colorPicker.addEventListener("input", () => {
+        const nextStyles = { ...state.layerStyles };
+        nextStyles[selectedLayer] = { ...nextStyles[selectedLayer], color: colorPicker.value };
+        store.updateState({ layerStyles: nextStyles });
+        renderCurrentLayer();
+      });
+    }
+
+    if (showSize) {
+      const sizeSlider = document.getElementById("layerSizeSlider") as HTMLInputElement;
+      sizeSlider.addEventListener("input", () => {
+        const nextSize = parseFloat(sizeSlider.value);
+        const sizeVal = document.getElementById("sizeVal");
+        if (sizeVal) sizeVal.innerText = nextSize.toFixed(1);
+
+        const nextStyles = { ...state.layerStyles };
+        nextStyles[selectedLayer] = { ...nextStyles[selectedLayer], size: nextSize };
+        store.updateState({ layerStyles: nextStyles });
+        renderCurrentLayer();
+      });
+    }
+  };
+
+  if (styleLayerSelect) {
+    styleLayerSelect.addEventListener("change", renderStyleControls);
+  }
+
   if (layersPresetSelect) {
     layersPresetSelect.addEventListener("change", () => {
-      const selectedLayer = layersPresetSelect.value as any;
-      currentLayer = selectedLayer;
-      
-      const chkStates = document.getElementById("chkStates") as HTMLInputElement;
-      const chkBiomes = document.getElementById("chkBiomes") as HTMLInputElement;
-      const chkHeightmap = document.getElementById("chkHeightmap") as HTMLInputElement;
-      const chkReligions = document.getElementById("chkReligions") as HTMLInputElement;
+      const selectedPreset = layersPresetSelect.value as any;
+      currentLayer = selectedPreset;
 
-      if (chkStates) chkStates.checked = selectedLayer === "states" || selectedLayer === "provinces" || selectedLayer === "cultures";
-      if (chkBiomes) chkBiomes.checked = selectedLayer === "biomes";
-      if (chkHeightmap) chkHeightmap.checked = selectedLayer === "heightmap" || selectedLayer === "temp" || selectedLayer === "prec";
-      if (chkReligions) chkReligions.checked = selectedLayer === "religions";
+      // Automatically update overlays depending on the preset chosen
+      if (selectedPreset === "states" || selectedPreset === "provinces" || selectedPreset === "cultures") {
+        store.updateState({
+          showBurgs: true,
+          showRoutes: true,
+          showRivers: false,
+          showGrid: false,
+          showMilitary: false
+        });
+      } else if (selectedPreset === "heightmap" || selectedPreset === "temp" || selectedPreset === "prec") {
+        store.updateState({
+          showRivers: true,
+          showBurgs: false,
+          showRoutes: false,
+          showGrid: false,
+          showMilitary: false
+        });
+      } else if (selectedPreset === "biomes") {
+        store.updateState({
+          showRivers: true,
+          showBurgs: false,
+          showRoutes: false,
+          showGrid: false,
+          showMilitary: false
+        });
+      } else if (selectedPreset === "goods") {
+        store.updateState({
+          showRoutes: true,
+          showBurgs: true,
+          showRivers: false,
+          showGrid: false,
+          showMilitary: false
+        });
+      }
 
+      renderLayersChecklist();
       renderCurrentLayer();
     });
   }
 
-  const checkboxes = ["chkStates", "chkBurgs", "chkRoutes", "chkReligions", "chkBiomes", "chkHeightmap"];
-  checkboxes.forEach(id => {
-    const chk = document.getElementById(id) as HTMLInputElement;
-    if (chk) {
-      chk.addEventListener("change", () => {
-        if (id === "chkHeightmap" && chk.checked) {
-          currentLayer = "heightmap";
-          if (layersPresetSelect) layersPresetSelect.value = "heightmap";
-        } else if (id === "chkBiomes" && chk.checked) {
-          currentLayer = "biomes";
-          if (layersPresetSelect) layersPresetSelect.value = "biomes";
-        } else if (id === "chkStates" && chk.checked) {
-          currentLayer = "states";
-          if (layersPresetSelect) layersPresetSelect.value = "states";
-        } else if (id === "chkReligions" && chk.checked) {
-          currentLayer = "religions";
-          if (layersPresetSelect) layersPresetSelect.value = "religions";
-        }
-        renderCurrentLayer();
-      });
-    }
-  });
+  // Wire up Options tab Save/Load button redirects
+  const optsSaveBtn = document.getElementById("optsSaveBtn");
+  const optsLoadBtn = document.getElementById("optsLoadBtn");
+  if (optsSaveBtn) {
+    optsSaveBtn.addEventListener("click", () => {
+      saveBtn?.click();
+    });
+  }
+  if (optsLoadBtn) {
+    optsLoadBtn.addEventListener("click", () => {
+      loadBtn?.click();
+    });
+  }
+
+  // Wire up stylePreset theme selector
+  const stylePresetSelect = document.getElementById("stylePreset") as HTMLSelectElement;
+  if (stylePresetSelect) {
+    stylePresetSelect.addEventListener("change", () => {
+      const val = stylePresetSelect.value;
+      const state = store.getState() as any;
+      const nextStyles = { ...state.layerStyles };
+
+      if (val === "monochrome") {
+        currentLayer = "heightmap";
+        if (layersPresetSelect) layersPresetSelect.value = "heightmap";
+        nextStyles.heightmap = { ...nextStyles.heightmap, opacity: 1.0 };
+        nextStyles.states = { ...nextStyles.states, opacity: 0.0 };
+        nextStyles.cultures = { ...nextStyles.cultures, opacity: 0.0 };
+      } else if (val === "clean") {
+        currentLayer = "states";
+        if (layersPresetSelect) layersPresetSelect.value = "states";
+        store.updateState({
+          showRoutes: false,
+          showGrid: false,
+          showMilitary: false
+        });
+        nextStyles.states = { ...nextStyles.states, opacity: 0.9 };
+      } else {
+        currentLayer = "states";
+        if (layersPresetSelect) layersPresetSelect.value = "states";
+        store.updateState({
+          showRoutes: true,
+          showGrid: false,
+          showBurgs: true,
+          showRivers: true,
+          showLabels: true
+        });
+        nextStyles.states = { ...nextStyles.states, opacity: 0.85 };
+        nextStyles.heightmap = { ...nextStyles.heightmap, opacity: 1.0 };
+      }
+
+      store.updateState({ layerStyles: nextStyles });
+      renderLayersChecklist();
+      renderStyleControls();
+      renderCurrentLayer();
+    });
+  }
+
+  // Trigger initial lists render
+  setTimeout(() => {
+    renderLayersChecklist();
+    renderStyleControls();
+  }, 100);
 
   if (toggle3DBtn && threeContainer) {
     toggle3DBtn.addEventListener("click", () => {

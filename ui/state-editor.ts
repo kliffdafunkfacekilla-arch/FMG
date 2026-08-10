@@ -44,6 +44,40 @@ export function mountStateEditor(containerId: string, onUpdate: () => void) {
           <label style="display: block; margin-bottom: 0.2rem; color: #94a3b8;">Border Color (Hex):</label>
           <input id="editStateColor" type="color" style="width: 100%; height: 35px; border: none; background: transparent; cursor: pointer;" />
         </div>
+        <div>
+          <label style="display: block; margin-bottom: 0.2rem; color: #94a3b8;">Expansionism (0.1–10.0):</label>
+          <input id="editStateExpansionism" type="range" min="0.1" max="10.0" step="0.1" value="1.0" style="width: 100%; cursor: pointer;" />
+        </div>
+        <div>
+          <label style="display: block; margin-bottom: 0.2rem; color: #94a3b8;">Xenophobia (0.0–1.0):</label>
+          <input id="editStateXenophobia" type="range" min="0.0" max="1.0" step="0.05" value="0.2" style="width: 100%; cursor: pointer;" />
+        </div>
+        <div>
+          <label style="display: block; margin-bottom: 0.2rem; color: #94a3b8;">Government Type:</label>
+          <select id="editStateGovernment" style="width: 100%; padding: 0.3rem; background: #0f0f12; border: 1px solid #444; color: white; border-radius: 4px;">
+            <option value="Monarchy">Monarchy</option>
+            <option value="Republic">Republic</option>
+            <option value="Empire">Empire</option>
+            <option value="Theocracy">Theocracy</option>
+          </select>
+        </div>
+        <div>
+          <label style="display: block; margin-bottom: 0.2rem; color: #94a3b8;">Heraldry Motif:</label>
+          <select id="editStateHeraldry" style="width: 100%; padding: 0.3rem; background: #0f0f12; border: 1px solid #444; color: white; border-radius: 4px;">
+            <option value="Lion">Lion Rampant</option>
+            <option value="Eagle">Imperial Eagle</option>
+            <option value="Shield">Cross Shield</option>
+            <option value="Stripes">Stripes Chevron</option>
+          </select>
+        </div>
+        <div>
+          <label style="display: block; margin-bottom: 0.2rem; color: #94a3b8;">Habitat Type:</label>
+          <select id="editStateHabitat" style="width: 100%; padding: 0.3rem; background: #0f0f12; border: 1px solid #444; color: white; border-radius: 4px;">
+            <option value="land">Land</option>
+            <option value="ocean">Ocean</option>
+            <option value="amphibious">Amphibious</option>
+          </select>
+        </div>
         <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
           <button id="saveStateBtn" style="flex: 1; background: #10b981; border: none; padding: 0.4rem; color: white; font-weight: bold; border-radius: 4px; cursor: pointer;">Save</button>
           <button id="backToStateListBtn" style="flex: 1; background: #4b5563; border: none; padding: 0.4rem; color: white; font-weight: bold; border-radius: 4px; cursor: pointer;">Back</button>
@@ -124,6 +158,19 @@ export function mountStateEditor(containerId: string, onUpdate: () => void) {
       activeState.color = colorInput.value;
       activeState.capital = parseInt(capitalSelect.value, 10) || 0;
 
+      const habitatSelect = document.getElementById("editStateHabitat") as HTMLSelectElement;
+      activeState.habitat = (habitatSelect?.value || "land") as any;
+
+      const expInput = document.getElementById("editStateExpansionism") as HTMLInputElement;
+      const xenoInput = document.getElementById("editStateXenophobia") as HTMLInputElement;
+      const govSelect = document.getElementById("editStateGovernment") as HTMLSelectElement;
+      const herSelect = document.getElementById("editStateHeraldry") as HTMLSelectElement;
+
+      activeState.expansionism = parseFloat(expInput?.value || "1.0");
+      activeState.xenophobia = parseFloat(xenoInput?.value || "0.2");
+      activeState.governmentType = govSelect?.value || "Monarchy";
+      activeState.heraldry = herSelect?.value || "Lion";
+
       // Update capital center based on selected capital burg
       const stateData = store.getState() as any;
       const burgs = stateData.burgs || [];
@@ -149,12 +196,26 @@ export function mountStateEditor(containerId: string, onUpdate: () => void) {
     nameInput.value = state.name;
     colorInput.value = state.color;
 
+    const habitatSelect = document.getElementById("editStateHabitat") as HTMLSelectElement;
+    if (habitatSelect) {
+      habitatSelect.value = state.habitat || "land";
+    }
+
+    const expInput = document.getElementById("editStateExpansionism") as HTMLInputElement;
+    const xenoInput = document.getElementById("editStateXenophobia") as HTMLInputElement;
+    const govSelect = document.getElementById("editStateGovernment") as HTMLSelectElement;
+    const herSelect = document.getElementById("editStateHeraldry") as HTMLSelectElement;
+
+    if (expInput) expInput.value = String(state.expansionism ?? 1.0);
+    if (xenoInput) xenoInput.value = String(state.xenophobia ?? 0.2);
+    if (govSelect) govSelect.value = state.governmentType || "Monarchy";
+    if (herSelect) herSelect.value = state.heraldry || "Lion";
+
     // Populate capitals select dropdown
     capitalSelect.innerHTML = "";
     const stateData = store.getState() as any;
     const burgs = stateData.burgs || [];
 
-    // Filter burgs belonging to this state or show all
     burgs.forEach((b: Burg) => {
       const opt = document.createElement("option");
       opt.value = String(b.id);

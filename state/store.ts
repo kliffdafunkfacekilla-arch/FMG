@@ -67,6 +67,34 @@ export interface AppState {
   oceanCurrents: Float32Array | null;  // packed x,y wind-driven current vectors
   oceanNutrients: Float32Array | null; // nutrient level mapping
   upwellingFlux: Float32Array | null;  // reverse-flux ocean current upwelling
+
+  // Navigation / View Transform
+  zoom: number;
+  offsetX: number;
+  offsetY: number;
+
+  // Layer Overlay Visibility flags
+  showGrid: boolean;
+  showRivers: boolean;
+  showRoutes: boolean;
+  showBurgs: boolean;
+  showMilitary: boolean;
+  showMarkers: boolean;
+  showLabels: boolean;
+  showZones: boolean;
+
+  // Civilization & Political Data
+  states: any[] | null;
+  burgs: any[] | null;
+  cultures: any[] | null;
+  religions: any[] | null;
+  relations: any[] | null;
+  provinces: any[] | null;
+  military: any[] | null;
+
+  // Z-index Order & Styling
+  layerOrder: string[];
+  layerStyles: Record<string, { opacity: number; color: string; size: number }>;
 }
 
 export interface MagicVectorWeights {
@@ -126,6 +154,48 @@ class StateStore {
       oceanCurrents: null,
       oceanNutrients: null,
       upwellingFlux: null,
+
+      zoom: 1.0,
+      offsetX: 0,
+      offsetY: 0,
+
+      showGrid: false,
+      showRivers: true,
+      showRoutes: true,
+      showBurgs: true,
+      showMilitary: true,
+      showMarkers: true,
+      showLabels: true,
+      showZones: true,
+
+      states: [],
+      burgs: [],
+      cultures: [],
+      religions: [],
+      relations: [],
+      provinces: [],
+      military: [],
+
+      layerOrder: ["primary", "grid", "rivers", "zones", "routes", "markers", "burgs", "military", "labels"],
+      layerStyles: {
+        heightmap: { opacity: 1.0, color: "rgba(0, 0, 0, 0.15)", size: 1.0 },
+        biomes: { opacity: 1.0, color: "rgba(0, 0, 0, 0.15)", size: 1.0 },
+        cultures: { opacity: 0.8, color: "rgba(0, 0, 0, 0.15)", size: 1.0 },
+        states: { opacity: 0.85, color: "rgba(0, 0, 0, 0.25)", size: 1.0 },
+        provinces: { opacity: 0.75, color: "rgba(255, 255, 255, 0.25)", size: 1.0 },
+        religions: { opacity: 0.8, color: "rgba(0, 0, 0, 0.15)", size: 1.0 },
+        goods: { opacity: 0.85, color: "rgba(0, 0, 0, 0.15)", size: 1.0 },
+        temp: { opacity: 1.0, color: "rgba(0, 0, 0, 0.15)", size: 1.0 },
+        prec: { opacity: 1.0, color: "rgba(0, 0, 0, 0.15)", size: 1.0 },
+        grid: { opacity: 0.5, color: "rgba(0, 0, 0, 0.15)", size: 0.5 },
+        rivers: { opacity: 0.9, color: "#466eab", size: 1.0 },
+        routes: { opacity: 0.85, color: "rgba(141, 110, 99, 0.85)", size: 1.8 },
+        burgs: { opacity: 1.0, color: "#ffffff", size: 4.0 },
+        military: { opacity: 1.0, color: "#ffffff", size: 1.5 },
+        markers: { opacity: 1.0, color: "#fbbf24", size: 1.0 },
+        labels: { opacity: 1.0, color: "#ffffff", size: 11.0 },
+        zones: { opacity: 0.4, color: "rgba(0, 0, 0, 0.1)", size: 1.0 }
+      },
 
       magicTypes: [
         {

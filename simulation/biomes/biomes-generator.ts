@@ -66,11 +66,24 @@ export function getBiomeId(
   moisture: number,
   temperature: number,
   height: number,
-  hasRiver: boolean
+  hasRiver: boolean,
+  localNutrients?: number
 ): number {
   if (height < 20) {
-    if (height >= 15) return 13; // Shallow Reef
-    if (height >= 10 && temperature > 10) return 14; // Kelp Forest
+    if (temperature < 0) return 11; // Frozen Ocean (Ice Cap/Glacier)
+    
+    const nuts = localNutrients || 10.0;
+
+    if (height >= 15) {
+      // High temp and high nutrients -> Coral Reef; cool + nutrients -> Kelp Forest; otherwise generic Marine shelf
+      if (temperature >= 18 && nuts >= 12.0) return 13; // Shallow Reef
+      if (nuts >= 8.0) return 14; // Kelp Forest
+      return 0; // Marine
+    }
+    if (height >= 10) {
+      if (nuts >= 8.0) return 14; // Kelp Forest
+      return 15; // Pelagic Zone
+    }
     if (height >= 5) return 15; // Pelagic Zone
     if (height >= 2) return 16; // Abyssal Plain
     return 17; // Oceanic Trench
@@ -91,7 +104,8 @@ export function generateBiomes(
   heights: Uint8Array,
   temp: Float32Array,
   prec: Uint8Array,
-  rivers: Uint16Array
+  rivers: Uint16Array,
+  oceanNutrients?: Float32Array
 ): Uint8Array {
   const pointsN = heights.length;
   const biomes = new Uint8Array(pointsN);
@@ -115,8 +129,9 @@ export function generateBiomes(
     const hasRiver = rivers ? rivers[cellId] > 0 : false;
     const moisture = height < 20 ? 0 : calculateMoisture(cellId);
     const temperature = temp[cellId] || 0;
+    const localNutrients = oceanNutrients ? oceanNutrients[cellId] : undefined;
 
-    biomes[cellId] = getBiomeId(moisture, temperature, height, hasRiver);
+    biomes[cellId] = getBiomeId(moisture, temperature, height, hasRiver, localNutrients);
   }
 
   return biomes;

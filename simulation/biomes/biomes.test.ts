@@ -5,8 +5,8 @@ import { generateJitteredGrid } from "../grid/grid-generator";
 describe("Biomes Generator", () => {
   it("should classify biomes based on Whittaker temperature and moisture rules", () => {
     // Water biomes
-    expect(getBiomeId(0, 20, 18, false)).toBe(13); // Shallow Reef
-    expect(getBiomeId(0, 15, 12, false)).toBe(14); // Kelp Forest
+    expect(getBiomeId(0, 20, 18, false, 15.0)).toBe(13); // Shallow Reef
+    expect(getBiomeId(0, 15, 12, false, 10.0)).toBe(14); // Kelp Forest
     expect(getBiomeId(0, 5, 4, false)).toBe(16); // Abyssal Plain
 
     // Land biomes

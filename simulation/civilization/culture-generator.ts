@@ -10,6 +10,7 @@ export interface Culture {
   color: string;
   center: number; // cell ID of capital/origin
   base: number; // nameBase index
+  habitat: "land" | "ocean" | "amphibious";
 }
 
 const CULTURE_COLORS = [
@@ -75,7 +76,8 @@ export function generateCultures(
   count = 6,
   seed: string,
   flux?: Float32Array,
-  rivers?: Uint16Array
+  rivers?: Uint16Array,
+  existingCultures?: Culture[]
 ): { cultures: Culture[]; cellCultures: Uint8Array } {
   const pointsN = heights.length;
   const cellCultures = new Uint8Array(pointsN).fill(0); // 0 = Wild / No Culture
@@ -105,11 +107,13 @@ export function generateCultures(
   const centers = candidates.slice(0, actualCount);
 
   // Initialize seeds
-  type QItem = { cellId: number; cost: number; cultureId: number; type: string; nativeBiome: number; expansionism: number };
+  type QItem = { cellId: number; cost: number; cultureId: number; type: string; nativeBiome: number; expansionism: number; habitat: "land" | "ocean" | "amphibious" };
   const queue = new FlatQueue<QItem>();
   for (let i = 0; i < actualCount; i++) {
     const cultureId = i + 1;
     const center = centers[i];
+    const existing = existingCultures?.find(c => c.id === cultureId);
+
     const name = CULTURE_NAMES[i % CULTURE_NAMES.length];
     
     let base = i % 10; // Default to standard sequential bases
@@ -131,21 +135,24 @@ export function generateCultures(
       base = 33; // Elven/Quenian
     }
 
-    let cultureName = Names.getBase(base);
-    if (!cultureName.endsWith("ic") && !cultureName.endsWith("ian") && !cultureName.endsWith("an")) {
+    let cultureName = existing ? existing.name : Names.getBase(base);
+    if (!existing && !cultureName.endsWith("ic") && !cultureName.endsWith("ian") && !cultureName.endsWith("an")) {
       cultureName += "ian";
     }
+
+    const habitat = existing ? existing.habitat : "land";
 
     cultures.push({
       id: cultureId,
       name: cultureName,
-      color: CULTURE_COLORS[i % CULTURE_COLORS.length],
+      color: existing?.color || CULTURE_COLORS[i % CULTURE_COLORS.length],
       center,
-      base
+      base,
+      habitat
     });
     cellCultures[center] = cultureId;
 
-    queue.push({ cellId: center, cost: 0, cultureId, type, nativeBiome: biomes[center], expansionism: 1.0 }, 0);
+    queue.push({ cellId: center, cost: 0, cultureId, type, nativeBiome: biomes[center], expansionism: 1.0, habitat }, 0);
   }
 
   // 2. Dijkstra expansion
@@ -169,11 +176,18 @@ export function generateCultures(
       
       const biomeCost = getBiomeCost(curr.nativeBiome, targetBiome, curr.type);
       const biomeChangeCost = sourceBiome === targetBiome ? 0 : 20;
-      const heightCost = getHeightCost(heights[n], grid.cells.area ? grid.cells.area[n] : 1, curr.type, targetBiome);
+      let heightCost = getHeightCost(heights[n], grid.cells.area ? grid.cells.area[n] : 1, curr.type, targetBiome);
+      if (curr.habitat === "amphibious") {
+        heightCost = 0;
+      }
       const riverCost = getRiverCost(safeRivers[n], safeFlux[n], curr.type);
       const typeCost = getTypeCost(safeTypes[n], curr.type);
       
-      const cellCost = (biomeCost + biomeChangeCost + heightCost + riverCost + typeCost) / curr.expansionism;
+      let habitatCost = 0;
+      if (curr.habitat === "land" && heights[n] < 20) habitatCost += 3000;
+      if (curr.habitat === "ocean" && heights[n] >= 20) habitatCost += 3000;
+      
+      const cellCost = (biomeCost + biomeChangeCost + heightCost + riverCost + typeCost + habitatCost) / curr.expansionism;
       const totalCost = curr.cost + cellCost;
       
       if (totalCost > maxExpansionCost) continue;
@@ -189,7 +203,8 @@ export function generateCultures(
           cultureId: curr.cultureId, 
           type: curr.type, 
           nativeBiome: curr.nativeBiome, 
-          expansionism: curr.expansionism 
+          expansionism: curr.expansionism,
+          habitat: curr.habitat
         }, totalCost);
       }
     }

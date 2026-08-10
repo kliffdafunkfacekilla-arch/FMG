@@ -21,7 +21,7 @@ export function mountStyleAndBiomeEditor(containerId: string, onUpdate: () => vo
       <!-- Quick Biomes Info -->
       <div>
         <label style="display: block; margin-bottom: 0.2rem; color: #94a3b8;">Biomes Breakdown:</label>
-        <div style="max-height: 80px; overflow-y: auto; background: #0f0f12; border: 1px solid #444; border-radius: 4px; padding: 0.3rem;">
+        <div style="max-height: 200px; overflow-y: auto; background: #0f0f12; border: 1px solid #444; border-radius: 4px; padding: 0.3rem;">
           <ul id="biomesList" style="margin: 0; padding-left: 1.2rem; line-height: 1.3; color: #cbd5e1;">
             <li>No map generated yet</li>
           </ul>
@@ -56,12 +56,18 @@ export function mountStyleAndBiomeEditor(containerId: string, onUpdate: () => vo
       counts[b] = (counts[b] || 0) + 1;
     }
 
-    const biomeNames = ["Marine", "Hot desert", "Cold desert", "Savanna", "Grassland", "Tropical seasonal forest", "Temperate deciduous forest", "Tropical rainforest", "Temperate rainforest", "Taiga", "Tundra", "Glacier", "Wetland"];
+    const biomeNames = [
+      "Marine", "Hot desert", "Cold desert", "Savanna", "Grassland",
+      "Tropical seasonal forest", "Temperate deciduous forest", "Tropical rainforest",
+      "Temperate rainforest", "Taiga", "Tundra", "Glacier", "Wetland",
+      "Shallow Reef", "Kelp Forest", "Pelagic Zone", "Abyssal Plain",
+      "Oceanic Trench", "Chaos Land", "Chaos Water"
+    ];
     
     listEl.innerHTML = Object.entries(counts)
       .map(([bId, count]) => {
         const name = biomeNames[parseInt(bId, 10)] || "Unknown";
-        return `<li>${name}: <strong>${count}</strong> cells</li>`;
+        return `<li style="margin-bottom: 0.2rem;">${name}: <strong>${count}</strong> cells</li>`;
       })
       .join("");
   };

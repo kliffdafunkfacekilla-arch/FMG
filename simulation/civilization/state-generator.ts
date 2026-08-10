@@ -11,9 +11,13 @@ export interface State {
   capital: number; // Burg ID
   center: number; // Cell ID of capital
   expansionism: number;
+  xenophobia?: number;
+  governmentType?: string;
+  heraldry?: string;
   population: number;
   treasury: number;
   militaryPower: number;
+  habitat: "land" | "ocean" | "amphibious";
 }
 
 const STATE_COLORS = [
@@ -101,7 +105,7 @@ export function generateStates(
   const sortedBurgs = [...burgs].sort((a, b) => b.population - a.population);
   const actualCount = Math.min(count, sortedBurgs.length);
 
-  type QItem = { cellId: number; cost: number; stateId: number; nativeBiome: number; stateType: string; culture: number; expansionism: number };
+  type QItem = { cellId: number; cost: number; stateId: number; nativeBiome: number; stateType: string; culture: number; expansionism: number; habitat: "land" | "ocean" | "amphibious" };
   const queue = new FlatQueue<QItem>();
   const minCost = new Float32Array(pointsN).fill(Infinity);
 
@@ -126,6 +130,7 @@ export function generateStates(
 
     const stateName = existing ? existing.name : `${STATE_NAMES[i % STATE_NAMES.length]} ${name}`;
     const stateType = i === 0 ? "Naval" : i === 1 ? "Nomadic" : "Generic";
+    const habitat = existing ? existing.habitat : "land";
 
     states.push({
       id: stateId,
@@ -136,14 +141,15 @@ export function generateStates(
       expansionism: existing ? existing.expansionism : 1.0,
       population: existing ? existing.population : Math.round(capitalBurg.population),
       treasury: existing ? existing.treasury : 1000,
-      militaryPower: existing ? existing.militaryPower : 100
+      militaryPower: existing ? existing.militaryPower : 100,
+      habitat
     });
 
     cellStates[capitalBurg.cell] = stateId;
     minCost[capitalBurg.cell] = 0;
     
     const nativeBiome = actualBiomes[capitalBurg.cell];
-    queue.push({ cellId: capitalBurg.cell, cost: 0, stateId, nativeBiome, stateType, culture: cultureId, expansionism: states[i].expansionism }, 0);
+    queue.push({ cellId: capitalBurg.cell, cost: 0, stateId, nativeBiome, stateType, culture: cultureId, expansionism: states[i].expansionism, habitat }, 0);
   }
 
   const growthRate = pointsN / 2; // limit cost for state growth
@@ -169,11 +175,18 @@ export function generateStates(
               : 50;
               
       const biomeCost = getBiomeCost(curr.nativeBiome, targetBiome, curr.stateType);
-      const heightCost = getHeightCost(hTo, safeAreas[n], curr.stateType, targetBiome);
+      let heightCost = getHeightCost(hTo, safeAreas[n], curr.stateType, targetBiome);
+      if (curr.habitat === "amphibious") {
+        heightCost = 0;
+      }
       const riverCost = getRiverCost(safeRivers[n], safeFlux[n], curr.stateType);
       const typeCost = getTypeCost(typeTo, curr.stateType);
       
-      const cellCost = Math.max(cultureCost + populationCost + biomeCost + heightCost + riverCost + typeCost, 0);
+      let habitatCost = 0;
+      if (curr.habitat === "land" && hTo < 20) habitatCost += 3000;
+      if (curr.habitat === "ocean" && hTo >= 20) habitatCost += 3000;
+      
+      const cellCost = Math.max(cultureCost + populationCost + biomeCost + heightCost + riverCost + typeCost + habitatCost, 0);
       const expansionFactor = curr.expansionism > 0 ? curr.expansionism : 0.0001;
       const totalCost = curr.cost + 10 + cellCost / expansionFactor;
 
@@ -181,7 +194,7 @@ export function generateStates(
 
       if (totalCost < minCost[n]) {
         minCost[n] = totalCost;
-        if (hTo >= 20 || curr.stateType === "Aquatic" || isHabitableWater) {
+        if (hTo >= 20 || curr.stateType === "Aquatic" || isHabitableWater || curr.habitat === "ocean" || curr.habitat === "amphibious") {
              cellStates[n] = curr.stateId;
         }
         
@@ -192,7 +205,8 @@ export function generateStates(
           nativeBiome: curr.nativeBiome,
           stateType: curr.stateType,
           culture: curr.culture,
-          expansionism: curr.expansionism
+          expansionism: curr.expansionism,
+          habitat: curr.habitat
         }, totalCost);
       }
     }

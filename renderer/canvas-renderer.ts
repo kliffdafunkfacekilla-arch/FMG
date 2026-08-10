@@ -81,67 +81,105 @@ export function renderMap(
   const pointsN = grid.points.length;
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  ctx.save();
+  ctx.translate(state.offsetX || 0, state.offsetY || 0);
+  ctx.scale(state.zoom || 1.0, state.zoom || 1.0);
 
-  // 1. Draw cells
-  for (let i = 0; i < pointsN; i++) {
-    const vertices = grid.cells.v[i];
-    if (!vertices || vertices.length === 0) continue;
+  // 1. Draw helper definitions
+  const drawPrimary = () => {
+    ctx.save();
+    const style = state.layerStyles?.[layerType] || { opacity: 1.0 };
+    ctx.globalAlpha = style.opacity;
 
-    ctx.beginPath();
-    const firstV = grid.vertices.p[vertices[0]];
-    if (!firstV) continue;
-    ctx.moveTo(firstV[0], firstV[1]);
+    for (let i = 0; i < pointsN; i++) {
+      const vertices = grid.cells.v[i];
+      if (!vertices || vertices.length === 0) continue;
 
-    for (let j = 1; j < vertices.length; j++) {
-      const v = grid.vertices.p[vertices[j]];
-      if (v) ctx.lineTo(v[0], v[1]);
+      ctx.beginPath();
+      const firstV = grid.vertices.p[vertices[0]];
+      if (!firstV) continue;
+      ctx.moveTo(firstV[0], firstV[1]);
+
+      for (let j = 1; j < vertices.length; j++) {
+        const v = grid.vertices.p[vertices[j]];
+        if (v) ctx.lineTo(v[0], v[1]);
+      }
+      ctx.closePath();
+
+      let color = "#333";
+      if (layerType === "heightmap" && heights) {
+        color = getHeightColor(heights[i]);
+      } else if (layerType === "biomes" && biomes) {
+        color = BIOME_COLORS[biomes[i]] || "#333";
+      } else if (layerType === "temp" && temp) {
+        color = getTempColor(temp[i]);
+      } else if (layerType === "prec" && prec) {
+        color = getPrecColor(prec[i]);
+      } else if (layerType === "cultures" && cellCultures && heights) {
+        const cultId = cellCultures[i];
+        color = heights[i] < 20 ? getHeightColor(heights[i]) :
+          (cultId > 0 ? CULTURE_COLORS[(cultId - 1) % CULTURE_COLORS.length] : "#555");
+      } else if (layerType === "states" && cellStates && heights) {
+        const stateId = cellStates[i];
+        color = heights[i] < 20 ? getHeightColor(heights[i]) :
+          (stateId > 0 ? STATE_COLORS[(stateId - 1) % STATE_COLORS.length] : "#555");
+      } else if (layerType === "provinces" && cellProvinces && heights) {
+        const provId = cellProvinces[i];
+        color = heights[i] < 20 ? getHeightColor(heights[i]) :
+          (provId > 0 ? PROVINCE_COLORS[(provId - 1) % PROVINCE_COLORS.length] : "#555");
+      } else if (layerType === "religions" && cellReligions && heights) {
+        const relId = cellReligions[i];
+        color = heights[i] < 20 ? getHeightColor(heights[i]) :
+          (relId > 0 ? RELIGION_COLORS[(relId - 1) % RELIGION_COLORS.length] : "#555");
+      } else if (layerType === "goods" && cellGoods && heights) {
+        const goodId = cellGoods[i];
+        color = heights[i] < 20 ? getHeightColor(heights[i]) :
+          (goodId > 0 ? GOODS[goodId].color : "#555");
+      }
+
+      ctx.fillStyle = color;
+      ctx.fill();
     }
-    ctx.closePath();
+    ctx.restore();
+  };
 
-    let color = "#333";
-    if (layerType === "heightmap" && heights) {
-      color = getHeightColor(heights[i]);
-    } else if (layerType === "biomes" && biomes) {
-      color = BIOME_COLORS[biomes[i]] || "#333";
-    } else if (layerType === "temp" && temp) {
-      color = getTempColor(temp[i]);
-    } else if (layerType === "prec" && prec) {
-      color = getPrecColor(prec[i]);
-    } else if (layerType === "cultures" && cellCultures && heights) {
-      const cultId = cellCultures[i];
-      color = heights[i] < 20 ? getHeightColor(heights[i]) :
-        (cultId > 0 ? CULTURE_COLORS[(cultId - 1) % CULTURE_COLORS.length] : "#555");
-    } else if (layerType === "states" && cellStates && heights) {
-      const stateId = cellStates[i];
-      color = heights[i] < 20 ? getHeightColor(heights[i]) :
-        (stateId > 0 ? STATE_COLORS[(stateId - 1) % STATE_COLORS.length] : "#555");
-    } else if (layerType === "provinces" && cellProvinces && heights) {
-      const provId = cellProvinces[i];
-      color = heights[i] < 20 ? getHeightColor(heights[i]) :
-        (provId > 0 ? PROVINCE_COLORS[(provId - 1) % PROVINCE_COLORS.length] : "#555");
-    } else if (layerType === "religions" && cellReligions && heights) {
-      const relId = cellReligions[i];
-      color = heights[i] < 20 ? getHeightColor(heights[i]) :
-        (relId > 0 ? RELIGION_COLORS[(relId - 1) % RELIGION_COLORS.length] : "#555");
-    } else if (layerType === "goods" && cellGoods && heights) {
-      const goodId = cellGoods[i];
-      color = heights[i] < 20 ? getHeightColor(heights[i]) :
-        (goodId > 0 ? GOODS[goodId].color : "#555");
+  const drawGrid = () => {
+    if (!state.showGrid) return;
+    ctx.save();
+    const style = state.layerStyles?.grid || { opacity: 0.5, color: "rgba(0,0,0,0.15)", size: 0.5 };
+    ctx.globalAlpha = style.opacity;
+    ctx.strokeStyle = style.color;
+    ctx.lineWidth = style.size;
+
+    for (let i = 0; i < pointsN; i++) {
+      const vertices = grid.cells.v[i];
+      if (!vertices || vertices.length === 0) continue;
+      ctx.beginPath();
+      const firstV = grid.vertices.p[vertices[0]];
+      if (!firstV) continue;
+      ctx.moveTo(firstV[0], firstV[1]);
+      for (let j = 1; j < vertices.length; j++) {
+        const v = grid.vertices.p[vertices[j]];
+        if (v) ctx.lineTo(v[0], v[1]);
+      }
+      ctx.closePath();
+      ctx.stroke();
     }
+    ctx.restore();
+  };
 
-    ctx.fillStyle = color;
-    ctx.fill();
+  const drawRivers = () => {
+    if (!state.showRivers || !rivers || !flowDirections) return;
+    if (layerType === "cultures" || layerType === "states" || layerType === "provinces" || layerType === "religions" || layerType === "goods") return;
 
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.05)";
-    ctx.lineWidth = 0.5;
-    ctx.stroke();
-  }
-
-  // 2. Draw rivers
-  if (rivers && flowDirections && layerType !== "cultures" && layerType !== "states" && layerType !== "provinces" && layerType !== "religions" && layerType !== "goods") {
-    ctx.strokeStyle = "#466eab";
+    ctx.save();
+    const style = state.layerStyles?.rivers || { opacity: 0.9, color: "#466eab", size: 1.0 };
+    ctx.globalAlpha = style.opacity;
+    ctx.strokeStyle = style.color;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
+
     const headwaters = new Uint8Array(pointsN).fill(1);
     for (let i = 0; i < pointsN; i++) {
       const next = flowDirections[i];
@@ -166,7 +204,7 @@ export function renderMap(
         if (chain.length >= 2) {
           const meandered = meander(chain, { meandering: 0.5 });
           const fluxVal = state.flux ? state.flux[i] || 10 : 10;
-          ctx.lineWidth = minmax(Math.sqrt(fluxVal) * 0.15, 0.5, 6.0);
+          ctx.lineWidth = minmax(Math.sqrt(fluxVal) * 0.15 * style.size, 0.5, 6.0 * style.size);
           ctx.beginPath();
           ctx.moveTo(meandered[0][0], meandered[0][1]);
           for (let j = 1; j < meandered.length; j++) {
@@ -176,10 +214,17 @@ export function renderMap(
         }
       }
     }
-  }
+    ctx.restore();
+  };
 
-  // 3. Draw zones
-  if (zones && layerType !== "goods") {
+  const drawZones = () => {
+    if (!state.showZones || !zones) return;
+    if (layerType === "goods") return;
+
+    ctx.save();
+    const style = state.layerStyles?.zones || { opacity: 0.4 };
+    ctx.globalAlpha = style.opacity;
+
     for (const z of zones) {
       ctx.fillStyle = z.color;
       for (const cellId of z.cells) {
@@ -197,18 +242,23 @@ export function renderMap(
         ctx.fill();
       }
     }
-  }
+    ctx.restore();
+  };
 
-  // 4. Draw routes
-  if (routes) {
+  const drawRoutes = () => {
+    if (!state.showRoutes || !routes) return;
+    ctx.save();
+    const style = state.layerStyles?.routes || { opacity: 0.85, color: "rgba(141, 110, 99, 0.85)", size: 1.8 };
+    ctx.globalAlpha = style.opacity;
+
     for (const r of routes) {
       if (r.type === "road") {
-        ctx.strokeStyle = "rgba(141, 110, 99, 0.85)";
-        ctx.lineWidth = 1.8;
+        ctx.strokeStyle = style.color || "rgba(141, 110, 99, 0.85)";
+        ctx.lineWidth = style.size;
         ctx.setLineDash([]);
       } else {
         ctx.strokeStyle = "rgba(33, 150, 243, 0.6)";
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = style.size * 0.8;
         ctx.setLineDash([5, 5]);
       }
       ctx.beginPath();
@@ -220,14 +270,18 @@ export function renderMap(
       }
       ctx.stroke();
     }
-    ctx.setLineDash([]);
-  }
+    ctx.restore();
+  };
 
-  // 5. Draw burgs
-  if (burgs) {
+  const drawBurgs = () => {
+    if (!state.showBurgs || !burgs) return;
+    ctx.save();
+    const style = state.layerStyles?.burgs || { opacity: 1.0, color: "#ffffff", size: 4.0 };
+    ctx.globalAlpha = style.opacity;
+
     for (const b of burgs) {
-      const radius = b.isCapital ? 6.0 : 4.0;
-      ctx.fillStyle = b.isCapital ? "#ef4444" : "#ffffff";
+      const radius = b.isCapital ? style.size * 1.5 : style.size;
+      ctx.fillStyle = b.isCapital ? "#ef4444" : style.color;
       ctx.strokeStyle = "#1e1e24";
       ctx.lineWidth = 2.0;
 
@@ -239,14 +293,18 @@ export function renderMap(
       ctx.fillStyle = "#ffffff";
       ctx.font = `bold ${b.isCapital ? 12 : 10}px 'Outfit', 'Inter', sans-serif`;
       ctx.shadowColor = "rgba(0,0,0,0.8)";
-      ctx.shadowBlur = 4;
-      ctx.fillText(b.name, b.x + radius + 3, b.y + 4);
       ctx.shadowBlur = 0;
+      ctx.fillText(b.name, b.x + radius + 3, b.y + 4);
     }
-  }
+    ctx.restore();
+  };
 
-  // 6. Draw military units
-  if (military) {
+  const drawMilitary = () => {
+    if (!state.showMilitary || !military) return;
+    ctx.save();
+    const style = state.layerStyles?.military || { opacity: 1.0, size: 1.5 };
+    ctx.globalAlpha = style.opacity;
+
     for (const m of military) {
       const pt = grid.points[m.cell];
       if (!pt) continue;
@@ -254,7 +312,7 @@ export function renderMap(
       const shieldColor = STATE_COLORS[(m.stateId - 1) % STATE_COLORS.length] || "#888";
       ctx.fillStyle = shieldColor;
       ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = style.size;
       ctx.fillRect(mx - 8, my - 24, 16, 16);
       ctx.strokeRect(mx - 8, my - 24, 16, 16);
       ctx.strokeStyle = "#ffffff";
@@ -268,46 +326,74 @@ export function renderMap(
       ctx.font = "bold 9px 'Outfit', 'Inter', sans-serif";
       ctx.fillText(letter, mx - 3, my - 12);
     }
-  }
+    ctx.restore();
+  };
 
-  // 7. Draw markers
-  if (markers) {
+  const drawMarkers = () => {
+    if (!state.showMarkers || !markers) return;
+    ctx.save();
+    const style = state.layerStyles?.markers || { opacity: 1.0, color: "#fbbf24", size: 1.0 };
+    ctx.globalAlpha = style.opacity;
+
     for (const mk of markers) {
       ctx.strokeStyle = "#000000";
       ctx.lineWidth = 1.0;
       if (mk.type === "volcano") {
         ctx.fillStyle = "#f87171";
         ctx.beginPath();
-        ctx.moveTo(mk.x, mk.y - 7);
-        ctx.lineTo(mk.x + 6, mk.y + 5);
-        ctx.lineTo(mk.x - 6, mk.y + 5);
+        ctx.moveTo(mk.x, mk.y - 7 * style.size);
+        ctx.lineTo(mk.x + 6 * style.size, mk.y + 5 * style.size);
+        ctx.lineTo(mk.x - 6 * style.size, mk.y + 5 * style.size);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
       } else {
-        ctx.fillStyle = "#fbbf24";
-        ctx.fillRect(mk.x - 5, mk.y - 5, 10, 10);
-        ctx.strokeRect(mk.x - 5, mk.y - 5, 10, 10);
+        ctx.fillStyle = style.color;
+        const w = 10 * style.size;
+        ctx.fillRect(mk.x - w/2, mk.y - w/2, w, w);
+        ctx.strokeRect(mk.x - w/2, mk.y - w/2, w, w);
       }
     }
-  }
+    ctx.restore();
+  };
 
-  // 8. Draw custom placed text labels
-  if (labels) {
+  const drawLabels = () => {
+    if (!state.showLabels || !labels) return;
+    ctx.save();
+    const style = state.layerStyles?.labels || { opacity: 1.0, size: 11.0 };
+    ctx.globalAlpha = style.opacity;
+
     for (const l of labels) {
       ctx.save();
       ctx.translate(l.x, l.y);
       ctx.rotate((l.rotation * Math.PI) / 180);
       
       ctx.fillStyle = "#ffffff";
-      ctx.font = `bold ${l.size}px 'Outfit', 'Inter', sans-serif`;
+      ctx.font = `bold ${l.size * (style.size / 11.0)}px 'Outfit', 'Inter', sans-serif`;
       ctx.textAlign = "center";
       
       ctx.shadowColor = "rgba(0,0,0,0.8)";
-      ctx.shadowBlur = 4;
+      ctx.shadowBlur = 0;
       ctx.fillText(l.text, 0, 0);
       
       ctx.restore();
     }
+    ctx.restore();
+  };
+
+  // 2. Loop through layerOrder to draw in correct sequence
+  const order = state.layerOrder || ["primary", "grid", "rivers", "zones", "routes", "markers", "burgs", "military", "labels"];
+  for (const layerId of order) {
+    if (layerId === "primary") drawPrimary();
+    else if (layerId === "grid") drawGrid();
+    else if (layerId === "rivers") drawRivers();
+    else if (layerId === "zones") drawZones();
+    else if (layerId === "routes") drawRoutes();
+    else if (layerId === "burgs") drawBurgs();
+    else if (layerId === "military") drawMilitary();
+    else if (layerId === "markers") drawMarkers();
+    else if (layerId === "labels") drawLabels();
   }
+
+  ctx.restore();
 }

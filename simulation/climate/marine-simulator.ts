@@ -121,39 +121,85 @@ export function calculateUpwellingFlux(
   return upwellingFlux;
 }
 
-// Compute coastal nutrient runoff and run cellular automata diffusion
+// Compute coastal nutrient runoff and run wind-driven nutrient transport sweeps with trench shadows
 export function calculateOceanNutrients(
   grid: Grid,
   heights: Uint8Array,
   flowDirections: Int32Array,
   landFlux: Float32Array,
-  upwellingFlux: Float32Array
+  upwellingFlux: Float32Array,
+  winds: number[] = [45, 45, 45, 45, 45, 45] // global wind angles
 ): Float32Array {
   const pointsN = heights.length;
   const nutrients = new Float32Array(pointsN);
 
-  // 1. Add Land Runoff at river mouth cells
-  for (let i = 0; i < pointsN; i++) {
-    if (heights[i] >= 20) {
-      const target = flowDirections[i];
-      // If river target flows into ocean, it's a mouth cell
-      if (target !== -1 && heights[target] < 20) {
-        nutrients[target] += landFlux[i] * 1.5; // Nutrient runoff proportional to river flux
-      }
-    }
-  }
-
-  // 2. Add Upwelling shelf nutrient contribution
+  // 1. Add Upwelling shelf nutrient contribution (driven upward towards land)
   for (let i = 0; i < pointsN; i++) {
     if (heights[i] < 20) {
-      // Upwelling brings cold, nutrient-rich deep water to the shelves
       nutrients[i] += upwellingFlux[i] * 0.8;
     }
   }
 
-  // 3. Cellular Automata: Diffuse nutrients through ocean cells
+  // 2. Wind-driven Nutrient Transport Sweeps
+  // Winds sweep across land, gather nutrients, deposit at coast/ocean, and drop all remaining in trenches
+  const cellsX = grid.cellsX;
+  const cellsY = grid.cellsY;
+
+  // Westerly sweeps (Left to Right)
+  for (let y = 0; y < cellsY; y++) {
+    let windNutrients = 0.0;
+    for (let x = 0; x < cellsX; x++) {
+      const idx = y * cellsX + x;
+      if (idx >= pointsN) break;
+
+      const h = heights[idx];
+      if (h >= 20) {
+        // Wind sweeps land: gathers dust and agricultural runoff nutrients
+        windNutrients = Math.min(100.0, windNutrients + 15.0);
+      } else {
+        // Wind crosses ocean: deposits nutrients
+        if (windNutrients > 0) {
+          const deposition = windNutrients * 0.15;
+          nutrients[idx] += deposition;
+          windNutrients = Math.max(0, windNutrients - deposition);
+        }
+
+        // Hitting a deep trench (depth < 5): drops all remaining nutrients
+        if (h < 5) {
+          nutrients[idx] += windNutrients;
+          windNutrients = 0.0; // Trench nutrient shadow formed on the other side
+        }
+      }
+    }
+  }
+
+  // Easterly sweeps (Right to Left)
+  for (let y = 0; y < cellsY; y++) {
+    let windNutrients = 0.0;
+    for (let x = cellsX - 1; x >= 0; x--) {
+      const idx = y * cellsX + x;
+      if (idx < 0 || idx >= pointsN) continue;
+
+      const h = heights[idx];
+      if (h >= 20) {
+        windNutrients = Math.min(100.0, windNutrients + 15.0);
+      } else {
+        if (windNutrients > 0) {
+          const deposition = windNutrients * 0.15;
+          nutrients[idx] += deposition;
+          windNutrients = Math.max(0, windNutrients - deposition);
+        }
+        if (h < 5) {
+          nutrients[idx] += windNutrients;
+          windNutrients = 0.0; // Trench nutrient shadow
+        }
+      }
+    }
+  }
+
+  // 3. Cellular Automata: Short-range local diffusion
   const nextNutrients = new Float32Array(pointsN);
-  const diffusionRate = 0.15;
+  const diffusionRate = 0.1;
 
   for (let i = 0; i < pointsN; i++) {
     if (heights[i] >= 20) continue;
@@ -164,7 +210,6 @@ export function calculateOceanNutrients(
 
     for (const n of neighbors) {
       if (heights[n] < 20) {
-        // Trench barriers: deep trench topography acts as a shadow barrier
         const isTrenchBarrier = heights[i] < 5 && heights[n] >= 15;
         const mixFactor = isTrenchBarrier ? 0.2 : 1.0;
 
