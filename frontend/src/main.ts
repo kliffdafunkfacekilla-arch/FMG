@@ -31,6 +31,7 @@ import { mountMagicEditor } from "../../ui/magic-editor";
 import { mountEcologyEditor } from "../../ui/ecology-editor";
 import { mountConfigurator, SetupConfig } from "../../ui/configurator-dialogs";
 import { mountStyleAndBiomeEditor } from "../../ui/dialogs-sections";
+import { mountStyleEditor } from "../../ui/style-editor";
 import { mountHeightmapEditor } from "../../ui/heightmap-editor";
 import { mountLabelEditor } from "../../ui/label-editor";
 import { mountExportOptions } from "../../ui/export-options";
@@ -161,38 +162,7 @@ if (app) {
 
         <!-- Style Content -->
         <div id="styleContent" class="tabcontent" style="padding: 1rem; overflow-y: auto; display: none; flex-direction: column; gap: 0.8rem; box-sizing: border-box;">
-          <h4 style="margin: 0; color: #10b981; font-size: 0.95rem;">Visual Theme Preset</h4>
-          <select id="stylePreset" style="width: 100%; padding: 0.4rem; background: #0f0f12; border: 1px solid rgba(255,255,255,0.1); color: white; border-radius: 6px; cursor: pointer;">
-            <option value="classic">Classic (Default)</option>
-            <option value="monochrome">Grayscale (Heights)</option>
-            <option value="clean">Minimalist</option>
-          </select>
-
-          <!-- Style Editor Section -->
-          <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 0.6rem; margin-top: 0.4rem; display: flex; flex-direction: column; gap: 0.5rem; width: 100%;">
-            <h4 style="margin: 0; color: #10b981; font-size: 0.9rem;">Layer Style Customizer</h4>
-            <select id="styleLayerSelect" style="width: 100%; padding: 0.3rem; background: #0f0f12; border: 1px solid rgba(255,255,255,0.1); color: white; border-radius: 4px; cursor: pointer;">
-              <option value="heightmap">Heightmap Style</option>
-              <option value="biomes">Biomes Style</option>
-              <option value="cultures">Cultures Style</option>
-              <option value="states">States Style</option>
-              <option value="provinces">Provinces Style</option>
-              <option value="religions">Religions Style</option>
-              <option value="goods">Goods Style</option>
-              <option value="temp">Temperature Style</option>
-              <option value="prec">Precipitation Style</option>
-              <option value="grid">Grid/Cells Style</option>
-              <option value="rivers">Rivers Style</option>
-              <option value="routes">Routes Style</option>
-              <option value="burgs">Burgs Style</option>
-              <option value="military">Military Style</option>
-              <option value="markers">Markers Style</option>
-              <option value="labels">Labels Style</option>
-              <option value="zones">Zones Style</option>
-            </select>
-            <div id="styleControls" style="display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.8rem; color: #cbd5e1; width: 100%;">
-            </div>
-          </div>
+            <div id="styleEditorMount"></div>
         </div>
 
         <!-- Tools Tab Content -->
@@ -280,6 +250,7 @@ if (app) {
   mountExportOptions("exporterMount", canvas);
 
   mountStyleAndBiomeEditor("styleBiomesMount", () => renderCurrentLayer());
+  mountStyleEditor("styleEditorMount", () => renderCurrentLayer());
 
   mountLanguageEditor("languageMount");
   mountBurgTypeEditor("burgTypeMount");
