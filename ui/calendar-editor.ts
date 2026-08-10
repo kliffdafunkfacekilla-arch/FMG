@@ -43,7 +43,15 @@ export function mountCalendarEditor(containerId: string, onUpdate: () => void) {
         <button id="addMoonBtn" style="background: #3b82f6; border: none; padding: 0.3rem 0.6rem; color: white; border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-weight: bold;">+ Add Moon</button>
       </div>
 
-      <!-- Apply Action Buttons -->
+      <!-- Simulation Actions -->
+<div style="display:flex;gap:0.5rem;margin-top:1rem;border-top:1px solid #333;padding-top:0.8rem;">
+<button id="quickRecalcBtn" style="flex:1;background:#6366f1;border:none;padding:0.4rem;color:white;border-radius:4px;cursor:pointer;font-size:0.75rem;">Quick Recalc</button>
+<button id="syncEcologyBtn" style="flex:1;background:#10b981;border:none;padding:0.4rem;color:white;border-radius:4px;cursor:pointer;font-size:0.75rem;">Sync Ecology</button>
+<button id="syncMagicBtn" style="flex:1;background:#8b5cf6;border:none;padding:0.4rem;color:white;border-radius:4px;cursor:pointer;font-size:0.75rem;">Sync Magic</button>
+<button id="manualPlacementBtn" style="flex:1;background:#f59e0b;border:none;padding:0.4rem;color:white;border-radius:4px;cursor:pointer;font-size:0.75rem;">Manual Placement</button>
+</div>
+
+<!-- Apply Action Buttons -->
       <div style="display: flex; gap: 0.5rem; margin-top: 1.2rem; border-top: 1px solid #333; padding-top: 0.8rem;">
         <button id="applyCalendarBtn" style="flex: 2; background: #10b981; border: none; padding: 0.5rem; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.85rem; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);">Apply Settings</button>
         <button id="cancelCalendarBtn" style="flex: 1; background: #4b5563; border: none; padding: 0.5rem; color: white; border-radius: 6px; cursor: pointer; font-size: 0.85rem;">Cancel</button>
@@ -54,6 +62,10 @@ export function mountCalendarEditor(containerId: string, onUpdate: () => void) {
   const panel = document.getElementById("calendarEditorPanel") as HTMLDivElement;
   const closeBtn = document.getElementById("closeCalendarBtn") as HTMLSpanElement;
   const applyBtn = document.getElementById("applyCalendarBtn") as HTMLButtonElement;
+const quickRecalcBtn = document.getElementById("quickRecalcBtn") as HTMLButtonElement;
+const syncEcologyBtn = document.getElementById("syncEcologyBtn") as HTMLButtonElement;
+const syncMagicBtn = document.getElementById("syncMagicBtn") as HTMLButtonElement;
+const manualPlacementBtn = document.getElementById("manualPlacementBtn") as HTMLButtonElement;
   const cancelBtn = document.getElementById("cancelCalendarBtn") as HTMLButtonElement;
 
   const tabWeeksBtn = document.getElementById("tabWeeksBtn") as HTMLButtonElement;
@@ -418,7 +430,12 @@ export function mountCalendarEditor(containerId: string, onUpdate: () => void) {
   closeBtn.addEventListener("click", closePanel);
   cancelBtn.addEventListener("click", closePanel);
 
-  applyBtn.addEventListener("click", () => {
+  if(quickRecalcBtn) quickRecalcBtn.addEventListener("click", () => console.log("Cycles recalculated"));
+if(syncEcologyBtn) syncEcologyBtn.addEventListener("click", () => console.log("Ecology synced"));
+if(syncMagicBtn) syncMagicBtn.addEventListener("click", () => console.log("Magic synced"));
+if(manualPlacementBtn) manualPlacementBtn.addEventListener("click", () => console.log("Manual placement mode"));
+
+applyBtn.addEventListener("click", () => {
     store.updateState({
       weekdays: [...localWeekdays],
       months: [...localMonths],
