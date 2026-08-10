@@ -19,6 +19,7 @@ export interface SetupConfig {
   tempEquator: number;
   windsAngle: number;
   precipitationInput: number;
+  distanceUnit: string;
 }
 
 export function mountConfigurator(containerId: string, onConfigChange: (config: SetupConfig) => void) {
@@ -47,18 +48,19 @@ export function mountConfigurator(containerId: string, onConfigChange: (config: 
 
           <!-- Seed & Cells -->
           <div style="display: flex; gap: 0.4rem; align-items: center;">
-            <div style="flex: 1;">
-              <label style="display: block; color: #94a3b8; font-size: 0.75rem;">Map Seed:</label>
+            <div style="flex: 1; display: flex; flex-direction: column;">
+              <label style="display: flex; justify-content: space-between; color: #94a3b8; font-size: 0.75rem;">
+                <span>Map Seed:</span>
+                <button id="seedHistoryBtn" style="background: none; border: none; color: #a855f7; cursor: pointer; font-size: 0.75rem; padding: 0;">History 🕒</button>
+              </label>
               <input id="mapSeed" type="text" value="seed-12345" style="width: 100%; padding: 0.2rem; background: #0f0f12; border: 1px solid #444; color: white; border-radius: 4px;" />
             </div>
             <div style="flex: 1;">
-              <label style="display: block; color: #94a3b8; font-size: 0.75rem;">Points Number:</label>
-              <select id="pointsCount" style="width: 100%; padding: 0.2rem; background: #0f0f12; border: 1px solid #444; color: white; border-radius: 4px;">
-                <option value="10000" selected>10,000 (Fast)</option>
-                <option value="20000">20,000 (Balanced)</option>
-                <option value="40000">40,000 (Detailed)</option>
-                <option value="70000">70,000 (Laggy/HD)</option>
-              </select>
+              <label style="display: flex; justify-content: space-between; color: #94a3b8; font-size: 0.75rem;">
+                <span>Points:</span>
+                <span id="lblPointsCount" style="color: #fbbf24;">10000</span>
+              </label>
+              <input id="pointsCountSlider" type="range" min="1000" max="100000" step="1000" value="10000" style="width: 100%; cursor: pointer;" />
             </div>
           </div>
 
@@ -140,10 +142,18 @@ export function mountConfigurator(containerId: string, onConfigChange: (config: 
         </div>
       </details>
 
-      <!-- 2. GENERATOR SETTINGS -->
+      <!-- 2. GENERATOR SETTINGS & UNITS -->
       <details style="border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.5rem;">
-        <summary style="font-weight: bold; color: #10b981; cursor: pointer; user-select: none; font-size: 0.88rem;">2. Generator Settings</summary>
+        <summary style="font-weight: bold; color: #10b981; cursor: pointer; user-select: none; font-size: 0.88rem;">2. Options & Units</summary>
         <div style="display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.4rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <label style="color: #94a3b8; font-size: 0.75rem;">Distance Unit:</label>
+            <select id="distanceUnit" style="padding: 0.2rem; background: #0f0f12; border: 1px solid #444; color: white; border-radius: 4px;">
+              <option value="miles">Miles</option>
+              <option value="kms" selected>Kilometers</option>
+              <option value="leagues">Leagues</option>
+            </select>
+          </div>
           <div style="display: flex; align-items: center; justify-content: space-between;">
             <span>Show Menu on Load:</span>
             <input id="chkShowMenu" type="checkbox" checked style="cursor: pointer;" />
@@ -168,6 +178,17 @@ export function mountConfigurator(containerId: string, onConfigChange: (config: 
           <span id="closeClimateModalBtn" style="cursor: pointer; color: #94a3b8; font-size: 1.2rem;">&times;</span>
         </h3>
         
+        <div>
+          <label style="display: flex; justify-content: space-between; color: #cbd5e1; font-size: 0.75rem;">
+            <span>Globe Position (Latitudes):</span>
+            <span id="lblLatitudes" style="font-weight: bold; color: #a855f7;">0° - 100°</span>
+          </label>
+          <div style="display: flex; gap: 0.2rem;">
+            <input id="slideLatNorth" type="range" min="-90" max="90" value="90" style="width: 50%; cursor: pointer;" />
+            <input id="slideLatSouth" type="range" min="-90" max="90" value="-10" style="width: 50%; cursor: pointer;" />
+          </div>
+        </div>
+
         <div>
           <label style="display: flex; justify-content: space-between; color: #cbd5e1; font-size: 0.75rem;">
             <span>Equator Temperature (°C):</span>
@@ -203,10 +224,17 @@ export function mountConfigurator(containerId: string, onConfigChange: (config: 
       </button>
 
       <!-- 5. BOTTOM BAR GLOBAL CONTROLS -->
-      <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 0.5rem; display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.3rem;">
-        <button id="hmBottomSave" style="background: #10b981; border: none; color: white; padding: 0.3rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.7rem;">💾 Save JSON</button>
-        <button id="hmBottomLoad" style="background: #eab308; border: none; color: white; padding: 0.3rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.7rem;">📂 Load JSON</button>
-        <button id="hmBottomResetZoom" style="background: #4b5563; border: none; color: white; padding: 0.3rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.7rem; grid-column: span 2;">🔍 Reset View/Zoom</button>
+      <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 0.5rem; display: flex; flex-direction: column; gap: 0.3rem;">
+        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.3rem;">
+          <button id="hmSaveMap" style="background: #10b981; border: none; color: white; padding: 0.3rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.7rem;">💾 Save .map</button>
+          <button id="hmLoadMap" style="background: #eab308; border: none; color: white; padding: 0.3rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.7rem;">📂 Load .map</button>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.3rem;">
+          <button id="hmExportPng" style="background: #3b82f6; border: none; color: white; padding: 0.3rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.7rem;">🖼️ .png</button>
+          <button id="hmExportSvg" style="background: #f97316; border: none; color: white; padding: 0.3rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.7rem;">📐 .svg</button>
+          <button id="hmExportJson" style="background: #6366f1; border: none; color: white; padding: 0.3rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.7rem;">{ } .json</button>
+        </div>
+        <button id="hmQuickSave" style="background: #8b5cf6; border: none; color: white; padding: 0.3rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.7rem;">⚡ Quick Save</button>
       </div>
     </div>
   `;
@@ -215,7 +243,8 @@ export function mountConfigurator(containerId: string, onConfigChange: (config: 
   const canvasWidth = document.getElementById("canvasWidth") as HTMLInputElement;
   const canvasHeight = document.getElementById("canvasHeight") as HTMLInputElement;
   const mapSeed = document.getElementById("mapSeed") as HTMLInputElement;
-  const pointsCount = document.getElementById("pointsCount") as HTMLSelectElement;
+  const pointsCountSlider = document.getElementById("pointsCountSlider") as HTMLInputElement;
+  const lblPointsCount = document.getElementById("lblPointsCount") as HTMLSpanElement;
   const mapName = document.getElementById("mapName") as HTMLInputElement;
   const mapYear = document.getElementById("mapYear") as HTMLInputElement;
   const mapEra = document.getElementById("mapEra") as HTMLInputElement;
@@ -227,7 +256,11 @@ export function mountConfigurator(containerId: string, onConfigChange: (config: 
   const growthRate = document.getElementById("growthRate") as HTMLInputElement;
   const townsCount = document.getElementById("townsCount") as HTMLInputElement;
   const numReligions = document.getElementById("numReligions") as HTMLInputElement;
+  const distanceUnit = document.getElementById("distanceUnit") as HTMLSelectElement;
 
+  const slideLatNorth = document.getElementById("slideLatNorth") as HTMLInputElement;
+  const slideLatSouth = document.getElementById("slideLatSouth") as HTMLInputElement;
+  const lblLatitudes = document.getElementById("lblLatitudes") as HTMLSpanElement;
   const slideTemp = document.getElementById("slideTemp") as HTMLInputElement;
   const lblTemp = document.getElementById("lblTemp") as HTMLSpanElement;
   const slideWind = document.getElementById("slideWind") as HTMLInputElement;
@@ -238,13 +271,21 @@ export function mountConfigurator(containerId: string, onConfigChange: (config: 
   const regenBtn = document.getElementById("regenNewMapBtn") as HTMLButtonElement;
   const updateClimateBtn = document.getElementById("updateClimateBtn") as HTMLButtonElement;
   const restoreDefaultsBtn = document.getElementById("restoreDefaultsBtn") as HTMLButtonElement;
+  const seedHistoryBtn = document.getElementById("seedHistoryBtn") as HTMLButtonElement;
 
   // Bottom buttons
-  const bottomSave = document.getElementById("hmBottomSave") as HTMLButtonElement;
-  const bottomLoad = document.getElementById("hmBottomLoad") as HTMLButtonElement;
-  const bottomResetZoom = document.getElementById("hmBottomResetZoom") as HTMLButtonElement;
+  const hmSaveMap = document.getElementById("hmSaveMap") as HTMLButtonElement;
+  const hmLoadMap = document.getElementById("hmLoadMap") as HTMLButtonElement;
+  const hmExportPng = document.getElementById("hmExportPng") as HTMLButtonElement;
+  const hmExportSvg = document.getElementById("hmExportSvg") as HTMLButtonElement;
+  const hmExportJson = document.getElementById("hmExportJson") as HTMLButtonElement;
+  const hmQuickSave = document.getElementById("hmQuickSave") as HTMLButtonElement;
 
   // Sliders display updating
+  if(pointsCountSlider) pointsCountSlider.addEventListener("input", () => { lblPointsCount.innerText = pointsCountSlider.value; });
+  const updateLatitudesLabel = () => { if(lblLatitudes) lblLatitudes.innerText = `${slideLatNorth.value}° - ${slideLatSouth.value}°`; };
+  if(slideLatNorth) slideLatNorth.addEventListener("input", updateLatitudesLabel);
+  if(slideLatSouth) slideLatSouth.addEventListener("input", updateLatitudesLabel);
   slideTemp.addEventListener("input", () => { lblTemp.innerText = slideTemp.value; });
   slideWind.addEventListener("input", () => { lblWind.innerText = slideWind.value; });
   slidePrec.addEventListener("input", () => { lblPrec.innerText = slidePrec.value + "%"; });
@@ -257,7 +298,7 @@ export function mountConfigurator(containerId: string, onConfigChange: (config: 
     canvasWidth: parseInt(canvasWidth.value, 10) || window.innerWidth,
     canvasHeight: parseInt(canvasHeight.value, 10) || window.innerHeight,
     seed: mapSeed.value || rollSeed(),
-    cellsCount: parseInt(pointsCount.value, 10) || 10000,
+    cellsCount: parseInt(pointsCountSlider?.value, 10) || 10000,
     mapName: mapName.value || "New World",
     year: parseInt(mapYear.value, 10) || 100,
     era: mapEra.value || "Common Era",
@@ -271,7 +312,8 @@ export function mountConfigurator(containerId: string, onConfigChange: (config: 
     religionsCount: parseInt(numReligions.value, 10) || 5,
     tempEquator: parseInt(slideTemp.value, 10),
     windsAngle: parseInt(slideWind.value, 10),
-    precipitationInput: parseInt(slidePrec.value, 10)
+    precipitationInput: parseInt(slidePrec.value, 10),
+    distanceUnit: distanceUnit?.value || "kms"
   });
 
   // Action listeners
@@ -310,7 +352,8 @@ export function mountConfigurator(containerId: string, onConfigChange: (config: 
     canvasWidth.value = "1000";
     canvasHeight.value = "650";
     mapSeed.value = rollSeed();
-    pointsCount.value = "10000";
+    if(pointsCountSlider) pointsCountSlider.value = "10000";
+    if(lblPointsCount) lblPointsCount.innerText = "10000";
     mapName.value = "Default World";
     mapYear.value = "100";
     mapEra.value = "Common Era";
@@ -334,18 +377,18 @@ export function mountConfigurator(containerId: string, onConfigChange: (config: 
     onConfigChange(getConfig());
   });
 
-  // Redirect bottom bar options to parent HUD buttons
-  bottomSave.addEventListener("click", () => {
-    document.getElementById("saveBtn")?.click();
-  });
-  bottomLoad.addEventListener("click", () => {
-    document.getElementById("loadBtn")?.click();
-  });
-  bottomResetZoom.addEventListener("click", () => {
-    store.updateState({ zoom: 1.0, offsetX: 0, offsetY: 0 });
-    const win = window as any;
-    if (win.renderCurrentLayer) win.renderCurrentLayer();
-  });
+  if(seedHistoryBtn) {
+    seedHistoryBtn.addEventListener("click", () => {
+      alert("Seed History functionality would open here.");
+    });
+  }
+
+  if(hmSaveMap) hmSaveMap.addEventListener("click", () => { console.log("Save .map clicked"); });
+  if(hmLoadMap) hmLoadMap.addEventListener("click", () => { console.log("Load .map clicked"); });
+  if(hmExportPng) hmExportPng.addEventListener("click", () => { console.log("Export PNG clicked"); });
+  if(hmExportSvg) hmExportSvg.addEventListener("click", () => { console.log("Export SVG clicked"); });
+  if(hmExportJson) hmExportJson.addEventListener("click", () => { console.log("Export JSON clicked"); });
+  if(hmQuickSave) hmQuickSave.addEventListener("click", () => { console.log("Quick Save clicked"); });
 
   (window as any).getCurrentSetupConfig = getConfig;
 }
