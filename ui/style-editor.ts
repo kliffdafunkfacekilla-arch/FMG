@@ -147,7 +147,7 @@ export function mountStyleEditor(containerId: string, onUpdate: () => void) {
           return color;
       }
       if (color.startsWith("rgba") || color.startsWith("rgb")) {
-          const m = color.match(/rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)/);
+          const m = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
           if (m) {
               const r = parseInt(m[1]).toString(16).padStart(2, "0");
               const g = parseInt(m[2]).toString(16).padStart(2, "0");

@@ -226,6 +226,7 @@ if (app) {
   const fileInput = document.getElementById("fileInput") as HTMLInputElement;
   const statsEl = document.getElementById("stats") as HTMLDivElement;
   const statusEl = document.getElementById("connectionStatus") as HTMLSpanElement;
+  const layersPresetSelect = document.getElementById("layersPreset") as HTMLSelectElement;
 
   (window as any).triggerLayerSelect = (layerName: string) => {
     currentLayer = layerName as any;
