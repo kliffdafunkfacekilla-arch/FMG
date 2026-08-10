@@ -92,20 +92,20 @@ export function mountStyleEditor(containerId: string, onUpdate: () => void) {
     const state = store.getState();
     const currentStyle = state.layerStyles[layer] || { opacity: 1, color: "#ffffff", size: 1 };
     
-    controlsDiv.innerHTML = \`
+    controlsDiv.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center;">
-            <label>Opacity (<span id="opacityVal">\${currentStyle.opacity}</span>)</label>
-            <input type="range" id="styleOpacity" min="0" max="1" step="0.05" value="\${currentStyle.opacity}" style="width: 100px; cursor: pointer;">
+            <label>Opacity (<span id="opacityVal">${currentStyle.opacity}</span>)</label>
+            <input type="range" id="styleOpacity" min="0" max="1" step="0.05" value="${currentStyle.opacity}" style="width: 100px; cursor: pointer;">
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <label>Size / Stroke</label>
-            <input type="number" id="styleSize" min="0.1" max="50" step="0.1" value="\${currentStyle.size || 1}" style="width: 60px; background: #0f0f12; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;">
+            <input type="number" id="styleSize" min="0.1" max="50" step="0.1" value="${currentStyle.size || 1}" style="width: 60px; background: #0f0f12; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;">
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <label>Color Base</label>
-            <input type="color" id="styleColor" value="\${colorToHex(currentStyle.color)}" style="background: transparent; border: none; padding: 0; width: 24px; height: 24px; cursor: pointer;">
+            <input type="color" id="styleColor" value="${colorToHex(currentStyle.color)}" style="background: transparent; border: none; padding: 0; width: 24px; height: 24px; cursor: pointer;">
         </div>
-    \`;
+    `;
     
     document.getElementById("styleOpacity")?.addEventListener("input", (e) => {
         const val = parseFloat((e.target as HTMLInputElement).value);
@@ -152,7 +152,7 @@ export function mountStyleEditor(containerId: string, onUpdate: () => void) {
               const r = parseInt(m[1]).toString(16).padStart(2, "0");
               const g = parseInt(m[2]).toString(16).padStart(2, "0");
               const b = parseInt(m[3]).toString(16).padStart(2, "0");
-              return \`#\${r}\${g}\${b}\`;
+              return `#${r}${g}${b}`;
           }
       }
       return "#ffffff"; // fallback
