@@ -155,36 +155,47 @@ export function mountConfigurator(containerId: string, onConfigChange: (config: 
         </div>
       </details>
 
-      <!-- 3. CONFIGURE WORLD (CLIMATE) -->
-      <details style="border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.5rem;">
-        <summary style="font-weight: bold; color: #a855f7; cursor: pointer; user-select: none; font-size: 0.88rem;">3. Configure World</summary>
-        <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.4rem;">
-          <div>
-            <label style="display: flex; justify-content: space-between; color: #cbd5e1; font-size: 0.75rem;">
-              <span>Equator Temp (°C):</span>
-              <span id="lblTemp" style="font-weight: bold; color: #a855f7;">28</span>
-            </label>
-            <input id="slideTemp" type="range" min="15" max="40" value="28" style="width: 100%; cursor: pointer;" />
-          </div>
-          <div>
-            <label style="display: flex; justify-content: space-between; color: #cbd5e1; font-size: 0.75rem;">
-              <span>Wind Angle (°):</span>
-              <span id="lblWind" style="font-weight: bold; color: #a855f7;">225</span>
-            </label>
-            <input id="slideWind" type="range" min="0" max="360" value="225" style="width: 100%; cursor: pointer;" />
-          </div>
-          <div>
-            <label style="display: flex; justify-content: space-between; color: #cbd5e1; font-size: 0.75rem;">
-              <span>Precipitation (0-200%):</span>
-              <span id="lblPrec" style="font-weight: bold; color: #a855f7;">100%</span>
-            </label>
-            <input id="slidePrec" type="range" min="0" max="200" value="100" style="width: 100%; cursor: pointer;" />
-          </div>
-          <button id="updateClimateBtn" style="background: #9333ea; border: none; padding: 0.35rem; color: white; font-weight: bold; border-radius: 4px; cursor: pointer; font-size: 0.75rem; width: 100%;">
-            🔄 Update Map (Climate Only)
-          </button>
+      <!-- 3. CONFIGURE WORLD (CLIMATE POPUP TRIGGER) -->
+      <div style="border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.5rem; display: flex; flex-direction: column; gap: 0.4rem;">
+        <label style="font-weight: bold; color: #a855f7; font-size: 0.88rem;">3. Climate & Latitudes</label>
+        <button id="openClimateBtn" style="width: 100%; text-align: left; background: #9333ea; border: none; color: white; padding: 0.35rem 0.6rem; cursor: pointer; font-weight: bold; font-size: 0.8rem; border-radius: 4px;">🌍 Configure World (Climate)</button>
+      </div>
+
+      <!-- Climate Popup Modal -->
+      <div id="climatePopupModal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 9999; background: rgba(20, 20, 25, 0.98); backdrop-filter: blur(15px); border: 1px solid rgba(255, 255, 255, 0.15); padding: 1.2rem; border-radius: 12px; font-size: 0.85rem; color: #e2e8f0; width: 300px; box-shadow: 0 15px 40px rgba(0,0,0,0.6); flex-direction: column; gap: 0.8rem; pointer-events: auto;">
+        <h3 style="margin-top: 0; color: #a855f7; border-bottom: 1px solid #333; padding-bottom: 0.25rem; display: flex; justify-content: space-between; align-items: center; font-size: 0.95rem;">
+          <span>Configure World Climate</span>
+          <span id="closeClimateModalBtn" style="cursor: pointer; color: #94a3b8; font-size: 1.2rem;">&times;</span>
+        </h3>
+        
+        <div>
+          <label style="display: flex; justify-content: space-between; color: #cbd5e1; font-size: 0.75rem;">
+            <span>Equator Temperature (°C):</span>
+            <span id="lblTemp" style="font-weight: bold; color: #a855f7;">28</span>
+          </label>
+          <input id="slideTemp" type="range" min="15" max="40" value="28" style="width: 100%; cursor: pointer;" />
         </div>
-      </details>
+
+        <div>
+          <label style="display: flex; justify-content: space-between; color: #cbd5e1; font-size: 0.75rem;">
+            <span>Wind Angle (Direction °):</span>
+            <span id="lblWind" style="font-weight: bold; color: #a855f7;">225</span>
+          </label>
+          <input id="slideWind" type="range" min="0" max="360" value="225" style="width: 100%; cursor: pointer;" />
+        </div>
+
+        <div>
+          <label style="display: flex; justify-content: space-between; color: #cbd5e1; font-size: 0.75rem;">
+            <span>Precipitation (0-200%):</span>
+            <span id="lblPrec" style="font-weight: bold; color: #a855f7;">100%</span>
+          </label>
+          <input id="slidePrec" type="range" min="0" max="200" value="100" style="width: 100%; cursor: pointer;" />
+        </div>
+
+        <button id="updateClimateBtn" style="background: linear-gradient(135deg, #9333ea, #a855f7); border: none; padding: 0.5rem; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.8rem; width: 100%; margin-top: 0.2rem;">
+          🔄 Update Map Climate
+        </button>
+      </div>
 
       <!-- 4. RESTORE DEFAULTS -->
       <button id="restoreDefaultsBtn" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239,68,68,0.3); color: #f87171; padding: 0.35rem; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.75rem; width: 100%;">
@@ -264,6 +275,22 @@ export function mountConfigurator(containerId: string, onConfigChange: (config: 
   });
 
   // Action listeners
+  const openClimateBtn = document.getElementById("openClimateBtn") as HTMLButtonElement;
+  const climatePopup = document.getElementById("climatePopupModal") as HTMLDivElement;
+  const closeClimateBtn = document.getElementById("closeClimateModalBtn") as HTMLSpanElement;
+
+  if (openClimateBtn && climatePopup) {
+    openClimateBtn.addEventListener("click", () => {
+      climatePopup.style.display = "flex";
+    });
+  }
+
+  if (closeClimateBtn && climatePopup) {
+    closeClimateBtn.addEventListener("click", () => {
+      climatePopup.style.display = "none";
+    });
+  }
+
   regenBtn.addEventListener("click", () => {
     onConfigChange(getConfig());
   });
@@ -272,6 +299,9 @@ export function mountConfigurator(containerId: string, onConfigChange: (config: 
     const win = window as any;
     if (win.runClimateRegen) {
       win.runClimateRegen(parseInt(slideTemp.value, 10), parseInt(slideWind.value, 10), parseInt(slidePrec.value, 10));
+    }
+    if (climatePopup) {
+      climatePopup.style.display = "none";
     }
   });
 
