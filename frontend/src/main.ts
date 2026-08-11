@@ -119,24 +119,17 @@ if (app) {
           <h4 style="margin: 0; color: #fbbf24; font-size: 0.95rem;">World Setup</h4>
           <div id="configuratorMount"></div>
           <div id="importerMount"></div>
-          <div id="exporterMount"></div>
-          
-          <h4 style="margin: 0.5rem 0 0 0; color: #fbbf24; font-size: 0.95rem;">Calendar Options</h4>
-          <button id="openCalendarEditorBtn" style="width: 100%; text-align: left; background: #2563eb; border: none; color: white; padding: 0.35rem 0.6rem; cursor: pointer; font-weight: bold; font-size: 0.8rem; border-radius: 4px;">📅 Config Custom Calendar</button>
           <div id="calendarMount"></div>
 
           <h4 style="margin: 0.5rem 0 0 0; color: #fbbf24; font-size: 0.95rem;">Time Controls</h4>
           <div style="display: flex; gap: 0.4rem; margin-bottom: 0.5rem;">
-            <button id="tickDayBtn" style="flex: 1; padding: 0.35rem; background: #eab308; color: black; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">+1 Day</button>
+            <button id="tickDayBtn" style="flex: 1; padding: 0.35rem; background: #3b82f6; color: white; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">+1 Day</button>
             <button id="tickMonthBtn" style="flex: 1; padding: 0.35rem; background: #3b82f6; color: white; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">+1 Month</button>
-            <button id="tickYearBtn" style="flex: 1; padding: 0.35rem; background: #10b981; color: white; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">+1 Year</button>
+            <button id="tickYearBtn" style="flex: 1; padding: 0.35rem; background: #3b82f6; color: white; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">+1 Year</button>
           </div>
 
-          <h4 style="margin: 0.5rem 0 0 0; color: #fbbf24; font-size: 0.95rem;">File Actions</h4>
-          <div style="display: flex; gap: 0.4rem; margin-bottom: 0.5rem;">
-            <button id="optsSaveBtn" style="flex: 1; padding: 0.35rem; background: #10b981; color: white; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">Save JSON</button>
-            <button id="optsLoadBtn" style="flex: 1; padding: 0.35rem; background: #eab308; color: white; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">Load JSON</button>
-          </div>
+          <h4 style="margin: 0.5rem 0 0 0; color: #fbbf24; font-size: 0.95rem;">File &amp; Export</h4>
+          <div id="exporterMount"></div>
         </div>
 
         <!-- Layers Content -->
@@ -438,15 +431,7 @@ if (app) {
   };
 
   // Wire Time Control Buttons
-  const openCalendarBtn = document.getElementById("openCalendarEditorBtn");
-  if (openCalendarBtn) {
-    openCalendarBtn.addEventListener("click", () => {
-      if ((window as any).openCalendarEditor) {
-        (window as any).openCalendarEditor();
-      }
-    });
-  }
-
+  // (Calendar editor button now lives inside the Configure World modal.)
   const tickDayBtn = document.getElementById("tickDayBtn");
   const tickMonthBtn = document.getElementById("tickMonthBtn");
   const tickYearBtn = document.getElementById("tickYearBtn");

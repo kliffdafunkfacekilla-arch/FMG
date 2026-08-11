@@ -136,47 +136,33 @@ export function mountConfigurator(containerId: string, onConfigChange: (config: 
             <input id="numReligions" type="number" min="0" max="50" value="5" style="width: 100%; padding: 0.2rem; background: #0f0f12; border: 1px solid #444; color: white; border-radius: 4px;" />
           </div>
 
-          <button id="regenNewMapBtn" style="background: linear-gradient(135deg, #2563eb, #3b82f6); border: none; padding: 0.35rem; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.75rem; width: 100%; margin-top: 0.2rem;">
+          <button id="regenNewMapBtn" style="background: #3b82f6; border: none; padding: 0.35rem; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.75rem; width: 100%; margin-top: 0.2rem;">
             🎲 Generate New Map
           </button>
         </div>
       </details>
 
-      <!-- 2. GENERATOR SETTINGS & UNITS -->
-      <details style="border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.5rem;">
-        <summary style="font-weight: bold; color: #10b981; cursor: pointer; user-select: none; font-size: 0.88rem;">2. Options & Units</summary>
-        <div style="display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.4rem;">
-          <div style="display: flex; align-items: center; justify-content: space-between;">
-            <label style="color: #94a3b8; font-size: 0.75rem;">Distance Unit:</label>
-            <select id="distanceUnit" style="padding: 0.2rem; background: #0f0f12; border: 1px solid #444; color: white; border-radius: 4px;">
-              <option value="miles">Miles</option>
-              <option value="kms" selected>Kilometers</option>
-              <option value="leagues">Leagues</option>
-            </select>
-          </div>
-          <div style="display: flex; align-items: center; justify-content: space-between;">
-            <span>Show Menu on Load:</span>
-            <input id="chkShowMenu" type="checkbox" checked style="cursor: pointer;" />
-          </div>
-          <div style="display: flex; align-items: center; justify-content: space-between;">
-            <span>Auto-adjust Zoom:</span>
-            <input id="chkAutoZoom" type="checkbox" checked style="cursor: pointer;" />
-          </div>
-        </div>
-      </details>
-
-      <!-- 3. CONFIGURE WORLD (CLIMATE POPUP TRIGGER) -->
+      <!-- 2. CONFIGURE WORLD (CLIMATE / UNITS / CALENDAR POPUP TRIGGER) -->
       <div style="border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.5rem; display: flex; flex-direction: column; gap: 0.4rem;">
-        <label style="font-weight: bold; color: #a855f7; font-size: 0.88rem;">3. Climate & Latitudes</label>
-        <button id="openClimateBtn" style="width: 100%; text-align: left; background: #9333ea; border: none; color: white; padding: 0.35rem 0.6rem; cursor: pointer; font-weight: bold; font-size: 0.8rem; border-radius: 4px;">🌍 Configure World (Climate)</button>
+        <label style="font-weight: bold; color: #fbbf24; font-size: 0.88rem;">2. Configure World</label>
+        <button id="openClimateBtn" style="width: 100%; text-align: left; background: #3b82f6; border: none; color: white; padding: 0.35rem 0.6rem; cursor: pointer; font-weight: bold; font-size: 0.8rem; border-radius: 4px;">🌍 Configure World</button>
       </div>
 
       <!-- Climate Popup Modal -->
       <div id="climatePopupModal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 9999; background: rgba(20, 20, 25, 0.98); backdrop-filter: blur(15px); border: 1px solid rgba(255, 255, 255, 0.15); padding: 1.2rem; border-radius: 12px; font-size: 0.85rem; color: #e2e8f0; width: 300px; box-shadow: 0 15px 40px rgba(0,0,0,0.6); flex-direction: column; gap: 0.8rem; pointer-events: auto;">
-        <h3 style="margin-top: 0; color: #a855f7; border-bottom: 1px solid #333; padding-bottom: 0.25rem; display: flex; justify-content: space-between; align-items: center; font-size: 0.95rem;">
-          <span>Configure World Climate</span>
+        <h3 style="margin-top: 0; color: #fbbf24; border-bottom: 1px solid #333; padding-bottom: 0.25rem; display: flex; justify-content: space-between; align-items: center; font-size: 0.95rem;">
+          <span>Configure World</span>
           <span id="closeClimateModalBtn" style="cursor: pointer; color: #94a3b8; font-size: 1.2rem;">&times;</span>
         </h3>
+
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+          <label style="color: #cbd5e1; font-size: 0.75rem;">Distance Unit:</label>
+          <select id="distanceUnit" style="padding: 0.2rem; background: #0f0f12; border: 1px solid #444; color: white; border-radius: 4px;">
+            <option value="miles">Miles</option>
+            <option value="kms" selected>Kilometers</option>
+            <option value="leagues">Leagues</option>
+          </select>
+        </div>
         
         <div>
           <label style="display: flex; justify-content: space-between; color: #cbd5e1; font-size: 0.75rem;">
@@ -213,29 +199,13 @@ export function mountConfigurator(containerId: string, onConfigChange: (config: 
           <input id="slidePrec" type="range" min="0" max="200" value="100" style="width: 100%; cursor: pointer;" />
         </div>
 
-        <button id="updateClimateBtn" style="background: linear-gradient(135deg, #9333ea, #a855f7); border: none; padding: 0.5rem; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.8rem; width: 100%; margin-top: 0.2rem;">
+        <button id="openCalendarEditorBtn" style="width: 100%; text-align: left; background: #3b82f6; border: none; color: white; padding: 0.5rem 0.6rem; cursor: pointer; font-weight: bold; font-size: 0.8rem; border-radius: 6px;">📅 Config Custom Calendar</button>
+
+        <button id="updateClimateBtn" style="background: #3b82f6; border: none; padding: 0.5rem; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.8rem; width: 100%; margin-top: 0.2rem;">
           🔄 Update Map Climate
         </button>
       </div>
 
-      <!-- 4. RESTORE DEFAULTS -->
-      <button id="restoreDefaultsBtn" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239,68,68,0.3); color: #f87171; padding: 0.35rem; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.75rem; width: 100%;">
-        ⚠️ Restore Options Defaults
-      </button>
-
-      <!-- 5. BOTTOM BAR GLOBAL CONTROLS -->
-      <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 0.5rem; display: flex; flex-direction: column; gap: 0.3rem;">
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.3rem;">
-          <button id="hmSaveMap" style="background: #10b981; border: none; color: white; padding: 0.3rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.7rem;">💾 Save .map</button>
-          <button id="hmLoadMap" style="background: #eab308; border: none; color: white; padding: 0.3rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.7rem;">📂 Load .map</button>
-        </div>
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.3rem;">
-          <button id="hmExportPng" style="background: #3b82f6; border: none; color: white; padding: 0.3rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.7rem;">🖼️ .png</button>
-          <button id="hmExportSvg" style="background: #f97316; border: none; color: white; padding: 0.3rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.7rem;">📐 .svg</button>
-          <button id="hmExportJson" style="background: #6366f1; border: none; color: white; padding: 0.3rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.7rem;">{ } .json</button>
-        </div>
-        <button id="hmQuickSave" style="background: #8b5cf6; border: none; color: white; padding: 0.3rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.7rem;">⚡ Quick Save</button>
-      </div>
     </div>
   `;
 
@@ -270,16 +240,7 @@ export function mountConfigurator(containerId: string, onConfigChange: (config: 
 
   const regenBtn = document.getElementById("regenNewMapBtn") as HTMLButtonElement;
   const updateClimateBtn = document.getElementById("updateClimateBtn") as HTMLButtonElement;
-  const restoreDefaultsBtn = document.getElementById("restoreDefaultsBtn") as HTMLButtonElement;
   const seedHistoryBtn = document.getElementById("seedHistoryBtn") as HTMLButtonElement;
-
-  // Bottom buttons
-  const hmSaveMap = document.getElementById("hmSaveMap") as HTMLButtonElement;
-  const hmLoadMap = document.getElementById("hmLoadMap") as HTMLButtonElement;
-  const hmExportPng = document.getElementById("hmExportPng") as HTMLButtonElement;
-  const hmExportSvg = document.getElementById("hmExportSvg") as HTMLButtonElement;
-  const hmExportJson = document.getElementById("hmExportJson") as HTMLButtonElement;
-  const hmQuickSave = document.getElementById("hmQuickSave") as HTMLButtonElement;
 
   // Sliders display updating
   if(pointsCountSlider) pointsCountSlider.addEventListener("input", () => { lblPointsCount.innerText = pointsCountSlider.value; });
@@ -347,48 +308,21 @@ export function mountConfigurator(containerId: string, onConfigChange: (config: 
     }
   });
 
-  restoreDefaultsBtn.addEventListener("click", () => {
-    // Reset inputs
-    canvasWidth.value = "1000";
-    canvasHeight.value = "650";
-    mapSeed.value = rollSeed();
-    if(pointsCountSlider) pointsCountSlider.value = "10000";
-    if(lblPointsCount) lblPointsCount.innerText = "10000";
-    mapName.value = "Default World";
-    mapYear.value = "100";
-    mapEra.value = "Common Era";
-    heightmapType.value = "Continents";
-    numCultures.value = "6";
-    numStates.value = "8";
-    numProvinces.value = "30";
-    sizeVariety.value = "1.5";
-    growthRate.value = "1.0";
-    townsCount.value = "30";
-    numReligions.value = "5";
-
-    slideTemp.value = "28";
-    slideWind.value = "225";
-    slidePrec.value = "100";
-
-    lblTemp.innerText = "28";
-    lblWind.innerText = "225";
-    lblPrec.innerText = "100%";
-
-    onConfigChange(getConfig());
-  });
-
   if(seedHistoryBtn) {
     seedHistoryBtn.addEventListener("click", () => {
       alert("Seed History functionality would open here.");
     });
   }
 
-  if(hmSaveMap) hmSaveMap.addEventListener("click", () => { console.log("Save .map clicked"); });
-  if(hmLoadMap) hmLoadMap.addEventListener("click", () => { console.log("Load .map clicked"); });
-  if(hmExportPng) hmExportPng.addEventListener("click", () => { console.log("Export PNG clicked"); });
-  if(hmExportSvg) hmExportSvg.addEventListener("click", () => { console.log("Export SVG clicked"); });
-  if(hmExportJson) hmExportJson.addEventListener("click", () => { console.log("Export JSON clicked"); });
-  if(hmQuickSave) hmQuickSave.addEventListener("click", () => { console.log("Quick Save clicked"); });
+  // Calendar editor now lives inside the Configure World modal
+  const openCalendarEditorBtn = document.getElementById("openCalendarEditorBtn") as HTMLButtonElement;
+  if (openCalendarEditorBtn) {
+    openCalendarEditorBtn.addEventListener("click", () => {
+      if ((window as any).openCalendarEditor) {
+        (window as any).openCalendarEditor();
+      }
+    });
+  }
 
   (window as any).getCurrentSetupConfig = getConfig;
 }
