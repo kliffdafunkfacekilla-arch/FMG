@@ -844,20 +844,28 @@ if (app) {
 
 	mountConfigurator("configuratorMount", (config) => runSimulation(config));
 
-	(window as any).runClimateRegen = (
-		tempEquator: number,
-		windsAngle: number,
-		precInput: number,
-	) => {
+	(window as any).runClimateRegen = (opts: {
+		equatorTemp: number;
+		polesTemp: number;
+		latN: number;
+		latT: number;
+		precInput: number;
+		winds: number[];
+	}) => {
 		const state = store.getState() as any;
 		if (!state.grid || !state.heights) return;
 
 		const climateOpts = {
-			temperatureEquator: tempEquator,
-			temperatureNorthPole: -30,
-			temperatureSouthPole: -15,
-			winds: [windsAngle, 45, 225, 315, 135, 315],
-			precInput: precInput,
+			temperatureEquator: opts.equatorTemp,
+			temperatureNorthPole: opts.polesTemp,
+			temperatureSouthPole: opts.polesTemp,
+			winds:
+				opts.winds && opts.winds.length === 6
+					? opts.winds
+					: [225, 45, 225, 315, 135, 315],
+			precInput: opts.precInput,
+			latN: opts.latN,
+			latT: opts.latT,
 		};
 
 		const { temp, prec } = generateClimate(

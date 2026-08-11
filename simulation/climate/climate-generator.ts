@@ -9,6 +9,8 @@ export interface ClimateOptions {
 	precInput: number; // 0-100 (e.g. 100)
 	seasonOffset?: number; // Values from -1.0 to 1.0 (e.g. -1 is deep winter, 1 is peak summer in northern hemisphere)
 	axialTilt?: number; // Tilt in degrees (e.g., 23.5 for Earth)
+	latN?: number; // Latitude of the map's northern (top) edge. Defaults to 34.
+	latT?: number; // Total latitude span the map covers (top to bottom). Defaults to 68.
 }
 
 function minmax(val: number, min: number, max: number): number {
@@ -40,8 +42,8 @@ export function generateClimate(
 	const exponent = 1.0; // default heightExponent
 
 	// 1. Calculate temperatures based on latitude and elevation
-	let latN = 34; // standard latitude North boundary from future data model
-	const latT = 68; // standard latitude span
+	let latN = options.latN ?? 34; // latitude of the map's northern (top) edge
+	const latT = options.latT ?? 68; // total latitude span the map covers
 
 	// Apply axial tilt and season offset to shift the apparent latitudes
 	if (options.seasonOffset !== undefined && options.axialTilt !== undefined) {
