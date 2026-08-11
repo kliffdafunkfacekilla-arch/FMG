@@ -1,10 +1,10 @@
 import { store } from "../state/store";
 
 export function mountBiomesEditor(containerId: string, onUpdate: () => void) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
+	const container = document.getElementById(containerId);
+	if (!container) return;
 
-  container.innerHTML = `
+	container.innerHTML = `
     <div id="biomesEditorPanel" style="display: none; background: rgba(30, 30, 38, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); padding: 1rem; border-radius: 12px; font-size: 0.85rem; color: #e2e8f0; width: 100%; box-sizing: border-box; box-shadow: 0 4px 15px rgba(0,0,0,0.5); margin-top: 0.5rem;">
       <h3 style="margin-top: 0; color: #10b981; border-bottom: 1px solid #333; padding-bottom: 0.25rem; display: flex; justify-content: space-between; align-items: center;">
         <span>Biomes Editor</span>
@@ -70,51 +70,94 @@ export function mountBiomesEditor(containerId: string, onUpdate: () => void) {
     </div>
   `;
 
-  const panel = document.getElementById("biomesEditorPanel") as HTMLDivElement;
-  const tableBody = document.getElementById("biomesTableBody") as HTMLTableSectionElement;
-  const closeBtn = document.getElementById("closeBiomesBtn") as HTMLSpanElement;
+	const panel = document.getElementById("biomesEditorPanel") as HTMLDivElement;
+	const tableBody = document.getElementById(
+		"biomesTableBody",
+	) as HTMLTableSectionElement;
+	const closeBtn = document.getElementById("closeBiomesBtn") as HTMLSpanElement;
 
-  const paintSelect = document.getElementById("biomePaintSelect") as HTMLSelectElement;
-  const editForm = document.getElementById("biomeEditForm") as HTMLDivElement;
-  const editTitle = document.getElementById("biomeEditTitle") as HTMLElement;
+	const paintSelect = document.getElementById(
+		"biomePaintSelect",
+	) as HTMLSelectElement;
+	const editForm = document.getElementById("biomeEditForm") as HTMLDivElement;
+	const editTitle = document.getElementById("biomeEditTitle") as HTMLElement;
 
-  const colorInput = document.getElementById("editBiomeColor") as HTMLInputElement;
-  const tempInput = document.getElementById("editBiomeTemp") as HTMLInputElement;
-  const moistInput = document.getElementById("editBiomeMoisture") as HTMLInputElement;
+	const colorInput = document.getElementById(
+		"editBiomeColor",
+	) as HTMLInputElement;
+	const tempInput = document.getElementById(
+		"editBiomeTemp",
+	) as HTMLInputElement;
+	const moistInput = document.getElementById(
+		"editBiomeMoisture",
+	) as HTMLInputElement;
 
-  const saveBtn = document.getElementById("saveBiomeBtn") as HTMLButtonElement;
-  const cancelBtn = document.getElementById("cancelBiomeBtn") as HTMLButtonElement;
+	const saveBtn = document.getElementById("saveBiomeBtn") as HTMLButtonElement;
+	const cancelBtn = document.getElementById(
+		"cancelBiomeBtn",
+	) as HTMLButtonElement;
 
-  let activeBiomeId: number | null = null;
+	let activeBiomeId: number | null = null;
 
-  const biomeNames = [
-    "Marine", "Hot desert", "Cold desert", "Savanna", "Grassland",
-    "Tropical seasonal forest", "Temperate deciduous forest", "Tropical rainforest",
-    "Temperate rainforest", "Taiga", "Tundra", "Glacier", "Wetland",
-    "Shallow Reef", "Kelp Forest", "Pelagic Zone", "Abyssal Plain",
-    "Oceanic Trench", "Chaos Land", "Chaos Water"
-  ];
+	const biomeNames = [
+		"Marine",
+		"Hot desert",
+		"Cold desert",
+		"Savanna",
+		"Grassland",
+		"Tropical seasonal forest",
+		"Temperate deciduous forest",
+		"Tropical rainforest",
+		"Temperate rainforest",
+		"Taiga",
+		"Tundra",
+		"Glacier",
+		"Wetland",
+		"Shallow Reef",
+		"Kelp Forest",
+		"Pelagic Zone",
+		"Abyssal Plain",
+		"Oceanic Trench",
+		"Chaos Land",
+		"Chaos Water",
+	];
 
-  // Default color map for reference or updates
-  const defaultColors = [
-    "#0077be", "#e6c280", "#b3d1ff", "#c2d68f", "#9bbb59",
-    "#4f81bd", "#8064a2", "#31859c", "#4bacc6", "#2c5234",
-    "#7f7f7f", "#ffffff", "#76b5c5", "#15b8a6", "#22c55e",
-    "#1d4ed8", "#172554", "#030712", "#ec4899", "#8b5cf6"
-  ];
+	// Default color map for reference or updates
+	const defaultColors = [
+		"#0077be",
+		"#e6c280",
+		"#b3d1ff",
+		"#c2d68f",
+		"#9bbb59",
+		"#4f81bd",
+		"#8064a2",
+		"#31859c",
+		"#4bacc6",
+		"#2c5234",
+		"#7f7f7f",
+		"#ffffff",
+		"#76b5c5",
+		"#15b8a6",
+		"#22c55e",
+		"#1d4ed8",
+		"#172554",
+		"#030712",
+		"#ec4899",
+		"#8b5cf6",
+	];
 
-  const closePanel = () => {
-    panel.style.display = "none";
-  };
-  closeBtn.addEventListener("click", closePanel);
+	const closePanel = () => {
+		panel.style.display = "none";
+	};
+	closeBtn.addEventListener("click", closePanel);
 
-  const renderBiomesTable = () => {
-    tableBody.innerHTML = "";
-    biomeNames.forEach((name, idx) => {
-      const color = defaultColors[idx] || "#ffffff";
-      const tr = document.createElement("tr");
-      tr.style.borderBottom = "1px solid #222";
-      tr.innerHTML = `
+	const renderBiomesTable = () => {
+		tableBody.innerHTML = "";
+		biomeNames.forEach((name, idx) => {
+			const color = defaultColors[idx] || "#ffffff";
+			const tr = document.createElement("tr");
+			tr.style.borderBottom = "1px solid #222";
+			tr.innerHTML = `
         <td style="padding: 0.4rem;">
           <div style="width: 14px; height: 14px; background: ${color}; border: 1px solid rgba(255,255,255,0.2); border-radius: 3px;"></div>
         </td>
@@ -123,48 +166,51 @@ export function mountBiomesEditor(containerId: string, onUpdate: () => void) {
           <button class="editSingleBiomeBtn" data-id="${idx}" style="background: #3b82f6; border: none; color: white; padding: 0.15rem 0.4rem; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">Edit</button>
         </td>
       `;
-      tableBody.appendChild(tr);
-    });
+			tableBody.appendChild(tr);
+		});
 
-    const editBtns = tableBody.querySelectorAll(".editSingleBiomeBtn");
-    editBtns.forEach(btn => {
-      btn.addEventListener("click", (e) => {
-        const id = parseInt((e.currentTarget as HTMLButtonElement).getAttribute("data-id") || "0", 10);
-        activeBiomeId = id;
-        editTitle.innerText = `Edit: ${biomeNames[id]}`;
-        colorInput.value = defaultColors[id] || "#ffffff";
-        tempInput.value = "15"; // fallback mid-value
-        moistInput.value = "50";
-        editForm.style.display = "flex";
-      });
-    });
-  };
+		const editBtns = tableBody.querySelectorAll(".editSingleBiomeBtn");
+		editBtns.forEach((btn) => {
+			btn.addEventListener("click", (e) => {
+				const id = parseInt(
+					(e.currentTarget as HTMLButtonElement).getAttribute("data-id") || "0",
+					10,
+				);
+				activeBiomeId = id;
+				editTitle.innerText = `Edit: ${biomeNames[id]}`;
+				colorInput.value = defaultColors[id] || "#ffffff";
+				tempInput.value = "15"; // fallback mid-value
+				moistInput.value = "50";
+				editForm.style.display = "flex";
+			});
+		});
+	};
 
-  saveBtn.addEventListener("click", () => {
-    if (activeBiomeId !== null) {
-      // Modify local color configurations
-      defaultColors[activeBiomeId] = colorInput.value;
-      editForm.style.display = "none";
-      renderBiomesTable();
-      onUpdate();
-    }
-  });
+	saveBtn.addEventListener("click", () => {
+		if (activeBiomeId !== null) {
+			// Modify local color configurations
+			defaultColors[activeBiomeId] = colorInput.value;
+			editForm.style.display = "none";
+			renderBiomesTable();
+			onUpdate();
+		}
+	});
 
-  cancelBtn.addEventListener("click", () => {
-    editForm.style.display = "none";
-  });
+	cancelBtn.addEventListener("click", () => {
+		editForm.style.display = "none";
+	});
 
-  // Export paint value retrieval globally
-  (window as any).getCurrentBiomePaintValue = (): number => {
-    return parseInt(paintSelect.value, 10);
-  };
+	// Export paint value retrieval globally
+	(window as any).getCurrentBiomePaintValue = (): number => {
+		return parseInt(paintSelect.value, 10);
+	};
 
-  (window as any).openBiomesEditor = () => {
-    renderBiomesTable();
-    panel.style.display = "block";
-    const win = window as any;
-    if (win.triggerLayerSelect) {
-      win.triggerLayerSelect("biomes"); // Auto shift map view to Biomes
-    }
-  };
+	(window as any).openBiomesEditor = () => {
+		renderBiomesTable();
+		panel.style.display = "block";
+		const win = window as any;
+		if (win.triggerLayerSelect) {
+			win.triggerLayerSelect("biomes"); // Auto shift map view to Biomes
+		}
+	};
 }

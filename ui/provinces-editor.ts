@@ -1,1 +1,3 @@
-export function mountProvincesEditor() { console.log("Mounted " + ed); }
+export function mountProvincesEditor() {
+	console.log("Mounted " + ed);
+}

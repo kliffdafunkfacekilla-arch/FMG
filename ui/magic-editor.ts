@@ -1,10 +1,10 @@
 import { store } from "../state/store";
 
 export function mountMagicEditor(containerId: string, onUpdate: () => void) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
+	const container = document.getElementById(containerId);
+	if (!container) return;
 
-  container.innerHTML = `
+	container.innerHTML = `
     <div id="magicEditorPanel" style="display: none; background: rgba(30, 30, 38, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); padding: 1rem; border-radius: 12px; font-size: 0.85rem; color: #e2e8f0; width: 100%; box-sizing: border-box; box-shadow: 0 4px 15px rgba(0,0,0,0.5); margin-top: 0.5rem;">
       <h3 style="margin-top: 0; color: #7c3aed; border-bottom: 1px solid #333; padding-bottom: 0.25rem; display: flex; justify-content: space-between; align-items: center;">
         <span>Magic & Ley Lines Editor</span>
@@ -61,36 +61,46 @@ export function mountMagicEditor(containerId: string, onUpdate: () => void) {
     </div>
   `;
 
-  const panel = document.getElementById("magicEditorPanel") as HTMLDivElement;
-  const tableBody = document.getElementById("magicTableBody") as HTMLTableSectionElement;
-  const closeBtn = document.getElementById("closeMagicBtn") as HTMLSpanElement;
+	const panel = document.getElementById("magicEditorPanel") as HTMLDivElement;
+	const tableBody = document.getElementById(
+		"magicTableBody",
+	) as HTMLTableSectionElement;
+	const closeBtn = document.getElementById("closeMagicBtn") as HTMLSpanElement;
 
-  const editForm = document.getElementById("magicEditForm") as HTMLDivElement;
-  const editTitle = document.getElementById("magicEditTitle") as HTMLElement;
-  const wieldSelect = document.getElementById("editMagicWield") as HTMLSelectElement;
-  const costInput = document.getElementById("editMagicCost") as HTMLInputElement;
-  const ratioInput = document.getElementById("editMagicRatio") as HTMLInputElement;
-  const leySlider = document.getElementById("editLeyBoost") as HTMLInputElement;
+	const editForm = document.getElementById("magicEditForm") as HTMLDivElement;
+	const editTitle = document.getElementById("magicEditTitle") as HTMLElement;
+	const wieldSelect = document.getElementById(
+		"editMagicWield",
+	) as HTMLSelectElement;
+	const costInput = document.getElementById(
+		"editMagicCost",
+	) as HTMLInputElement;
+	const ratioInput = document.getElementById(
+		"editMagicRatio",
+	) as HTMLInputElement;
+	const leySlider = document.getElementById("editLeyBoost") as HTMLInputElement;
 
-  const saveBtn = document.getElementById("saveMagicBtn") as HTMLButtonElement;
-  const cancelBtn = document.getElementById("cancelMagicBtn") as HTMLButtonElement;
+	const saveBtn = document.getElementById("saveMagicBtn") as HTMLButtonElement;
+	const cancelBtn = document.getElementById(
+		"cancelMagicBtn",
+	) as HTMLButtonElement;
 
-  let activeIndex: number | null = null;
+	let activeIndex: number | null = null;
 
-  const closePanel = () => {
-    panel.style.display = "none";
-  };
-  closeBtn.addEventListener("click", closePanel);
+	const closePanel = () => {
+		panel.style.display = "none";
+	};
+	closeBtn.addEventListener("click", closePanel);
 
-  const renderMagicTable = () => {
-    const state = store.getState() as any;
-    const types = state.magicTypes || [];
+	const renderMagicTable = () => {
+		const state = store.getState() as any;
+		const types = state.magicTypes || [];
 
-    tableBody.innerHTML = "";
-    types.forEach((t: any, idx: number) => {
-      const tr = document.createElement("tr");
-      tr.style.borderBottom = "1px solid #222";
-      tr.innerHTML = `
+		tableBody.innerHTML = "";
+		types.forEach((t: any, idx: number) => {
+			const tr = document.createElement("tr");
+			tr.style.borderBottom = "1px solid #222";
+			tr.innerHTML = `
         <td style="padding: 0.4rem; color: #fff; font-weight: bold;">${t.name}</td>
         <td style="padding: 0.4rem; color: #94a3b8;">${t.wieldability}</td>
         <td style="padding: 0.4rem; color: #22c55e;">${(t.rarity * 100).toFixed(2)}%</td>
@@ -99,50 +109,54 @@ export function mountMagicEditor(containerId: string, onUpdate: () => void) {
           <button class="editSingleMagicBtn" data-idx="${idx}" style="background: #3b82f6; border: none; color: white; padding: 0.15rem 0.4rem; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">Edit</button>
         </td>
       `;
-      tableBody.appendChild(tr);
-    });
+			tableBody.appendChild(tr);
+		});
 
-    const editBtns = tableBody.querySelectorAll(".editSingleMagicBtn");
-    editBtns.forEach(btn => {
-      btn.addEventListener("click", (e) => {
-        const idx = parseInt((e.currentTarget as HTMLButtonElement).getAttribute("data-idx") || "0", 10);
-        activeIndex = idx;
-        const t = types[idx];
-        if (t) {
-          editTitle.innerText = `Edit: ${t.name}`;
-          wieldSelect.value = t.wieldability;
-          costInput.value = String(t.cost);
-          ratioInput.value = String(t.rarity * 100);
-          leySlider.value = "2.0"; // default placeholder
-          editForm.style.display = "flex";
-        }
-      });
-    });
-  };
+		const editBtns = tableBody.querySelectorAll(".editSingleMagicBtn");
+		editBtns.forEach((btn) => {
+			btn.addEventListener("click", (e) => {
+				const idx = parseInt(
+					(e.currentTarget as HTMLButtonElement).getAttribute("data-idx") ||
+						"0",
+					10,
+				);
+				activeIndex = idx;
+				const t = types[idx];
+				if (t) {
+					editTitle.innerText = `Edit: ${t.name}`;
+					wieldSelect.value = t.wieldability;
+					costInput.value = String(t.cost);
+					ratioInput.value = String(t.rarity * 100);
+					leySlider.value = "2.0"; // default placeholder
+					editForm.style.display = "flex";
+				}
+			});
+		});
+	};
 
-  saveBtn.addEventListener("click", () => {
-    if (activeIndex !== null) {
-      const state = store.getState() as any;
-      const types = [...(state.magicTypes || [])];
-      if (types[activeIndex]) {
-        types[activeIndex].wieldability = wieldSelect.value as any;
-        types[activeIndex].cost = parseInt(costInput.value, 10);
-        types[activeIndex].rarity = parseFloat(ratioInput.value) / 100;
-        store.updateState({ magicTypes: types });
-      }
-      activeIndex = null;
-      editForm.style.display = "none";
-      renderMagicTable();
-      onUpdate();
-    }
-  });
+	saveBtn.addEventListener("click", () => {
+		if (activeIndex !== null) {
+			const state = store.getState() as any;
+			const types = [...(state.magicTypes || [])];
+			if (types[activeIndex]) {
+				types[activeIndex].wieldability = wieldSelect.value as any;
+				types[activeIndex].cost = parseInt(costInput.value, 10);
+				types[activeIndex].rarity = parseFloat(ratioInput.value) / 100;
+				store.updateState({ magicTypes: types });
+			}
+			activeIndex = null;
+			editForm.style.display = "none";
+			renderMagicTable();
+			onUpdate();
+		}
+	});
 
-  cancelBtn.addEventListener("click", () => {
-    editForm.style.display = "none";
-  });
+	cancelBtn.addEventListener("click", () => {
+		editForm.style.display = "none";
+	});
 
-  (window as any).openMagicEditor = () => {
-    renderMagicTable();
-    panel.style.display = "block";
-  };
+	(window as any).openMagicEditor = () => {
+		renderMagicTable();
+		panel.style.display = "block";
+	};
 }

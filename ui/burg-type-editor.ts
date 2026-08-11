@@ -1,13 +1,13 @@
 export interface BurgType {
-  name: string;
-  popMultiplier: number;
+	name: string;
+	popMultiplier: number;
 }
 
 export function mountBurgTypeEditor(containerId: string) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
+	const container = document.getElementById(containerId);
+	if (!container) return;
 
-  container.innerHTML = `
+	container.innerHTML = `
     <div style="background: rgba(30, 30, 38, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); padding: 1rem; border-radius: 12px; font-size: 0.85rem; color: #e2e8f0; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 0.6rem;">
       <h3 style="margin-top: 0; color: #ec4899; border-bottom: 1px solid #333; padding-bottom: 0.25rem;">Burg Types & Buildings</h3>
       

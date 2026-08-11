@@ -1,39 +1,97 @@
-import { store } from "../state/store";
-
 export interface SetupConfig {
-  canvasWidth: number;
-  canvasHeight: number;
-  seed: string;
-  cellsCount: number;
-  mapName: string;
-  year: number;
-  era: string;
-  heightmapType: string;
-  culturesCount: number;
-  statesCount: number;
-  provincesRatio: number;
-  sizeVariety: number;
-  growthRate: number;
-  townsCount: number;
-  religionsCount: number;
-  tempEquator: number;
-  windsAngle: number;
-  precipitationInput: number;
-  distanceUnit: string;
+	canvasWidth: number;
+	canvasHeight: number;
+	seed: string;
+	cellsCount: number;
+	mapName: string;
+	year: number;
+	era: string;
+	heightmapType: string;
+	culturesCount: number;
+	statesCount: number;
+	provincesRatio: number;
+	sizeVariety: number;
+	growthRate: number;
+	townsCount: number;
+	religionsCount: number;
+	tempEquator: number;
+	windsAngle: number;
+	precipitationInput: number;
+	distanceUnit: string;
 }
 
-export function mountConfigurator(containerId: string, onConfigChange: (config: SetupConfig) => void) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
+// Default winds for the 6 latitude tiers (N pole -> S pole), matching the
+// climate generator's expectation.
+const DEFAULT_WINDS = [225, 45, 225, 315, 135, 315];
 
-  container.innerHTML = `
+// Base map scale used for the info block. Kilometers covered by a single
+// canvas pixel; converted to the selected distance unit at display time.
+const KM_PER_PIXEL = 0.61;
+const EARTH_MERIDIAN_KM = 20004; // pole-to-pole meridian length
+
+interface DistanceUnitInfo {
+	label: string;
+	perKm: number;
+}
+const DISTANCE_UNITS: Record<string, DistanceUnitInfo> = {
+	miles: { label: "mi", perKm: 0.621371 },
+	kms: { label: "km", perKm: 1 },
+	leagues: { label: "lg", perKm: 0.207123 },
+};
+
+/** Compute the latitude window (top edge, span, bottom edge) for the globe. */
+function computeLatitudeWindow(mapSizePercent: number, latitudePercent: number) {
+	const latT = (mapSizePercent / 100) * 180;
+	const latN = 90 - (180 - latT) * (latitudePercent / 100);
+	const latS = latN - latT;
+	return { latN, latT, latS };
+}
+
+/** Sea-level temperature (°C) at a given latitude, mirroring the climate model. */
+function temperatureAtLatitude(
+	lat: number,
+	equatorTemp: number,
+	polesTemp: number,
+): number {
+	const tropics = [16, -20];
+	const tropicalGradient = 0.15;
+	const tempNorthTropic = equatorTemp - tropics[0] * tropicalGradient;
+	const tempSouthTropic = equatorTemp + tropics[1] * tropicalGradient;
+	const northernGradient = (tempNorthTropic - polesTemp) / (90 - tropics[0]);
+	const southernGradient = (tempSouthTropic - polesTemp) / (90 + tropics[1]);
+
+	if (lat <= 16 && lat >= -20) {
+		return equatorTemp - Math.abs(lat) * tropicalGradient;
+	}
+	return lat > 0
+		? tempNorthTropic - (lat - tropics[0]) * northernGradient
+		: tempSouthTropic + (lat - tropics[1]) * southernGradient;
+}
+
+/** Map a temperature (°C) to a rainbow color (hot = red, cold = violet). */
+function temperatureColor(temp: number): string {
+	const minT = -25;
+	const maxT = 32;
+	const norm = Math.min(Math.max((temp - minT) / (maxT - minT), 0), 1);
+	const hue = (1 - norm) * 275; // 0 = red (hot), 275 = violet (cold)
+	return `hsl(${hue.toFixed(0)}, 78%, 52%)`;
+}
+
+export function mountConfigurator(
+	containerId: string,
+	onConfigChange: (config: SetupConfig) => void,
+) {
+	const container = document.getElementById(containerId);
+	if (!container) return;
+
+	container.innerHTML = `
     <div id="configPanel" style="background: rgba(30, 30, 38, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); padding: 0.8rem; border-radius: 12px; font-size: 0.82rem; color: #e2e8f0; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 0.6rem;">
-      
+
       <!-- 1. MAP SETTINGS -->
       <details open style="border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.5rem;">
         <summary style="font-weight: bold; color: #fbbf24; cursor: pointer; user-select: none; font-size: 0.88rem;">1. Map Settings</summary>
         <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.4rem;">
-          
+
           <!-- Canvas Size -->
           <div style="display: flex; gap: 0.4rem;">
             <div style="flex: 1;">
@@ -51,7 +109,7 @@ export function mountConfigurator(containerId: string, onConfigChange: (config: 
             <div style="flex: 1; display: flex; flex-direction: column;">
               <label style="display: flex; justify-content: space-between; color: #94a3b8; font-size: 0.75rem;">
                 <span>Map Seed:</span>
-                <button id="seedHistoryBtn" style="background: none; border: none; color: #a855f7; cursor: pointer; font-size: 0.75rem; padding: 0;">History 🕒</button>
+                <button id="seedHistoryBtn" style="background: none; border: none; color: #60a5fa; cursor: pointer; font-size: 0.75rem; padding: 0;">History</button>
               </label>
               <input id="mapSeed" type="text" value="seed-12345" style="width: 100%; padding: 0.2rem; background: #0f0f12; border: 1px solid #444; color: white; border-radius: 4px;" />
             </div>
@@ -136,259 +194,471 @@ export function mountConfigurator(containerId: string, onConfigChange: (config: 
             <input id="numReligions" type="number" min="0" max="50" value="5" style="width: 100%; padding: 0.2rem; background: #0f0f12; border: 1px solid #444; color: white; border-radius: 4px;" />
           </div>
 
-          <button id="regenNewMapBtn" style="background: linear-gradient(135deg, #2563eb, #3b82f6); border: none; padding: 0.35rem; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.75rem; width: 100%; margin-top: 0.2rem;">
-            🎲 Generate New Map
+          <button id="regenNewMapBtn" style="background: #3b82f6; border: none; padding: 0.35rem; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.75rem; width: 100%; margin-top: 0.2rem;">
+            Generate New Map
           </button>
         </div>
       </details>
 
-      <!-- 2. GENERATOR SETTINGS & UNITS -->
-      <details style="border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.5rem;">
-        <summary style="font-weight: bold; color: #10b981; cursor: pointer; user-select: none; font-size: 0.88rem;">2. Options & Units</summary>
-        <div style="display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.4rem;">
-          <div style="display: flex; align-items: center; justify-content: space-between;">
-            <label style="color: #94a3b8; font-size: 0.75rem;">Distance Unit:</label>
-            <select id="distanceUnit" style="padding: 0.2rem; background: #0f0f12; border: 1px solid #444; color: white; border-radius: 4px;">
-              <option value="miles">Miles</option>
-              <option value="kms" selected>Kilometers</option>
-              <option value="leagues">Leagues</option>
-            </select>
-          </div>
-          <div style="display: flex; align-items: center; justify-content: space-between;">
-            <span>Show Menu on Load:</span>
-            <input id="chkShowMenu" type="checkbox" checked style="cursor: pointer;" />
-          </div>
-          <div style="display: flex; align-items: center; justify-content: space-between;">
-            <span>Auto-adjust Zoom:</span>
-            <input id="chkAutoZoom" type="checkbox" checked style="cursor: pointer;" />
-          </div>
-        </div>
-      </details>
-
-      <!-- 3. CONFIGURE WORLD (CLIMATE POPUP TRIGGER) -->
+      <!-- 2. CONFIGURE WORLD (CLIMATE / UNITS / CALENDAR POPUP TRIGGER) -->
       <div style="border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.5rem; display: flex; flex-direction: column; gap: 0.4rem;">
-        <label style="font-weight: bold; color: #a855f7; font-size: 0.88rem;">3. Climate & Latitudes</label>
-        <button id="openClimateBtn" style="width: 100%; text-align: left; background: #9333ea; border: none; color: white; padding: 0.35rem 0.6rem; cursor: pointer; font-weight: bold; font-size: 0.8rem; border-radius: 4px;">🌍 Configure World (Climate)</button>
+        <label style="font-weight: bold; color: #fbbf24; font-size: 0.88rem;">2. Configure World</label>
+        <button id="openClimateBtn" style="width: 100%; text-align: left; background: #3b82f6; border: none; color: white; padding: 0.35rem 0.6rem; cursor: pointer; font-weight: bold; font-size: 0.8rem; border-radius: 4px;">Configure World</button>
       </div>
 
-      <!-- Climate Popup Modal -->
-      <div id="climatePopupModal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 9999; background: rgba(20, 20, 25, 0.98); backdrop-filter: blur(15px); border: 1px solid rgba(255, 255, 255, 0.15); padding: 1.2rem; border-radius: 12px; font-size: 0.85rem; color: #e2e8f0; width: 300px; box-shadow: 0 15px 40px rgba(0,0,0,0.6); flex-direction: column; gap: 0.8rem; pointer-events: auto;">
-        <h3 style="margin-top: 0; color: #a855f7; border-bottom: 1px solid #333; padding-bottom: 0.25rem; display: flex; justify-content: space-between; align-items: center; font-size: 0.95rem;">
-          <span>Configure World Climate</span>
-          <span id="closeClimateModalBtn" style="cursor: pointer; color: #94a3b8; font-size: 1.2rem;">&times;</span>
+      <!-- Configure World Modal -->
+      <div id="climatePopupModal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 9999; background: rgba(20, 20, 25, 0.98); backdrop-filter: blur(15px); border: 1px solid rgba(255, 255, 255, 0.15); padding: 1.2rem; border-radius: 12px; font-size: 0.85rem; color: #e2e8f0; width: 660px; max-width: 94vw; max-height: 92vh; overflow-y: auto; box-shadow: 0 15px 40px rgba(0,0,0,0.6); flex-direction: column; gap: 0.8rem; pointer-events: auto;">
+        <h3 style="margin: 0; color: #fbbf24; border-bottom: 1px solid #333; padding-bottom: 0.4rem; display: flex; justify-content: space-between; align-items: center; font-size: 1rem;">
+          <span>Configure World</span>
+          <span id="closeClimateModalBtn" style="cursor: pointer; color: #94a3b8; font-size: 1.3rem; line-height: 1;">&times;</span>
         </h3>
-        
-        <div>
-          <label style="display: flex; justify-content: space-between; color: #cbd5e1; font-size: 0.75rem;">
-            <span>Globe Position (Latitudes):</span>
-            <span id="lblLatitudes" style="font-weight: bold; color: #a855f7;">0° - 100°</span>
-          </label>
-          <div style="display: flex; gap: 0.2rem;">
-            <input id="slideLatNorth" type="range" min="-90" max="90" value="90" style="width: 50%; cursor: pointer;" />
-            <input id="slideLatSouth" type="range" min="-90" max="90" value="-10" style="width: 50%; cursor: pointer;" />
+
+        <div style="display: flex; gap: 1.2rem; flex-wrap: wrap;">
+          <!-- LEFT: CONTROLS -->
+          <div style="flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: 0.7rem;">
+
+            <div>
+              <label style="display: flex; justify-content: space-between; color: #cbd5e1; font-size: 0.78rem;">
+                <span>Equator temperature:</span>
+                <span id="lblEquator" style="font-weight: bold; color: #60a5fa;"></span>
+              </label>
+              <input id="cfgEquator" type="range" min="-5" max="40" value="27" style="width: 100%; cursor: pointer;" />
+            </div>
+
+            <div>
+              <label style="display: flex; justify-content: space-between; color: #cbd5e1; font-size: 0.78rem;">
+                <span>Poles temperature:</span>
+                <span id="lblPoles" style="font-weight: bold; color: #60a5fa;"></span>
+              </label>
+              <input id="cfgPoles" type="range" min="-40" max="20" value="-25" style="width: 100%; cursor: pointer;" />
+            </div>
+
+            <div>
+              <label style="display: flex; justify-content: space-between; color: #cbd5e1; font-size: 0.78rem;">
+                <span>Map size:</span>
+                <span id="lblMapSize" style="font-weight: bold; color: #60a5fa;"></span>
+              </label>
+              <input id="cfgMapSize" type="range" min="1" max="100" value="68" style="width: 100%; cursor: pointer;" />
+            </div>
+
+            <div>
+              <label style="display: flex; justify-content: space-between; color: #cbd5e1; font-size: 0.78rem;">
+                <span>Latitude (N&mdash;S):</span>
+                <span id="lblLatitude" style="font-weight: bold; color: #60a5fa;"></span>
+              </label>
+              <input id="cfgLatitude" type="range" min="0" max="100" value="31" style="width: 100%; cursor: pointer;" />
+            </div>
+
+            <div>
+              <label style="display: flex; justify-content: space-between; color: #cbd5e1; font-size: 0.78rem;">
+                <span>Precipitation:</span>
+                <span id="lblPrec" style="font-weight: bold; color: #60a5fa;"></span>
+              </label>
+              <input id="cfgPrec" type="range" min="0" max="200" value="100" style="width: 100%; cursor: pointer;" />
+            </div>
+
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <label style="color: #cbd5e1; font-size: 0.78rem;">Distance unit:</label>
+              <select id="distanceUnit" style="padding: 0.2rem; background: #0f0f12; border: 1px solid #444; color: white; border-radius: 4px;">
+                <option value="miles">Miles</option>
+                <option value="kms" selected>Kilometers</option>
+                <option value="leagues">Leagues</option>
+              </select>
+            </div>
+
+            <div id="worldInfoBlock" style="border-top: 1px solid #333; padding-top: 0.5rem; color: #94a3b8; font-size: 0.74rem; line-height: 1.5;"></div>
+          </div>
+
+          <!-- RIGHT: GLOBE -->
+          <div style="flex: 0 0 auto; display: flex; align-items: flex-start; justify-content: center;">
+            <svg id="worldGlobe" width="300" height="300" viewBox="0 0 320 300" role="img" aria-label="World climate globe preview"></svg>
           </div>
         </div>
 
-        <div>
-          <label style="display: flex; justify-content: space-between; color: #cbd5e1; font-size: 0.75rem;">
-            <span>Equator Temperature (°C):</span>
-            <span id="lblTemp" style="font-weight: bold; color: #a855f7;">28</span>
-          </label>
-          <input id="slideTemp" type="range" min="15" max="40" value="28" style="width: 100%; cursor: pointer;" />
+        <!-- PRESET BUTTONS -->
+        <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; border-top: 1px solid #333; padding-top: 0.7rem;">
+          <button class="worldPresetBtn" data-preset="whole" style="flex: 1; min-width: 90px; background: #3b82f6; border: none; color: white; padding: 0.4rem; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.75rem;">Whole World</button>
+          <button class="worldPresetBtn" data-preset="northern" style="flex: 1; min-width: 90px; background: #3b82f6; border: none; color: white; padding: 0.4rem; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.75rem;">Northern</button>
+          <button class="worldPresetBtn" data-preset="tropical" style="flex: 1; min-width: 90px; background: #3b82f6; border: none; color: white; padding: 0.4rem; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.75rem;">Tropical</button>
+          <button class="worldPresetBtn" data-preset="southern" style="flex: 1; min-width: 90px; background: #3b82f6; border: none; color: white; padding: 0.4rem; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.75rem;">Southern</button>
+          <button class="worldPresetBtn" data-preset="winds" style="flex: 1; min-width: 90px; background: #3b82f6; border: none; color: white; padding: 0.4rem; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.75rem;">Restore Winds</button>
         </div>
 
-        <div>
-          <label style="display: flex; justify-content: space-between; color: #cbd5e1; font-size: 0.75rem;">
-            <span>Wind Angle (Direction °):</span>
-            <span id="lblWind" style="font-weight: bold; color: #a855f7;">225</span>
-          </label>
-          <input id="slideWind" type="range" min="0" max="360" value="225" style="width: 100%; cursor: pointer;" />
-        </div>
+        <button id="openCalendarEditorBtn" style="width: 100%; text-align: left; background: #3b82f6; border: none; color: white; padding: 0.5rem 0.6rem; cursor: pointer; font-weight: bold; font-size: 0.8rem; border-radius: 6px;">Config Custom Calendar</button>
 
-        <div>
-          <label style="display: flex; justify-content: space-between; color: #cbd5e1; font-size: 0.75rem;">
-            <span>Precipitation (0-200%):</span>
-            <span id="lblPrec" style="font-weight: bold; color: #a855f7;">100%</span>
-          </label>
-          <input id="slidePrec" type="range" min="0" max="200" value="100" style="width: 100%; cursor: pointer;" />
-        </div>
-
-        <button id="updateClimateBtn" style="background: linear-gradient(135deg, #9333ea, #a855f7); border: none; padding: 0.5rem; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.8rem; width: 100%; margin-top: 0.2rem;">
-          🔄 Update Map Climate
+        <button id="updateClimateBtn" style="background: #3b82f6; border: none; padding: 0.55rem; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.82rem; width: 100%;">
+          Update Map Climate
         </button>
       </div>
 
-      <!-- 4. RESTORE DEFAULTS -->
-      <button id="restoreDefaultsBtn" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239,68,68,0.3); color: #f87171; padding: 0.35rem; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.75rem; width: 100%;">
-        ⚠️ Restore Options Defaults
-      </button>
-
-      <!-- 5. BOTTOM BAR GLOBAL CONTROLS -->
-      <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 0.5rem; display: flex; flex-direction: column; gap: 0.3rem;">
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.3rem;">
-          <button id="hmSaveMap" style="background: #10b981; border: none; color: white; padding: 0.3rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.7rem;">💾 Save .map</button>
-          <button id="hmLoadMap" style="background: #eab308; border: none; color: white; padding: 0.3rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.7rem;">📂 Load .map</button>
-        </div>
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.3rem;">
-          <button id="hmExportPng" style="background: #3b82f6; border: none; color: white; padding: 0.3rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.7rem;">🖼️ .png</button>
-          <button id="hmExportSvg" style="background: #f97316; border: none; color: white; padding: 0.3rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.7rem;">📐 .svg</button>
-          <button id="hmExportJson" style="background: #6366f1; border: none; color: white; padding: 0.3rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.7rem;">{ } .json</button>
-        </div>
-        <button id="hmQuickSave" style="background: #8b5cf6; border: none; color: white; padding: 0.3rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.7rem;">⚡ Quick Save</button>
-      </div>
     </div>
   `;
 
-  // Get inputs
-  const canvasWidth = document.getElementById("canvasWidth") as HTMLInputElement;
-  const canvasHeight = document.getElementById("canvasHeight") as HTMLInputElement;
-  const mapSeed = document.getElementById("mapSeed") as HTMLInputElement;
-  const pointsCountSlider = document.getElementById("pointsCountSlider") as HTMLInputElement;
-  const lblPointsCount = document.getElementById("lblPointsCount") as HTMLSpanElement;
-  const mapName = document.getElementById("mapName") as HTMLInputElement;
-  const mapYear = document.getElementById("mapYear") as HTMLInputElement;
-  const mapEra = document.getElementById("mapEra") as HTMLInputElement;
-  const heightmapType = document.getElementById("heightmapType") as HTMLSelectElement;
-  const numCultures = document.getElementById("numCultures") as HTMLInputElement;
-  const numStates = document.getElementById("numStates") as HTMLInputElement;
-  const numProvinces = document.getElementById("numProvinces") as HTMLInputElement;
-  const sizeVariety = document.getElementById("sizeVariety") as HTMLInputElement;
-  const growthRate = document.getElementById("growthRate") as HTMLInputElement;
-  const townsCount = document.getElementById("townsCount") as HTMLInputElement;
-  const numReligions = document.getElementById("numReligions") as HTMLInputElement;
-  const distanceUnit = document.getElementById("distanceUnit") as HTMLSelectElement;
+	// --- Map Settings inputs ---
+	const canvasWidth = document.getElementById(
+		"canvasWidth",
+	) as HTMLInputElement;
+	const canvasHeight = document.getElementById(
+		"canvasHeight",
+	) as HTMLInputElement;
+	const mapSeed = document.getElementById("mapSeed") as HTMLInputElement;
+	const pointsCountSlider = document.getElementById(
+		"pointsCountSlider",
+	) as HTMLInputElement;
+	const lblPointsCount = document.getElementById(
+		"lblPointsCount",
+	) as HTMLSpanElement;
+	const mapName = document.getElementById("mapName") as HTMLInputElement;
+	const mapYear = document.getElementById("mapYear") as HTMLInputElement;
+	const mapEra = document.getElementById("mapEra") as HTMLInputElement;
+	const heightmapType = document.getElementById(
+		"heightmapType",
+	) as HTMLSelectElement;
+	const numCultures = document.getElementById(
+		"numCultures",
+	) as HTMLInputElement;
+	const numStates = document.getElementById("numStates") as HTMLInputElement;
+	const numProvinces = document.getElementById(
+		"numProvinces",
+	) as HTMLInputElement;
+	const sizeVariety = document.getElementById(
+		"sizeVariety",
+	) as HTMLInputElement;
+	const growthRate = document.getElementById("growthRate") as HTMLInputElement;
+	const townsCount = document.getElementById("townsCount") as HTMLInputElement;
+	const numReligions = document.getElementById(
+		"numReligions",
+	) as HTMLInputElement;
+	const distanceUnit = document.getElementById(
+		"distanceUnit",
+	) as HTMLSelectElement;
 
-  const slideLatNorth = document.getElementById("slideLatNorth") as HTMLInputElement;
-  const slideLatSouth = document.getElementById("slideLatSouth") as HTMLInputElement;
-  const lblLatitudes = document.getElementById("lblLatitudes") as HTMLSpanElement;
-  const slideTemp = document.getElementById("slideTemp") as HTMLInputElement;
-  const lblTemp = document.getElementById("lblTemp") as HTMLSpanElement;
-  const slideWind = document.getElementById("slideWind") as HTMLInputElement;
-  const lblWind = document.getElementById("lblWind") as HTMLSpanElement;
-  const slidePrec = document.getElementById("slidePrec") as HTMLInputElement;
-  const lblPrec = document.getElementById("lblPrec") as HTMLSpanElement;
+	// --- Configure World inputs ---
+	const cfgEquator = document.getElementById("cfgEquator") as HTMLInputElement;
+	const cfgPoles = document.getElementById("cfgPoles") as HTMLInputElement;
+	const cfgMapSize = document.getElementById("cfgMapSize") as HTMLInputElement;
+	const cfgLatitude = document.getElementById(
+		"cfgLatitude",
+	) as HTMLInputElement;
+	const cfgPrec = document.getElementById("cfgPrec") as HTMLInputElement;
+	const lblEquator = document.getElementById("lblEquator") as HTMLSpanElement;
+	const lblPoles = document.getElementById("lblPoles") as HTMLSpanElement;
+	const lblMapSize = document.getElementById("lblMapSize") as HTMLSpanElement;
+	const lblLatitude = document.getElementById("lblLatitude") as HTMLSpanElement;
+	const lblPrec = document.getElementById("lblPrec") as HTMLSpanElement;
+	const worldInfoBlock = document.getElementById(
+		"worldInfoBlock",
+	) as HTMLDivElement;
+	const globeSvg = document.getElementById(
+		"worldGlobe",
+	) as unknown as SVGSVGElement;
 
-  const regenBtn = document.getElementById("regenNewMapBtn") as HTMLButtonElement;
-  const updateClimateBtn = document.getElementById("updateClimateBtn") as HTMLButtonElement;
-  const restoreDefaultsBtn = document.getElementById("restoreDefaultsBtn") as HTMLButtonElement;
-  const seedHistoryBtn = document.getElementById("seedHistoryBtn") as HTMLButtonElement;
+	const regenBtn = document.getElementById(
+		"regenNewMapBtn",
+	) as HTMLButtonElement;
+	const updateClimateBtn = document.getElementById(
+		"updateClimateBtn",
+	) as HTMLButtonElement;
+	const seedHistoryBtn = document.getElementById(
+		"seedHistoryBtn",
+	) as HTMLButtonElement;
 
-  // Bottom buttons
-  const hmSaveMap = document.getElementById("hmSaveMap") as HTMLButtonElement;
-  const hmLoadMap = document.getElementById("hmLoadMap") as HTMLButtonElement;
-  const hmExportPng = document.getElementById("hmExportPng") as HTMLButtonElement;
-  const hmExportSvg = document.getElementById("hmExportSvg") as HTMLButtonElement;
-  const hmExportJson = document.getElementById("hmExportJson") as HTMLButtonElement;
-  const hmQuickSave = document.getElementById("hmQuickSave") as HTMLButtonElement;
+	// Mutable winds state (6 latitude tiers, N pole -> S pole).
+	let winds = [...DEFAULT_WINDS];
 
-  // Sliders display updating
-  if(pointsCountSlider) pointsCountSlider.addEventListener("input", () => { lblPointsCount.innerText = pointsCountSlider.value; });
-  const updateLatitudesLabel = () => { if(lblLatitudes) lblLatitudes.innerText = `${slideLatNorth.value}° - ${slideLatSouth.value}°`; };
-  if(slideLatNorth) slideLatNorth.addEventListener("input", updateLatitudesLabel);
-  if(slideLatSouth) slideLatSouth.addEventListener("input", updateLatitudesLabel);
-  slideTemp.addEventListener("input", () => { lblTemp.innerText = slideTemp.value; });
-  slideWind.addEventListener("input", () => { lblWind.innerText = slideWind.value; });
-  slidePrec.addEventListener("input", () => { lblPrec.innerText = slidePrec.value + "%"; });
+	// --- Globe + info rendering ---------------------------------------------
+	const R = 128;
+	const CX = 160;
+	const CY = 150;
+	const latToY = (lat: number) => CY - R * Math.sin((lat * Math.PI) / 180);
 
-  // Generate unique seed helper
-  const rollSeed = () => "map-" + Math.floor(Math.random() * 1000000);
-  mapSeed.value = rollSeed();
+	const renderGlobe = () => {
+		if (!globeSvg) return;
+		const equatorTemp = parseInt(cfgEquator.value, 10);
+		const polesTemp = parseInt(cfgPoles.value, 10);
+		const { latN, latS } = computeLatitudeWindow(
+			parseInt(cfgMapSize.value, 10),
+			parseInt(cfgLatitude.value, 10),
+		);
 
-  const getConfig = (): SetupConfig => ({
-    canvasWidth: parseInt(canvasWidth.value, 10) || window.innerWidth,
-    canvasHeight: parseInt(canvasHeight.value, 10) || window.innerHeight,
-    seed: mapSeed.value || rollSeed(),
-    cellsCount: parseInt(pointsCountSlider?.value, 10) || 10000,
-    mapName: mapName.value || "New World",
-    year: parseInt(mapYear.value, 10) || 100,
-    era: mapEra.value || "Common Era",
-    heightmapType: heightmapType.value,
-    culturesCount: parseInt(numCultures.value, 10) || 6,
-    statesCount: parseInt(numStates.value, 10) || 8,
-    provincesRatio: parseInt(numProvinces.value, 10) || 30,
-    sizeVariety: parseFloat(sizeVariety.value) || 1.5,
-    growthRate: parseFloat(growthRate.value) || 1.0,
-    townsCount: parseInt(townsCount.value, 10) || 30,
-    religionsCount: parseInt(numReligions.value, 10) || 5,
-    tempEquator: parseInt(slideTemp.value, 10),
-    windsAngle: parseInt(slideWind.value, 10),
-    precipitationInput: parseInt(slidePrec.value, 10),
-    distanceUnit: distanceUnit?.value || "kms"
-  });
+		const parts: string[] = [];
+		parts.push(
+			`<defs><clipPath id="globeClip"><circle cx="${CX}" cy="${CY}" r="${R}" /></clipPath></defs>`,
+		);
 
-  // Action listeners
-  const openClimateBtn = document.getElementById("openClimateBtn") as HTMLButtonElement;
-  const climatePopup = document.getElementById("climatePopupModal") as HTMLDivElement;
-  const closeClimateBtn = document.getElementById("closeClimateModalBtn") as HTMLSpanElement;
+		// Temperature bands (clipped to the globe circle).
+		parts.push(`<g clip-path="url(#globeClip)">`);
+		const step = 2;
+		for (let lat = 90; lat > -90; lat -= step) {
+			const y0 = latToY(lat);
+			const y1 = latToY(lat - step);
+			const midTemp = temperatureAtLatitude(
+				lat - step / 2,
+				equatorTemp,
+				polesTemp,
+			);
+			parts.push(
+				`<rect x="${CX - R}" y="${y0.toFixed(2)}" width="${2 * R}" height="${(y1 - y0 + 0.6).toFixed(2)}" fill="${temperatureColor(midTemp)}" />`,
+			);
+		}
+		// Map latitude window highlight.
+		const winTop = latToY(latN);
+		const winBottom = latToY(latS);
+		parts.push(
+			`<rect x="${CX - R}" y="${winTop.toFixed(2)}" width="${2 * R}" height="${(winBottom - winTop).toFixed(2)}" fill="none" stroke="#111" stroke-width="2.5" />`,
+		);
+		parts.push(`</g>`);
 
-  if (openClimateBtn && climatePopup) {
-    openClimateBtn.addEventListener("click", () => {
-      climatePopup.style.display = "flex";
-    });
-  }
+		// Globe outline.
+		parts.push(
+			`<circle cx="${CX}" cy="${CY}" r="${R}" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="1.5" />`,
+		);
 
-  if (closeClimateBtn && climatePopup) {
-    closeClimateBtn.addEventListener("click", () => {
-      climatePopup.style.display = "none";
-    });
-  }
+		// Latitude gridlines + labels.
+		for (const lat of [90, 60, 30, 0, -30, -60, -90]) {
+			const y = latToY(lat);
+			const half = R * Math.cos((lat * Math.PI) / 180);
+			parts.push(
+				`<line x1="${CX - half}" y1="${y.toFixed(2)}" x2="${CX + half}" y2="${y.toFixed(2)}" stroke="rgba(255,255,255,0.25)" stroke-width="1" stroke-dasharray="3 3" />`,
+			);
+			parts.push(
+				`<text x="6" y="${(y + 4).toFixed(2)}" fill="#cbd5e1" font-size="11" font-family="sans-serif">${Math.abs(lat)}&#176;</text>`,
+			);
+		}
 
-  regenBtn.addEventListener("click", () => {
-    onConfigChange(getConfig());
-  });
+		// Wind arrows: 6 tiers centered at 75,45,15,-15,-45,-75.
+		const tierCenters = [75, 45, 15, -15, -45, -75];
+		const ax = CX + R + 16;
+		tierCenters.forEach((lat, tier) => {
+			const y = latToY(lat);
+			const angle = winds[tier] ?? 0;
+			// Draw an arrow pointing toward the wind's heading; rotate around origin.
+			parts.push(
+				`<g class="windArrow" data-tier="${tier}" transform="rotate(${angle}, ${ax}, ${y.toFixed(2)})" style="cursor: pointer;">
+          <line x1="${ax}" y1="${(y + 8).toFixed(2)}" x2="${ax}" y2="${(y - 8).toFixed(2)}" stroke="#f8fafc" stroke-width="2" />
+          <path d="M ${ax - 4} ${(y - 3).toFixed(2)} L ${ax} ${(y - 9).toFixed(2)} L ${ax + 4} ${(y - 3).toFixed(2)}" fill="none" stroke="#f8fafc" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+        </g>`,
+			);
+		});
+		// "wind" caption top-right.
+		parts.push(
+			`<text x="${ax - 12}" y="18" fill="#94a3b8" font-size="11" font-style="italic" font-family="sans-serif">wind</text>`,
+		);
 
-  updateClimateBtn.addEventListener("click", () => {
-    const win = window as any;
-    if (win.runClimateRegen) {
-      win.runClimateRegen(parseInt(slideTemp.value, 10), parseInt(slideWind.value, 10), parseInt(slidePrec.value, 10));
-    }
-    if (climatePopup) {
-      climatePopup.style.display = "none";
-    }
-  });
+		globeSvg.innerHTML = parts.join("");
 
-  restoreDefaultsBtn.addEventListener("click", () => {
-    // Reset inputs
-    canvasWidth.value = "1000";
-    canvasHeight.value = "650";
-    mapSeed.value = rollSeed();
-    if(pointsCountSlider) pointsCountSlider.value = "10000";
-    if(lblPointsCount) lblPointsCount.innerText = "10000";
-    mapName.value = "Default World";
-    mapYear.value = "100";
-    mapEra.value = "Common Era";
-    heightmapType.value = "Continents";
-    numCultures.value = "6";
-    numStates.value = "8";
-    numProvinces.value = "30";
-    sizeVariety.value = "1.5";
-    growthRate.value = "1.0";
-    townsCount.value = "30";
-    numReligions.value = "5";
+		// Clicking a wind arrow rotates that tier by 45°.
+		globeSvg.querySelectorAll(".windArrow").forEach((el) => {
+			el.addEventListener("click", () => {
+				const tier = parseInt(el.getAttribute("data-tier") || "0", 10);
+				winds[tier] = (winds[tier] + 45) % 360;
+				renderGlobe();
+			});
+		});
+	};
 
-    slideTemp.value = "28";
-    slideWind.value = "225";
-    slidePrec.value = "100";
+	const cToF = (c: number) => Math.round((c * 9) / 5 + 32);
 
-    lblTemp.innerText = "28";
-    lblWind.innerText = "225";
-    lblPrec.innerText = "100%";
+	const renderInfo = () => {
+		const unit = DISTANCE_UNITS[distanceUnit.value] || DISTANCE_UNITS.kms;
+		const w = parseInt(canvasWidth.value, 10) || 1000;
+		const h = parseInt(canvasHeight.value, 10) || 650;
+		const { latN, latT, latS } = computeLatitudeWindow(
+			parseInt(cfgMapSize.value, 10),
+			parseInt(cfgLatitude.value, 10),
+		);
 
-    onConfigChange(getConfig());
-  });
+		const toUnit = (km: number) => Math.round(km * unit.perKm);
+		const widthDist = toUnit(w * KM_PER_PIXEL);
+		const heightDist = toUnit(h * KM_PER_PIXEL);
 
-  if(seedHistoryBtn) {
-    seedHistoryBtn.addEventListener("click", () => {
-      alert("Seed History functionality would open here.");
-    });
-  }
+		const pxPerDeg = h / Math.max(latT, 0.001);
+		const meridianPx = Math.round(pxPerDeg * 180);
+		const meridianKm = meridianPx * KM_PER_PIXEL;
+		const meridianDist = toUnit(meridianKm);
+		const earthPercent = Math.round((meridianKm / EARTH_MERIDIAN_KM) * 100);
 
-  if(hmSaveMap) hmSaveMap.addEventListener("click", () => { console.log("Save .map clicked"); });
-  if(hmLoadMap) hmLoadMap.addEventListener("click", () => { console.log("Load .map clicked"); });
-  if(hmExportPng) hmExportPng.addEventListener("click", () => { console.log("Export PNG clicked"); });
-  if(hmExportSvg) hmExportSvg.addEventListener("click", () => { console.log("Export SVG clicked"); });
-  if(hmExportJson) hmExportJson.addEventListener("click", () => { console.log("Export JSON clicked"); });
-  if(hmQuickSave) hmQuickSave.addEventListener("click", () => { console.log("Quick Save clicked"); });
+		const latLabel = (lat: number) =>
+			`${Math.abs(Math.round(lat))}&#176;${lat >= 0 ? "N" : "S"}`;
+		const lonHalf = Math.round(((w / h) * latT) / 2);
 
-  (window as any).getCurrentSetupConfig = getConfig;
+		worldInfoBlock.innerHTML = `
+      <div>Canvas size:<br>${w}x${h} px = ${widthDist}x${heightDist} ${unit.label}</div>
+      <div style="margin-top: 0.3rem;">Meridian length:<br>${meridianPx} px = ${meridianDist} ${unit.label} = ${earthPercent}% of Earth</div>
+      <div style="margin-top: 0.3rem;">Coords: ${latLabel(latN)} ${lonHalf}&#176;W; ${latLabel(latS)} ${lonHalf}&#176;E</div>
+    `;
+	};
+
+	const refreshWorld = () => {
+		lblEquator.innerHTML = `${cfgEquator.value}&#176;C = ${cToF(parseInt(cfgEquator.value, 10))}&#176;F`;
+		lblPoles.innerHTML = `${cfgPoles.value}&#176;C = ${cToF(parseInt(cfgPoles.value, 10))}&#176;F`;
+		lblMapSize.innerHTML = `${cfgMapSize.value}%`;
+		lblLatitude.innerHTML = `${cfgLatitude.value}`;
+		lblPrec.innerHTML = `${cfgPrec.value}%`;
+		renderGlobe();
+		renderInfo();
+	};
+
+	// --- Slider listeners ---
+	if (pointsCountSlider)
+		pointsCountSlider.addEventListener("input", () => {
+			lblPointsCount.innerText = pointsCountSlider.value;
+		});
+
+	[cfgEquator, cfgPoles, cfgMapSize, cfgLatitude, cfgPrec].forEach((el) => {
+		el.addEventListener("input", refreshWorld);
+	});
+	distanceUnit.addEventListener("change", renderInfo);
+	canvasWidth.addEventListener("input", renderInfo);
+	canvasHeight.addEventListener("input", renderInfo);
+
+	// --- Preset buttons ---
+	document.querySelectorAll<HTMLButtonElement>(".worldPresetBtn").forEach((btn) => {
+		btn.addEventListener("click", () => {
+			const preset = btn.getAttribute("data-preset");
+			switch (preset) {
+				case "whole":
+					cfgMapSize.value = "100";
+					cfgLatitude.value = "50";
+					break;
+				case "northern":
+					cfgMapSize.value = "50";
+					cfgLatitude.value = "0";
+					break;
+				case "tropical":
+					cfgMapSize.value = "34";
+					cfgLatitude.value = "50";
+					break;
+				case "southern":
+					cfgMapSize.value = "50";
+					cfgLatitude.value = "100";
+					break;
+				case "winds":
+					winds = [...DEFAULT_WINDS];
+					break;
+			}
+			refreshWorld();
+		});
+	});
+
+	// Generate a unique seed helper.
+	const rollSeed = () => "map-" + Math.floor(Math.random() * 1000000);
+	mapSeed.value = rollSeed();
+
+	const getConfig = (): SetupConfig => ({
+		canvasWidth: parseInt(canvasWidth.value, 10) || window.innerWidth,
+		canvasHeight: parseInt(canvasHeight.value, 10) || window.innerHeight,
+		seed: mapSeed.value || rollSeed(),
+		cellsCount: parseInt(pointsCountSlider?.value, 10) || 10000,
+		mapName: mapName.value || "New World",
+		year: parseInt(mapYear.value, 10) || 100,
+		era: mapEra.value || "Common Era",
+		heightmapType: heightmapType.value,
+		culturesCount: parseInt(numCultures.value, 10) || 6,
+		statesCount: parseInt(numStates.value, 10) || 8,
+		provincesRatio: parseInt(numProvinces.value, 10) || 30,
+		sizeVariety: parseFloat(sizeVariety.value) || 1.5,
+		growthRate: parseFloat(growthRate.value) || 1.0,
+		townsCount: parseInt(townsCount.value, 10) || 30,
+		religionsCount: parseInt(numReligions.value, 10) || 5,
+		tempEquator: parseInt(cfgEquator.value, 10),
+		windsAngle: winds[2],
+		precipitationInput: parseInt(cfgPrec.value, 10),
+		distanceUnit: distanceUnit?.value || "kms",
+	});
+
+	// --- Modal open/close ---
+	const openClimateBtn = document.getElementById(
+		"openClimateBtn",
+	) as HTMLButtonElement;
+	const climatePopup = document.getElementById(
+		"climatePopupModal",
+	) as HTMLDivElement;
+	const closeClimateBtn = document.getElementById(
+		"closeClimateModalBtn",
+	) as HTMLSpanElement;
+
+	// Backdrop overlay so the centered modal is clearly readable.
+	let climateBackdrop = document.getElementById(
+		"climatePopupBackdrop",
+	) as HTMLDivElement | null;
+	if (!climateBackdrop) {
+		climateBackdrop = document.createElement("div");
+		climateBackdrop.id = "climatePopupBackdrop";
+		climateBackdrop.style.cssText =
+			"display: none; position: fixed; inset: 0; z-index: 9998; background: rgba(0,0,0,0.55);";
+		document.body.appendChild(climateBackdrop);
+	}
+
+	const closeClimateModal = () => {
+		climatePopup.style.display = "none";
+		if (climateBackdrop) climateBackdrop.style.display = "none";
+	};
+
+	if (openClimateBtn && climatePopup) {
+		openClimateBtn.addEventListener("click", () => {
+			// Reparent to <body> so position:fixed escapes the config panel's
+			// backdrop-filter containing block and centers against the viewport.
+			if (climatePopup.parentElement !== document.body) {
+				document.body.appendChild(climatePopup);
+			}
+			if (climateBackdrop) climateBackdrop.style.display = "block";
+			climatePopup.style.display = "flex";
+			refreshWorld();
+		});
+	}
+
+	if (closeClimateBtn && climatePopup) {
+		closeClimateBtn.addEventListener("click", closeClimateModal);
+	}
+	if (climateBackdrop) {
+		climateBackdrop.addEventListener("click", closeClimateModal);
+	}
+
+	// --- Actions ---
+	regenBtn.addEventListener("click", () => {
+		onConfigChange(getConfig());
+	});
+
+	updateClimateBtn.addEventListener("click", () => {
+		const win = window as any;
+		const { latN, latT } = computeLatitudeWindow(
+			parseInt(cfgMapSize.value, 10),
+			parseInt(cfgLatitude.value, 10),
+		);
+		if (win.runClimateRegen) {
+			win.runClimateRegen({
+				equatorTemp: parseInt(cfgEquator.value, 10),
+				polesTemp: parseInt(cfgPoles.value, 10),
+				latN,
+				latT,
+				precInput: parseInt(cfgPrec.value, 10),
+				winds: [...winds],
+			});
+		}
+		closeClimateModal();
+	});
+
+	if (seedHistoryBtn) {
+		seedHistoryBtn.addEventListener("click", () => {
+			alert("Seed History functionality would open here.");
+		});
+	}
+
+	// Calendar editor lives inside the Configure World modal.
+	const openCalendarEditorBtn = document.getElementById(
+		"openCalendarEditorBtn",
+	) as HTMLButtonElement;
+	if (openCalendarEditorBtn) {
+		openCalendarEditorBtn.addEventListener("click", () => {
+			if ((window as any).openCalendarEditor) {
+				(window as any).openCalendarEditor();
+			}
+		});
+	}
+
+	// Initial paint of labels/globe (safe even while hidden).
+	refreshWorld();
+
+	(window as any).getCurrentSetupConfig = getConfig;
 }

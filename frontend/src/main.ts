@@ -1,92 +1,110 @@
-import { generateJitteredGrid } from "../../simulation/grid/grid-generator";
-import { HeightmapGenerator } from "../../simulation/heightmap/heightmap-generator";
-import { generateClimate } from "../../simulation/climate/climate-generator";
-import { generateHydrology } from "../../simulation/hydrology/hydrology-generator";
-import { generateBiomes } from "../../simulation/biomes/biomes-generator";
-import { generateCultures } from "../../simulation/civilization/culture-generator";
-import { generateBurgs } from "../../simulation/civilization/burg-generator";
-import { generateStates } from "../../simulation/civilization/state-generator";
-import { generateRoutes } from "../../simulation/civilization/route-generator";
-import { generateProvinces } from "../../simulation/civilization/province-generator";
-import { generateMilitary } from "../../simulation/civilization/military-generator";
-import { generateReligions } from "../../simulation/civilization/religions-generator";
-import { generateDiplomacy } from "../../simulation/civilization/diplomacy-generator";
-import { generateZones } from "../../simulation/civilization/zones-generator";
-import { generateMarkers } from "../../simulation/civilization/markers-generator";
-import { bakeErosion } from "../../simulation/heightmap/erosion-bake";
-import { generateGoods } from "../../simulation/civilization/goods-generator";
-import { generateMarkets } from "../../simulation/civilization/markets-generator";
-import { runProductionCycles } from "../../simulation/civilization/production-generator";
-import { serializeMapState, deserializeMapState } from "../../core/serialization";
-import { store } from "../../state/store";
+import {
+	deserializeMapState,
+	serializeMapState,
+} from "../../core/serialization";
 import { renderMap } from "../../renderer/canvas-renderer";
 import { drawMinimap } from "../../renderer/minimap-renderer";
 import { ThreeRenderer } from "../../renderer/three-renderer";
-import { mountBurgEditor } from "../../ui/burg-editor";
-import { mountStateEditor } from "../../ui/state-editor";
-import { mountDiplomacyEditor } from "../../ui/diplomacy-editor";
+import { generateBiomes } from "../../simulation/biomes/biomes-generator";
+import { generateBurgs } from "../../simulation/civilization/burg-generator";
+import { generateCultures } from "../../simulation/civilization/culture-generator";
+import { generateDiplomacy } from "../../simulation/civilization/diplomacy-generator";
+import { generateGoods } from "../../simulation/civilization/goods-generator";
+import { generateMarkers } from "../../simulation/civilization/markers-generator";
+import { generateMarkets } from "../../simulation/civilization/markets-generator";
+import { generateMilitary } from "../../simulation/civilization/military-generator";
+import { runProductionCycles } from "../../simulation/civilization/production-generator";
+import { generateProvinces } from "../../simulation/civilization/province-generator";
+import { generateReligions } from "../../simulation/civilization/religions-generator";
+import { generateRoutes } from "../../simulation/civilization/route-generator";
+import { generateStates } from "../../simulation/civilization/state-generator";
+import { generateZones } from "../../simulation/civilization/zones-generator";
+import { generateClimate } from "../../simulation/climate/climate-generator";
+import { generateJitteredGrid } from "../../simulation/grid/grid-generator";
+import { bakeErosion } from "../../simulation/heightmap/erosion-bake";
+import { HeightmapGenerator } from "../../simulation/heightmap/heightmap-generator";
+import { generateHydrology } from "../../simulation/hydrology/hydrology-generator";
+import { SimulationLoop } from "../../simulation/time/simulation-loop";
+import { store } from "../../state/store";
 import { mountBiomesEditor } from "../../ui/biomes-editor";
-import { mountMarkersEditor } from "../../ui/markers-editor";
-import { mountMagicEditor } from "../../ui/magic-editor";
-import { mountEcologyEditor } from "../../ui/ecology-editor";
-import { mountConfigurator, SetupConfig } from "../../ui/configurator-dialogs";
+import { mountBurgEditor } from "../../ui/burg-editor";
+import { mountBurgTypeEditor } from "../../ui/burg-type-editor";
+import { mountCalendarEditor } from "../../ui/calendar-editor";
+import {
+	mountConfigurator,
+	type SetupConfig,
+} from "../../ui/configurator-dialogs";
 import { mountStyleAndBiomeEditor } from "../../ui/dialogs-sections";
-import { mountStyleEditor } from "../../ui/style-editor";
+import { mountDiplomacyEditor } from "../../ui/diplomacy-editor";
+import { mountEcologyEditor } from "../../ui/ecology-editor";
+import { mountExportOptions } from "../../ui/export-options";
 import { mountHeightmapEditor } from "../../ui/heightmap-editor";
 import { mountLabelEditor } from "../../ui/label-editor";
-import { mountExportOptions } from "../../ui/export-options";
 import { mountLanguageEditor } from "../../ui/language-editor";
-import { mountBurgTypeEditor } from "../../ui/burg-type-editor";
+import { mountMagicEditor } from "../../ui/magic-editor";
+import { mountMarkersEditor } from "../../ui/markers-editor";
 import { mountMilitaryUnitEditor } from "../../ui/military-unit-editor";
 import { mountRouteEditor } from "../../ui/route-editor";
-import { SimulationLoop } from "../../simulation/time/simulation-loop";
-import { mountCalendarEditor } from "../../ui/calendar-editor";
-
+import { mountStateEditor } from "../../ui/state-editor";
+import { mountStyleEditor } from "../../ui/style-editor";
 
 console.log("FMG Full-Stack Rebuild Frontend Initialized.");
 
 const app = document.getElementById("app");
-let currentLayer: "heightmap" | "biomes" | "temp" | "prec" | "cultures" | "states" | "provinces" | "religions" | "goods" = "states";
+let currentLayer:
+	| "heightmap"
+	| "biomes"
+	| "temp"
+	| "prec"
+	| "cultures"
+	| "states"
+	| "provinces"
+	| "religions"
+	| "goods" = "states";
 let socket: WebSocket | null = null;
-let currentSessionId = "session-" + Math.floor(Math.random() * 100000);
+const currentSessionId = "session-" + Math.floor(Math.random() * 100000);
 let is3DMode = false;
 let threeRenderer: ThreeRenderer | null = null;
 
 (window as any).triggerLayerSelect = (layer: any) => {
-  currentLayer = layer;
-  const btns = document.querySelectorAll(".layerBtn");
-  btns.forEach(b => {
-    const button = b as HTMLButtonElement;
-    if (button.getAttribute("data-layer") === layer) {
-      button.style.background = "#4f46e5";
-      button.style.borderColor = "#4f46e5";
-      button.style.color = "white";
-    } else {
-      button.style.background = "transparent";
-      button.style.borderColor = "rgba(255, 255, 255, 0.15)";
-      button.style.color = "#94a3b8";
-    }
-  });
+	currentLayer = layer;
+	const btns = document.querySelectorAll(".layerBtn");
+	btns.forEach((b) => {
+		const button = b as HTMLButtonElement;
+		if (button.getAttribute("data-layer") === layer) {
+			button.style.background = "#4f46e5";
+			button.style.borderColor = "#4f46e5";
+			button.style.color = "white";
+		} else {
+			button.style.background = "transparent";
+			button.style.borderColor = "rgba(255, 255, 255, 0.15)";
+			button.style.color = "#94a3b8";
+		}
+	});
 };
 
 (window as any).store = store;
 
-function findClosestCellIndex(x: number, y: number, points: [number, number][]): number {
-  let minDist = Infinity;
-  let closestIdx = 0;
-  for (let i = 0; i < points.length; i++) {
-    const [px, py] = points[i];
-    const dist = Math.pow(x - px, 2) + Math.pow(y - py, 2);
-    if (dist < minDist) {
-      minDist = dist;
-      closestIdx = i;
-    }
-  }
-  return closestIdx;
+function findClosestCellIndex(
+	x: number,
+	y: number,
+	points: [number, number][],
+): number {
+	let minDist = Infinity;
+	let closestIdx = 0;
+	for (let i = 0; i < points.length; i++) {
+		const [px, py] = points[i];
+		const dist = (x - px) ** 2 + (y - py) ** 2;
+		if (dist < minDist) {
+			minDist = dist;
+			closestIdx = i;
+		}
+	}
+	return closestIdx;
 }
 
 if (app) {
-  app.innerHTML = `
+	app.innerHTML = `
     <!-- Map Viewport -->
     <canvas id="mapCanvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; z-index: 1; cursor: crosshair;"></canvas>
     <div id="threeContainer" style="position: absolute; inset: 0; display: none; z-index: 2;"></div>
@@ -119,24 +137,17 @@ if (app) {
           <h4 style="margin: 0; color: #fbbf24; font-size: 0.95rem;">World Setup</h4>
           <div id="configuratorMount"></div>
           <div id="importerMount"></div>
-          <div id="exporterMount"></div>
-          
-          <h4 style="margin: 0.5rem 0 0 0; color: #fbbf24; font-size: 0.95rem;">Calendar Options</h4>
-          <button id="openCalendarEditorBtn" style="width: 100%; text-align: left; background: #2563eb; border: none; color: white; padding: 0.35rem 0.6rem; cursor: pointer; font-weight: bold; font-size: 0.8rem; border-radius: 4px;">📅 Config Custom Calendar</button>
           <div id="calendarMount"></div>
 
           <h4 style="margin: 0.5rem 0 0 0; color: #fbbf24; font-size: 0.95rem;">Time Controls</h4>
           <div style="display: flex; gap: 0.4rem; margin-bottom: 0.5rem;">
-            <button id="tickDayBtn" style="flex: 1; padding: 0.35rem; background: #eab308; color: black; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">+1 Day</button>
+            <button id="tickDayBtn" style="flex: 1; padding: 0.35rem; background: #3b82f6; color: white; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">+1 Day</button>
             <button id="tickMonthBtn" style="flex: 1; padding: 0.35rem; background: #3b82f6; color: white; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">+1 Month</button>
-            <button id="tickYearBtn" style="flex: 1; padding: 0.35rem; background: #10b981; color: white; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">+1 Year</button>
+            <button id="tickYearBtn" style="flex: 1; padding: 0.35rem; background: #3b82f6; color: white; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">+1 Year</button>
           </div>
 
-          <h4 style="margin: 0.5rem 0 0 0; color: #fbbf24; font-size: 0.95rem;">File Actions</h4>
-          <div style="display: flex; gap: 0.4rem; margin-bottom: 0.5rem;">
-            <button id="optsSaveBtn" style="flex: 1; padding: 0.35rem; background: #10b981; color: white; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">Save JSON</button>
-            <button id="optsLoadBtn" style="flex: 1; padding: 0.35rem; background: #eab308; color: white; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">Load JSON</button>
-          </div>
+          <h4 style="margin: 0.5rem 0 0 0; color: #fbbf24; font-size: 0.95rem;">File &amp; Export</h4>
+          <div id="exporterMount"></div>
         </div>
 
         <!-- Layers Content -->
@@ -216,398 +227,434 @@ if (app) {
      </div>
   `;
 
-  const canvas = document.getElementById("mapCanvas") as HTMLCanvasElement;
-  const minimapCanvas = document.getElementById("minimapCanvas") as HTMLCanvasElement;
-  const threeContainer = document.getElementById("threeContainer") as HTMLDivElement;
-  const loadingOverlay = document.getElementById("loadingOverlay") as HTMLDivElement;
-  const toggle3DBtn = document.getElementById("toggle3DBtn") as HTMLButtonElement;
-  const saveBtn = document.getElementById("saveBtn") as HTMLButtonElement;
-  const loadBtn = document.getElementById("loadBtn") as HTMLButtonElement;
-  const fileInput = document.getElementById("fileInput") as HTMLInputElement;
-  const statsEl = document.getElementById("stats") as HTMLDivElement;
-  const statusEl = document.getElementById("connectionStatus") as HTMLSpanElement;
-  const layersPresetSelect = document.getElementById("layersPreset") as HTMLSelectElement;
+	const canvas = document.getElementById("mapCanvas") as HTMLCanvasElement;
+	const minimapCanvas = document.getElementById(
+		"minimapCanvas",
+	) as HTMLCanvasElement;
+	const threeContainer = document.getElementById(
+		"threeContainer",
+	) as HTMLDivElement;
+	const loadingOverlay = document.getElementById(
+		"loadingOverlay",
+	) as HTMLDivElement;
+	const toggle3DBtn = document.getElementById(
+		"toggle3DBtn",
+	) as HTMLButtonElement;
+	const saveBtn = document.getElementById("saveBtn") as HTMLButtonElement;
+	const loadBtn = document.getElementById("loadBtn") as HTMLButtonElement;
+	const fileInput = document.getElementById("fileInput") as HTMLInputElement;
+	const statsEl = document.getElementById("stats") as HTMLDivElement;
+	const statusEl = document.getElementById(
+		"connectionStatus",
+	) as HTMLSpanElement;
+	const layersPresetSelect = document.getElementById(
+		"layersPreset",
+	) as HTMLSelectElement;
 
-  (window as any).triggerLayerSelect = (layerName: string) => {
-    currentLayer = layerName as any;
-    if (layersPresetSelect) layersPresetSelect.value = layerName;
-    renderLayersChecklist();
-    renderCurrentLayer();
-  };
+	(window as any).triggerLayerSelect = (layerName: string) => {
+		currentLayer = layerName as any;
+		if (layersPresetSelect) layersPresetSelect.value = layerName;
+		renderLayersChecklist();
+		renderCurrentLayer();
+	};
 
-  // Mount Editors & Panels
-  mountBurgEditor("burgEditorMount", () => renderCurrentLayer());
-  mountStateEditor("stateEditorMount", () => {
-    renderCurrentLayer();
-    if (minimapCanvas) drawMinimap(minimapCanvas, store.getState());
-  });
+	// Mount Editors & Panels
+	mountBurgEditor("burgEditorMount", () => renderCurrentLayer());
+	mountStateEditor("stateEditorMount", () => {
+		renderCurrentLayer();
+		if (minimapCanvas) drawMinimap(minimapCanvas, store.getState());
+	});
 
-  mountHeightmapEditor("heightmapEditorMount", () => {
-    renderCurrentLayer();
-    if (minimapCanvas) drawMinimap(minimapCanvas, store.getState());
-  });
+	mountHeightmapEditor("heightmapEditorMount", () => {
+		renderCurrentLayer();
+		if (minimapCanvas) drawMinimap(minimapCanvas, store.getState());
+	});
 
-  mountLabelEditor("labelMount", () => renderCurrentLayer());
-  mountExportOptions("exporterMount", canvas);
+	mountLabelEditor("labelMount", () => renderCurrentLayer());
+	mountExportOptions("exporterMount", canvas);
 
-  mountStyleAndBiomeEditor("styleBiomesMount", () => renderCurrentLayer());
-  mountStyleEditor("styleEditorMount", () => renderCurrentLayer());
+	mountStyleAndBiomeEditor("styleBiomesMount", () => renderCurrentLayer());
+	mountStyleEditor("styleEditorMount", () => renderCurrentLayer());
 
-  mountLanguageEditor("languageMount");
-  mountBurgTypeEditor("burgTypeMount");
-  mountMilitaryUnitEditor("militaryUnitMount");
-  mountRouteEditor("routeEditorMount", () => {
-    renderCurrentLayer();
-  });
-  mountDiplomacyEditor("diplomacyEditorMount", () => {
-    renderCurrentLayer();
-  });
-  mountBiomesEditor("biomesEditorMount", () => {
-    renderCurrentLayer();
-  });
-  mountMarkersEditor("markersEditorMount", () => {
-    renderCurrentLayer();
-  });
-  mountMagicEditor("magicEditorMount", () => {
-    renderCurrentLayer();
-  });
-  mountEcologyEditor("ecologyEditorMount", () => {
-    renderCurrentLayer();
-  });
+	mountLanguageEditor("languageMount");
+	mountBurgTypeEditor("burgTypeMount");
+	mountMilitaryUnitEditor("militaryUnitMount");
+	mountRouteEditor("routeEditorMount", () => {
+		renderCurrentLayer();
+	});
+	mountDiplomacyEditor("diplomacyEditorMount", () => {
+		renderCurrentLayer();
+	});
+	mountBiomesEditor("biomesEditorMount", () => {
+		renderCurrentLayer();
+	});
+	mountMarkersEditor("markersEditorMount", () => {
+		renderCurrentLayer();
+	});
+	mountMagicEditor("magicEditorMount", () => {
+		renderCurrentLayer();
+	});
+	mountEcologyEditor("ecologyEditorMount", () => {
+		renderCurrentLayer();
+	});
 
-  // Bind Interactive Editors button group click listeners
-  const btnOpenHeightmap = document.getElementById("btnOpenHeightmap");
-  const btnOpenStates = document.getElementById("btnOpenStates");
-  const btnOpenDiplomacy = document.getElementById("btnOpenDiplomacy");
-  const btnOpenRoutes = document.getElementById("btnOpenRoutes");
-  const btnOpenLabels = document.getElementById("btnOpenLabels");
-  const btnOpenLanguages = document.getElementById("btnOpenLanguages");
-  const btnOpenBiomes = document.getElementById("btnOpenBiomes");
-  const btnOpenMarkers = document.getElementById("btnOpenMarkers");
-  const btnOpenMagic = document.getElementById("btnOpenMagic");
-  const btnOpenEcology = document.getElementById("btnOpenEcology");
+	// Bind Interactive Editors button group click listeners
+	const btnOpenHeightmap = document.getElementById("btnOpenHeightmap");
+	const btnOpenStates = document.getElementById("btnOpenStates");
+	const btnOpenDiplomacy = document.getElementById("btnOpenDiplomacy");
+	const btnOpenRoutes = document.getElementById("btnOpenRoutes");
+	const btnOpenLabels = document.getElementById("btnOpenLabels");
+	const btnOpenLanguages = document.getElementById("btnOpenLanguages");
+	const btnOpenBiomes = document.getElementById("btnOpenBiomes");
+	const btnOpenMarkers = document.getElementById("btnOpenMarkers");
+	const btnOpenMagic = document.getElementById("btnOpenMagic");
+	const btnOpenEcology = document.getElementById("btnOpenEcology");
 
-  if (btnOpenHeightmap) {
-    btnOpenHeightmap.addEventListener("click", () => {
-      const win = window as any;
-      if (win.triggerLayerSelect) win.triggerLayerSelect("heightmap");
-      const editorPanel = document.getElementById("hmPaintSection")?.parentElement;
-      if (editorPanel) editorPanel.style.display = "flex";
-    });
-  }
+	if (btnOpenHeightmap) {
+		btnOpenHeightmap.addEventListener("click", () => {
+			const win = window as any;
+			if (win.triggerLayerSelect) win.triggerLayerSelect("heightmap");
+			const editorPanel =
+				document.getElementById("hmPaintSection")?.parentElement;
+			if (editorPanel) editorPanel.style.display = "flex";
+		});
+	}
 
-  if (btnOpenStates) {
-    btnOpenStates.addEventListener("click", () => {
-      const win = window as any;
-      if (win.openStatesList) win.openStatesList();
-    });
-  }
+	if (btnOpenStates) {
+		btnOpenStates.addEventListener("click", () => {
+			const win = window as any;
+			if (win.openStatesList) win.openStatesList();
+		});
+	}
 
-  if (btnOpenDiplomacy) {
-    btnOpenDiplomacy.addEventListener("click", () => {
-      const win = window as any;
-      if (win.openDiplomacyEditor) win.openDiplomacyEditor();
-    });
-  }
+	if (btnOpenDiplomacy) {
+		btnOpenDiplomacy.addEventListener("click", () => {
+			const win = window as any;
+			if (win.openDiplomacyEditor) win.openDiplomacyEditor();
+		});
+	}
 
-  if (btnOpenRoutes) {
-    btnOpenRoutes.addEventListener("click", () => {
-      const win = window as any;
-      if (win.triggerLayerSelect) win.triggerLayerSelect("states");
-      const editorPanel = document.getElementById("routeEditorPanel");
-      if (editorPanel) editorPanel.style.display = "block";
-    });
-  }
+	if (btnOpenRoutes) {
+		btnOpenRoutes.addEventListener("click", () => {
+			const win = window as any;
+			if (win.triggerLayerSelect) win.triggerLayerSelect("states");
+			const editorPanel = document.getElementById("routeEditorPanel");
+			if (editorPanel) editorPanel.style.display = "block";
+		});
+	}
 
-  if (btnOpenLabels) {
-    btnOpenLabels.addEventListener("click", () => {
-      const win = window as any;
-      if (win.triggerLayerSelect) win.triggerLayerSelect("states");
-      const editorPanel = document.getElementById("labelEditorPanel");
-      if (editorPanel) editorPanel.style.display = "block";
-    });
-  }
+	if (btnOpenLabels) {
+		btnOpenLabels.addEventListener("click", () => {
+			const win = window as any;
+			if (win.triggerLayerSelect) win.triggerLayerSelect("states");
+			const editorPanel = document.getElementById("labelEditorPanel");
+			if (editorPanel) editorPanel.style.display = "block";
+		});
+	}
 
-  if (btnOpenLanguages) {
-    btnOpenLanguages.addEventListener("click", () => {
-      const editorPanel = document.getElementById("languageEditorPanel");
-      if (editorPanel) editorPanel.style.display = "block";
-    });
-  }
+	if (btnOpenLanguages) {
+		btnOpenLanguages.addEventListener("click", () => {
+			const editorPanel = document.getElementById("languageEditorPanel");
+			if (editorPanel) editorPanel.style.display = "block";
+		});
+	}
 
-  if (btnOpenBiomes) {
-    btnOpenBiomes.addEventListener("click", () => {
-      const win = window as any;
-      if (win.openBiomesEditor) win.openBiomesEditor();
-    });
-  }
+	if (btnOpenBiomes) {
+		btnOpenBiomes.addEventListener("click", () => {
+			const win = window as any;
+			if (win.openBiomesEditor) win.openBiomesEditor();
+		});
+	}
 
-  if (btnOpenMarkers) {
-    btnOpenMarkers.addEventListener("click", () => {
-      const win = window as any;
-      if (win.openMarkersEditor) win.openMarkersEditor();
-    });
-  }
+	if (btnOpenMarkers) {
+		btnOpenMarkers.addEventListener("click", () => {
+			const win = window as any;
+			if (win.openMarkersEditor) win.openMarkersEditor();
+		});
+	}
 
-  if (btnOpenMagic) {
-    btnOpenMagic.addEventListener("click", () => {
-      const win = window as any;
-      if (win.openMagicEditor) win.openMagicEditor();
-    });
-  }
+	if (btnOpenMagic) {
+		btnOpenMagic.addEventListener("click", () => {
+			const win = window as any;
+			if (win.openMagicEditor) win.openMagicEditor();
+		});
+	}
 
-  if (btnOpenEcology) {
-    btnOpenEcology.addEventListener("click", () => {
-      const win = window as any;
-      if (win.openEcologyEditor) win.openEcologyEditor();
-    });
-  }
+	if (btnOpenEcology) {
+		btnOpenEcology.addEventListener("click", () => {
+			const win = window as any;
+			if (win.openEcologyEditor) win.openEcologyEditor();
+		});
+	}
 
-  // Mount Custom Calendar Editor
-  mountCalendarEditor("calendarMount", () => {
-    if ((window as any).simulationLoop) {
-      // Re-get calendar state and push update to display
-      const currentCal = (window as any).simulationLoop.getCalendar();
-      store.updateState({ calendar: currentCal });
-      updateCalendarText();
-    }
-  });
+	// Mount Custom Calendar Editor
+	mountCalendarEditor("calendarMount", () => {
+		if ((window as any).simulationLoop) {
+			// Re-get calendar state and push update to display
+			const currentCal = (window as any).simulationLoop.getCalendar();
+			store.updateState({ calendar: currentCal });
+			updateCalendarText();
+		}
+	});
 
-  // Intercept editor openings and brush actions to automatically switch active layers matching FMG workflow
-  const originalOpenBurgEditor = (window as any).openBurgEditor;
-  (window as any).openBurgEditor = (burg: any) => {
-    currentLayer = "states";
-    if (layersPresetSelect) layersPresetSelect.value = "states";
-    renderLayersChecklist();
-    renderCurrentLayer();
-    if (originalOpenBurgEditor) originalOpenBurgEditor(burg);
-  };
+	// Intercept editor openings and brush actions to automatically switch active layers matching FMG workflow
+	const originalOpenBurgEditor = (window as any).openBurgEditor;
+	(window as any).openBurgEditor = (burg: any) => {
+		currentLayer = "states";
+		if (layersPresetSelect) layersPresetSelect.value = "states";
+		renderLayersChecklist();
+		renderCurrentLayer();
+		if (originalOpenBurgEditor) originalOpenBurgEditor(burg);
+	};
 
-  const originalOpenStateEditor = (window as any).openStateEditor;
-  (window as any).openStateEditor = (state: any) => {
-    currentLayer = "states";
-    if (layersPresetSelect) layersPresetSelect.value = "states";
-    renderLayersChecklist();
-    renderCurrentLayer();
-    if (originalOpenStateEditor) originalOpenStateEditor(state);
-  };
+	const originalOpenStateEditor = (window as any).openStateEditor;
+	(window as any).openStateEditor = (state: any) => {
+		currentLayer = "states";
+		if (layersPresetSelect) layersPresetSelect.value = "states";
+		renderLayersChecklist();
+		renderCurrentLayer();
+		if (originalOpenStateEditor) originalOpenStateEditor(state);
+	};
 
-  const originalOpenRouteEditor = (window as any).openRouteEditor;
-  (window as any).openRouteEditor = (route: any) => {
-    currentLayer = "states";
-    if (layersPresetSelect) layersPresetSelect.value = "states";
-    renderLayersChecklist();
-    renderCurrentLayer();
-    if (originalOpenRouteEditor) originalOpenRouteEditor(route);
-  };
+	const originalOpenRouteEditor = (window as any).openRouteEditor;
+	(window as any).openRouteEditor = (route: any) => {
+		currentLayer = "states";
+		if (layersPresetSelect) layersPresetSelect.value = "states";
+		renderLayersChecklist();
+		renderCurrentLayer();
+		if (originalOpenRouteEditor) originalOpenRouteEditor(route);
+	};
 
-  const originalOpenLabelEditor = (window as any).openLabelEditor;
-  if (originalOpenLabelEditor) {
-    (window as any).openLabelEditor = (label: any) => {
-      currentLayer = "states";
-      if (layersPresetSelect) layersPresetSelect.value = "states";
-      renderLayersChecklist();
-      renderCurrentLayer();
-      originalOpenLabelEditor(label);
-    };
-  }
+	const originalOpenLabelEditor = (window as any).openLabelEditor;
+	if (originalOpenLabelEditor) {
+		(window as any).openLabelEditor = (label: any) => {
+			currentLayer = "states";
+			if (layersPresetSelect) layersPresetSelect.value = "states";
+			renderLayersChecklist();
+			renderCurrentLayer();
+			originalOpenLabelEditor(label);
+		};
+	}
 
+	const updateCalendarText = () => {
+		const calendarEl = document.getElementById("calendarStatus");
+		if (!calendarEl) return;
+		const state = store.getState();
+		const calendar = state.calendar;
+		if (!calendar) {
+			calendarEl.innerHTML = "Day 1";
+			return;
+		}
 
+		const currentMonth = state.months[calendar.month];
+		const monthName = currentMonth
+			? currentMonth.name
+			: `Month ${calendar.month + 1}`;
 
-  const updateCalendarText = () => {
-    const calendarEl = document.getElementById("calendarStatus");
-    if (!calendarEl) return;
-    const state = store.getState();
-    const calendar = state.calendar;
-    if (!calendar) {
-      calendarEl.innerHTML = "Day 1";
-      return;
-    }
+		// Moon phase displays
+		const moonsStr = calendar.moonPhases
+			.map(
+				(m) => `🌙 ${m.moonName}: ${m.phaseName} (${m.modifier.toFixed(1)}x)`,
+			)
+			.join(", ");
 
-    const currentMonth = state.months[calendar.month];
-    const monthName = currentMonth ? currentMonth.name : `Month ${calendar.month + 1}`;
-    
-    // Moon phase displays
-    const moonsStr = calendar.moonPhases.map(m => `🌙 ${m.moonName}: ${m.phaseName} (${m.modifier.toFixed(1)}x)`).join(", ");
-    
-    // Mods preview
-    const activeMods = calendar.activeModifiers;
-    const modsStr = activeMods ? `<span style="color: #60a5fa; margin-left: 10px;">[Temp: ${activeMods.tempMod >= 0 ? "+" : ""}${activeMods.tempMod}°C, Growth: ${activeMods.popMod}x, Prod: ${activeMods.prodMod.toFixed(1)}x]</span>` : "";
+		// Mods preview
+		const activeMods = calendar.activeModifiers;
+		const modsStr = activeMods
+			? `<span style="color: #60a5fa; margin-left: 10px;">[Temp: ${activeMods.tempMod >= 0 ? "+" : ""}${activeMods.tempMod}°C, Growth: ${activeMods.popMod}x, Prod: ${activeMods.prodMod.toFixed(1)}x]</span>`
+			: "";
 
-    calendarEl.innerHTML = `📅 ${calendar.weekday}, ${calendar.day + 1} ${monthName} Year ${calendar.year + 1} (${calendar.seasonName}) ${moonsStr} ${modsStr}`;
-  };
+		calendarEl.innerHTML = `📅 ${calendar.weekday}, ${calendar.day + 1} ${monthName} Year ${calendar.year + 1} (${calendar.seasonName}) ${moonsStr} ${modsStr}`;
+	};
 
-  // Wire Time Control Buttons
-  const openCalendarBtn = document.getElementById("openCalendarEditorBtn");
-  if (openCalendarBtn) {
-    openCalendarBtn.addEventListener("click", () => {
-      if ((window as any).openCalendarEditor) {
-        (window as any).openCalendarEditor();
-      }
-    });
-  }
+	// Wire Time Control Buttons
+	// (Calendar editor button now lives inside the Configure World modal.)
+	const tickDayBtn = document.getElementById("tickDayBtn");
+	const tickMonthBtn = document.getElementById("tickMonthBtn");
+	const tickYearBtn = document.getElementById("tickYearBtn");
 
-  const tickDayBtn = document.getElementById("tickDayBtn");
-  const tickMonthBtn = document.getElementById("tickMonthBtn");
-  const tickYearBtn = document.getElementById("tickYearBtn");
+	const handleTimeTick = (ticks: number) => {
+		if ((window as any).simulationLoop) {
+			(window as any).simulationLoop.advanceTick(ticks);
 
-  const handleTimeTick = (ticks: number) => {
-    if ((window as any).simulationLoop) {
-      (window as any).simulationLoop.advanceTick(ticks);
-      
-      // Pull latest reports if needed, and update production modifiers dynamically
-      const currentState = store.getState();
-      if (currentState.markets && currentState.calendar?.activeModifiers) {
-        const prodReport = runProductionCycles(currentState.markets);
-        store.updateState({ production: prodReport });
-      }
+			// Pull latest reports if needed, and update production modifiers dynamically
+			const currentState = store.getState();
+			if (currentState.markets && currentState.calendar?.activeModifiers) {
+				const prodReport = runProductionCycles(currentState.markets);
+				store.updateState({ production: prodReport });
+			}
 
-      updateCalendarText();
-    }
-  };
+			updateCalendarText();
+		}
+	};
 
-  if (tickDayBtn) {
-    tickDayBtn.addEventListener("click", () => handleTimeTick(24)); // 24 ticks = 1 day
-  }
-  if (tickMonthBtn) {
-    tickMonthBtn.addEventListener("click", () => {
-      const state = store.getState();
-      const weekdaysLength = state.weekdays.length || 7;
-      const calendar = state.calendar;
-      if (calendar) {
-        const currentMonthWeeks = state.months[calendar.month]?.weekCount || 4;
-        const daysInMonth = currentMonthWeeks * weekdaysLength;
-        handleTimeTick(daysInMonth * 24);
-      }
-    });
-  }
-  if (tickYearBtn) {
-    tickYearBtn.addEventListener("click", () => {
-      const state = store.getState();
-      const weekdaysLength = state.weekdays.length || 7;
-      const totalDays = state.months.reduce((sum, m) => sum + m.weekCount * weekdaysLength, 0) || 360;
-      handleTimeTick(totalDays * 24);
-    });
-  }
-  if (minimapCanvas) drawMinimap(minimapCanvas, store.getState());
+	if (tickDayBtn) {
+		tickDayBtn.addEventListener("click", () => handleTimeTick(24)); // 24 ticks = 1 day
+	}
+	if (tickMonthBtn) {
+		tickMonthBtn.addEventListener("click", () => {
+			const state = store.getState();
+			const weekdaysLength = state.weekdays.length || 7;
+			const calendar = state.calendar;
+			if (calendar) {
+				const currentMonthWeeks = state.months[calendar.month]?.weekCount || 4;
+				const daysInMonth = currentMonthWeeks * weekdaysLength;
+				handleTimeTick(daysInMonth * 24);
+			}
+		});
+	}
+	if (tickYearBtn) {
+		tickYearBtn.addEventListener("click", () => {
+			const state = store.getState();
+			const weekdaysLength = state.weekdays.length || 7;
+			const totalDays =
+				state.months.reduce(
+					(sum, m) => sum + m.weekCount * weekdaysLength,
+					0,
+				) || 360;
+			handleTimeTick(totalDays * 24);
+		});
+	}
+	if (minimapCanvas) drawMinimap(minimapCanvas, store.getState());
 
-  // Wire up collapsible trigger logic
-  const optionsTrigger = document.getElementById("optionsTrigger") as HTMLButtonElement;
-  const optionsHide = document.getElementById("optionsHide") as HTMLButtonElement;
-  const optionsPanel = document.getElementById("options") as HTMLDivElement;
-  const collapsibleWrap = document.getElementById("collapsible") as HTMLDivElement;
+	// Wire up collapsible trigger logic
+	const optionsTrigger = document.getElementById(
+		"optionsTrigger",
+	) as HTMLButtonElement;
+	const optionsHide = document.getElementById(
+		"optionsHide",
+	) as HTMLButtonElement;
+	const optionsPanel = document.getElementById("options") as HTMLDivElement;
+	const collapsibleWrap = document.getElementById(
+		"collapsible",
+	) as HTMLDivElement;
 
-  if (optionsTrigger && optionsHide && optionsPanel && collapsibleWrap) {
-    optionsTrigger.addEventListener("click", () => {
-      optionsPanel.style.display = "flex";
-      collapsibleWrap.style.display = "none";
-    });
-    optionsHide.addEventListener("click", () => {
-      optionsPanel.style.display = "none";
-      collapsibleWrap.style.display = "block";
-    });
-  }
+	if (optionsTrigger && optionsHide && optionsPanel && collapsibleWrap) {
+		optionsTrigger.addEventListener("click", () => {
+			optionsPanel.style.display = "flex";
+			collapsibleWrap.style.display = "none";
+		});
+		optionsHide.addEventListener("click", () => {
+			optionsPanel.style.display = "none";
+			collapsibleWrap.style.display = "block";
+		});
+	}
 
-  // Wire up Tab switching
-  const tabs = ["optionsTab", "layersTab", "styleTab", "toolsTab"];
-  const contents = ["optionsContent", "layersContent", "styleContent", "toolsContent"];
+	// Wire up Tab switching
+	const tabs = ["optionsTab", "layersTab", "styleTab", "toolsTab"];
+	const contents = [
+		"optionsContent",
+		"layersContent",
+		"styleContent",
+		"toolsContent",
+	];
 
-  tabs.forEach((tabId, idx) => {
-    const tabBtn = document.getElementById(tabId) as HTMLButtonElement;
-    if (tabBtn) {
-      tabBtn.addEventListener("click", () => {
-        tabs.forEach(tId => {
-          const btn = document.getElementById(tId) as HTMLButtonElement;
-          if (btn) {
-            btn.classList.remove("active");
-            btn.style.color = "#94a3b8";
-            btn.style.borderBottomColor = "transparent";
-          }
-        });
-        contents.forEach(cId => {
-          const div = document.getElementById(cId) as HTMLDivElement;
-          if (div) div.style.display = "none";
-        });
+	tabs.forEach((tabId, idx) => {
+		const tabBtn = document.getElementById(tabId) as HTMLButtonElement;
+		if (tabBtn) {
+			tabBtn.addEventListener("click", () => {
+				tabs.forEach((tId) => {
+					const btn = document.getElementById(tId) as HTMLButtonElement;
+					if (btn) {
+						btn.classList.remove("active");
+						btn.style.color = "#94a3b8";
+						btn.style.borderBottomColor = "transparent";
+					}
+				});
+				contents.forEach((cId) => {
+					const div = document.getElementById(cId) as HTMLDivElement;
+					if (div) div.style.display = "none";
+				});
 
-        tabBtn.classList.add("active");
-        tabBtn.style.color = "#e2e8f0";
-        tabBtn.style.borderBottomColor = "#3b82f6";
-        const targetContent = document.getElementById(contents[idx]) as HTMLDivElement;
-        if (targetContent) targetContent.style.display = "flex";
-      });
-    }
-  });
+				tabBtn.classList.add("active");
+				tabBtn.style.color = "#e2e8f0";
+				tabBtn.style.borderBottomColor = "#3b82f6";
+				const targetContent = document.getElementById(
+					contents[idx],
+				) as HTMLDivElement;
+				if (targetContent) targetContent.style.display = "flex";
+			});
+		}
+	});
 
-  const updateCanvasSize = () => {
-    if (!canvas) return;
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-    if (threeRenderer) {
-      threeRenderer.resize(window.innerWidth, window.innerHeight);
-    }
-  };
+	const updateCanvasSize = () => {
+		if (!canvas) return;
+		canvas.width = window.innerWidth;
+		canvas.height = window.innerHeight;
+		if (threeRenderer) {
+			threeRenderer.resize(window.innerWidth, window.innerHeight);
+		}
+	};
 
-  const connectWebSocket = () => {
-    if (socket) {
-      socket.close();
-    }
-    socket = new WebSocket(`ws://localhost:8000/ws/map/${currentSessionId}`);
-    socket.onopen = () => {
-      if (statusEl) {
-        statusEl.innerHTML = "● Connected to Collaborative Server";
-        statusEl.style.color = "#4ade80";
-      }
-    };
-    socket.onclose = () => {
-      if (statusEl) {
-        statusEl.innerHTML = "Disconnected from Multiplayer";
-        statusEl.style.color = "#f87171";
-      }
-    };
-    socket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.op === "CELL_MUTATED") {
-          const { cellId, changes } = data;
-          const state = store.getState();
-          if (state.heights && state.grid) {
-            if (changes.height !== undefined) {
-              state.heights[cellId] = Math.min(Math.max(Math.round(changes.height * 100), 0), 100);
-            }
-            renderCurrentLayer();
-            if (threeRenderer && is3DMode) {
-              threeRenderer.updateTerrain(store.getState());
-            }
-          }
-        }
-      } catch (err) {
-        console.error("WS parse error:", err);
-      }
-    };
-  };
+	const connectWebSocket = () => {
+		if (socket) {
+			socket.close();
+		}
+		socket = new WebSocket(`ws://localhost:8000/ws/map/${currentSessionId}`);
+		socket.onopen = () => {
+			if (statusEl) {
+				statusEl.innerHTML = "● Connected to Collaborative Server";
+				statusEl.style.color = "#4ade80";
+			}
+		};
+		socket.onclose = () => {
+			if (statusEl) {
+				statusEl.innerHTML = "Disconnected from Multiplayer";
+				statusEl.style.color = "#f87171";
+			}
+		};
+		socket.onmessage = (event) => {
+			try {
+				const data = JSON.parse(event.data);
+				if (data.op === "CELL_MUTATED") {
+					const { cellId, changes } = data;
+					const state = store.getState();
+					if (state.heights && state.grid) {
+						if (changes.height !== undefined) {
+							state.heights[cellId] = Math.min(
+								Math.max(Math.round(changes.height * 100), 0),
+								100,
+							);
+						}
+						renderCurrentLayer();
+						if (threeRenderer && is3DMode) {
+							threeRenderer.updateTerrain(store.getState());
+						}
+					}
+				}
+			} catch (err) {
+				console.error("WS parse error:", err);
+			}
+		};
+	};
 
-  const runSimulation = (config: SetupConfig) => {
-    if (!canvas || !loadingOverlay) return;
-    loadingOverlay.style.display = "flex";
+	const runSimulation = (config: SetupConfig) => {
+		if (!canvas || !loadingOverlay) return;
+		loadingOverlay.style.display = "flex";
 
-    // Set canvas dimensions based on config
-    canvas.width = config.canvasWidth;
-    canvas.height = config.canvasHeight;
-    if (threeRenderer) {
-      threeRenderer.resize(config.canvasWidth, config.canvasHeight);
-    }
+		// Set canvas dimensions based on config
+		canvas.width = config.canvasWidth;
+		canvas.height = config.canvasHeight;
+		if (threeRenderer) {
+			threeRenderer.resize(config.canvasWidth, config.canvasHeight);
+		}
 
-    setTimeout(() => {
-      try {
-        const t0 = performance.now();
-        const width = config.canvasWidth;
-        const height = config.canvasHeight;
-        const seed = config.seed;
+		setTimeout(() => {
+			try {
+				const t0 = performance.now();
+				const width = config.canvasWidth;
+				const height = config.canvasHeight;
+				const seed = config.seed;
 
-        const grid = generateJitteredGrid(width, height, config.cellsCount, seed);
-        const hg = new HeightmapGenerator(grid, width, height, seed);
-        
-        let templateStr = `
+				const grid = generateJitteredGrid(
+					width,
+					height,
+					config.cellsCount,
+					seed,
+				);
+				const hg = new HeightmapGenerator(grid, width, height, seed);
+
+				let templateStr = `
           Hill 1 80-85 60-80 40-60
           Hill 1 80-85 20-30 40-60
           Hill 6-7 15-30 25-75 15-85
@@ -618,331 +665,465 @@ if (app) {
           Smooth 3 0 0 0
           Mask 3 0 0 0
         `;
-        if (config.heightmapType === "Volcano") {
-          templateStr = `
+				if (config.heightmapType === "Volcano") {
+					templateStr = `
             Hill 1 90-95 50-50 20-30
             Hill 4 10-20 20-80 20-80
             Multiply 0.8
             Smooth 5
           `;
-        } else if (config.heightmapType === "High Island" || config.heightmapType === "Low Island") {
-          templateStr = `
+				} else if (
+					config.heightmapType === "High Island" ||
+					config.heightmapType === "Low Island"
+				) {
+					templateStr = `
             Hill 2 70-80 40-60 30-50
             Smooth 4
           `;
-        } else if (config.heightmapType === "Archipelago" || config.heightmapType === "Atoll") {
-          templateStr = `
+				} else if (
+					config.heightmapType === "Archipelago" ||
+					config.heightmapType === "Atoll"
+				) {
+					templateStr = `
             Hill 10 5-15 10-90 10-90
             Multiply 0.5
             Smooth 3
           `;
-        }
+				}
 
-        let rawHeights = hg.executeTemplate(templateStr);
+				const rawHeights = hg.executeTemplate(templateStr);
 
-        const climateOpts = {
-          temperatureEquator: config.tempEquator,
-          temperatureNorthPole: -30,
-          temperatureSouthPole: -15,
-          winds: [config.windsAngle, 45, 225, 315, 135, 315],
-          precInput: config.precipitationInput
-        };
-        const { temp, prec } = generateClimate(grid, rawHeights, width, height, climateOpts);
-        const hydro = generateHydrology(grid, rawHeights, prec);
-        const heights = bakeErosion(grid, hydro.heights, hydro.flowDirections, 3);
-        const biomes = generateBiomes(grid, heights, temp, prec, hydro.rivers);
-        const { cultures, cellCultures } = generateCultures(grid, heights, biomes, config.culturesCount, seed, hydro.flux, hydro.rivers);
-        const burgs = generateBurgs(grid, heights, biomes, hydro.rivers, hydro.flux, config.townsCount, cellCultures, cultures);
-        const { states, cellStates } = generateStates(grid, heights, cellCultures, burgs, config.statesCount, biomes, hydro.rivers, hydro.flux, undefined, cultures);
-        const routes = generateRoutes(grid, heights, burgs);
-        const { provinces, cellProvinces } = generateProvinces(grid, heights, cellStates, burgs, states);
-        const military = generateMilitary(grid, heights, cellStates, states, burgs);
-        const { religions, cellReligions } = generateReligions(grid, heights, cellCultures, config.religionsCount, seed);
-        const zones = generateZones(grid, heights, seed);
-        const markers = generateMarkers(grid, heights, biomes, seed);
-        const relations = generateDiplomacy(states, seed);
+				const climateOpts = {
+					temperatureEquator: config.tempEquator,
+					temperatureNorthPole: -30,
+					temperatureSouthPole: -15,
+					winds: [config.windsAngle, 45, 225, 315, 135, 315],
+					precInput: config.precipitationInput,
+				};
+				const { temp, prec } = generateClimate(
+					grid,
+					rawHeights,
+					width,
+					height,
+					climateOpts,
+				);
+				const hydro = generateHydrology(grid, rawHeights, prec);
+				const heights = bakeErosion(
+					grid,
+					hydro.heights,
+					hydro.flowDirections,
+					3,
+				);
+				const biomes = generateBiomes(grid, heights, temp, prec, hydro.rivers);
+				const { cultures, cellCultures } = generateCultures(
+					grid,
+					heights,
+					biomes,
+					config.culturesCount,
+					seed,
+					hydro.flux,
+					hydro.rivers,
+				);
+				const burgs = generateBurgs(
+					grid,
+					heights,
+					biomes,
+					hydro.rivers,
+					hydro.flux,
+					config.townsCount,
+					cellCultures,
+					cultures,
+				);
+				const { states, cellStates } = generateStates(
+					grid,
+					heights,
+					cellCultures,
+					burgs,
+					config.statesCount,
+					biomes,
+					hydro.rivers,
+					hydro.flux,
+					undefined,
+					cultures,
+				);
+				const routes = generateRoutes(grid, heights, burgs);
+				const { provinces, cellProvinces } = generateProvinces(
+					grid,
+					heights,
+					cellStates,
+					burgs,
+					states,
+				);
+				const military = generateMilitary(
+					grid,
+					heights,
+					cellStates,
+					states,
+					burgs,
+				);
+				const { religions, cellReligions } = generateReligions(
+					grid,
+					heights,
+					cellCultures,
+					config.religionsCount,
+					seed,
+				);
+				const zones = generateZones(grid, heights, seed);
+				const markers = generateMarkers(grid, heights, biomes, seed);
+				const relations = generateDiplomacy(states, seed);
 
-        const cellGoods = generateGoods(grid, heights, biomes);
-        const markets = generateMarkets(grid, burgs, cellGoods);
-        const production = runProductionCycles(markets);
+				const cellGoods = generateGoods(grid, heights, biomes);
+				const markets = generateMarkets(grid, burgs, cellGoods);
+				const production = runProductionCycles(markets);
 
-        const t1 = performance.now();
+				const t1 = performance.now();
 
-        store.updateState({
-          width,
-          height,
-          seed,
-          grid,
-          heights,
-          temp,
-          prec,
-          flowDirections: hydro.flowDirections,
-          flux: hydro.flux,
-          rivers: hydro.rivers,
-          biomes,
-          cellCultures,
-          cellStates,
-          cellProvinces,
-          cellReligions,
-          cellGoods,
-          burgs,
-          routes,
-          provinces,
-          military,
-          religions,
-          zones,
-          markers,
-          markets,
-          production,
-          states,
-          relations,
-          cultures,
-          labels: []
-        } as any);
+				store.updateState({
+					width,
+					height,
+					seed,
+					grid,
+					heights,
+					temp,
+					prec,
+					flowDirections: hydro.flowDirections,
+					flux: hydro.flux,
+					rivers: hydro.rivers,
+					biomes,
+					cellCultures,
+					cellStates,
+					cellProvinces,
+					cellReligions,
+					cellGoods,
+					burgs,
+					routes,
+					provinces,
+					military,
+					religions,
+					zones,
+					markers,
+					markets,
+					production,
+					states,
+					relations,
+					cultures,
+					labels: [],
+				} as any);
 
-        if (statsEl) {
-          statsEl.innerHTML = `Generated ${grid.points.length} cells in <strong style="color: #fbbf24;">${(t1 - t0).toFixed(1)}ms</strong>`;
-        }
+				if (statsEl) {
+					statsEl.innerHTML = `Generated ${grid.points.length} cells in <strong style="color: #fbbf24;">${(t1 - t0).toFixed(1)}ms</strong>`;
+				}
 
-        connectWebSocket();
-        
-        // Initialize simulation loop with custom options
-        (window as any).simulationLoop = new SimulationLoop(climateOpts);
-        
-        // Push initial calendar state to store
-        const initialCalendar = (window as any).simulationLoop.getCalendar();
-        store.updateState({ calendar: initialCalendar });
-        updateCalendarText();
+				connectWebSocket();
 
-        renderCurrentLayer();
-        if (minimapCanvas) drawMinimap(minimapCanvas, store.getState());
+				// Initialize simulation loop with custom options
+				(window as any).simulationLoop = new SimulationLoop(climateOpts);
 
-        
-        if ((window as any).refreshBiomesList) {
-          (window as any).refreshBiomesList();
-        }
+				// Push initial calendar state to store
+				const initialCalendar = (window as any).simulationLoop.getCalendar();
+				store.updateState({ calendar: initialCalendar });
+				updateCalendarText();
 
-        if (threeRenderer) {
-          threeRenderer.updateTerrain(store.getState());
-        }
-      } catch (err: any) {
-        console.error("Simulation error:", err);
-      } finally {
-        loadingOverlay.style.display = "none";
-      }
-    }, 50);
-  };
+				renderCurrentLayer();
+				if (minimapCanvas) drawMinimap(minimapCanvas, store.getState());
 
-  mountConfigurator("configuratorMount", (config) => runSimulation(config));
+				if ((window as any).refreshBiomesList) {
+					(window as any).refreshBiomesList();
+				}
 
-  (window as any).runClimateRegen = (tempEquator: number, windsAngle: number, precInput: number) => {
-    const state = store.getState() as any;
-    if (!state.grid || !state.heights) return;
+				if (threeRenderer) {
+					threeRenderer.updateTerrain(store.getState());
+				}
+			} catch (err: any) {
+				console.error("Simulation error:", err);
+			} finally {
+				loadingOverlay.style.display = "none";
+			}
+		}, 50);
+	};
 
-    const climateOpts = {
-      temperatureEquator: tempEquator,
-      temperatureNorthPole: -30,
-      temperatureSouthPole: -15,
-      winds: [windsAngle, 45, 225, 315, 135, 315],
-      precInput: precInput
-    };
+	mountConfigurator("configuratorMount", (config) => runSimulation(config));
 
-    const { temp, prec } = generateClimate(state.grid, state.heights, state.width, state.height, climateOpts);
-    const biomes = generateBiomes(state.grid, state.heights, temp, prec, state.rivers || new Uint8Array(state.heights.length));
+	(window as any).runClimateRegen = (opts: {
+		equatorTemp: number;
+		polesTemp: number;
+		latN: number;
+		latT: number;
+		precInput: number;
+		winds: number[];
+	}) => {
+		const state = store.getState() as any;
+		if (!state.grid || !state.heights) return;
 
-    store.updateState({
-      temp,
-      prec,
-      biomes
-    });
+		const climateOpts = {
+			temperatureEquator: opts.equatorTemp,
+			temperatureNorthPole: opts.polesTemp,
+			temperatureSouthPole: opts.polesTemp,
+			winds:
+				opts.winds && opts.winds.length === 6
+					? opts.winds
+					: [225, 45, 225, 315, 135, 315],
+			precInput: opts.precInput,
+			latN: opts.latN,
+			latT: opts.latT,
+		};
 
-    renderCurrentLayer();
-    if (minimapCanvas) drawMinimap(minimapCanvas, store.getState());
-  };
+		const { temp, prec } = generateClimate(
+			state.grid,
+			state.heights,
+			state.width,
+			state.height,
+			climateOpts,
+		);
+		const biomes = generateBiomes(
+			state.grid,
+			state.heights,
+			temp,
+			prec,
+			state.rivers || new Uint8Array(state.heights.length),
+		);
 
-  const renderCurrentLayer = () => {
-    if (!canvas || is3DMode) return;
-    renderMap(canvas, store.getState(), currentLayer);
-  };
+		store.updateState({
+			temp,
+			prec,
+			biomes,
+		});
 
-  const ensureToolsTabVisible = () => {
-    const optionsPanel = document.getElementById("options") as HTMLDivElement;
-    const collapsibleWrap = document.getElementById("collapsible") as HTMLDivElement;
-    if (optionsPanel && collapsibleWrap) {
-      optionsPanel.style.display = "flex";
-      collapsibleWrap.style.display = "none";
-    }
-    const toolsTabBtn = document.getElementById("toolsTab") as HTMLButtonElement;
-    if (toolsTabBtn) {
-      toolsTabBtn.click();
-    }
-  };
+		renderCurrentLayer();
+		if (minimapCanvas) drawMinimap(minimapCanvas, store.getState());
+	};
 
-  let isPanning = false;
-  let startX = 0;
-  let startY = 0;
+	const renderCurrentLayer = () => {
+		if (!canvas || is3DMode) return;
+		renderMap(canvas, store.getState(), currentLayer);
+	};
 
-  canvas.addEventListener("mousedown", (e) => {
-    if (is3DMode) return;
-    const state = store.getState() as any;
-    if (!state.grid || !state.heights) return;
+	const ensureToolsTabVisible = () => {
+		const optionsPanel = document.getElementById("options") as HTMLDivElement;
+		const collapsibleWrap = document.getElementById(
+			"collapsible",
+		) as HTMLDivElement;
+		if (optionsPanel && collapsibleWrap) {
+			optionsPanel.style.display = "flex";
+			collapsibleWrap.style.display = "none";
+		}
+		const toolsTabBtn = document.getElementById(
+			"toolsTab",
+		) as HTMLButtonElement;
+		if (toolsTabBtn) {
+			toolsTabBtn.click();
+		}
+	};
 
-    const rect = canvas.getBoundingClientRect();
-    const clickX = ((e.clientX - rect.left) / rect.width) * canvas.width;
-    const clickY = ((e.clientY - rect.top) / rect.height) * canvas.height;
+	let isPanning = false;
+	let startX = 0;
+	let startY = 0;
 
-    // Apply transform inverse mapping to hit-test in map space
-    const mapX = (clickX - state.offsetX) / state.zoom;
-    const mapY = (clickY - state.offsetY) / state.zoom;
+	canvas.addEventListener("mousedown", (e) => {
+		if (is3DMode) return;
+		const state = store.getState() as any;
+		if (!state.grid || !state.heights) return;
 
-    // Check if we click a burg
-    if (state.burgs) {
-      for (const b of state.burgs) {
-        const dist = Math.hypot(b.x - mapX, b.y - mapY);
-        if (dist < 12) {
-          ensureToolsTabVisible();
-          (window as any).openBurgEditor(b);
-          return;
-        }
-      }
-    }
+		const rect = canvas.getBoundingClientRect();
+		const clickX = ((e.clientX - rect.left) / rect.width) * canvas.width;
+		const clickY = ((e.clientY - rect.top) / rect.height) * canvas.height;
 
-    const cellId = findClosestCellIndex(mapX, mapY, state.grid.points);
+		// Apply transform inverse mapping to hit-test in map space
+		const mapX = (clickX - state.offsetX) / state.zoom;
+		const mapY = (clickY - state.offsetY) / state.zoom;
 
-    // Check if we click a route
-    if (state.routes) {
-      for (const r of state.routes) {
-        if (r.path && r.path.includes(cellId)) {
-          ensureToolsTabVisible();
-          (window as any).openRouteEditor(r);
-          return;
-        }
-      }
-    }
+		// Check if we click a burg
+		if (state.burgs) {
+			for (const b of state.burgs) {
+				const dist = Math.hypot(b.x - mapX, b.y - mapY);
+				if (dist < 12) {
+					ensureToolsTabVisible();
+					(window as any).openBurgEditor(b);
+					return;
+				}
+			}
+		}
 
-    // Check if we click a state
-    const sId = state.cellStates ? state.cellStates[cellId] : 0;
-    const brush = (window as any).getCurrentBrushConfig ? (window as any).getCurrentBrushConfig() : { mode: "none" };
+		const cellId = findClosestCellIndex(mapX, mapY, state.grid.points);
 
-    if (sId > 0 && state.states && brush.mode === "none") {
-      const activeState = state.states.find((s: any) => s.id === sId);
-      if (activeState) {
-        ensureToolsTabVisible();
-        (window as any).openStateEditor(activeState);
-        return;
-      }
-    }
+		// Check if we click a route
+		if (state.routes) {
+			for (const r of state.routes) {
+				if (r.path && r.path.includes(cellId)) {
+					ensureToolsTabVisible();
+					(window as any).openRouteEditor(r);
+					return;
+				}
+			}
+		}
 
-    // If brush is active, perform brush painting
-    if (brush.mode !== "none") {
-      const originalHeight = state.heights[cellId];
-      let newHeight = originalHeight;
+		// Check if we click a state
+		const sId = state.cellStates ? state.cellStates[cellId] : 0;
+		const brush = (window as any).getCurrentBrushConfig
+			? (window as any).getCurrentBrushConfig()
+			: { mode: "none" };
 
-      if (brush.mode === "add") {
-        newHeight = Math.min(originalHeight + 15, 100);
-      } else if (brush.mode === "sub") {
-        newHeight = Math.max(originalHeight - 15, 0);
-      } else if (brush.mode === "set") {
-        newHeight = brush.value;
-      } else if (brush.mode === "smooth") {
-        const neighbors = state.grid.cells.c[cellId] || [];
-        const sum = neighbors.reduce((acc: number, n: number) => acc + state.heights[n], originalHeight);
-        newHeight = Math.round(sum / (neighbors.length + 1));
-      }
+		if (sId > 0 && state.states && brush.mode === "none") {
+			const activeState = state.states.find((s: any) => s.id === sId);
+			if (activeState) {
+				ensureToolsTabVisible();
+				(window as any).openStateEditor(activeState);
+				return;
+			}
+		}
 
-      const updatedHeights = new Uint8Array(state.heights);
-      updatedHeights[cellId] = newHeight;
-      store.updateState({ heights: updatedHeights });
-      renderCurrentLayer();
-      if (minimapCanvas) drawMinimap(minimapCanvas, store.getState());
+		// If brush is active, perform brush painting
+		if (brush.mode !== "none") {
+			const originalHeight = state.heights[cellId];
+			let newHeight = originalHeight;
 
-      if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({
-          op: "MUTATE_CELL",
-          cellId,
-          changes: { height: newHeight / 100.0 }
-        }));
-      }
-      return;
-    }
+			if (brush.mode === "add") {
+				newHeight = Math.min(originalHeight + 15, 100);
+			} else if (brush.mode === "sub") {
+				newHeight = Math.max(originalHeight - 15, 0);
+			} else if (brush.mode === "set") {
+				newHeight = brush.value;
+			} else if (brush.mode === "smooth") {
+				const neighbors = state.grid.cells.c[cellId] || [];
+				const sum = neighbors.reduce(
+					(acc: number, n: number) => acc + state.heights[n],
+					originalHeight,
+				);
+				newHeight = Math.round(sum / (neighbors.length + 1));
+			}
 
-    // Otherwise, start panning!
-    isPanning = true;
-    startX = e.clientX;
-    startY = e.clientY;
-  });
+			const updatedHeights = new Uint8Array(state.heights);
+			updatedHeights[cellId] = newHeight;
+			store.updateState({ heights: updatedHeights });
+			renderCurrentLayer();
+			if (minimapCanvas) drawMinimap(minimapCanvas, store.getState());
 
-  canvas.addEventListener("mousemove", (e) => {
-    if (isPanning) {
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-      startX = e.clientX;
-      startY = e.clientY;
+			if (socket && socket.readyState === WebSocket.OPEN) {
+				socket.send(
+					JSON.stringify({
+						op: "MUTATE_CELL",
+						cellId,
+						changes: { height: newHeight / 100.0 },
+					}),
+				);
+			}
+			return;
+		}
 
-      const state = store.getState() as any;
-      store.updateState({
-        offsetX: state.offsetX + dx,
-        offsetY: state.offsetY + dy
-      });
-      renderCurrentLayer();
-    }
-  });
+		// Otherwise, start panning!
+		isPanning = true;
+		startX = e.clientX;
+		startY = e.clientY;
+	});
 
-  window.addEventListener("mouseup", () => {
-    isPanning = false;
-  });
+	canvas.addEventListener("mousemove", (e) => {
+		if (isPanning) {
+			const dx = e.clientX - startX;
+			const dy = e.clientY - startY;
+			startX = e.clientX;
+			startY = e.clientY;
 
-  canvas.addEventListener("wheel", (e) => {
-    if (is3DMode) return;
-    e.preventDefault();
+			const state = store.getState() as any;
+			store.updateState({
+				offsetX: state.offsetX + dx,
+				offsetY: state.offsetY + dy,
+			});
+			renderCurrentLayer();
+		}
+	});
 
-    const state = store.getState() as any;
-    const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85;
-    const nextZoom = Math.min(Math.max(state.zoom * zoomFactor, 1.0), 8.0);
+	window.addEventListener("mouseup", () => {
+		isPanning = false;
+	});
 
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = ((e.clientX - rect.left) / rect.width) * canvas.width;
-    const mouseY = ((e.clientY - rect.top) / rect.height) * canvas.height;
+	canvas.addEventListener("wheel", (e) => {
+		if (is3DMode) return;
+		e.preventDefault();
 
-    const mapX = (mouseX - state.offsetX) / state.zoom;
-    const mapY = (mouseY - state.offsetY) / state.zoom;
+		const state = store.getState() as any;
+		const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85;
+		const nextZoom = Math.min(Math.max(state.zoom * zoomFactor, 1.0), 8.0);
 
-    store.updateState({
-      zoom: nextZoom,
-      offsetX: mouseX - mapX * nextZoom,
-      offsetY: mouseY - mapY * nextZoom
-    });
-    renderCurrentLayer();
-  });
+		const rect = canvas.getBoundingClientRect();
+		const mouseX = ((e.clientX - rect.left) / rect.width) * canvas.width;
+		const mouseY = ((e.clientY - rect.top) / rect.height) * canvas.height;
 
-  const renderLayersChecklist = () => {
-    const listEl = document.getElementById("layersList");
-    if (!listEl) return;
+		const mapX = (mouseX - state.offsetX) / state.zoom;
+		const mapY = (mouseY - state.offsetY) / state.zoom;
 
-    const state = store.getState() as any;
-    const order = state.layerOrder || ["primary", "grid", "rivers", "zones", "routes", "markers", "burgs", "military", "labels"];
+		store.updateState({
+			zoom: nextZoom,
+			offsetX: mouseX - mapX * nextZoom,
+			offsetY: mouseY - mapY * nextZoom,
+		});
+		renderCurrentLayer();
+	});
 
-    // Mapping layer order items to display properties
-    const layerMeta: Record<string, { name: string; isPrimary: boolean; toggleId?: string }> = {
-      primary: { name: `Primary Layer (${currentLayer.toUpperCase()})`, isPrimary: true },
-      grid: { name: "Grid Cells", isPrimary: false, toggleId: "showGrid" },
-      rivers: { name: "Rivers", isPrimary: false, toggleId: "showRivers" },
-      zones: { name: "Special Zones", isPrimary: false, toggleId: "showZones" },
-      routes: { name: "Routes & Roads", isPrimary: false, toggleId: "showRoutes" },
-      markers: { name: "Markers & Icons", isPrimary: false, toggleId: "showMarkers" },
-      burgs: { name: "Burgs & Cities", isPrimary: false, toggleId: "showBurgs" },
-      military: { name: "Military Units", isPrimary: false, toggleId: "showMilitary" },
-      labels: { name: "Text Labels", isPrimary: false, toggleId: "showLabels" }
-    };
+	const renderLayersChecklist = () => {
+		const listEl = document.getElementById("layersList");
+		if (!listEl) return;
 
-    listEl.innerHTML = order.map((layerId, idx) => {
-      const meta = layerMeta[layerId] || { name: layerId, isPrimary: false };
-      const isVisible = meta.isPrimary ? true : (state[meta.toggleId!] ?? false);
-      const eyeIcon = isVisible ? "👁️" : "🙈";
-      const iconColor = isVisible ? "#3b82f6" : "#475569";
-      const rowBackground = meta.isPrimary ? "rgba(59, 130, 246, 0.15)" : "transparent";
+		const state = store.getState() as any;
+		const order = state.layerOrder || [
+			"primary",
+			"grid",
+			"rivers",
+			"zones",
+			"routes",
+			"markers",
+			"burgs",
+			"military",
+			"labels",
+		];
 
-      return `
+		// Mapping layer order items to display properties
+		const layerMeta: Record<
+			string,
+			{ name: string; isPrimary: boolean; toggleId?: string }
+		> = {
+			primary: {
+				name: `Primary Layer (${currentLayer.toUpperCase()})`,
+				isPrimary: true,
+			},
+			grid: { name: "Grid Cells", isPrimary: false, toggleId: "showGrid" },
+			rivers: { name: "Rivers", isPrimary: false, toggleId: "showRivers" },
+			zones: { name: "Special Zones", isPrimary: false, toggleId: "showZones" },
+			routes: {
+				name: "Routes & Roads",
+				isPrimary: false,
+				toggleId: "showRoutes",
+			},
+			markers: {
+				name: "Markers & Icons",
+				isPrimary: false,
+				toggleId: "showMarkers",
+			},
+			burgs: {
+				name: "Burgs & Cities",
+				isPrimary: false,
+				toggleId: "showBurgs",
+			},
+			military: {
+				name: "Military Units",
+				isPrimary: false,
+				toggleId: "showMilitary",
+			},
+			labels: { name: "Text Labels", isPrimary: false, toggleId: "showLabels" },
+		};
+
+		listEl.innerHTML = order
+			.map((layerId, idx) => {
+				const meta = layerMeta[layerId] || { name: layerId, isPrimary: false };
+				const isVisible = meta.isPrimary
+					? true
+					: (state[meta.toggleId!] ?? false);
+				const eyeIcon = isVisible ? "👁️" : "🙈";
+				const iconColor = isVisible ? "#3b82f6" : "#475569";
+				const rowBackground = meta.isPrimary
+					? "rgba(59, 130, 246, 0.15)"
+					: "transparent";
+
+				return `
         <div class="draggable-layer-row" draggable="true" data-index="${idx}" data-layer-id="${layerId}" style="display: flex; align-items: center; justify-content: space-between; padding: 0.3rem 0.5rem; border-radius: 4px; background: ${rowBackground}; width: 100%; box-sizing: border-box; gap: 0.5rem; cursor: grab; border: 1px solid rgba(255,255,255,0.05); user-select: none;">
           <span style="font-weight: ${meta.isPrimary ? "bold" : "normal"}; color: ${meta.isPrimary ? "#f1f5f9" : "#cbd5e1"}; font-size: 0.8rem; pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;">
             ⋮⋮ ${meta.name}
@@ -952,79 +1133,98 @@ if (app) {
           </button>
         </div>
       `;
-    }).join("");
+			})
+			.join("");
 
-    // Bind eye button visibility toggles
-    const toggles = listEl.querySelectorAll(".layer-toggle-btn");
-    toggles.forEach(btn => {
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const id = btn.getAttribute("data-id")!;
-        const toggleId = btn.getAttribute("data-toggle-id")!;
+		// Bind eye button visibility toggles
+		const toggles = listEl.querySelectorAll(".layer-toggle-btn");
+		toggles.forEach((btn) => {
+			btn.addEventListener("click", (e) => {
+				e.stopPropagation();
+				const id = btn.getAttribute("data-id")!;
+				const toggleId = btn.getAttribute("data-toggle-id")!;
 
-        if (id !== "primary") {
-          const propName = toggleId as keyof AppState;
-          const currentVal = state[propName];
-          store.updateState({ [propName]: !currentVal });
-        }
+				if (id !== "primary") {
+					const propName = toggleId as keyof AppState;
+					const currentVal = state[propName];
+					store.updateState({ [propName]: !currentVal });
+				}
 
-        renderLayersChecklist();
-        renderCurrentLayer();
-      });
-    });
+				renderLayersChecklist();
+				renderCurrentLayer();
+			});
+		});
 
-    // Bind HTML5 drag-and-drop events
-    let dragSrcIndex: number | null = null;
-    const rows = listEl.querySelectorAll(".draggable-layer-row");
+		// Bind HTML5 drag-and-drop events
+		let dragSrcIndex: number | null = null;
+		const rows = listEl.querySelectorAll(".draggable-layer-row");
 
-    rows.forEach(row => {
-      row.addEventListener("dragstart", (e: any) => {
-        dragSrcIndex = parseInt(row.getAttribute("data-index")!, 10);
-        row.style.opacity = "0.4";
-        e.dataTransfer.effectAllowed = "move";
-      });
+		rows.forEach((row) => {
+			row.addEventListener("dragstart", (e: any) => {
+				dragSrcIndex = parseInt(row.getAttribute("data-index")!, 10);
+				row.style.opacity = "0.4";
+				e.dataTransfer.effectAllowed = "move";
+			});
 
-      row.addEventListener("dragover", (e: any) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-      });
+			row.addEventListener("dragover", (e: any) => {
+				e.preventDefault();
+				e.dataTransfer.dropEffect = "move";
+			});
 
-      row.addEventListener("dragend", () => {
-        row.style.opacity = "1";
-      });
+			row.addEventListener("dragend", () => {
+				row.style.opacity = "1";
+			});
 
-      row.addEventListener("drop", (e: any) => {
-        e.preventDefault();
-        const targetIndex = parseInt(row.getAttribute("data-index")!, 10);
-        if (dragSrcIndex !== null && dragSrcIndex !== targetIndex) {
-          const nextOrder = [...order];
-          const [dragged] = nextOrder.splice(dragSrcIndex, 1);
-          nextOrder.splice(targetIndex, 0, dragged);
+			row.addEventListener("drop", (e: any) => {
+				e.preventDefault();
+				const targetIndex = parseInt(row.getAttribute("data-index")!, 10);
+				if (dragSrcIndex !== null && dragSrcIndex !== targetIndex) {
+					const nextOrder = [...order];
+					const [dragged] = nextOrder.splice(dragSrcIndex, 1);
+					nextOrder.splice(targetIndex, 0, dragged);
 
-          store.updateState({ layerOrder: nextOrder });
-          renderLayersChecklist();
-          renderCurrentLayer();
-        }
-      });
-    });
-  };
+					store.updateState({ layerOrder: nextOrder });
+					renderLayersChecklist();
+					renderCurrentLayer();
+				}
+			});
+		});
+	};
 
-  // Wire up the Layer Style controls
-  const styleLayerSelect = document.getElementById("styleLayerSelect") as HTMLSelectElement;
-  const styleControls = document.getElementById("styleControls") as HTMLDivElement;
+	// Wire up the Layer Style controls
+	const styleLayerSelect = document.getElementById(
+		"styleLayerSelect",
+	) as HTMLSelectElement;
+	const styleControls = document.getElementById(
+		"styleControls",
+	) as HTMLDivElement;
 
-  const renderStyleControls = () => {
-    if (!styleLayerSelect || !styleControls) return;
-    const selectedLayer = styleLayerSelect.value;
-    const state = store.getState() as any;
-    const styles = state.layerStyles || {};
-    const style = styles[selectedLayer] || { opacity: 1.0, color: "#ffffff", size: 1.0 };
+	const renderStyleControls = () => {
+		if (!styleLayerSelect || !styleControls) return;
+		const selectedLayer = styleLayerSelect.value;
+		const state = store.getState() as any;
+		const styles = state.layerStyles || {};
+		const style = styles[selectedLayer] || {
+			opacity: 1.0,
+			color: "#ffffff",
+			size: 1.0,
+		};
 
-    // Determine custom controls based on selected layer type
-    const showColor = ["grid", "rivers", "routes", "burgs", "markers"].includes(selectedLayer);
-    const showSize = ["grid", "rivers", "routes", "burgs", "military", "markers", "labels"].includes(selectedLayer);
+		// Determine custom controls based on selected layer type
+		const showColor = ["grid", "rivers", "routes", "burgs", "markers"].includes(
+			selectedLayer,
+		);
+		const showSize = [
+			"grid",
+			"rivers",
+			"routes",
+			"burgs",
+			"military",
+			"markers",
+			"labels",
+		].includes(selectedLayer);
 
-    let html = `
+		let html = `
       <div style="display: flex; flex-direction: column; gap: 0.3rem;">
         <div style="display: flex; justify-content: space-between;">
           <span>Opacity:</span>
@@ -1034,19 +1234,19 @@ if (app) {
       </div>
     `;
 
-    if (showColor) {
-      html += `
+		if (showColor) {
+			html += `
         <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.3rem;">
           <span>Outline Color:</span>
           <input type="color" id="layerColorPicker" value="${style.color.startsWith("rgba") ? "#ffffff" : style.color}" style="background: transparent; border: none; cursor: pointer; width: 40px; height: 25px;" />
         </div>
       `;
-    }
+		}
 
-    if (showSize) {
-      const minSize = selectedLayer === "labels" ? 5 : 0.2;
-      const maxSize = selectedLayer === "labels" ? 36 : 10;
-      html += `
+		if (showSize) {
+			const minSize = selectedLayer === "labels" ? 5 : 0.2;
+			const maxSize = selectedLayer === "labels" ? 36 : 10;
+			html += `
         <div style="display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.3rem;">
           <div style="display: flex; justify-content: space-between;">
             <span>Line/Size scale:</span>
@@ -1055,246 +1255,270 @@ if (app) {
           <input type="range" id="layerSizeSlider" min="${minSize}" max="${maxSize}" step="0.1" value="${style.size}" style="width: 100%; cursor: pointer;" />
         </div>
       `;
-    }
+		}
 
-    styleControls.innerHTML = html;
+		styleControls.innerHTML = html;
 
-    // Add listeners to update styles in real-time
-    const opacitySlider = document.getElementById("layerOpacitySlider") as HTMLInputElement;
-    opacitySlider.addEventListener("input", () => {
-      const nextOpacity = parseFloat(opacitySlider.value);
-      const opacityVal = document.getElementById("opacityVal");
-      if (opacityVal) opacityVal.innerText = `${Math.round(nextOpacity * 100)}%`;
+		// Add listeners to update styles in real-time
+		const opacitySlider = document.getElementById(
+			"layerOpacitySlider",
+		) as HTMLInputElement;
+		opacitySlider.addEventListener("input", () => {
+			const nextOpacity = parseFloat(opacitySlider.value);
+			const opacityVal = document.getElementById("opacityVal");
+			if (opacityVal)
+				opacityVal.innerText = `${Math.round(nextOpacity * 100)}%`;
 
-      const nextStyles = { ...state.layerStyles };
-      nextStyles[selectedLayer] = { ...nextStyles[selectedLayer], opacity: nextOpacity };
-      store.updateState({ layerStyles: nextStyles });
-      renderCurrentLayer();
-    });
+			const nextStyles = { ...state.layerStyles };
+			nextStyles[selectedLayer] = {
+				...nextStyles[selectedLayer],
+				opacity: nextOpacity,
+			};
+			store.updateState({ layerStyles: nextStyles });
+			renderCurrentLayer();
+		});
 
-    if (showColor) {
-      const colorPicker = document.getElementById("layerColorPicker") as HTMLInputElement;
-      colorPicker.addEventListener("input", () => {
-        const nextStyles = { ...state.layerStyles };
-        nextStyles[selectedLayer] = { ...nextStyles[selectedLayer], color: colorPicker.value };
-        store.updateState({ layerStyles: nextStyles });
-        renderCurrentLayer();
-      });
-    }
+		if (showColor) {
+			const colorPicker = document.getElementById(
+				"layerColorPicker",
+			) as HTMLInputElement;
+			colorPicker.addEventListener("input", () => {
+				const nextStyles = { ...state.layerStyles };
+				nextStyles[selectedLayer] = {
+					...nextStyles[selectedLayer],
+					color: colorPicker.value,
+				};
+				store.updateState({ layerStyles: nextStyles });
+				renderCurrentLayer();
+			});
+		}
 
-    if (showSize) {
-      const sizeSlider = document.getElementById("layerSizeSlider") as HTMLInputElement;
-      sizeSlider.addEventListener("input", () => {
-        const nextSize = parseFloat(sizeSlider.value);
-        const sizeVal = document.getElementById("sizeVal");
-        if (sizeVal) sizeVal.innerText = nextSize.toFixed(1);
+		if (showSize) {
+			const sizeSlider = document.getElementById(
+				"layerSizeSlider",
+			) as HTMLInputElement;
+			sizeSlider.addEventListener("input", () => {
+				const nextSize = parseFloat(sizeSlider.value);
+				const sizeVal = document.getElementById("sizeVal");
+				if (sizeVal) sizeVal.innerText = nextSize.toFixed(1);
 
-        const nextStyles = { ...state.layerStyles };
-        nextStyles[selectedLayer] = { ...nextStyles[selectedLayer], size: nextSize };
-        store.updateState({ layerStyles: nextStyles });
-        renderCurrentLayer();
-      });
-    }
-  };
+				const nextStyles = { ...state.layerStyles };
+				nextStyles[selectedLayer] = {
+					...nextStyles[selectedLayer],
+					size: nextSize,
+				};
+				store.updateState({ layerStyles: nextStyles });
+				renderCurrentLayer();
+			});
+		}
+	};
 
-  if (styleLayerSelect) {
-    styleLayerSelect.addEventListener("change", renderStyleControls);
-  }
+	if (styleLayerSelect) {
+		styleLayerSelect.addEventListener("change", renderStyleControls);
+	}
 
-  if (layersPresetSelect) {
-    layersPresetSelect.addEventListener("change", () => {
-      const selectedPreset = layersPresetSelect.value as any;
-      currentLayer = selectedPreset;
+	if (layersPresetSelect) {
+		layersPresetSelect.addEventListener("change", () => {
+			const selectedPreset = layersPresetSelect.value as any;
+			currentLayer = selectedPreset;
 
-      // Automatically update overlays depending on the preset chosen
-      if (selectedPreset === "states" || selectedPreset === "provinces" || selectedPreset === "cultures") {
-        store.updateState({
-          showBurgs: true,
-          showRoutes: true,
-          showRivers: false,
-          showGrid: false,
-          showMilitary: false
-        });
-      } else if (selectedPreset === "heightmap" || selectedPreset === "temp" || selectedPreset === "prec") {
-        store.updateState({
-          showRivers: true,
-          showBurgs: false,
-          showRoutes: false,
-          showGrid: false,
-          showMilitary: false
-        });
-      } else if (selectedPreset === "biomes") {
-        store.updateState({
-          showRivers: true,
-          showBurgs: false,
-          showRoutes: false,
-          showGrid: false,
-          showMilitary: false
-        });
-      } else if (selectedPreset === "goods") {
-        store.updateState({
-          showRoutes: true,
-          showBurgs: true,
-          showRivers: false,
-          showGrid: false,
-          showMilitary: false
-        });
-      }
+			// Automatically update overlays depending on the preset chosen
+			if (
+				selectedPreset === "states" ||
+				selectedPreset === "provinces" ||
+				selectedPreset === "cultures"
+			) {
+				store.updateState({
+					showBurgs: true,
+					showRoutes: true,
+					showRivers: false,
+					showGrid: false,
+					showMilitary: false,
+				});
+			} else if (
+				selectedPreset === "heightmap" ||
+				selectedPreset === "temp" ||
+				selectedPreset === "prec"
+			) {
+				store.updateState({
+					showRivers: true,
+					showBurgs: false,
+					showRoutes: false,
+					showGrid: false,
+					showMilitary: false,
+				});
+			} else if (selectedPreset === "biomes") {
+				store.updateState({
+					showRivers: true,
+					showBurgs: false,
+					showRoutes: false,
+					showGrid: false,
+					showMilitary: false,
+				});
+			} else if (selectedPreset === "goods") {
+				store.updateState({
+					showRoutes: true,
+					showBurgs: true,
+					showRivers: false,
+					showGrid: false,
+					showMilitary: false,
+				});
+			}
 
-      renderLayersChecklist();
-      renderCurrentLayer();
-    });
-  }
+			renderLayersChecklist();
+			renderCurrentLayer();
+		});
+	}
 
-  // Wire up Options tab Save/Load button redirects
-  const optsSaveBtn = document.getElementById("optsSaveBtn");
-  const optsLoadBtn = document.getElementById("optsLoadBtn");
-  if (optsSaveBtn) {
-    optsSaveBtn.addEventListener("click", () => {
-      saveBtn?.click();
-    });
-  }
-  if (optsLoadBtn) {
-    optsLoadBtn.addEventListener("click", () => {
-      loadBtn?.click();
-    });
-  }
+	// Wire up Options tab Save/Load button redirects
+	const optsSaveBtn = document.getElementById("optsSaveBtn");
+	const optsLoadBtn = document.getElementById("optsLoadBtn");
+	if (optsSaveBtn) {
+		optsSaveBtn.addEventListener("click", () => {
+			saveBtn?.click();
+		});
+	}
+	if (optsLoadBtn) {
+		optsLoadBtn.addEventListener("click", () => {
+			loadBtn?.click();
+		});
+	}
 
-  // Wire up stylePreset theme selector
-  const stylePresetSelect = document.getElementById("stylePreset") as HTMLSelectElement;
-  if (stylePresetSelect) {
-    stylePresetSelect.addEventListener("change", () => {
-      const val = stylePresetSelect.value;
-      const state = store.getState() as any;
-      const nextStyles = { ...state.layerStyles };
+	// Wire up stylePreset theme selector
+	const stylePresetSelect = document.getElementById(
+		"stylePreset",
+	) as HTMLSelectElement;
+	if (stylePresetSelect) {
+		stylePresetSelect.addEventListener("change", () => {
+			const val = stylePresetSelect.value;
+			const state = store.getState() as any;
+			const nextStyles = { ...state.layerStyles };
 
-      if (val === "monochrome") {
-        currentLayer = "heightmap";
-        if (layersPresetSelect) layersPresetSelect.value = "heightmap";
-        nextStyles.heightmap = { ...nextStyles.heightmap, opacity: 1.0 };
-        nextStyles.states = { ...nextStyles.states, opacity: 0.0 };
-        nextStyles.cultures = { ...nextStyles.cultures, opacity: 0.0 };
-      } else if (val === "clean") {
-        currentLayer = "states";
-        if (layersPresetSelect) layersPresetSelect.value = "states";
-        store.updateState({
-          showRoutes: false,
-          showGrid: false,
-          showMilitary: false
-        });
-        nextStyles.states = { ...nextStyles.states, opacity: 0.9 };
-      } else {
-        currentLayer = "states";
-        if (layersPresetSelect) layersPresetSelect.value = "states";
-        store.updateState({
-          showRoutes: true,
-          showGrid: false,
-          showBurgs: true,
-          showRivers: true,
-          showLabels: true
-        });
-        nextStyles.states = { ...nextStyles.states, opacity: 0.85 };
-        nextStyles.heightmap = { ...nextStyles.heightmap, opacity: 1.0 };
-      }
+			if (val === "monochrome") {
+				currentLayer = "heightmap";
+				if (layersPresetSelect) layersPresetSelect.value = "heightmap";
+				nextStyles.heightmap = { ...nextStyles.heightmap, opacity: 1.0 };
+				nextStyles.states = { ...nextStyles.states, opacity: 0.0 };
+				nextStyles.cultures = { ...nextStyles.cultures, opacity: 0.0 };
+			} else if (val === "clean") {
+				currentLayer = "states";
+				if (layersPresetSelect) layersPresetSelect.value = "states";
+				store.updateState({
+					showRoutes: false,
+					showGrid: false,
+					showMilitary: false,
+				});
+				nextStyles.states = { ...nextStyles.states, opacity: 0.9 };
+			} else {
+				currentLayer = "states";
+				if (layersPresetSelect) layersPresetSelect.value = "states";
+				store.updateState({
+					showRoutes: true,
+					showGrid: false,
+					showBurgs: true,
+					showRivers: true,
+					showLabels: true,
+				});
+				nextStyles.states = { ...nextStyles.states, opacity: 0.85 };
+				nextStyles.heightmap = { ...nextStyles.heightmap, opacity: 1.0 };
+			}
 
-      store.updateState({ layerStyles: nextStyles });
-      renderLayersChecklist();
-      renderStyleControls();
-      renderCurrentLayer();
-    });
-  }
+			store.updateState({ layerStyles: nextStyles });
+			renderLayersChecklist();
+			renderStyleControls();
+			renderCurrentLayer();
+		});
+	}
 
-  // Trigger initial lists render
-  setTimeout(() => {
-    renderLayersChecklist();
-    renderStyleControls();
-  }, 100);
+	// Trigger initial lists render
+	setTimeout(() => {
+		renderLayersChecklist();
+		renderStyleControls();
+	}, 100);
 
-  if (toggle3DBtn && threeContainer) {
-    toggle3DBtn.addEventListener("click", () => {
-      is3DMode = !is3DMode;
-      if (is3DMode) {
-        canvas.style.display = "none";
-        threeContainer.style.display = "block";
-        if (!threeRenderer) {
-          threeRenderer = new ThreeRenderer(threeContainer);
-        }
-        threeRenderer.updateTerrain(store.getState());
-        threeRenderer.startAnimation();
-        if (layersPresetSelect) layersPresetSelect.disabled = true;
-      } else {
-        canvas.style.display = "block";
-        threeContainer.style.display = "none";
-        if (threeRenderer) {
-          threeRenderer.stopAnimation();
-        }
-        if (layersPresetSelect) layersPresetSelect.disabled = false;
-        renderCurrentLayer();
-      }
-    });
-  }
+	if (toggle3DBtn && threeContainer) {
+		toggle3DBtn.addEventListener("click", () => {
+			is3DMode = !is3DMode;
+			if (is3DMode) {
+				canvas.style.display = "none";
+				threeContainer.style.display = "block";
+				if (!threeRenderer) {
+					threeRenderer = new ThreeRenderer(threeContainer);
+				}
+				threeRenderer.updateTerrain(store.getState());
+				threeRenderer.startAnimation();
+				if (layersPresetSelect) layersPresetSelect.disabled = true;
+			} else {
+				canvas.style.display = "block";
+				threeContainer.style.display = "none";
+				if (threeRenderer) {
+					threeRenderer.stopAnimation();
+				}
+				if (layersPresetSelect) layersPresetSelect.disabled = false;
+				renderCurrentLayer();
+			}
+		});
+	}
 
-  if (saveBtn) {
-    saveBtn.addEventListener("click", () => {
-      const state = store.getState();
-      const serialized = serializeMapState(state);
-      const blob = new Blob([serialized], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${state.seed || "map"}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    });
-  }
+	if (saveBtn) {
+		saveBtn.addEventListener("click", () => {
+			const state = store.getState();
+			const serialized = serializeMapState(state);
+			const blob = new Blob([serialized], { type: "application/json" });
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement("a");
+			a.href = url;
+			a.download = `${state.seed || "map"}.json`;
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+			URL.revokeObjectURL(url);
+		});
+	}
 
-  if (loadBtn && fileInput) {
-    loadBtn.addEventListener("click", () => {
-      fileInput.click();
-    });
-    fileInput.addEventListener("change", (e) => {
-      const target = e.target as HTMLInputElement;
-      const file = target.files?.[0];
-      if (!file) return;
+	if (loadBtn && fileInput) {
+		loadBtn.addEventListener("click", () => {
+			fileInput.click();
+		});
+		fileInput.addEventListener("change", (e) => {
+			const target = e.target as HTMLInputElement;
+			const file = target.files?.[0];
+			if (!file) return;
 
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        try {
-          const contents = event.target?.result as string;
-          const reloadedState = deserializeMapState(contents);
-          store.updateState(reloadedState);
-          renderCurrentLayer();
-          if (minimapCanvas) drawMinimap(minimapCanvas, store.getState());
-          if (threeRenderer && is3DMode) {
-            threeRenderer.updateTerrain(store.getState());
-          }
-        } catch (err) {
-          alert("Error parsing loaded map file.");
-          console.error(err);
-        }
-      };
-      reader.readAsText(file);
-    });
-  }
+			const reader = new FileReader();
+			reader.onload = (event) => {
+				try {
+					const contents = event.target?.result as string;
+					const reloadedState = deserializeMapState(contents);
+					store.updateState(reloadedState);
+					renderCurrentLayer();
+					if (minimapCanvas) drawMinimap(minimapCanvas, store.getState());
+					if (threeRenderer && is3DMode) {
+						threeRenderer.updateTerrain(store.getState());
+					}
+				} catch (err) {
+					alert("Error parsing loaded map file.");
+					console.error(err);
+				}
+			};
+			reader.readAsText(file);
+		});
+	}
 
-  // Subscribe to store updates to automatically render the canvas layer
-  store.subscribe((state) => {
-    if (canvas) {
-      renderMap(canvas, state, currentLayer);
-    }
-  });
+	// Subscribe to store updates to automatically render the canvas layer
+	store.subscribe((state) => {
+		if (canvas) {
+			renderMap(canvas, state, currentLayer);
+		}
+	});
 
-  updateCanvasSize();
-  if ((window as any).getCurrentSetupConfig) {
-    runSimulation((window as any).getCurrentSetupConfig());
-  }
+	updateCanvasSize();
+	if ((window as any).getCurrentSetupConfig) {
+		runSimulation((window as any).getCurrentSetupConfig());
+	}
 
-  window.addEventListener("resize", () => {
-    updateCanvasSize();
-    renderCurrentLayer();
-  });
+	window.addEventListener("resize", () => {
+		updateCanvasSize();
+		renderCurrentLayer();
+	});
 }
-
-export {};
