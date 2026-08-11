@@ -1,1 +1,3 @@
-export function mountZonesEditor() { console.log("Mounted " + ed); }
+export function mountZonesEditor() {
+	console.log("Mounted " + ed);
+}

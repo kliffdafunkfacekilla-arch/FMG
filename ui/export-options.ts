@@ -1,13 +1,16 @@
 import { AppState } from "../state/store";
 
-export function mountExportOptions(containerId: string, canvas: HTMLCanvasElement) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
+export function mountExportOptions(
+	containerId: string,
+	canvas: HTMLCanvasElement,
+) {
+	const container = document.getElementById(containerId);
+	if (!container) return;
 
-  const btnStyle =
-    "background: #3b82f6; border: none; padding: 0.45rem; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.8rem;";
+	const btnStyle =
+		"background: #3b82f6; border: none; padding: 0.45rem; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.8rem;";
 
-  container.innerHTML = `
+	container.innerHTML = `
     <button id="openExportModalBtn" style="width: 100%; ${btnStyle}">🗂️ Export &amp; Files</button>
 
     <!-- Export & Files Popup Modal -->
@@ -35,70 +38,90 @@ export function mountExportOptions(containerId: string, canvas: HTMLCanvasElemen
     </div>
   `;
 
-  const openBtn = document.getElementById("openExportModalBtn") as HTMLButtonElement;
-  const modal = document.getElementById("exportPopupModal") as HTMLDivElement;
-  const closeBtn = document.getElementById("closeExportModalBtn") as HTMLSpanElement;
-  const pngBtn = document.getElementById("exportPngBtn") as HTMLButtonElement;
-  const svgBtn = document.getElementById("exportSvgBtn") as HTMLButtonElement;
-  const saveJsonBtn = document.getElementById("fileSaveJsonBtn") as HTMLButtonElement;
-  const loadJsonBtn = document.getElementById("fileLoadJsonBtn") as HTMLButtonElement;
+	const openBtn = document.getElementById(
+		"openExportModalBtn",
+	) as HTMLButtonElement;
+	const modal = document.getElementById("exportPopupModal") as HTMLDivElement;
+	const closeBtn = document.getElementById(
+		"closeExportModalBtn",
+	) as HTMLSpanElement;
+	const pngBtn = document.getElementById("exportPngBtn") as HTMLButtonElement;
+	const svgBtn = document.getElementById("exportSvgBtn") as HTMLButtonElement;
+	const saveJsonBtn = document.getElementById(
+		"fileSaveJsonBtn",
+	) as HTMLButtonElement;
+	const loadJsonBtn = document.getElementById(
+		"fileLoadJsonBtn",
+	) as HTMLButtonElement;
 
-  if (openBtn && modal) openBtn.addEventListener("click", () => { modal.style.display = "flex"; });
-  if (closeBtn && modal) closeBtn.addEventListener("click", () => { modal.style.display = "none"; });
+	if (openBtn && modal)
+		openBtn.addEventListener("click", () => {
+			modal.style.display = "flex";
+		});
+	if (closeBtn && modal)
+		closeBtn.addEventListener("click", () => {
+			modal.style.display = "none";
+		});
 
-  // Reuse the top HUD Save/Load JSON actions
-  if (saveJsonBtn) saveJsonBtn.addEventListener("click", () => {
-    (document.getElementById("saveBtn") as HTMLButtonElement | null)?.click();
-  });
-  if (loadJsonBtn) loadJsonBtn.addEventListener("click", () => {
-    (document.getElementById("loadBtn") as HTMLButtonElement | null)?.click();
-  });
+	// Reuse the top HUD Save/Load JSON actions
+	if (saveJsonBtn)
+		saveJsonBtn.addEventListener("click", () => {
+			(document.getElementById("saveBtn") as HTMLButtonElement | null)?.click();
+		});
+	if (loadJsonBtn)
+		loadJsonBtn.addEventListener("click", () => {
+			(document.getElementById("loadBtn") as HTMLButtonElement | null)?.click();
+		});
 
-  pngBtn.addEventListener("click", () => {
-    const url = canvas.toDataURL("image/png");
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "fantasy-map.png";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  });
+	pngBtn.addEventListener("click", () => {
+		const url = canvas.toDataURL("image/png");
+		const a = document.createElement("a");
+		a.href = url;
+		a.download = "fantasy-map.png";
+		document.body.appendChild(a);
+		a.click();
+		document.body.removeChild(a);
+	});
 
-  svgBtn.addEventListener("click", () => {
-    // Generate a simple vector representation of the map layers
-    const state = (window as any).store.getState();
-    const width = state.width || 800;
-    const height = state.height || 600;
+	svgBtn.addEventListener("click", () => {
+		// Generate a simple vector representation of the map layers
+		const state = (window as any).store.getState();
+		const width = state.width || 800;
+		const height = state.height || 600;
 
-    let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">`;
+		let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">`;
 
-    // A. Draw heights grayscale cells if grid present
-    if (state.grid && state.heights) {
-      for (let i = 0; i < state.grid.points.length; i++) {
-        const vertices = state.grid.cells.v[i];
-        if (!vertices) continue;
-        const pts = vertices.map((v: number) => state.grid.vertices.p[v]).filter(Boolean);
-        if (pts.length === 0) continue;
+		// A. Draw heights grayscale cells if grid present
+		if (state.grid && state.heights) {
+			for (let i = 0; i < state.grid.points.length; i++) {
+				const vertices = state.grid.cells.v[i];
+				if (!vertices) continue;
+				const pts = vertices
+					.map((v: number) => state.grid.vertices.p[v])
+					.filter(Boolean);
+				if (pts.length === 0) continue;
 
-        const pathPoints = pts.map((p: number[]) => `${p[0]},${p[1]}`).join(" ");
-        const h = state.heights[i];
-        const val = Math.round(50 + (h / 100) * 180);
-        const fill = `rgb(${val}, ${val}, ${val})`;
+				const pathPoints = pts
+					.map((p: number[]) => `${p[0]},${p[1]}`)
+					.join(" ");
+				const h = state.heights[i];
+				const val = Math.round(50 + (h / 100) * 180);
+				const fill = `rgb(${val}, ${val}, ${val})`;
 
-        svgContent += `<polygon points="${pathPoints}" fill="${fill}" stroke="none" />`;
-      }
-    }
+				svgContent += `<polygon points="${pathPoints}" fill="${fill}" stroke="none" />`;
+			}
+		}
 
-    svgContent += `</svg>`;
+		svgContent += `</svg>`;
 
-    const blob = new Blob([svgContent], { type: "image/svg+xml" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "fantasy-map.svg";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  });
+		const blob = new Blob([svgContent], { type: "image/svg+xml" });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement("a");
+		a.href = url;
+		a.download = "fantasy-map.svg";
+		document.body.appendChild(a);
+		a.click();
+		document.body.removeChild(a);
+		URL.revokeObjectURL(url);
+	});
 }

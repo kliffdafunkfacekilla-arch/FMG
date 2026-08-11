@@ -1,1 +1,3 @@
-export function mountNamesbaseEditor() { console.log("Mounted " + ed); }
+export function mountNamesbaseEditor() {
+	console.log("Mounted " + ed);
+}

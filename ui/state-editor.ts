@@ -1,12 +1,12 @@
-import { State } from "../simulation/civilization/state-generator";
-import { Burg } from "../simulation/civilization/burg-generator";
+import type { Burg } from "../simulation/civilization/burg-generator";
+import type { State } from "../simulation/civilization/state-generator";
 import { store } from "../state/store";
 
 export function mountStateEditor(containerId: string, onUpdate: () => void) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
+	const container = document.getElementById(containerId);
+	if (!container) return;
 
-  container.innerHTML = `
+	container.innerHTML = `
     <div id="stateEditorPanel" style="display: none; background: rgba(30, 30, 38, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); padding: 1rem; border-radius: 12px; font-size: 0.85rem; color: #e2e8f0; width: 100%; box-sizing: border-box; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
       <h3 style="margin-top: 0; color: #3b82f6; border-bottom: 1px solid #333; padding-bottom: 0.25rem; display: flex; justify-content: space-between; align-items: center;">
         <span id="stateEditorTitle">States Overview</span>
@@ -87,153 +87,194 @@ export function mountStateEditor(containerId: string, onUpdate: () => void) {
     </div>
   `;
 
-  let activeState: State | null = null;
+	let activeState: State | null = null;
 
-  const panel = document.getElementById("stateEditorPanel") as HTMLDivElement;
-  const listPanel = document.getElementById("stateListSubPanel") as HTMLDivElement;
-  const detailPanel = document.getElementById("stateDetailSubPanel") as HTMLDivElement;
-  const titleText = document.getElementById("stateEditorTitle") as HTMLElement;
+	const panel = document.getElementById("stateEditorPanel") as HTMLDivElement;
+	const listPanel = document.getElementById(
+		"stateListSubPanel",
+	) as HTMLDivElement;
+	const detailPanel = document.getElementById(
+		"stateDetailSubPanel",
+	) as HTMLDivElement;
+	const titleText = document.getElementById("stateEditorTitle") as HTMLElement;
 
-  const tableBody = document.getElementById("stateTableBody") as HTMLTableSectionElement;
-  const nameInput = document.getElementById("editStateName") as HTMLInputElement;
-  const capitalSelect = document.getElementById("editStateCapital") as HTMLSelectElement;
-  const colorInput = document.getElementById("editStateColor") as HTMLInputElement;
+	const tableBody = document.getElementById(
+		"stateTableBody",
+	) as HTMLTableSectionElement;
+	const nameInput = document.getElementById(
+		"editStateName",
+	) as HTMLInputElement;
+	const capitalSelect = document.getElementById(
+		"editStateCapital",
+	) as HTMLSelectElement;
+	const colorInput = document.getElementById(
+		"editStateColor",
+	) as HTMLInputElement;
 
-  const saveBtn = document.getElementById("saveStateBtn") as HTMLButtonElement;
-  const backBtn = document.getElementById("backToStateListBtn") as HTMLButtonElement;
-  const closeBtn = document.getElementById("closeStateBtn") as HTMLSpanElement;
+	const saveBtn = document.getElementById("saveStateBtn") as HTMLButtonElement;
+	const backBtn = document.getElementById(
+		"backToStateListBtn",
+	) as HTMLButtonElement;
+	const closeBtn = document.getElementById("closeStateBtn") as HTMLSpanElement;
 
-  const closePanel = () => {
-    panel.style.display = "none";
-  };
+	const closePanel = () => {
+		panel.style.display = "none";
+	};
 
-  closeBtn.addEventListener("click", closePanel);
+	closeBtn.addEventListener("click", closePanel);
 
-  const showList = () => {
-    titleText.innerText = "States Overview";
-    listPanel.style.display = "block";
-    detailPanel.style.display = "none";
-    renderStatesList();
-  };
+	const showList = () => {
+		titleText.innerText = "States Overview";
+		listPanel.style.display = "block";
+		detailPanel.style.display = "none";
+		renderStatesList();
+	};
 
-  backBtn.addEventListener("click", showList);
+	backBtn.addEventListener("click", showList);
 
-  const renderStatesList = () => {
-    const stateData = store.getState() as any;
-    const states = stateData.states || [];
-    const burgs = stateData.burgs || [];
+	const renderStatesList = () => {
+		const stateData = store.getState() as any;
+		const states = stateData.states || [];
+		const burgs = stateData.burgs || [];
 
-    tableBody.innerHTML = "";
-    states.forEach((s: State) => {
-      const capitalBurg = burgs.find((b: Burg) => b.id === s.capital);
-      const capName = capitalBurg ? capitalBurg.name : "None";
+		tableBody.innerHTML = "";
+		states.forEach((s: State) => {
+			const capitalBurg = burgs.find((b: Burg) => b.id === s.capital);
+			const capName = capitalBurg ? capitalBurg.name : "None";
 
-      const tr = document.createElement("tr");
-      tr.style.borderBottom = "1px solid #222";
-      tr.innerHTML = `
+			const tr = document.createElement("tr");
+			tr.style.borderBottom = "1px solid #222";
+			tr.innerHTML = `
         <td style="padding: 0.4rem;"><div style="width: 14px; height: 14px; background: ${s.color}; border: 1px solid rgba(255,255,255,0.2); border-radius: 3px;"></div></td>
         <td style="padding: 0.4rem; font-weight: bold; color: #fff;">${s.name}</td>
         <td style="padding: 0.4rem; color: #94a3b8;">${capName}</td>
         <td style="padding: 0.4rem; text-align: center;"><button class="editSingleStateBtn" data-id="${s.id}" style="background: #3b82f6; border: none; color: white; padding: 0.15rem 0.4rem; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">Edit</button></td>
       `;
-      tableBody.appendChild(tr);
-    });
+			tableBody.appendChild(tr);
+		});
 
-    // Add click listeners
-    const editBtns = tableBody.querySelectorAll(".editSingleStateBtn");
-    editBtns.forEach(btn => {
-      btn.addEventListener("click", (e) => {
-        const id = parseInt((e.currentTarget as HTMLButtonElement).getAttribute("data-id") || "0", 10);
-        const targetState = states.find((s: State) => s.id === id);
-        if (targetState) {
-          (window as any).openStateEditor(targetState);
-        }
-      });
-    });
-  };
+		// Add click listeners
+		const editBtns = tableBody.querySelectorAll(".editSingleStateBtn");
+		editBtns.forEach((btn) => {
+			btn.addEventListener("click", (e) => {
+				const id = parseInt(
+					(e.currentTarget as HTMLButtonElement).getAttribute("data-id") || "0",
+					10,
+				);
+				const targetState = states.find((s: State) => s.id === id);
+				if (targetState) {
+					(window as any).openStateEditor(targetState);
+				}
+			});
+		});
+	};
 
-  saveBtn.addEventListener("click", () => {
-    if (activeState) {
-      activeState.name = nameInput.value;
-      activeState.color = colorInput.value;
-      activeState.capital = parseInt(capitalSelect.value, 10) || 0;
+	saveBtn.addEventListener("click", () => {
+		if (activeState) {
+			activeState.name = nameInput.value;
+			activeState.color = colorInput.value;
+			activeState.capital = parseInt(capitalSelect.value, 10) || 0;
 
-      const habitatSelect = document.getElementById("editStateHabitat") as HTMLSelectElement;
-      activeState.habitat = (habitatSelect?.value || "land") as any;
+			const habitatSelect = document.getElementById(
+				"editStateHabitat",
+			) as HTMLSelectElement;
+			activeState.habitat = (habitatSelect?.value || "land") as any;
 
-      const expInput = document.getElementById("editStateExpansionism") as HTMLInputElement;
-      const xenoInput = document.getElementById("editStateXenophobia") as HTMLInputElement;
-      const govSelect = document.getElementById("editStateGovernment") as HTMLSelectElement;
-      const herSelect = document.getElementById("editStateHeraldry") as HTMLSelectElement;
+			const expInput = document.getElementById(
+				"editStateExpansionism",
+			) as HTMLInputElement;
+			const xenoInput = document.getElementById(
+				"editStateXenophobia",
+			) as HTMLInputElement;
+			const govSelect = document.getElementById(
+				"editStateGovernment",
+			) as HTMLSelectElement;
+			const herSelect = document.getElementById(
+				"editStateHeraldry",
+			) as HTMLSelectElement;
 
-      activeState.expansionism = parseFloat(expInput?.value || "1.0");
-      activeState.xenophobia = parseFloat(xenoInput?.value || "0.2");
-      activeState.governmentType = govSelect?.value || "Monarchy";
-      activeState.heraldry = herSelect?.value || "Lion";
+			activeState.expansionism = parseFloat(expInput?.value || "1.0");
+			activeState.xenophobia = parseFloat(xenoInput?.value || "0.2");
+			activeState.governmentType = govSelect?.value || "Monarchy";
+			activeState.heraldry = herSelect?.value || "Lion";
 
-      // Update capital center based on selected capital burg
-      const stateData = store.getState() as any;
-      const burgs = stateData.burgs || [];
-      const selectedBurg = burgs.find((b: Burg) => b.id === activeState!.capital);
-      if (selectedBurg) {
-        activeState.center = selectedBurg.cell;
-      }
+			// Update capital center based on selected capital burg
+			const stateData = store.getState() as any;
+			const burgs = stateData.burgs || [];
+			const selectedBurg = burgs.find(
+				(b: Burg) => b.id === activeState!.capital,
+			);
+			if (selectedBurg) {
+				activeState.center = selectedBurg.cell;
+			}
 
-      if (stateData.states) {
-        const updatedStates = stateData.states.map((s: State) => s.id === activeState!.id ? { ...activeState } : s);
-        store.updateState({ states: updatedStates });
-      }
+			if (stateData.states) {
+				const updatedStates = stateData.states.map((s: State) =>
+					s.id === activeState!.id ? { ...activeState } : s,
+				);
+				store.updateState({ states: updatedStates });
+			}
 
-      showList();
-      onUpdate();
-    }
-  });
+			showList();
+			onUpdate();
+		}
+	});
 
-  // Export activation hook
-  (window as any).openStateEditor = (state: State) => {
-    activeState = state;
-    titleText.innerText = `Edit: ${state.name}`;
-    nameInput.value = state.name;
-    colorInput.value = state.color;
+	// Export activation hook
+	(window as any).openStateEditor = (state: State) => {
+		activeState = state;
+		titleText.innerText = `Edit: ${state.name}`;
+		nameInput.value = state.name;
+		colorInput.value = state.color;
 
-    const habitatSelect = document.getElementById("editStateHabitat") as HTMLSelectElement;
-    if (habitatSelect) {
-      habitatSelect.value = state.habitat || "land";
-    }
+		const habitatSelect = document.getElementById(
+			"editStateHabitat",
+		) as HTMLSelectElement;
+		if (habitatSelect) {
+			habitatSelect.value = state.habitat || "land";
+		}
 
-    const expInput = document.getElementById("editStateExpansionism") as HTMLInputElement;
-    const xenoInput = document.getElementById("editStateXenophobia") as HTMLInputElement;
-    const govSelect = document.getElementById("editStateGovernment") as HTMLSelectElement;
-    const herSelect = document.getElementById("editStateHeraldry") as HTMLSelectElement;
+		const expInput = document.getElementById(
+			"editStateExpansionism",
+		) as HTMLInputElement;
+		const xenoInput = document.getElementById(
+			"editStateXenophobia",
+		) as HTMLInputElement;
+		const govSelect = document.getElementById(
+			"editStateGovernment",
+		) as HTMLSelectElement;
+		const herSelect = document.getElementById(
+			"editStateHeraldry",
+		) as HTMLSelectElement;
 
-    if (expInput) expInput.value = String(state.expansionism ?? 1.0);
-    if (xenoInput) xenoInput.value = String(state.xenophobia ?? 0.2);
-    if (govSelect) govSelect.value = state.governmentType || "Monarchy";
-    if (herSelect) herSelect.value = state.heraldry || "Lion";
+		if (expInput) expInput.value = String(state.expansionism ?? 1.0);
+		if (xenoInput) xenoInput.value = String(state.xenophobia ?? 0.2);
+		if (govSelect) govSelect.value = state.governmentType || "Monarchy";
+		if (herSelect) herSelect.value = state.heraldry || "Lion";
 
-    // Populate capitals select dropdown
-    capitalSelect.innerHTML = "";
-    const stateData = store.getState() as any;
-    const burgs = stateData.burgs || [];
+		// Populate capitals select dropdown
+		capitalSelect.innerHTML = "";
+		const stateData = store.getState() as any;
+		const burgs = stateData.burgs || [];
 
-    burgs.forEach((b: Burg) => {
-      const opt = document.createElement("option");
-      opt.value = String(b.id);
-      opt.innerText = b.name;
-      if (b.id === state.capital) {
-        opt.selected = true;
-      }
-      capitalSelect.appendChild(opt);
-    });
+		burgs.forEach((b: Burg) => {
+			const opt = document.createElement("option");
+			opt.value = String(b.id);
+			opt.innerText = b.name;
+			if (b.id === state.capital) {
+				opt.selected = true;
+			}
+			capitalSelect.appendChild(opt);
+		});
 
-    listPanel.style.display = "none";
-    detailPanel.style.display = "flex";
-    panel.style.display = "block";
-  };
+		listPanel.style.display = "none";
+		detailPanel.style.display = "flex";
+		panel.style.display = "block";
+	};
 
-  // Export base list hook
-  (window as any).openStatesList = () => {
-    showList();
-    panel.style.display = "block";
-  };
+	// Export base list hook
+	(window as any).openStatesList = () => {
+		showList();
+		panel.style.display = "block";
+	};
 }

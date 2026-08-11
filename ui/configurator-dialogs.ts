@@ -1,32 +1,35 @@
 import { store } from "../state/store";
 
 export interface SetupConfig {
-  canvasWidth: number;
-  canvasHeight: number;
-  seed: string;
-  cellsCount: number;
-  mapName: string;
-  year: number;
-  era: string;
-  heightmapType: string;
-  culturesCount: number;
-  statesCount: number;
-  provincesRatio: number;
-  sizeVariety: number;
-  growthRate: number;
-  townsCount: number;
-  religionsCount: number;
-  tempEquator: number;
-  windsAngle: number;
-  precipitationInput: number;
-  distanceUnit: string;
+	canvasWidth: number;
+	canvasHeight: number;
+	seed: string;
+	cellsCount: number;
+	mapName: string;
+	year: number;
+	era: string;
+	heightmapType: string;
+	culturesCount: number;
+	statesCount: number;
+	provincesRatio: number;
+	sizeVariety: number;
+	growthRate: number;
+	townsCount: number;
+	religionsCount: number;
+	tempEquator: number;
+	windsAngle: number;
+	precipitationInput: number;
+	distanceUnit: string;
 }
 
-export function mountConfigurator(containerId: string, onConfigChange: (config: SetupConfig) => void) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
+export function mountConfigurator(
+	containerId: string,
+	onConfigChange: (config: SetupConfig) => void,
+) {
+	const container = document.getElementById(containerId);
+	if (!container) return;
 
-  container.innerHTML = `
+	container.innerHTML = `
     <div id="configPanel" style="background: rgba(30, 30, 38, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); padding: 0.8rem; border-radius: 12px; font-size: 0.82rem; color: #e2e8f0; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 0.6rem;">
       
       <!-- 1. MAP SETTINGS -->
@@ -209,120 +212,201 @@ export function mountConfigurator(containerId: string, onConfigChange: (config: 
     </div>
   `;
 
-  // Get inputs
-  const canvasWidth = document.getElementById("canvasWidth") as HTMLInputElement;
-  const canvasHeight = document.getElementById("canvasHeight") as HTMLInputElement;
-  const mapSeed = document.getElementById("mapSeed") as HTMLInputElement;
-  const pointsCountSlider = document.getElementById("pointsCountSlider") as HTMLInputElement;
-  const lblPointsCount = document.getElementById("lblPointsCount") as HTMLSpanElement;
-  const mapName = document.getElementById("mapName") as HTMLInputElement;
-  const mapYear = document.getElementById("mapYear") as HTMLInputElement;
-  const mapEra = document.getElementById("mapEra") as HTMLInputElement;
-  const heightmapType = document.getElementById("heightmapType") as HTMLSelectElement;
-  const numCultures = document.getElementById("numCultures") as HTMLInputElement;
-  const numStates = document.getElementById("numStates") as HTMLInputElement;
-  const numProvinces = document.getElementById("numProvinces") as HTMLInputElement;
-  const sizeVariety = document.getElementById("sizeVariety") as HTMLInputElement;
-  const growthRate = document.getElementById("growthRate") as HTMLInputElement;
-  const townsCount = document.getElementById("townsCount") as HTMLInputElement;
-  const numReligions = document.getElementById("numReligions") as HTMLInputElement;
-  const distanceUnit = document.getElementById("distanceUnit") as HTMLSelectElement;
+	// Get inputs
+	const canvasWidth = document.getElementById(
+		"canvasWidth",
+	) as HTMLInputElement;
+	const canvasHeight = document.getElementById(
+		"canvasHeight",
+	) as HTMLInputElement;
+	const mapSeed = document.getElementById("mapSeed") as HTMLInputElement;
+	const pointsCountSlider = document.getElementById(
+		"pointsCountSlider",
+	) as HTMLInputElement;
+	const lblPointsCount = document.getElementById(
+		"lblPointsCount",
+	) as HTMLSpanElement;
+	const mapName = document.getElementById("mapName") as HTMLInputElement;
+	const mapYear = document.getElementById("mapYear") as HTMLInputElement;
+	const mapEra = document.getElementById("mapEra") as HTMLInputElement;
+	const heightmapType = document.getElementById(
+		"heightmapType",
+	) as HTMLSelectElement;
+	const numCultures = document.getElementById(
+		"numCultures",
+	) as HTMLInputElement;
+	const numStates = document.getElementById("numStates") as HTMLInputElement;
+	const numProvinces = document.getElementById(
+		"numProvinces",
+	) as HTMLInputElement;
+	const sizeVariety = document.getElementById(
+		"sizeVariety",
+	) as HTMLInputElement;
+	const growthRate = document.getElementById("growthRate") as HTMLInputElement;
+	const townsCount = document.getElementById("townsCount") as HTMLInputElement;
+	const numReligions = document.getElementById(
+		"numReligions",
+	) as HTMLInputElement;
+	const distanceUnit = document.getElementById(
+		"distanceUnit",
+	) as HTMLSelectElement;
 
-  const slideLatNorth = document.getElementById("slideLatNorth") as HTMLInputElement;
-  const slideLatSouth = document.getElementById("slideLatSouth") as HTMLInputElement;
-  const lblLatitudes = document.getElementById("lblLatitudes") as HTMLSpanElement;
-  const slideTemp = document.getElementById("slideTemp") as HTMLInputElement;
-  const lblTemp = document.getElementById("lblTemp") as HTMLSpanElement;
-  const slideWind = document.getElementById("slideWind") as HTMLInputElement;
-  const lblWind = document.getElementById("lblWind") as HTMLSpanElement;
-  const slidePrec = document.getElementById("slidePrec") as HTMLInputElement;
-  const lblPrec = document.getElementById("lblPrec") as HTMLSpanElement;
+	const slideLatNorth = document.getElementById(
+		"slideLatNorth",
+	) as HTMLInputElement;
+	const slideLatSouth = document.getElementById(
+		"slideLatSouth",
+	) as HTMLInputElement;
+	const lblLatitudes = document.getElementById(
+		"lblLatitudes",
+	) as HTMLSpanElement;
+	const slideTemp = document.getElementById("slideTemp") as HTMLInputElement;
+	const lblTemp = document.getElementById("lblTemp") as HTMLSpanElement;
+	const slideWind = document.getElementById("slideWind") as HTMLInputElement;
+	const lblWind = document.getElementById("lblWind") as HTMLSpanElement;
+	const slidePrec = document.getElementById("slidePrec") as HTMLInputElement;
+	const lblPrec = document.getElementById("lblPrec") as HTMLSpanElement;
 
-  const regenBtn = document.getElementById("regenNewMapBtn") as HTMLButtonElement;
-  const updateClimateBtn = document.getElementById("updateClimateBtn") as HTMLButtonElement;
-  const seedHistoryBtn = document.getElementById("seedHistoryBtn") as HTMLButtonElement;
+	const regenBtn = document.getElementById(
+		"regenNewMapBtn",
+	) as HTMLButtonElement;
+	const updateClimateBtn = document.getElementById(
+		"updateClimateBtn",
+	) as HTMLButtonElement;
+	const seedHistoryBtn = document.getElementById(
+		"seedHistoryBtn",
+	) as HTMLButtonElement;
 
-  // Sliders display updating
-  if(pointsCountSlider) pointsCountSlider.addEventListener("input", () => { lblPointsCount.innerText = pointsCountSlider.value; });
-  const updateLatitudesLabel = () => { if(lblLatitudes) lblLatitudes.innerText = `${slideLatNorth.value}° - ${slideLatSouth.value}°`; };
-  if(slideLatNorth) slideLatNorth.addEventListener("input", updateLatitudesLabel);
-  if(slideLatSouth) slideLatSouth.addEventListener("input", updateLatitudesLabel);
-  slideTemp.addEventListener("input", () => { lblTemp.innerText = slideTemp.value; });
-  slideWind.addEventListener("input", () => { lblWind.innerText = slideWind.value; });
-  slidePrec.addEventListener("input", () => { lblPrec.innerText = slidePrec.value + "%"; });
+	// Sliders display updating
+	if (pointsCountSlider)
+		pointsCountSlider.addEventListener("input", () => {
+			lblPointsCount.innerText = pointsCountSlider.value;
+		});
+	const updateLatitudesLabel = () => {
+		if (lblLatitudes)
+			lblLatitudes.innerText = `${slideLatNorth.value}° - ${slideLatSouth.value}°`;
+	};
+	if (slideLatNorth)
+		slideLatNorth.addEventListener("input", updateLatitudesLabel);
+	if (slideLatSouth)
+		slideLatSouth.addEventListener("input", updateLatitudesLabel);
+	slideTemp.addEventListener("input", () => {
+		lblTemp.innerText = slideTemp.value;
+	});
+	slideWind.addEventListener("input", () => {
+		lblWind.innerText = slideWind.value;
+	});
+	slidePrec.addEventListener("input", () => {
+		lblPrec.innerText = slidePrec.value + "%";
+	});
 
-  // Generate unique seed helper
-  const rollSeed = () => "map-" + Math.floor(Math.random() * 1000000);
-  mapSeed.value = rollSeed();
+	// Generate unique seed helper
+	const rollSeed = () => "map-" + Math.floor(Math.random() * 1000000);
+	mapSeed.value = rollSeed();
 
-  const getConfig = (): SetupConfig => ({
-    canvasWidth: parseInt(canvasWidth.value, 10) || window.innerWidth,
-    canvasHeight: parseInt(canvasHeight.value, 10) || window.innerHeight,
-    seed: mapSeed.value || rollSeed(),
-    cellsCount: parseInt(pointsCountSlider?.value, 10) || 10000,
-    mapName: mapName.value || "New World",
-    year: parseInt(mapYear.value, 10) || 100,
-    era: mapEra.value || "Common Era",
-    heightmapType: heightmapType.value,
-    culturesCount: parseInt(numCultures.value, 10) || 6,
-    statesCount: parseInt(numStates.value, 10) || 8,
-    provincesRatio: parseInt(numProvinces.value, 10) || 30,
-    sizeVariety: parseFloat(sizeVariety.value) || 1.5,
-    growthRate: parseFloat(growthRate.value) || 1.0,
-    townsCount: parseInt(townsCount.value, 10) || 30,
-    religionsCount: parseInt(numReligions.value, 10) || 5,
-    tempEquator: parseInt(slideTemp.value, 10),
-    windsAngle: parseInt(slideWind.value, 10),
-    precipitationInput: parseInt(slidePrec.value, 10),
-    distanceUnit: distanceUnit?.value || "kms"
-  });
+	const getConfig = (): SetupConfig => ({
+		canvasWidth: parseInt(canvasWidth.value, 10) || window.innerWidth,
+		canvasHeight: parseInt(canvasHeight.value, 10) || window.innerHeight,
+		seed: mapSeed.value || rollSeed(),
+		cellsCount: parseInt(pointsCountSlider?.value, 10) || 10000,
+		mapName: mapName.value || "New World",
+		year: parseInt(mapYear.value, 10) || 100,
+		era: mapEra.value || "Common Era",
+		heightmapType: heightmapType.value,
+		culturesCount: parseInt(numCultures.value, 10) || 6,
+		statesCount: parseInt(numStates.value, 10) || 8,
+		provincesRatio: parseInt(numProvinces.value, 10) || 30,
+		sizeVariety: parseFloat(sizeVariety.value) || 1.5,
+		growthRate: parseFloat(growthRate.value) || 1.0,
+		townsCount: parseInt(townsCount.value, 10) || 30,
+		religionsCount: parseInt(numReligions.value, 10) || 5,
+		tempEquator: parseInt(slideTemp.value, 10),
+		windsAngle: parseInt(slideWind.value, 10),
+		precipitationInput: parseInt(slidePrec.value, 10),
+		distanceUnit: distanceUnit?.value || "kms",
+	});
 
-  // Action listeners
-  const openClimateBtn = document.getElementById("openClimateBtn") as HTMLButtonElement;
-  const climatePopup = document.getElementById("climatePopupModal") as HTMLDivElement;
-  const closeClimateBtn = document.getElementById("closeClimateModalBtn") as HTMLSpanElement;
+	// Action listeners
+	const openClimateBtn = document.getElementById(
+		"openClimateBtn",
+	) as HTMLButtonElement;
+	const climatePopup = document.getElementById(
+		"climatePopupModal",
+	) as HTMLDivElement;
+	const closeClimateBtn = document.getElementById(
+		"closeClimateModalBtn",
+	) as HTMLSpanElement;
 
-  if (openClimateBtn && climatePopup) {
-    openClimateBtn.addEventListener("click", () => {
-      climatePopup.style.display = "flex";
-    });
-  }
+	// Backdrop overlay so the centered modal is clearly readable.
+	let climateBackdrop = document.getElementById("climatePopupBackdrop") as HTMLDivElement | null;
+	if (!climateBackdrop) {
+		climateBackdrop = document.createElement("div");
+		climateBackdrop.id = "climatePopupBackdrop";
+		climateBackdrop.style.cssText =
+			"display: none; position: fixed; inset: 0; z-index: 9998; background: rgba(0,0,0,0.55);";
+		document.body.appendChild(climateBackdrop);
+	}
 
-  if (closeClimateBtn && climatePopup) {
-    closeClimateBtn.addEventListener("click", () => {
-      climatePopup.style.display = "none";
-    });
-  }
+	const closeClimateModal = () => {
+		climatePopup.style.display = "none";
+		if (climateBackdrop) climateBackdrop.style.display = "none";
+	};
 
-  regenBtn.addEventListener("click", () => {
-    onConfigChange(getConfig());
-  });
+	if (openClimateBtn && climatePopup) {
+		openClimateBtn.addEventListener("click", () => {
+			// Reparent to <body> so position:fixed escapes the config panel's
+			// backdrop-filter containing block and centers against the viewport.
+			if (climatePopup.parentElement !== document.body) {
+				document.body.appendChild(climatePopup);
+			}
+			if (climateBackdrop) climateBackdrop.style.display = "block";
+			climatePopup.style.display = "flex";
+		});
+	}
 
-  updateClimateBtn.addEventListener("click", () => {
-    const win = window as any;
-    if (win.runClimateRegen) {
-      win.runClimateRegen(parseInt(slideTemp.value, 10), parseInt(slideWind.value, 10), parseInt(slidePrec.value, 10));
-    }
-    if (climatePopup) {
-      climatePopup.style.display = "none";
-    }
-  });
+	if (closeClimateBtn && climatePopup) {
+		closeClimateBtn.addEventListener("click", closeClimateModal);
+	}
 
-  if(seedHistoryBtn) {
-    seedHistoryBtn.addEventListener("click", () => {
-      alert("Seed History functionality would open here.");
-    });
-  }
+	if (climateBackdrop) {
+		climateBackdrop.addEventListener("click", closeClimateModal);
+	}
 
-  // Calendar editor now lives inside the Configure World modal
-  const openCalendarEditorBtn = document.getElementById("openCalendarEditorBtn") as HTMLButtonElement;
-  if (openCalendarEditorBtn) {
-    openCalendarEditorBtn.addEventListener("click", () => {
-      if ((window as any).openCalendarEditor) {
-        (window as any).openCalendarEditor();
-      }
-    });
-  }
+	regenBtn.addEventListener("click", () => {
+		onConfigChange(getConfig());
+	});
 
-  (window as any).getCurrentSetupConfig = getConfig;
+	updateClimateBtn.addEventListener("click", () => {
+		const win = window as any;
+		if (win.runClimateRegen) {
+			win.runClimateRegen(
+				parseInt(slideTemp.value, 10),
+				parseInt(slideWind.value, 10),
+				parseInt(slidePrec.value, 10),
+			);
+		}
+		if (climatePopup) {
+			climatePopup.style.display = "none";
+		}
+	});
+
+	if (seedHistoryBtn) {
+		seedHistoryBtn.addEventListener("click", () => {
+			alert("Seed History functionality would open here.");
+		});
+	}
+
+	// Calendar editor now lives inside the Configure World modal
+	const openCalendarEditorBtn = document.getElementById(
+		"openCalendarEditorBtn",
+	) as HTMLButtonElement;
+	if (openCalendarEditorBtn) {
+		openCalendarEditorBtn.addEventListener("click", () => {
+			if ((window as any).openCalendarEditor) {
+				(window as any).openCalendarEditor();
+			}
+		});
+	}
+
+	(window as any).getCurrentSetupConfig = getConfig;
 }

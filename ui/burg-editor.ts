@@ -1,11 +1,11 @@
-import { Burg } from "../simulation/civilization/burg-generator";
+import type { Burg } from "../simulation/civilization/burg-generator";
 import { store } from "../state/store";
 
 export function mountBurgEditor(containerId: string, onUpdate: () => void) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
+	const container = document.getElementById(containerId);
+	if (!container) return;
 
-  container.innerHTML = `
+	container.innerHTML = `
     <div id="burgEditorPanel" style="display: none; background: rgba(30, 30, 38, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); padding: 1rem; border-radius: 12px; font-size: 0.85rem; color: #e2e8f0; width: 100%; box-sizing: border-box; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
       <h3 style="margin-top: 0; color: #f43f5e; border-bottom: 1px solid #333; padding-bottom: 0.25rem; display: flex; justify-content: space-between; align-items: center;">
         <span>Burg Editor</span>
@@ -73,95 +73,111 @@ export function mountBurgEditor(containerId: string, onUpdate: () => void) {
     </div>
   `;
 
-  let activeBurg: Burg | null = null;
+	let activeBurg: Burg | null = null;
 
-  const panel = document.getElementById("burgEditorPanel") as HTMLDivElement;
-  const nameInput = document.getElementById("editBurgName") as HTMLInputElement;
-  const popInput = document.getElementById("editBurgPop") as HTMLInputElement;
-  const cultureSelect = document.getElementById("editBurgCulture") as HTMLSelectElement;
-  const typeSelect = document.getElementById("editBurgType") as HTMLSelectElement;
-  
-  const chkCapital = document.getElementById("chkBurgCapital") as HTMLInputElement;
-  const chkPort = document.getElementById("chkBurgPort") as HTMLInputElement;
-  const chkCitadel = document.getElementById("chkBurgCitadel") as HTMLInputElement;
-  const chkWalls = document.getElementById("chkBurgWalls") as HTMLInputElement;
+	const panel = document.getElementById("burgEditorPanel") as HTMLDivElement;
+	const nameInput = document.getElementById("editBurgName") as HTMLInputElement;
+	const popInput = document.getElementById("editBurgPop") as HTMLInputElement;
+	const cultureSelect = document.getElementById(
+		"editBurgCulture",
+	) as HTMLSelectElement;
+	const typeSelect = document.getElementById(
+		"editBurgType",
+	) as HTMLSelectElement;
 
-  const valElevation = document.getElementById("valBurgElevation") as HTMLElement;
-  const valTemp = document.getElementById("valBurgTemp") as HTMLElement;
+	const chkCapital = document.getElementById(
+		"chkBurgCapital",
+	) as HTMLInputElement;
+	const chkPort = document.getElementById("chkBurgPort") as HTMLInputElement;
+	const chkCitadel = document.getElementById(
+		"chkBurgCitadel",
+	) as HTMLInputElement;
+	const chkWalls = document.getElementById("chkBurgWalls") as HTMLInputElement;
 
-  const saveBtn = document.getElementById("saveBurgBtn") as HTMLButtonElement;
-  const cancelBtn = document.getElementById("cancelBurgBtn") as HTMLButtonElement;
-  const closeBtn = document.getElementById("closeBurgBtn") as HTMLSpanElement;
+	const valElevation = document.getElementById(
+		"valBurgElevation",
+	) as HTMLElement;
+	const valTemp = document.getElementById("valBurgTemp") as HTMLElement;
 
-  const closePanel = () => {
-    panel.style.display = "none";
-  };
+	const saveBtn = document.getElementById("saveBurgBtn") as HTMLButtonElement;
+	const cancelBtn = document.getElementById(
+		"cancelBurgBtn",
+	) as HTMLButtonElement;
+	const closeBtn = document.getElementById("closeBurgBtn") as HTMLSpanElement;
 
-  closeBtn.addEventListener("click", closePanel);
-  cancelBtn.addEventListener("click", closePanel);
+	const closePanel = () => {
+		panel.style.display = "none";
+	};
 
-  saveBtn.addEventListener("click", () => {
-    if (activeBurg) {
-      activeBurg.name = nameInput.value;
-      activeBurg.population = parseInt(popInput.value, 10) || 1000;
-      activeBurg.isCapital = chkCapital.checked;
-      activeBurg.port = chkPort.checked ? 1 : 0;
+	closeBtn.addEventListener("click", closePanel);
+	cancelBtn.addEventListener("click", closePanel);
 
-      // Update state store
-      const state = store.getState() as any;
-      if (state.burgs) {
-        const updatedBurgs = state.burgs.map((b: Burg) => b.id === activeBurg!.id ? { ...activeBurg } : b);
-        
-        // Also update cellCultures if culture changed
-        const cellCultures = state.cellCultures ? new Uint8Array(state.cellCultures) : null;
-        if (cellCultures && cultureSelect.value) {
-          cellCultures[activeBurg.cell] = parseInt(cultureSelect.value, 10);
-        }
+	saveBtn.addEventListener("click", () => {
+		if (activeBurg) {
+			activeBurg.name = nameInput.value;
+			activeBurg.population = parseInt(popInput.value, 10) || 1000;
+			activeBurg.isCapital = chkCapital.checked;
+			activeBurg.port = chkPort.checked ? 1 : 0;
 
-        store.updateState({ 
-          burgs: updatedBurgs,
-          cellCultures
-        });
-      }
+			// Update state store
+			const state = store.getState() as any;
+			if (state.burgs) {
+				const updatedBurgs = state.burgs.map((b: Burg) =>
+					b.id === activeBurg!.id ? { ...activeBurg } : b,
+				);
 
-      panel.style.display = "none";
-      onUpdate();
-    }
-  });
+				// Also update cellCultures if culture changed
+				const cellCultures = state.cellCultures
+					? new Uint8Array(state.cellCultures)
+					: null;
+				if (cellCultures && cultureSelect.value) {
+					cellCultures[activeBurg.cell] = parseInt(cultureSelect.value, 10);
+				}
 
-  // Export activation hook
-  (window as any).openBurgEditor = (burg: Burg) => {
-    activeBurg = burg;
-    nameInput.value = burg.name;
-    popInput.value = String(burg.population);
-    
-    chkCapital.checked = !!burg.isCapital;
-    chkPort.checked = !!burg.port;
-    
-    // Read state parameters
-    const state = store.getState() as any;
-    
-    // Populate Culture dropdown
-    cultureSelect.innerHTML = "";
-    if (state.cultures) {
-      state.cultures.forEach((c: any) => {
-        const opt = document.createElement("option");
-        opt.value = String(c.id);
-        opt.innerText = c.name;
-        if (state.cellCultures && state.cellCultures[burg.cell] === c.id) {
-          opt.selected = true;
-        }
-        cultureSelect.appendChild(opt);
-      });
-    }
+				store.updateState({
+					burgs: updatedBurgs,
+					cellCultures,
+				});
+			}
 
-    // Display height and temperature
-    const heightVal = state.heights ? state.heights[burg.cell] : 0;
-    const tempVal = state.temp ? state.temp[burg.cell] : 0;
+			panel.style.display = "none";
+			onUpdate();
+		}
+	});
 
-    valElevation.innerText = `${Math.round(heightVal * 15)}m`;
-    valTemp.innerText = `${Math.round(tempVal)}°C`;
+	// Export activation hook
+	(window as any).openBurgEditor = (burg: Burg) => {
+		activeBurg = burg;
+		nameInput.value = burg.name;
+		popInput.value = String(burg.population);
 
-    panel.style.display = "block";
-  };
+		chkCapital.checked = !!burg.isCapital;
+		chkPort.checked = !!burg.port;
+
+		// Read state parameters
+		const state = store.getState() as any;
+
+		// Populate Culture dropdown
+		cultureSelect.innerHTML = "";
+		if (state.cultures) {
+			state.cultures.forEach((c: any) => {
+				const opt = document.createElement("option");
+				opt.value = String(c.id);
+				opt.innerText = c.name;
+				if (state.cellCultures && state.cellCultures[burg.cell] === c.id) {
+					opt.selected = true;
+				}
+				cultureSelect.appendChild(opt);
+			});
+		}
+
+		// Display height and temperature
+		const heightVal = state.heights ? state.heights[burg.cell] : 0;
+		const tempVal = state.temp ? state.temp[burg.cell] : 0;
+
+		valElevation.innerText = `${Math.round(heightVal * 15)}m`;
+		valTemp.innerText = `${Math.round(tempVal)}°C`;
+
+		panel.style.display = "block";
+	};
 }
