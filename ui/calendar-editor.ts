@@ -539,4 +539,52 @@ export function mountCalendarEditor(containerId: string, onUpdate: () => void) {
 
 		panel.style.display = "block";
 	};
+
+	// Inline mount: moves the existing calendar editor panel into a provided container
+	// element so it appears inline below the Configure World modal.
+	(window as any).mountCalendarEditorInline = (container: HTMLElement) => {
+		const panel = document.getElementById(
+			"calendarEditorPanel",
+		) as HTMLDivElement;
+		if (!panel) return;
+
+		// Move the panel into the inline container
+		container.appendChild(panel);
+		panel.style.display = "block";
+		panel.style.position = "relative";
+		panel.style.boxShadow = "none";
+		panel.style.maxHeight = "60vh";
+		panel.style.width = "100%";
+
+		// Hide the close button since the parent toggle handles visibility
+		const closeBtn = document.getElementById("closeCalendarBtn");
+		if (closeBtn) closeBtn.style.display = "none";
+
+		// Populate the editor with current state
+		const state = store.getState();
+		localWeekdays = [...state.weekdays];
+		localMonths = state.months.map((m) => ({ ...m }));
+		localSeasons = state.seasons.map((s) => ({ ...s }));
+		localMoons = state.moons.map((m) => ({
+			...m,
+			customPhases: m.customPhases.map((p) => ({ ...p })),
+		}));
+		renderWeekdays();
+		renderMonths();
+		renderSeasons();
+		renderMoons();
+		selectTab("weeks");
+
+		// Wire cancel button to collapse the inline container
+		const cancelBtn = document.getElementById(
+			"cancelCalendarBtn",
+		) as HTMLButtonElement;
+		if (cancelBtn) {
+			cancelBtn.onclick = () => {
+				container.style.display = "none";
+				const btn = document.getElementById("openCalendarEditorBtn");
+				if (btn) btn.textContent = "Config Custom Calendar";
+			};
+		}
+	};
 }

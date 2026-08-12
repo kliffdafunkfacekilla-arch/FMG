@@ -15,6 +15,8 @@ export interface SetupConfig {
 	townsCount: number;
 	religionsCount: number;
 	tempEquator: number;
+	tempNorthPole: number;
+	tempSouthPole: number;
 	windsAngle: number;
 	precipitationInput: number;
 	distanceUnit: string;
@@ -51,14 +53,15 @@ function computeLatitudeWindow(mapSizePercent: number, latitudePercent: number) 
 function temperatureAtLatitude(
 	lat: number,
 	equatorTemp: number,
-	polesTemp: number,
+	northPoleTemp: number,
+	southPoleTemp: number,
 ): number {
 	const tropics = [16, -20];
 	const tropicalGradient = 0.15;
 	const tempNorthTropic = equatorTemp - tropics[0] * tropicalGradient;
 	const tempSouthTropic = equatorTemp + tropics[1] * tropicalGradient;
-	const northernGradient = (tempNorthTropic - polesTemp) / (90 - tropics[0]);
-	const southernGradient = (tempSouthTropic - polesTemp) / (90 + tropics[1]);
+	const northernGradient = (tempNorthTropic - northPoleTemp) / (90 - tropics[0]);
+	const southernGradient = (tempSouthTropic - southPoleTemp) / (90 + tropics[1]);
 
 	if (lat <= 16 && lat >= -20) {
 		return equatorTemp - Math.abs(lat) * tropicalGradient;
@@ -227,10 +230,18 @@ export function mountConfigurator(
 
             <div>
               <label style="display: flex; justify-content: space-between; color: #cbd5e1; font-size: 0.78rem;">
-                <span>Poles temperature:</span>
-                <span id="lblPoles" style="font-weight: bold; color: #60a5fa;"></span>
+                <span>North pole temperature:</span>
+                <span id="lblNorthPole" style="font-weight: bold; color: #60a5fa;"></span>
               </label>
-              <input id="cfgPoles" type="range" min="-40" max="20" value="-25" style="width: 100%; cursor: pointer;" />
+              <input id="cfgNorthPole" type="range" min="-40" max="20" value="-25" style="width: 100%; cursor: pointer;" />
+            </div>
+
+            <div>
+              <label style="display: flex; justify-content: space-between; color: #cbd5e1; font-size: 0.78rem;">
+                <span>South pole temperature:</span>
+                <span id="lblSouthPole" style="font-weight: bold; color: #60a5fa;"></span>
+              </label>
+              <input id="cfgSouthPole" type="range" min="-40" max="20" value="-25" style="width: 100%; cursor: pointer;" />
             </div>
 
             <div>
@@ -286,6 +297,9 @@ export function mountConfigurator(
 
         <button id="openCalendarEditorBtn" style="width: 100%; text-align: left; background: #3b82f6; border: none; color: white; padding: 0.5rem 0.6rem; cursor: pointer; font-weight: bold; font-size: 0.8rem; border-radius: 6px;">Config Custom Calendar</button>
 
+        <!-- Inline Calendar Editor Container -->
+        <div id="inlineCalendarContainer" style="display: none; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 0.6rem; background: rgba(15,15,18,0.6); margin-top: 0.4rem;"></div>
+
         <button id="updateClimateBtn" style="background: #3b82f6; border: none; padding: 0.55rem; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.82rem; width: 100%;">
           Update Map Climate
         </button>
@@ -335,14 +349,16 @@ export function mountConfigurator(
 
 	// --- Configure World inputs ---
 	const cfgEquator = document.getElementById("cfgEquator") as HTMLInputElement;
-	const cfgPoles = document.getElementById("cfgPoles") as HTMLInputElement;
+	const cfgNorthPole = document.getElementById("cfgNorthPole") as HTMLInputElement;
+	const cfgSouthPole = document.getElementById("cfgSouthPole") as HTMLInputElement;
 	const cfgMapSize = document.getElementById("cfgMapSize") as HTMLInputElement;
 	const cfgLatitude = document.getElementById(
 		"cfgLatitude",
 	) as HTMLInputElement;
 	const cfgPrec = document.getElementById("cfgPrec") as HTMLInputElement;
 	const lblEquator = document.getElementById("lblEquator") as HTMLSpanElement;
-	const lblPoles = document.getElementById("lblPoles") as HTMLSpanElement;
+	const lblNorthPole = document.getElementById("lblNorthPole") as HTMLSpanElement;
+	const lblSouthPole = document.getElementById("lblSouthPole") as HTMLSpanElement;
 	const lblMapSize = document.getElementById("lblMapSize") as HTMLSpanElement;
 	const lblLatitude = document.getElementById("lblLatitude") as HTMLSpanElement;
 	const lblPrec = document.getElementById("lblPrec") as HTMLSpanElement;
@@ -375,7 +391,8 @@ export function mountConfigurator(
 	const renderGlobe = () => {
 		if (!globeSvg) return;
 		const equatorTemp = parseInt(cfgEquator.value, 10);
-		const polesTemp = parseInt(cfgPoles.value, 10);
+		const northPoleTemp = parseInt(cfgNorthPole.value, 10);
+		const southPoleTemp = parseInt(cfgSouthPole.value, 10);
 		const { latN, latS } = computeLatitudeWindow(
 			parseInt(cfgMapSize.value, 10),
 			parseInt(cfgLatitude.value, 10),
@@ -395,7 +412,8 @@ export function mountConfigurator(
 			const midTemp = temperatureAtLatitude(
 				lat - step / 2,
 				equatorTemp,
-				polesTemp,
+				northPoleTemp,
+				southPoleTemp,
 			);
 			parts.push(
 				`<rect x="${CX - R}" y="${y0.toFixed(2)}" width="${2 * R}" height="${(y1 - y0 + 0.6).toFixed(2)}" fill="${temperatureColor(midTemp)}" />`,
@@ -458,6 +476,9 @@ export function mountConfigurator(
 	};
 
 	const cToF = (c: number) => Math.round((c * 9) / 5 + 32);
+	const isImperial = () => distanceUnit.value === "miles";
+	const tempLabel = (c: number) =>
+		isImperial() ? `${cToF(c)}&#176;F` : `${c}&#176;C`;
 
 	const renderInfo = () => {
 		const unit = DISTANCE_UNITS[distanceUnit.value] || DISTANCE_UNITS.kms;
@@ -490,8 +511,9 @@ export function mountConfigurator(
 	};
 
 	const refreshWorld = () => {
-		lblEquator.innerHTML = `${cfgEquator.value}&#176;C = ${cToF(parseInt(cfgEquator.value, 10))}&#176;F`;
-		lblPoles.innerHTML = `${cfgPoles.value}&#176;C = ${cToF(parseInt(cfgPoles.value, 10))}&#176;F`;
+		lblEquator.innerHTML = tempLabel(parseInt(cfgEquator.value, 10));
+		lblNorthPole.innerHTML = tempLabel(parseInt(cfgNorthPole.value, 10));
+		lblSouthPole.innerHTML = tempLabel(parseInt(cfgSouthPole.value, 10));
 		lblMapSize.innerHTML = `${cfgMapSize.value}%`;
 		lblLatitude.innerHTML = `${cfgLatitude.value}`;
 		lblPrec.innerHTML = `${cfgPrec.value}%`;
@@ -505,10 +527,10 @@ export function mountConfigurator(
 			lblPointsCount.innerText = pointsCountSlider.value;
 		});
 
-	[cfgEquator, cfgPoles, cfgMapSize, cfgLatitude, cfgPrec].forEach((el) => {
+	[cfgEquator, cfgNorthPole, cfgSouthPole, cfgMapSize, cfgLatitude, cfgPrec].forEach((el) => {
 		el.addEventListener("input", refreshWorld);
 	});
-	distanceUnit.addEventListener("change", renderInfo);
+	distanceUnit.addEventListener("change", refreshWorld);
 	canvasWidth.addEventListener("input", renderInfo);
 	canvasHeight.addEventListener("input", renderInfo);
 
@@ -562,6 +584,8 @@ export function mountConfigurator(
 		townsCount: parseInt(townsCount.value, 10) || 30,
 		religionsCount: parseInt(numReligions.value, 10) || 5,
 		tempEquator: parseInt(cfgEquator.value, 10),
+		tempNorthPole: parseInt(cfgNorthPole.value, 10),
+		tempSouthPole: parseInt(cfgSouthPole.value, 10),
 		windsAngle: winds[2],
 		precipitationInput: parseInt(cfgPrec.value, 10),
 		distanceUnit: distanceUnit?.value || "kms",
@@ -629,7 +653,8 @@ export function mountConfigurator(
 		if (win.runClimateRegen) {
 			win.runClimateRegen({
 				equatorTemp: parseInt(cfgEquator.value, 10),
-				polesTemp: parseInt(cfgPoles.value, 10),
+				northPoleTemp: parseInt(cfgNorthPole.value, 10),
+				southPoleTemp: parseInt(cfgSouthPole.value, 10),
 				latN,
 				latT,
 				precInput: parseInt(cfgPrec.value, 10),
@@ -645,14 +670,28 @@ export function mountConfigurator(
 		});
 	}
 
-	// Calendar editor lives inside the Configure World modal.
+	// Calendar editor toggles inline below the Configure World modal.
 	const openCalendarEditorBtn = document.getElementById(
 		"openCalendarEditorBtn",
 	) as HTMLButtonElement;
+	const inlineCalendarContainer = document.getElementById(
+		"inlineCalendarContainer",
+	) as HTMLDivElement;
+	let calendarInlineLoaded = false;
 	if (openCalendarEditorBtn) {
 		openCalendarEditorBtn.addEventListener("click", () => {
-			if ((window as any).openCalendarEditor) {
-				(window as any).openCalendarEditor();
+			if (!inlineCalendarContainer) return;
+			const isShown = inlineCalendarContainer.style.display !== "none";
+			if (isShown) {
+				inlineCalendarContainer.style.display = "none";
+				openCalendarEditorBtn.textContent = "Config Custom Calendar";
+				return;
+			}
+			inlineCalendarContainer.style.display = "block";
+			openCalendarEditorBtn.textContent = "Hide Calendar Settings";
+			if (!calendarInlineLoaded && (window as any).mountCalendarEditorInline) {
+				(window as any).mountCalendarEditorInline(inlineCalendarContainer);
+				calendarInlineLoaded = true;
 			}
 		});
 	}
