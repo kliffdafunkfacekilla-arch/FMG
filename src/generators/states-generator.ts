@@ -244,7 +244,7 @@ class StatesModule {
 
 			const expansionism = rn(Math.random() * sizeVariety + 1, 1);
 			const basename =
-				burg.name?.length < 9 && each5th(burg.cell)
+				burg.name!.length < 9 && each5th(burg.cell)
 					? burg.name!
 					: Names.getCultureShort(burg.culture!);
 			const name = Names.getState(basename, burg.culture!);
@@ -511,7 +511,7 @@ class StatesModule {
 		states.forEach((state) => {
 			if (!state.i || state.removed || state.lock) return;
 			state.color = colors.find((color) =>
-				state.neighbors?.every(
+				state.neighbors!.every(
 					(neibStateId) => states[neibStateId].color !== color,
 				),
 			);
@@ -628,23 +628,23 @@ class StatesModule {
 		// generic relations
 		for (let f = 1; f < states.length; f++) {
 			if (states[f].removed) continue;
-			if (states[f].diplomacy?.includes("Vassal")) {
+			if (states[f].diplomacy!.includes("Vassal")) {
 				// Vassals copy relations from their Suzerains
-				const suzerain = states[f].diplomacy?.indexOf("Vassal");
+				const suzerain = states[f].diplomacy!.indexOf("Vassal");
 
 				for (let i = 1; i < states.length; i++) {
 					if (i === f || i === suzerain) continue;
-					states[f].diplomacy![i] = states[suzerain].diplomacy?.[i];
-					if (states[suzerain].diplomacy?.[i] === "Suzerain")
+					states[f].diplomacy![i] = states[suzerain].diplomacy![i];
+					if (states[suzerain].diplomacy![i] === "Suzerain")
 						states[f].diplomacy![i] = "Ally";
 					for (let e = 1; e < states.length; e++) {
 						if (e === f || e === suzerain) continue;
 						if (
-							states[e].diplomacy?.[suzerain] === "Suzerain" ||
-							states[e].diplomacy?.[suzerain] === "Vassal"
+							states[e].diplomacy![suzerain] === "Suzerain" ||
+							states[e].diplomacy![suzerain] === "Vassal"
 						)
 							continue;
-						states[e].diplomacy![f] = states[e].diplomacy?.[suzerain];
+						states[e].diplomacy![f] = states[e].diplomacy![suzerain];
 					}
 				}
 				continue;
@@ -653,9 +653,9 @@ class StatesModule {
 			for (let t = f + 1; t < states.length; t++) {
 				if (states[t].removed) continue;
 
-				if (states[t].diplomacy?.includes("Vassal")) {
-					const suzerain = states[t].diplomacy?.indexOf("Vassal");
-					states[f].diplomacy![t] = states[f].diplomacy?.[suzerain];
+				if (states[t].diplomacy!.includes("Vassal")) {
+					const suzerain = states[t].diplomacy!.indexOf("Vassal");
+					states[f].diplomacy![t] = states[f].diplomacy![suzerain];
 					continue;
 				}
 
@@ -663,12 +663,12 @@ class StatesModule {
 					states[f].type === "Naval" &&
 					states[t].type === "Naval" &&
 					cells.f[states[f].center] !== cells.f[states[t].center];
-				const neib = naval ? false : states[f].neighbors?.includes(t);
+				const neib = naval ? false : states[f].neighbors!.includes(t);
 				const neibOfNeib =
 					naval || neib
 						? false
-						: states[f].neighbors?.some((n) =>
-								states[n].neighbors?.includes(t),
+						: states[f].neighbors!.some((n) =>
+								states[n].neighbors!.includes(t),
 							);
 
 				let status = naval
@@ -705,7 +705,7 @@ class StatesModule {
 			const defender = ra(
 				ad
 					.map((r, d) =>
-						r === "Rival" && !states[d].diplomacy?.includes("Vassal") ? d : 0,
+						r === "Rival" && !states[d].diplomacy!.includes("Vassal") ? d : 0,
 					)
 					.filter((d) => d),
 			);
@@ -724,8 +724,8 @@ class StatesModule {
 			const start = options.year - gauss(2, 3, 0, 10);
 			const war = [name, `${an} declared a war on its rival ${dn}`];
 			const campaign: Campaign = { name, start, attacker, defender };
-			states[attacker].campaigns?.push(campaign);
-			states[defender].campaigns?.push(campaign);
+			states[attacker].campaigns!.push(campaign);
+			states[defender].campaigns!.push(campaign);
 
 			// attacker vassals join the war
 			ad.forEach((r, d) => {
@@ -752,12 +752,12 @@ class StatesModule {
 
 			// defender allies join
 			dd.forEach((r, d) => {
-				if (r !== "Ally" || states[d].diplomacy?.includes("Vassal")) return;
+				if (r !== "Ally" || states[d].diplomacy!.includes("Vassal")) return;
 				if (
-					states[d].diplomacy?.[attacker] !== "Rival" &&
+					states[d].diplomacy![attacker] !== "Rival" &&
 					ap / dp > 2 * gauss(1.6, 0.8, 0, 10, 2)
 				) {
-					const reason = states[d].diplomacy?.includes("Enemy")
+					const reason = states[d].diplomacy!.includes("Enemy")
 						? "Being already at war,"
 						: `Frightened by ${an},`;
 					war.push(
@@ -773,8 +773,8 @@ class StatesModule {
 				);
 
 				// ally vassals join
-				states[d].diplomacy
-					?.map((r, d) => (r === "Suzerain" ? d : 0))
+				states[d]
+					.diplomacy!.map((r, d) => (r === "Suzerain" ? d : 0))
 					.filter((d) => d)
 					.forEach((v) => {
 						defenders.push(v);
@@ -789,20 +789,20 @@ class StatesModule {
 			ad.forEach((r, d) => {
 				if (
 					r !== "Ally" ||
-					states[d].diplomacy?.includes("Vassal") ||
+					states[d].diplomacy!.includes("Vassal") ||
 					defenders.includes(d)
 				)
 					return;
 				const name = states[d].name;
 				if (
-					states[d].diplomacy?.[defender] !== "Rival" &&
+					states[d].diplomacy![defender] !== "Rival" &&
 					(P(0.2) || ap <= dp * 1.2)
 				) {
 					war.push(`${an}'s ally ${name} avoided entering the war`);
 					return;
 				}
-				const allies = states[d].diplomacy
-					?.map((r, d) => (r === "Ally" ? d : 0))
+				const allies = states[d]
+					.diplomacy!.map((r, d) => (r === "Ally" ? d : 0))
 					.filter((d) => d);
 				if (allies.some((ally) => defenders.includes(ally))) {
 					war.push(
@@ -816,8 +816,8 @@ class StatesModule {
 				war.push(`${an}'s ally ${name} joined the war on attackers side`);
 
 				// ally vassals join
-				states[d].diplomacy
-					?.map((r, d) => (r === "Suzerain" ? d : 0))
+				states[d]
+					.diplomacy!.map((r, d) => (r === "Suzerain" ? d : 0))
 					.filter((d) => d)
 					.forEach((v) => {
 						attackers.push(v);
