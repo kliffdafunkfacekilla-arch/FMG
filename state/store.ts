@@ -1,4 +1,4 @@
-import type { Grid } from "../core/types";
+import { type Grid, Pack } from "../core/types";
 import type { CalendarState } from "../simulation/time/tick-system";
 
 export interface CustomMonth {
@@ -20,12 +20,184 @@ export interface CustomMoonPhase {
 	name: string;
 	ratio: number; // relative duration weight of this phase
 	modifier: number; // modifier assigned to this phase
+	effect?: string; // custom simulation/magical effect attached to this phase
+}
+
+export interface CustomHoliday {
+	name: string;
+	month: number; // 0-indexed month of year
+	day: number; // 1-indexed day of month
+	type: "holiday" | "darkday"; // holiday is festive, darkday is unholy/negative
+	effect: "happiness" | "population" | "safety" | "health";
+	modifier: number; // multiplier or flat shift (e.g. +5% or +0.05, etc.)
 }
 
 export interface CustomMoon {
 	name: string;
 	cycleLength: number; // in days
 	customPhases: CustomMoonPhase[];
+}
+
+export interface NestedUnit {
+	id: string;
+	name: string;
+	x: number;
+	y: number;
+	type: string;
+	progress: number;
+	speedX: number;
+	speedY: number;
+}
+
+export interface NestedLocalZone {
+	id: number;
+	name: string;
+	centerX: number;
+	centerY: number;
+	radius: number;
+	units: NestedUnit[];
+}
+
+export interface NestedRegion {
+	id: number;
+	name: string;
+	centerX: number;
+	centerY: number;
+	radius: number;
+	localZones: NestedLocalZone[];
+	units: NestedUnit[];
+}
+
+export interface NestedLog {
+	time: string;
+	msg: string;
+	type: "info" | "military" | "caravan" | "magic" | "local" | "beast";
+}
+
+export function generateDefaultRegions(): NestedRegion[] {
+	const regionNames = [
+		"Dragon's Teeth Peaks",
+		"Whispering Sylvanwood",
+		"Scorched Wastes",
+		"Golden Valley",
+		"Emerald Reach",
+		"Shimmering Sound",
+		"Frostfell Marsh",
+		"Serpent's Delta",
+		"Shadowed Fen",
+		"Sapphire Coast",
+	];
+
+	const localPrefixes = [
+		"Old",
+		"New",
+		"Mist",
+		"Shadow",
+		"Green",
+		"Sun",
+		"Gale",
+		"Glen",
+		"River",
+		"Deep",
+	];
+	const localSuffixes = [
+		"Cove",
+		"Vale",
+		"Gully",
+		"Hollow",
+		"Ridge",
+		"Grove",
+		"Crossing",
+		"Meadow",
+		"Pass",
+		"Chasm",
+	];
+
+	const regions: NestedRegion[] = [];
+	for (let r = 0; r < 10; r++) {
+		const rCol = r % 5;
+		const rRow = Math.floor(r / 5);
+		const centerX = rCol * 200 + 100;
+		const centerY = rRow * 300 + 150;
+
+		const localZones: NestedLocalZone[] = [];
+		for (let l = 0; l < 10; l++) {
+			const lCol = l % 5;
+			const lRow = Math.floor(l / 5);
+			const offsetX = (lCol - 2) * 60;
+			const offsetY = (lRow - 0.5) * 150;
+			const lx = centerX + offsetX;
+			const ly = centerY + offsetY;
+			const name = `${localPrefixes[l % 10]} ${localSuffixes[(r + l) % 10]}`;
+
+			const units: NestedUnit[] = [
+				{
+					id: `unit-local-${r}-${l}-1`,
+					name: `${name} Ranger Patrol`,
+					x: lx,
+					y: ly,
+					type: "guard",
+					progress: 0,
+					speedX: (Math.random() - 0.5) * 3,
+					speedY: (Math.random() - 0.5) * 3,
+				},
+				{
+					id: `unit-local-${r}-${l}-2`,
+					name: "Elusive Beast",
+					x: lx + 5,
+					y: ly + 5,
+					type: "wildlife",
+					progress: 0,
+					speedX: (Math.random() - 0.5) * 5,
+					speedY: (Math.random() - 0.5) * 5,
+				},
+			];
+
+			localZones.push({
+				id: l,
+				name,
+				centerX: lx,
+				centerY: ly,
+				radius: 65,
+				units,
+			});
+		}
+
+		const units: NestedUnit[] = [
+			{
+				id: `unit-region-${r}-1`,
+				name: `Regimental Patrol of ${regionNames[r]}`,
+				x: centerX,
+				y: centerY,
+				type: "patrol",
+				progress: 0,
+				speedX: (Math.random() - 0.5) * 6,
+				speedY: (Math.random() - 0.5) * 6,
+			},
+			{
+				id: `unit-region-${r}-2`,
+				name: `Inter-city Trade Caravan`,
+				x: centerX - 15,
+				y: centerY + 15,
+				type: "caravan",
+				progress: 0,
+				speedX: (Math.random() - 0.5) * 4,
+				speedY: (Math.random() - 0.5) * 4,
+			},
+		];
+
+		regions.push({
+			id: r,
+			name: regionNames[r],
+			centerX,
+			centerY,
+			radius: 165,
+			localZones,
+			units,
+		});
+	}
+
+	return regions;
 }
 
 export interface AppState {
@@ -49,6 +221,15 @@ export interface AppState {
 	months: CustomMonth[];
 	seasons: CustomSeason[];
 	moons: CustomMoon[];
+	holidays: CustomHoliday[];
+
+	// Nested LOD & Simulation State
+	regions: NestedRegion[] | null;
+	activeRegionId: number | null;
+	activeLocalId: number | null;
+	globalLogs: NestedLog[];
+	regionalLogs: Record<number, NestedLog[]>;
+	localLogs: Record<string, NestedLog[]>;
 
 	// Ecology & Stressors
 	plants: Float32Array | null;
@@ -60,6 +241,7 @@ export interface AppState {
 	// Magic System
 	magicTypes: MagicTypeConfig[];
 	magicNodes: number[] | null;
+	magicLeyLines: [number, number][] | null;
 	magicFlux: Float32Array | null;
 	magePopulation: Uint32Array | null;
 
@@ -74,12 +256,7 @@ export interface AppState {
 	offsetY: number;
 	zoomTier: "global" | "regional" | "local";
 	parentStates: AppState[];
-	focusBounds: {
-		minX: number;
-		minY: number;
-		maxX: number;
-		maxY: number;
-	} | null;
+	focusBounds: { minX: number; minY: number; maxX: number; maxY: number } | null;
 	preyRate: number;
 	predRate: number;
 	magicSens: number;
@@ -94,6 +271,16 @@ export interface AppState {
 	showLabels: boolean;
 	showZones: boolean;
 
+	showHeightmap: boolean;
+	showBiomes: boolean;
+	showCultures: boolean;
+	showStates: boolean;
+	showProvinces: boolean;
+	showReligions: boolean;
+	showGoods: boolean;
+	showTemp: boolean;
+	showPrec: boolean;
+
 	// Civilization & Political Data
 	states: any[] | null;
 	burgs: any[] | null;
@@ -102,6 +289,10 @@ export interface AppState {
 	relations: any[] | null;
 	provinces: any[] | null;
 	military: any[] | null;
+	fringeGroups: any[] | null;
+	markets?: any[] | null;
+	cellReligions?: Uint8Array | null;
+	militaryUnitTypes?: { type: string; speed: number; combatValue: number }[];
 
 	// Z-index Order & Styling
 	layerOrder: string[];
@@ -121,6 +312,18 @@ export interface MagicTypeConfig {
 	wieldability: "innate" | "learned" | "divine";
 	rarity: number; // base chance of mages
 	cost: number; // mana cost
+	scope?: "zone" | "ley_line" | "global";
+	costType?: string; // "wealth" | "life" | "ecology" or a Good name
+	religionId?: number; // chosen religion for divine
+	effect?:
+		| "strength"
+		| "speed"
+		| "wealth"
+		| "population"
+		| "happiness"
+		| "defense"
+		| "diplomacy";
+	dangerFactor?: number; // opposite effect based on crime
 	volatility: {
 		accidents: number; // probability of local accidents
 		crime: number;
@@ -159,6 +362,7 @@ class StateStore {
 			loggingCells: null,
 
 			magicNodes: null,
+			magicLeyLines: null,
 			magicFlux: null,
 			magePopulation: null,
 
@@ -185,6 +389,16 @@ class StateStore {
 			showLabels: true,
 			showZones: true,
 
+			showHeightmap: true,
+			showBiomes: false,
+			showCultures: false,
+			showStates: true,
+			showProvinces: false,
+			showReligions: false,
+			showGoods: false,
+			showTemp: false,
+			showPrec: false,
+
 			states: [],
 			burgs: [],
 			cultures: [],
@@ -192,9 +406,25 @@ class StateStore {
 			relations: [],
 			provinces: [],
 			military: [],
+			fringeGroups: [],
+			markets: [],
+			cellReligions: null,
+			militaryUnitTypes: [
+				{ type: "infantry", speed: 1.0, combatValue: 10 },
+				{ type: "cavalry", speed: 1.8, combatValue: 15 },
+				{ type: "navy", speed: 2.2, combatValue: 20 },
+			],
 
 			layerOrder: [
-				"primary",
+				"heightmap",
+				"biomes",
+				"temp",
+				"prec",
+				"cultures",
+				"states",
+				"provinces",
+				"religions",
+				"goods",
 				"grid",
 				"rivers",
 				"zones",
@@ -234,6 +464,10 @@ class StateStore {
 					wieldability: "innate",
 					rarity: 0.005,
 					cost: 25,
+					scope: "global",
+					costType: "life",
+					effect: "strength",
+					dangerFactor: 0.25,
 					volatility: { accidents: 0.3, crime: 0.05, instability: 0.1 },
 					weights: {
 						production: 1.25,
@@ -248,6 +482,10 @@ class StateStore {
 					wieldability: "learned",
 					rarity: 0.02,
 					cost: 15,
+					scope: "zone",
+					costType: "ecology",
+					effect: "population",
+					dangerFactor: 0.1,
 					volatility: { accidents: 0.02, crime: 0.01, instability: 0.01 },
 					weights: {
 						production: 1.05,
@@ -262,6 +500,10 @@ class StateStore {
 					wieldability: "divine",
 					rarity: 0.01,
 					cost: 20,
+					scope: "ley_line",
+					costType: "wealth",
+					effect: "wealth",
+					dangerFactor: 0.15,
 					volatility: { accidents: 0.05, crime: 0.15, instability: 0.05 },
 					weights: {
 						production: 1.15,
@@ -347,6 +589,44 @@ class StateStore {
 					],
 				},
 			],
+			holidays: [
+				{
+					name: "Festival of Light",
+					month: 5, // June (0-indexed 5)
+					day: 21,
+					type: "holiday",
+					effect: "happiness",
+					modifier: 15, // +15% happiness
+				},
+				{
+					name: "Reaping Eve",
+					month: 9, // October (0-indexed 9)
+					day: 31,
+					type: "darkday",
+					effect: "safety",
+					modifier: -10, // -10% safety / security
+				},
+				{
+					name: "Founder's Day",
+					month: 3, // April (0-indexed 3)
+					day: 15,
+					type: "holiday",
+					effect: "population",
+					modifier: 5, // +5% population growth (migration / births)
+				},
+			],
+			regions: generateDefaultRegions(),
+			activeRegionId: null,
+			activeLocalId: null,
+			globalLogs: [
+				{
+					time: "Day 1, Year 1",
+					msg: "Fantasy Map Generator nested LOD engine initialized.",
+					type: "info",
+				},
+			],
+			regionalLogs: {},
+			localLogs: {},
 		};
 	}
 

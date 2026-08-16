@@ -1,6 +1,6 @@
-import type { AppState } from "../../state/store";
-import { generateHydrology } from "../hydrology/hydrology-generator";
 import { generateJitteredGrid } from "./grid-generator";
+import { generateHydrology } from "../hydrology/hydrology-generator";
+import type { AppState } from "../../state/store";
 
 export function projectZoomState(
 	parentState: AppState,
@@ -28,10 +28,7 @@ export function projectZoomState(
 	const binYCount = 50;
 	const binW = width / binXCount;
 	const binH = height / binYCount;
-	const bins: number[][] = Array.from(
-		{ length: binXCount * binYCount },
-		() => [],
-	);
+	const bins: number[][] = Array.from({ length: binXCount * binYCount }, () => []);
 
 	const parentGrid = parentState.grid!;
 	const parentPoints = parentGrid.points;
@@ -48,14 +45,8 @@ export function projectZoomState(
 		let nearestId = 0;
 		let minDist = Infinity;
 
-		const centerBx = Math.min(
-			binXCount - 1,
-			Math.max(0, Math.floor(px / binW)),
-		);
-		const centerBy = Math.min(
-			binYCount - 1,
-			Math.max(0, Math.floor(py / binH)),
-		);
+		const centerBx = Math.min(binXCount - 1, Math.max(0, Math.floor(px / binW)));
+		const centerBy = Math.min(binYCount - 1, Math.max(0, Math.floor(py / binH)));
 
 		// Search 3x3 neighborhood of bins
 		for (let dy = -1; dy <= 1; dy++) {
@@ -108,20 +99,24 @@ export function projectZoomState(
 	const loggingCells = new Uint8Array(newCount);
 	const magePopulation = new Uint32Array(newCount);
 	const magicFlux = new Float32Array(newCount);
+	const oceanCurrents = new Float32Array(newCount * 2);
+	const oceanNutrients = new Float32Array(newCount);
+	const upwellingFlux = new Float32Array(newCount);
 
 	const parentHeights = parentState.heights!;
 	const parentTemp = parentState.temp!;
 	const parentPrec = parentState.prec!;
 	const parentBiomes = parentState.biomes!;
 	const parentPlants = parentState.plants || new Float32Array(parentN).fill(10);
-	const parentHerbivores =
-		parentState.herbivores || new Float32Array(parentN).fill(5);
-	const parentPredators =
-		parentState.predators || new Float32Array(parentN).fill(1);
+	const parentHerbivores = parentState.herbivores || new Float32Array(parentN).fill(5);
+	const parentPredators = parentState.predators || new Float32Array(parentN).fill(1);
 	const parentFarming = parentState.farmingCells || new Uint8Array(parentN);
 	const parentLogging = parentState.loggingCells || new Uint8Array(parentN);
 	const parentMagePop = parentState.magePopulation || new Uint32Array(parentN);
 	const parentMagicFlux = parentState.magicFlux || new Float32Array(parentN);
+	const parentCurrents = parentState.oceanCurrents || new Float32Array(parentN * 2);
+	const parentNutrients = parentState.oceanNutrients || new Float32Array(parentN);
+	const parentUpwelling = parentState.upwellingFlux || new Float32Array(parentN);
 
 	// Perform cell projections
 	for (let i = 0; i < newCount; i++) {
@@ -140,15 +135,20 @@ export function projectZoomState(
 		loggingCells[i] = parentLogging[parentCellId];
 		magePopulation[i] = parentMagePop[parentCellId];
 		magicFlux[i] = parentMagicFlux[parentCellId];
+		oceanCurrents[i * 2] = parentCurrents[parentCellId * 2];
+		oceanCurrents[i * 2 + 1] = parentCurrents[parentCellId * 2 + 1];
+		oceanNutrients[i] = parentNutrients[parentCellId];
+		upwellingFlux[i] = parentUpwelling[parentCellId];
 	}
 
 	// Generate high-resolution hydrology (rivers and flowDirections) for the sub-grid
 	const hydrology = generateHydrology(newGrid, heights, prec);
 
-	// Map states and cultures: project capitals and territories
+	// Map states, cultures, and religions
 	const projectedStates: any[] = [];
 	const projectedBurgs: any[] = [];
 	const projectedCultures: any[] = [];
+	const projectedReligions: any[] = [];
 
 	if (parentState.states) {
 		for (const s of parentState.states) {
@@ -167,13 +167,19 @@ export function projectZoomState(
 		}
 	}
 
-	// Map cellStates and cellCultures to new cells based on nearest parent cell state/culture
+	if (parentState.religions) {
+		for (const r of parentState.religions) {
+			projectedReligions.push({ ...r });
+		}
+	}
+
+	// Map cellStates, cellCultures, and cellReligions to new cells
 	const cellStates = new Uint8Array(newCount);
 	const cellCultures = new Uint8Array(newCount);
-	const parentCellStates =
-		(parentState as any).cellStates || new Uint8Array(parentN);
-	const parentCellCultures =
-		(parentState as any).cellCultures || new Uint8Array(parentN);
+	const cellReligions = new Uint8Array(newCount);
+	const parentCellStates = (parentState as any).cellStates || new Uint8Array(parentN);
+	const parentCellCultures = (parentState as any).cellCultures || new Uint8Array(parentN);
+	const parentCellReligions = parentState.cellReligions || new Uint8Array(parentN);
 
 	for (let i = 0; i < newCount; i++) {
 		const [x, y] = newGrid.points[i];
@@ -181,21 +187,16 @@ export function projectZoomState(
 		const pId = findNearestParentCell(px, py);
 		cellStates[i] = parentCellStates[pId];
 		cellCultures[i] = parentCellCultures[pId];
+		cellReligions[i] = parentCellReligions[pId];
 	}
 
 	// Project burgs
 	if (parentState.burgs) {
 		for (const b of parentState.burgs) {
 			const [bx, by] = parentPoints[b.cell];
-			if (
-				bx >= bounds.minX &&
-				bx <= bounds.maxX &&
-				by >= bounds.minY &&
-				by <= bounds.maxY
-			) {
+			if (bx >= bounds.minX && bx <= bounds.maxX && by >= bounds.minY && by <= bounds.maxY) {
 				const subX = ((bx - bounds.minX) / (bounds.maxX - bounds.minX)) * width;
-				const subY =
-					((by - bounds.minY) / (bounds.maxY - bounds.minY)) * height;
+				const subY = ((by - bounds.minY) / (bounds.maxY - bounds.minY)) * height;
 
 				let closestNewCell = 0;
 				let minDist = Infinity;
@@ -241,11 +242,16 @@ export function projectZoomState(
 		loggingCells,
 		magePopulation,
 		magicFlux,
+		oceanCurrents,
+		oceanNutrients,
+		upwellingFlux,
 		cellStates,
 		cellCultures,
+		cellReligions,
 		states: projectedStates,
 		burgs: projectedBurgs,
 		cultures: projectedCultures,
+		religions: projectedReligions,
 		zoomTier: nextTier,
 		parentStates: [...parentState.parentStates, parentState],
 		focusBounds: bounds,

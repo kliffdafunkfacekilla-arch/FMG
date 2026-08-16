@@ -1,0 +1,6 @@
+{
+  "name": "Fantasy Map Generator",
+  "description": "Interactive procedural map generator and world simulator.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
