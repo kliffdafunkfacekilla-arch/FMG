@@ -1,1 +1,3 @@
-export function mountCulturesEditor() { console.log("Mounted " + ed); }
+export function mountCulturesEditor() {
+	console.log(`Mounted ${ed}`);
+}

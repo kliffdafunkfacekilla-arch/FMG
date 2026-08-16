@@ -1,10 +1,13 @@
 import { store } from "../state/store";
 
-export function mountStyleAndBiomeEditor(containerId: string, onUpdate: () => void) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
+export function mountStyleAndBiomeEditor(
+	containerId: string,
+	onUpdate: () => void,
+) {
+	const container = document.getElementById(containerId);
+	if (!container) return;
 
-  container.innerHTML = `
+	container.innerHTML = `
     <div style="background: rgba(30, 30, 38, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); padding: 1rem; border-radius: 12px; font-size: 0.85rem; color: #e2e8f0; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 0.8rem;">
       <h3 style="margin-top: 0; color: #10b981; border-bottom: 1px solid #333; padding-bottom: 0.25rem;">Style & Biomes</h3>
       
@@ -30,45 +33,62 @@ export function mountStyleAndBiomeEditor(containerId: string, onUpdate: () => vo
     </div>
   `;
 
-  const presetSelect = document.getElementById("stylePreset") as HTMLSelectElement;
-  const listEl = document.getElementById("biomesList") as HTMLUListElement;
+	const presetSelect = document.getElementById(
+		"stylePreset",
+	) as HTMLSelectElement;
+	const listEl = document.getElementById("biomesList") as HTMLUListElement;
 
-  presetSelect.addEventListener("change", () => {
-    const val = presetSelect.value;
-    const windowObj = window as any;
+	presetSelect.addEventListener("change", () => {
+		const val = presetSelect.value;
+		const windowObj = window as any;
 
-    if (val === "monochrome") {
-      windowObj.triggerLayerSelect("heightmap");
-    } else {
-      windowObj.triggerLayerSelect("states");
-    }
-    onUpdate();
-  });
+		if (val === "monochrome") {
+			windowObj.triggerLayerSelect("heightmap");
+		} else {
+			windowObj.triggerLayerSelect("states");
+		}
+		onUpdate();
+	});
 
-  // Export biomes breakdown refresh hook
-  (window as any).refreshBiomesList = () => {
-    const state = store.getState() as any;
-    if (!state.biomes) return;
+	// Export biomes breakdown refresh hook
+	(window as any).refreshBiomesList = () => {
+		const state = store.getState() as any;
+		if (!state.biomes) return;
 
-    const counts: Record<number, number> = {};
-    for (let i = 0; i < state.biomes.length; i++) {
-      const b = state.biomes[i];
-      counts[b] = (counts[b] || 0) + 1;
-    }
+		const counts: Record<number, number> = {};
+		for (let i = 0; i < state.biomes.length; i++) {
+			const b = state.biomes[i];
+			counts[b] = (counts[b] || 0) + 1;
+		}
 
-    const biomeNames = [
-      "Marine", "Hot desert", "Cold desert", "Savanna", "Grassland",
-      "Tropical seasonal forest", "Temperate deciduous forest", "Tropical rainforest",
-      "Temperate rainforest", "Taiga", "Tundra", "Glacier", "Wetland",
-      "Shallow Reef", "Kelp Forest", "Pelagic Zone", "Abyssal Plain",
-      "Oceanic Trench", "Chaos Land", "Chaos Water"
-    ];
-    
-    listEl.innerHTML = Object.entries(counts)
-      .map(([bId, count]) => {
-        const name = biomeNames[parseInt(bId, 10)] || "Unknown";
-        return `<li style="margin-bottom: 0.2rem;">${name}: <strong>${count}</strong> cells</li>`;
-      })
-      .join("");
-  };
+		const biomeNames = [
+			"Marine",
+			"Hot desert",
+			"Cold desert",
+			"Savanna",
+			"Grassland",
+			"Tropical seasonal forest",
+			"Temperate deciduous forest",
+			"Tropical rainforest",
+			"Temperate rainforest",
+			"Taiga",
+			"Tundra",
+			"Glacier",
+			"Wetland",
+			"Shallow Reef",
+			"Kelp Forest",
+			"Pelagic Zone",
+			"Abyssal Plain",
+			"Oceanic Trench",
+			"Chaos Land",
+			"Chaos Water",
+		];
+
+		listEl.innerHTML = Object.entries(counts)
+			.map(([bId, count]) => {
+				const name = biomeNames[parseInt(bId, 10)] || "Unknown";
+				return `<li style="margin-bottom: 0.2rem;">${name}: <strong>${count}</strong> cells</li>`;
+			})
+			.join("");
+	};
 }

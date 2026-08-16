@@ -1,10 +1,10 @@
 import { generateName } from "../simulation/civilization/name-generator";
 
 export function mountLanguageEditor(containerId: string) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
+	const container = document.getElementById(containerId);
+	if (!container) return;
 
-  container.innerHTML = `
+	container.innerHTML = `
     <div style="background: rgba(30, 30, 38, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); padding: 1rem; border-radius: 12px; font-size: 0.85rem; color: #e2e8f0; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 0.5rem;">
       <h3 style="margin-top: 0; color: #a78bfa; border-bottom: 1px solid #333; padding-bottom: 0.25rem;">Language Syllable Editor</h3>
       
@@ -28,17 +28,19 @@ export function mountLanguageEditor(containerId: string) {
     </div>
   `;
 
-  const langSelect = document.getElementById("langSelect") as HTMLSelectElement;
-  const preview = document.getElementById("langTestPreview") as HTMLInputElement;
-  const genBtn = document.getElementById("testGenBtn") as HTMLButtonElement;
+	const langSelect = document.getElementById("langSelect") as HTMLSelectElement;
+	const preview = document.getElementById(
+		"langTestPreview",
+	) as HTMLInputElement;
+	const genBtn = document.getElementById("testGenBtn") as HTMLButtonElement;
 
-  const testName = () => {
-    const seed = "test-" + Math.floor(Math.random() * 100000);
-    preview.value = generateName(langSelect.value, seed);
-  };
+	const testName = () => {
+		const seed = `test-${Math.floor(Math.random() * 100000)}`;
+		preview.value = generateName(langSelect.value, seed);
+	};
 
-  genBtn.addEventListener("click", testName);
-  langSelect.addEventListener("change", testName);
+	genBtn.addEventListener("click", testName);
+	langSelect.addEventListener("change", testName);
 
-  testName();
+	testName();
 }

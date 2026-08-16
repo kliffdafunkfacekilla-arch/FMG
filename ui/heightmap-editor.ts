@@ -1,18 +1,21 @@
-import { store } from "../state/store";
-import { HeightmapGenerator } from "../simulation/heightmap/heightmap-generator";
 import { bakeErosion } from "../simulation/heightmap/erosion-bake";
+import { HeightmapGenerator } from "../simulation/heightmap/heightmap-generator";
 import { generateHydrology } from "../simulation/hydrology/hydrology-generator";
+import { store } from "../state/store";
 
 export interface BrushConfig {
-  mode: "none" | "add" | "sub" | "set" | "smooth";
-  value: number;
+	mode: "none" | "add" | "sub" | "set" | "smooth";
+	value: number;
 }
 
-export function mountHeightmapEditor(containerId: string, onUpdate: () => void) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
+export function mountHeightmapEditor(
+	containerId: string,
+	onUpdate: () => void,
+) {
+	const container = document.getElementById(containerId);
+	if (!container) return;
 
-  container.innerHTML = `
+	container.innerHTML = `
     <div style="background: rgba(30, 30, 38, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); padding: 1rem; border-radius: 12px; font-size: 0.85rem; color: #e2e8f0; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 0.6rem;">
       <h3 style="margin-top: 0; color: #fbbf24; border-bottom: 1px solid #333; padding-bottom: 0.25rem; font-size: 0.95rem;">Heightmap Editor</h3>
       
@@ -59,139 +62,166 @@ export function mountHeightmapEditor(containerId: string, onUpdate: () => void) 
     </div>
   `;
 
-  const paintTab = document.getElementById("hmPaintTab") as HTMLButtonElement;
-  const templateTab = document.getElementById("hmTemplateTab") as HTMLButtonElement;
-  const importTab = document.getElementById("hmImportTab") as HTMLButtonElement;
+	const paintTab = document.getElementById("hmPaintTab") as HTMLButtonElement;
+	const templateTab = document.getElementById(
+		"hmTemplateTab",
+	) as HTMLButtonElement;
+	const importTab = document.getElementById("hmImportTab") as HTMLButtonElement;
 
-  const paintSec = document.getElementById("hmPaintSection") as HTMLDivElement;
-  const tempSec = document.getElementById("hmTemplateSection") as HTMLDivElement;
-  const impSec = document.getElementById("hmImportSection") as HTMLDivElement;
+	const paintSec = document.getElementById("hmPaintSection") as HTMLDivElement;
+	const tempSec = document.getElementById(
+		"hmTemplateSection",
+	) as HTMLDivElement;
+	const impSec = document.getElementById("hmImportSection") as HTMLDivElement;
 
-  const modeSelect = document.getElementById("brushMode") as HTMLSelectElement;
-  const setWrap = document.getElementById("setHeightWrap") as HTMLDivElement;
-  const setVal = document.getElementById("setHeightVal") as HTMLInputElement;
+	const modeSelect = document.getElementById("brushMode") as HTMLSelectElement;
+	const setWrap = document.getElementById("setHeightWrap") as HTMLDivElement;
+	const setVal = document.getElementById("setHeightVal") as HTMLInputElement;
 
-  const templateText = document.getElementById("hmTemplateText") as HTMLTextAreaElement;
-  const runTemplateBtn = document.getElementById("hmRunTemplateBtn") as HTMLButtonElement;
+	const templateText = document.getElementById(
+		"hmTemplateText",
+	) as HTMLTextAreaElement;
+	const runTemplateBtn = document.getElementById(
+		"hmRunTemplateBtn",
+	) as HTMLButtonElement;
 
-  const fileInput = document.getElementById("imageFileInput") as HTMLInputElement;
-  const btn = document.getElementById("uploadImgBtn") as HTMLButtonElement;
+	const fileInput = document.getElementById(
+		"imageFileInput",
+	) as HTMLInputElement;
+	const btn = document.getElementById("uploadImgBtn") as HTMLButtonElement;
 
-  // Tab switching click listeners
-  const switchTab = (activeTab: HTMLButtonElement, activeSec: HTMLDivElement) => {
-    [paintTab, templateTab, importTab].forEach(t => {
-      t.style.background = "transparent";
-      t.style.color = "#94a3b8";
-    });
-    [paintSec, tempSec, impSec].forEach(s => {
-      s.style.display = "none";
-    });
+	// Tab switching click listeners
+	const switchTab = (
+		activeTab: HTMLButtonElement,
+		activeSec: HTMLDivElement,
+	) => {
+		[paintTab, templateTab, importTab].forEach((t) => {
+			t.style.background = "transparent";
+			t.style.color = "#94a3b8";
+		});
+		[paintSec, tempSec, impSec].forEach((s) => {
+			s.style.display = "none";
+		});
 
-    activeTab.style.background = "#2563eb";
-    activeTab.style.color = "white";
-    activeSec.style.display = "flex";
+		activeTab.style.background = "#2563eb";
+		activeTab.style.color = "white";
+		activeSec.style.display = "flex";
 
-    // Auto-switch visual layer to heightmap when using the editor
-    const win = window as any;
-    if (win.triggerLayerSelect) {
-      win.triggerLayerSelect("heightmap");
-    }
-  };
+		// Auto-switch visual layer to heightmap when using the editor
+		const win = window as any;
+		if (win.triggerLayerSelect) {
+			win.triggerLayerSelect("heightmap");
+		}
+	};
 
-  paintTab.addEventListener("click", () => switchTab(paintTab, paintSec));
-  templateTab.addEventListener("click", () => switchTab(templateTab, tempSec));
-  importTab.addEventListener("click", () => switchTab(importTab, impSec));
+	paintTab.addEventListener("click", () => switchTab(paintTab, paintSec));
+	templateTab.addEventListener("click", () => switchTab(templateTab, tempSec));
+	importTab.addEventListener("click", () => switchTab(importTab, impSec));
 
-  // Brush controls
-  modeSelect.addEventListener("change", () => {
-    if (modeSelect.value === "set") {
-      setWrap.style.display = "block";
-    } else {
-      setWrap.style.display = "none";
-    }
-    const win = window as any;
-    if (win.triggerLayerSelect && modeSelect.value !== "none") {
-      win.triggerLayerSelect("heightmap");
-    }
-  });
+	// Brush controls
+	modeSelect.addEventListener("change", () => {
+		if (modeSelect.value === "set") {
+			setWrap.style.display = "block";
+		} else {
+			setWrap.style.display = "none";
+		}
+		const win = window as any;
+		if (win.triggerLayerSelect && modeSelect.value !== "none") {
+			win.triggerLayerSelect("heightmap");
+		}
+	});
 
-  // Template execution
-  runTemplateBtn.addEventListener("click", () => {
-    const rules = templateText.value.trim();
-    if (!rules) return;
+	// Template execution
+	runTemplateBtn.addEventListener("click", () => {
+		const rules = templateText.value.trim();
+		if (!rules) return;
 
-    const state = store.getState() as any;
-    if (!state.grid || !state.heights) return;
+		const state = store.getState() as any;
+		if (!state.grid || !state.heights) return;
 
-    const generator = new HeightmapGenerator(state.grid, state.width, state.height, state.seed || "map-seed");
-    // Run template calculations
-    const nextHeights = generator.executeTemplate(rules);
-    
-    // Re-run hydrology simulation based on new heights
-    const hydro = generateHydrology(state.grid, nextHeights, state.prec || new Uint8Array(state.heights.length).fill(10));
-    const baked = bakeErosion(state.grid, hydro.heights, hydro.flowDirections, 2);
+		const generator = new HeightmapGenerator(
+			state.grid,
+			state.width,
+			state.height,
+			state.seed || "map-seed",
+		);
+		// Run template calculations
+		const nextHeights = generator.executeTemplate(rules);
 
-    store.updateState({
-      heights: baked,
-      flowDirections: hydro.flowDirections,
-      flux: hydro.flux,
-      rivers: hydro.rivers
-    });
+		// Re-run hydrology simulation based on new heights
+		const hydro = generateHydrology(
+			state.grid,
+			nextHeights,
+			state.prec || new Uint8Array(state.heights.length).fill(10),
+		);
+		const baked = bakeErosion(
+			state.grid,
+			hydro.heights,
+			hydro.flowDirections,
+			2,
+		);
 
-    onUpdate();
-  });
+		store.updateState({
+			heights: baked,
+			flowDirections: hydro.flowDirections,
+			flux: hydro.flux,
+			rivers: hydro.rivers,
+		});
 
-  // Image import
-  btn.addEventListener("click", () => {
-    fileInput.click();
-  });
+		onUpdate();
+	});
 
-  fileInput.addEventListener("change", (e) => {
-    const target = e.target as HTMLInputElement;
-    const file = target.files?.[0];
-    if (!file) return;
+	// Image import
+	btn.addEventListener("click", () => {
+		fileInput.click();
+	});
 
-    const img = new Image();
-    img.src = URL.createObjectURL(file);
-    img.onload = () => {
-      const state = store.getState() as any;
-      if (!state.grid || !state.heights) return;
+	fileInput.addEventListener("change", (e) => {
+		const target = e.target as HTMLInputElement;
+		const file = target.files?.[0];
+		if (!file) return;
 
-      const tempCanvas = document.createElement("canvas");
-      tempCanvas.width = state.width;
-      tempCanvas.height = state.height;
-      const tempCtx = tempCanvas.getContext("2d");
-      if (!tempCtx) return;
+		const img = new Image();
+		img.src = URL.createObjectURL(file);
+		img.onload = () => {
+			const state = store.getState() as any;
+			if (!state.grid || !state.heights) return;
 
-      tempCtx.drawImage(img, 0, 0, state.width, state.height);
-      const imgData = tempCtx.getImageData(0, 0, state.width, state.height);
+			const tempCanvas = document.createElement("canvas");
+			tempCanvas.width = state.width;
+			tempCanvas.height = state.height;
+			const tempCtx = tempCanvas.getContext("2d");
+			if (!tempCtx) return;
 
-      const heights = new Uint8Array(state.heights.length);
-      const points = state.grid.points;
+			tempCtx.drawImage(img, 0, 0, state.width, state.height);
+			const imgData = tempCtx.getImageData(0, 0, state.width, state.height);
 
-      for (let i = 0; i < points.length; i++) {
-        const [px, py] = points[i];
-        const cx = Math.min(Math.max(Math.round(px), 0), state.width - 1);
-        const cy = Math.min(Math.max(Math.round(py), 0), state.height - 1);
+			const heights = new Uint8Array(state.heights.length);
+			const points = state.grid.points;
 
-        const idx = (cy * state.width + cx) * 4;
-        const r = imgData.data[idx];
-        const g = imgData.data[idx + 1];
-        const b = imgData.data[idx + 2];
+			for (let i = 0; i < points.length; i++) {
+				const [px, py] = points[i];
+				const cx = Math.min(Math.max(Math.round(px), 0), state.width - 1);
+				const cy = Math.min(Math.max(Math.round(py), 0), state.height - 1);
 
-        const val = Math.round((r + g + b) / 3);
-        heights[i] = Math.round((val / 255) * 100);
-      }
+				const idx = (cy * state.width + cx) * 4;
+				const r = imgData.data[idx];
+				const g = imgData.data[idx + 1];
+				const b = imgData.data[idx + 2];
 
-      store.updateState({ heights });
-      onUpdate();
-      URL.revokeObjectURL(img.src);
-    };
-  });
+				const val = Math.round((r + g + b) / 3);
+				heights[i] = Math.round((val / 255) * 100);
+			}
 
-  // Export brush retrieval hook globally
-  (window as any).getCurrentBrushConfig = (): BrushConfig => ({
-    mode: modeSelect.value as any,
-    value: parseInt(setVal.value, 10) || 50
-  });
+			store.updateState({ heights });
+			onUpdate();
+			URL.revokeObjectURL(img.src);
+		};
+	});
+
+	// Export brush retrieval hook globally
+	(window as any).getCurrentBrushConfig = (): BrushConfig => ({
+		mode: modeSelect.value as any,
+		value: parseInt(setVal.value, 10) || 50,
+	});
 }

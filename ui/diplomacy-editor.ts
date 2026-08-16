@@ -1,11 +1,17 @@
+import type {
+	RelationType,
+	StateRelation,
+} from "../simulation/civilization/diplomacy-generator";
 import { store } from "../state/store";
-import { StateRelation, RelationType } from "../simulation/civilization/diplomacy-generator";
 
-export function mountDiplomacyEditor(containerId: string, onUpdate: () => void) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
+export function mountDiplomacyEditor(
+	containerId: string,
+	onUpdate: () => void,
+) {
+	const container = document.getElementById(containerId);
+	if (!container) return;
 
-  container.innerHTML = `
+	container.innerHTML = `
     <div id="diplomacyEditorPanel" style="display: none; background: rgba(30, 30, 38, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); padding: 1rem; border-radius: 12px; font-size: 0.85rem; color: #e2e8f0; width: 100%; box-sizing: border-box; box-shadow: 0 4px 15px rgba(0,0,0,0.5); margin-top: 0.5rem;">
       <h3 style="margin-top: 0; color: #3b82f6; border-bottom: 1px solid #333; padding-bottom: 0.25rem; display: flex; justify-content: space-between; align-items: center;">
         <span>Diplomacy Editor</span>
@@ -53,38 +59,60 @@ export function mountDiplomacyEditor(containerId: string, onUpdate: () => void) 
     </div>
   `;
 
-  const panel = document.getElementById("diplomacyEditorPanel") as HTMLDivElement;
-  const tableBody = document.getElementById("diplomacyTableBody") as HTMLTableSectionElement;
-  const closeBtn = document.getElementById("closeDiplomacyBtn") as HTMLSpanElement;
+	const panel = document.getElementById(
+		"diplomacyEditorPanel",
+	) as HTMLDivElement;
+	const tableBody = document.getElementById(
+		"diplomacyTableBody",
+	) as HTMLTableSectionElement;
+	const closeBtn = document.getElementById(
+		"closeDiplomacyBtn",
+	) as HTMLSpanElement;
 
-  const editForm = document.getElementById("diplomacyEditForm") as HTMLDivElement;
-  const editTitle = document.getElementById("diplomacyEditTitle") as HTMLElement;
-  const typeSelect = document.getElementById("editRelationType") as HTMLSelectElement;
-  const threatSlider = document.getElementById("editRelationThreat") as HTMLInputElement;
+	const editForm = document.getElementById(
+		"diplomacyEditForm",
+	) as HTMLDivElement;
+	const editTitle = document.getElementById(
+		"diplomacyEditTitle",
+	) as HTMLElement;
+	const typeSelect = document.getElementById(
+		"editRelationType",
+	) as HTMLSelectElement;
+	const threatSlider = document.getElementById(
+		"editRelationThreat",
+	) as HTMLInputElement;
 
-  const saveBtn = document.getElementById("saveRelationBtn") as HTMLButtonElement;
-  const cancelBtn = document.getElementById("cancelRelationBtn") as HTMLButtonElement;
+	const saveBtn = document.getElementById(
+		"saveRelationBtn",
+	) as HTMLButtonElement;
+	const cancelBtn = document.getElementById(
+		"cancelRelationBtn",
+	) as HTMLButtonElement;
 
-  let activeIndex: number | null = null;
+	let activeIndex: number | null = null;
 
-  const closePanel = () => {
-    panel.style.display = "none";
-  };
-  closeBtn.addEventListener("click", closePanel);
+	const closePanel = () => {
+		panel.style.display = "none";
+	};
+	closeBtn.addEventListener("click", closePanel);
 
-  const renderRelationsList = () => {
-    const state = store.getState() as any;
-    const relations = state.relations || [];
-    const states = state.states || [];
+	const renderRelationsList = () => {
+		const state = store.getState() as any;
+		const relations = state.relations || [];
+		const states = state.states || [];
 
-    tableBody.innerHTML = "";
-    relations.forEach((rel: StateRelation, idx: number) => {
-      const stateAName = states.find((s: any) => s.id === rel.stateA)?.name || `State ${rel.stateA}`;
-      const stateBName = states.find((s: any) => s.id === rel.stateB)?.name || `State ${rel.stateB}`;
+		tableBody.innerHTML = "";
+		relations.forEach((rel: StateRelation, idx: number) => {
+			const stateAName =
+				states.find((s: any) => s.id === rel.stateA)?.name ||
+				`State ${rel.stateA}`;
+			const stateBName =
+				states.find((s: any) => s.id === rel.stateB)?.name ||
+				`State ${rel.stateB}`;
 
-      const tr = document.createElement("tr");
-      tr.style.borderBottom = "1px solid #222";
-      tr.innerHTML = `
+			const tr = document.createElement("tr");
+			tr.style.borderBottom = "1px solid #222";
+			tr.innerHTML = `
         <td style="padding: 0.4rem; color: #fff; font-weight: bold;">${stateAName}</td>
         <td style="padding: 0.4rem; color: #a855f7;">${rel.type} (${rel.threat})</td>
         <td style="padding: 0.4rem; color: #fff; font-weight: bold;">${stateBName}</td>
@@ -92,55 +120,63 @@ export function mountDiplomacyEditor(containerId: string, onUpdate: () => void) 
           <button class="editRelBtn" data-idx="${idx}" style="background: #3b82f6; border: none; color: white; padding: 0.15rem 0.4rem; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">Edit</button>
         </td>
       `;
-      tableBody.appendChild(tr);
-    });
+			tableBody.appendChild(tr);
+		});
 
-    const editBtns = tableBody.querySelectorAll(".editRelBtn");
-    editBtns.forEach(btn => {
-      btn.addEventListener("click", (e) => {
-        const idx = parseInt((e.currentTarget as HTMLButtonElement).getAttribute("data-idx") || "0", 10);
-        const rel = relations[idx];
-        if (rel) {
-          activeIndex = idx;
-          const stateAName = states.find((s: any) => s.id === rel.stateA)?.name || `State ${rel.stateA}`;
-          const stateBName = states.find((s: any) => s.id === rel.stateB)?.name || `State ${rel.stateB}`;
+		const editBtns = tableBody.querySelectorAll(".editRelBtn");
+		editBtns.forEach((btn) => {
+			btn.addEventListener("click", (e) => {
+				const idx = parseInt(
+					(e.currentTarget as HTMLButtonElement).getAttribute("data-idx") ||
+						"0",
+					10,
+				);
+				const rel = relations[idx];
+				if (rel) {
+					activeIndex = idx;
+					const stateAName =
+						states.find((s: any) => s.id === rel.stateA)?.name ||
+						`State ${rel.stateA}`;
+					const stateBName =
+						states.find((s: any) => s.id === rel.stateB)?.name ||
+						`State ${rel.stateB}`;
 
-          editTitle.innerText = `${stateAName} ↔ ${stateBName}`;
-          typeSelect.value = rel.type;
-          threatSlider.value = String(rel.threat);
-          editForm.style.display = "flex";
-        }
-      });
-    });
-  };
+					editTitle.innerText = `${stateAName} ↔ ${stateBName}`;
+					typeSelect.value = rel.type;
+					threatSlider.value = String(rel.threat);
+					editForm.style.display = "flex";
+				}
+			});
+		});
+	};
 
-  saveBtn.addEventListener("click", () => {
-    if (activeIndex !== null) {
-      const state = store.getState() as any;
-      const relations = [...(state.relations || [])];
-      if (relations[activeIndex]) {
-        relations[activeIndex].type = typeSelect.value as RelationType;
-        relations[activeIndex].threat = parseInt(threatSlider.value, 10);
-        store.updateState({ relations });
-      }
-      activeIndex = null;
-      editForm.style.display = "none";
-      renderRelationsList();
-      onUpdate();
-    }
-  });
+	saveBtn.addEventListener("click", () => {
+		if (activeIndex !== null) {
+			const state = store.getState() as any;
+			const relations = [...(state.relations || [])];
+			if (relations[activeIndex]) {
+				relations[activeIndex].type = typeSelect.value as RelationType;
+				relations[activeIndex].threat = parseInt(threatSlider.value, 10);
+				store.updateState({ relations });
+			}
+			activeIndex = null;
+			editForm.style.display = "none";
+			renderRelationsList();
+			onUpdate();
+		}
+	});
 
-  cancelBtn.addEventListener("click", () => {
-    activeIndex = null;
-    editForm.style.display = "none";
-  });
+	cancelBtn.addEventListener("click", () => {
+		activeIndex = null;
+		editForm.style.display = "none";
+	});
 
-  (window as any).openDiplomacyEditor = () => {
-    renderRelationsList();
-    panel.style.display = "block";
-    const win = window as any;
-    if (win.triggerLayerSelect) {
-      win.triggerLayerSelect("states"); // Diplomacy operates on the states view
-    }
-  };
+	(window as any).openDiplomacyEditor = () => {
+		renderRelationsList();
+		panel.style.display = "block";
+		const win = window as any;
+		if (win.triggerLayerSelect) {
+			win.triggerLayerSelect("states"); // Diplomacy operates on the states view
+		}
+	};
 }

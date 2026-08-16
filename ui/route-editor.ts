@@ -1,11 +1,11 @@
-import { Route } from "../simulation/civilization/route-generator";
+import type { Route } from "../simulation/civilization/route-generator";
 import { store } from "../state/store";
 
 export function mountRouteEditor(containerId: string, onUpdate: () => void) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
+	const container = document.getElementById(containerId);
+	if (!container) return;
 
-  container.innerHTML = `
+	container.innerHTML = `
     <div id="routeEditorPanel" style="display: none; background: rgba(30, 30, 38, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); padding: 1rem; border-radius: 12px; font-size: 0.85rem; color: #e2e8f0; width: 100%; box-sizing: border-box; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
       <h3 style="margin-top: 0; color: #f43f5e; border-bottom: 1px solid #333; padding-bottom: 0.25rem; display: flex; justify-content: space-between; align-items: center;">
         <span>Route Editor</span>
@@ -33,74 +33,84 @@ export function mountRouteEditor(containerId: string, onUpdate: () => void) {
     </div>
   `;
 
-  let activeRoute: Route | null = null;
+	let activeRoute: Route | null = null;
 
-  const panel = document.getElementById("routeEditorPanel") as HTMLDivElement;
-  const typeSelect = document.getElementById("editRouteType") as HTMLSelectElement;
-  const valLength = document.getElementById("valRouteLength") as HTMLDivElement;
+	const panel = document.getElementById("routeEditorPanel") as HTMLDivElement;
+	const typeSelect = document.getElementById(
+		"editRouteType",
+	) as HTMLSelectElement;
+	const valLength = document.getElementById("valRouteLength") as HTMLDivElement;
 
-  const saveBtn = document.getElementById("saveRouteBtn") as HTMLButtonElement;
-  const deleteBtn = document.getElementById("deleteRouteBtn") as HTMLButtonElement;
-  const cancelBtn = document.getElementById("cancelRouteBtn") as HTMLButtonElement;
-  const closeBtn = document.getElementById("closeRouteBtn") as HTMLSpanElement;
+	const saveBtn = document.getElementById("saveRouteBtn") as HTMLButtonElement;
+	const deleteBtn = document.getElementById(
+		"deleteRouteBtn",
+	) as HTMLButtonElement;
+	const cancelBtn = document.getElementById(
+		"cancelRouteBtn",
+	) as HTMLButtonElement;
+	const closeBtn = document.getElementById("closeRouteBtn") as HTMLSpanElement;
 
-  const closePanel = () => {
-    panel.style.display = "none";
-  };
+	const closePanel = () => {
+		panel.style.display = "none";
+	};
 
-  closeBtn.addEventListener("click", closePanel);
-  cancelBtn.addEventListener("click", closePanel);
+	closeBtn.addEventListener("click", closePanel);
+	cancelBtn.addEventListener("click", closePanel);
 
-  saveBtn.addEventListener("click", () => {
-    if (activeRoute) {
-      activeRoute.type = typeSelect.value as "road" | "trail" | "sea";
+	saveBtn.addEventListener("click", () => {
+		if (activeRoute) {
+			activeRoute.type = typeSelect.value as "road" | "trail" | "sea";
 
-      // Update state store
-      const state = store.getState() as any;
-      if (state.routes) {
-        const updatedRoutes = state.routes.map((r: Route) => r.id === activeRoute!.id ? { ...activeRoute } : r);
-        store.updateState({ routes: updatedRoutes });
-      }
+			// Update state store
+			const state = store.getState() as any;
+			if (state.routes) {
+				const updatedRoutes = state.routes.map((r: Route) =>
+					r.id === activeRoute?.id ? { ...activeRoute } : r,
+				);
+				store.updateState({ routes: updatedRoutes });
+			}
 
-      panel.style.display = "none";
-      onUpdate();
-    }
-  });
+			panel.style.display = "none";
+			onUpdate();
+		}
+	});
 
-  deleteBtn.addEventListener("click", () => {
-    if (activeRoute) {
-      const state = store.getState() as any;
-      if (state.routes) {
-        const updatedRoutes = state.routes.filter((r: Route) => r.id !== activeRoute!.id);
-        store.updateState({ routes: updatedRoutes });
-      }
+	deleteBtn.addEventListener("click", () => {
+		if (activeRoute) {
+			const state = store.getState() as any;
+			if (state.routes) {
+				const updatedRoutes = state.routes.filter(
+					(r: Route) => r.id !== activeRoute?.id,
+				);
+				store.updateState({ routes: updatedRoutes });
+			}
 
-      panel.style.display = "none";
-      onUpdate();
-    }
-  });
+			panel.style.display = "none";
+			onUpdate();
+		}
+	});
 
-  // Export activation hook
-  (window as any).openRouteEditor = (route: Route) => {
-    activeRoute = route;
-    typeSelect.value = route.type;
+	// Export activation hook
+	(window as any).openRouteEditor = (route: Route) => {
+		activeRoute = route;
+		typeSelect.value = route.type;
 
-    // Calculate length
-    let totalLength = 0;
-    const state = store.getState() as any;
-    if (state.grid && route.path && route.path.length > 1) {
-      const points = state.grid.points;
-      for (let i = 0; i < route.path.length - 1; i++) {
-        const p1 = points[route.path[i]];
-        const p2 = points[route.path[i + 1]];
-        if (p1 && p2) {
-          totalLength += Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
-        }
-      }
-    }
+		// Calculate length
+		let totalLength = 0;
+		const state = store.getState() as any;
+		if (state.grid && route.path && route.path.length > 1) {
+			const points = state.grid.points;
+			for (let i = 0; i < route.path.length - 1; i++) {
+				const p1 = points[route.path[i]];
+				const p2 = points[route.path[i + 1]];
+				if (p1 && p2) {
+					totalLength += Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+				}
+			}
+		}
 
-    // Convert length to visual leagues (1.8x factor matching FMG visual miles/leagues)
-    valLength.innerText = `${Math.round(totalLength * 1.8)} leagues`;
-    panel.style.display = "block";
-  };
+		// Convert length to visual leagues (1.8x factor matching FMG visual miles/leagues)
+		valLength.innerText = `${Math.round(totalLength * 1.8)} leagues`;
+		panel.style.display = "block";
+	};
 }

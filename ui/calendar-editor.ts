@@ -1,10 +1,15 @@
-import { store, CustomMonth, CustomSeason, CustomMoon, CustomMoonPhase } from "../state/store";
+import {
+	type CustomMonth,
+	type CustomMoon,
+	type CustomSeason,
+	store,
+} from "../state/store";
 
 export function mountCalendarEditor(containerId: string, onUpdate: () => void) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
+	const container = document.getElementById(containerId);
+	if (!container) return;
 
-  container.innerHTML = `
+	container.innerHTML = `
     <div id="calendarEditorPanel" style="display: none; background: rgba(30, 30, 38, 0.98); border: 1px solid rgba(255, 255, 255, 0.1); padding: 1.2rem; border-radius: 12px; font-size: 0.85rem; color: #e2e8f0; width: 100%; box-sizing: border-box; box-shadow: 0 8px 30px rgba(0,0,0,0.6); max-height: 85vh; overflow-y: auto;">
       <h3 style="margin-top: 0; color: #10b981; border-bottom: 1px solid #333; padding-bottom: 0.4rem; display: flex; justify-content: space-between; align-items: center;">
         <span>Calendar & Planetary Cycles</span>
@@ -59,94 +64,136 @@ export function mountCalendarEditor(containerId: string, onUpdate: () => void) {
     </div>
   `;
 
-  const panel = document.getElementById("calendarEditorPanel") as HTMLDivElement;
-  const closeBtn = document.getElementById("closeCalendarBtn") as HTMLSpanElement;
-  const applyBtn = document.getElementById("applyCalendarBtn") as HTMLButtonElement;
-const quickRecalcBtn = document.getElementById("quickRecalcBtn") as HTMLButtonElement;
-const syncEcologyBtn = document.getElementById("syncEcologyBtn") as HTMLButtonElement;
-const syncMagicBtn = document.getElementById("syncMagicBtn") as HTMLButtonElement;
-const manualPlacementBtn = document.getElementById("manualPlacementBtn") as HTMLButtonElement;
-  const cancelBtn = document.getElementById("cancelCalendarBtn") as HTMLButtonElement;
+	const panel = document.getElementById(
+		"calendarEditorPanel",
+	) as HTMLDivElement;
+	const closeBtn = document.getElementById(
+		"closeCalendarBtn",
+	) as HTMLSpanElement;
+	const applyBtn = document.getElementById(
+		"applyCalendarBtn",
+	) as HTMLButtonElement;
+	const quickRecalcBtn = document.getElementById(
+		"quickRecalcBtn",
+	) as HTMLButtonElement;
+	const syncEcologyBtn = document.getElementById(
+		"syncEcologyBtn",
+	) as HTMLButtonElement;
+	const syncMagicBtn = document.getElementById(
+		"syncMagicBtn",
+	) as HTMLButtonElement;
+	const manualPlacementBtn = document.getElementById(
+		"manualPlacementBtn",
+	) as HTMLButtonElement;
+	const cancelBtn = document.getElementById(
+		"cancelCalendarBtn",
+	) as HTMLButtonElement;
 
-  const tabWeeksBtn = document.getElementById("tabWeeksBtn") as HTMLButtonElement;
-  const tabSeasonsBtn = document.getElementById("tabSeasonsBtn") as HTMLButtonElement;
-  const tabMoonsBtn = document.getElementById("tabMoonsBtn") as HTMLButtonElement;
+	const tabWeeksBtn = document.getElementById(
+		"tabWeeksBtn",
+	) as HTMLButtonElement;
+	const tabSeasonsBtn = document.getElementById(
+		"tabSeasonsBtn",
+	) as HTMLButtonElement;
+	const tabMoonsBtn = document.getElementById(
+		"tabMoonsBtn",
+	) as HTMLButtonElement;
 
-  const tabWeeksContent = document.getElementById("tabWeeksContent") as HTMLDivElement;
-  const tabSeasonsContent = document.getElementById("tabSeasonsContent") as HTMLDivElement;
-  const tabMoonsContent = document.getElementById("tabMoonsContent") as HTMLDivElement;
+	const tabWeeksContent = document.getElementById(
+		"tabWeeksContent",
+	) as HTMLDivElement;
+	const tabSeasonsContent = document.getElementById(
+		"tabSeasonsContent",
+	) as HTMLDivElement;
+	const tabMoonsContent = document.getElementById(
+		"tabMoonsContent",
+	) as HTMLDivElement;
 
-  const weekdaysList = document.getElementById("weekdaysList") as HTMLDivElement;
-  const addWeekdayBtn = document.getElementById("addWeekdayBtn") as HTMLButtonElement;
+	const weekdaysList = document.getElementById(
+		"weekdaysList",
+	) as HTMLDivElement;
+	const addWeekdayBtn = document.getElementById(
+		"addWeekdayBtn",
+	) as HTMLButtonElement;
 
-  const monthsList = document.getElementById("monthsList") as HTMLDivElement;
-  const addMonthBtn = document.getElementById("addMonthBtn") as HTMLButtonElement;
+	const monthsList = document.getElementById("monthsList") as HTMLDivElement;
+	const addMonthBtn = document.getElementById(
+		"addMonthBtn",
+	) as HTMLButtonElement;
 
-  const seasonsList = document.getElementById("seasonsList") as HTMLDivElement;
-  const addSeasonBtn = document.getElementById("addSeasonBtn") as HTMLButtonElement;
+	const seasonsList = document.getElementById("seasonsList") as HTMLDivElement;
+	const addSeasonBtn = document.getElementById(
+		"addSeasonBtn",
+	) as HTMLButtonElement;
 
-  const moonsList = document.getElementById("moonsList") as HTMLDivElement;
-  const addMoonBtn = document.getElementById("addMoonBtn") as HTMLButtonElement;
+	const moonsList = document.getElementById("moonsList") as HTMLDivElement;
+	const addMoonBtn = document.getElementById("addMoonBtn") as HTMLButtonElement;
 
-  let localWeekdays: string[] = [];
-  let localMonths: CustomMonth[] = [];
-  let localSeasons: CustomSeason[] = [];
-  let localMoons: CustomMoon[] = [];
+	let localWeekdays: string[] = [];
+	let localMonths: CustomMonth[] = [];
+	let localSeasons: CustomSeason[] = [];
+	let localMoons: CustomMoon[] = [];
 
-  // Tab Switch logic
-  const selectTab = (tab: "weeks" | "seasons" | "moons") => {
-    tabWeeksBtn.style.background = tab === "weeks" ? "#2563eb" : "#1e1e24";
-    tabWeeksBtn.style.color = tab === "weeks" ? "white" : "#94a3b8";
-    tabWeeksContent.style.display = tab === "weeks" ? "block" : "none";
+	// Tab Switch logic
+	const selectTab = (tab: "weeks" | "seasons" | "moons") => {
+		tabWeeksBtn.style.background = tab === "weeks" ? "#2563eb" : "#1e1e24";
+		tabWeeksBtn.style.color = tab === "weeks" ? "white" : "#94a3b8";
+		tabWeeksContent.style.display = tab === "weeks" ? "block" : "none";
 
-    tabSeasonsBtn.style.background = tab === "seasons" ? "#2563eb" : "#1e1e24";
-    tabSeasonsBtn.style.color = tab === "seasons" ? "white" : "#94a3b8";
-    tabSeasonsContent.style.display = tab === "seasons" ? "block" : "none";
+		tabSeasonsBtn.style.background = tab === "seasons" ? "#2563eb" : "#1e1e24";
+		tabSeasonsBtn.style.color = tab === "seasons" ? "white" : "#94a3b8";
+		tabSeasonsContent.style.display = tab === "seasons" ? "block" : "none";
 
-    tabMoonsBtn.style.background = tab === "moons" ? "#2563eb" : "#1e1e24";
-    tabMoonsBtn.style.color = tab === "moons" ? "white" : "#94a3b8";
-    tabMoonsContent.style.display = tab === "moons" ? "block" : "none";
-  };
+		tabMoonsBtn.style.background = tab === "moons" ? "#2563eb" : "#1e1e24";
+		tabMoonsBtn.style.color = tab === "moons" ? "white" : "#94a3b8";
+		tabMoonsContent.style.display = tab === "moons" ? "block" : "none";
+	};
 
-  tabWeeksBtn.addEventListener("click", () => selectTab("weeks"));
-  tabSeasonsBtn.addEventListener("click", () => selectTab("seasons"));
-  tabMoonsBtn.addEventListener("click", () => selectTab("moons"));
+	tabWeeksBtn.addEventListener("click", () => selectTab("weeks"));
+	tabSeasonsBtn.addEventListener("click", () => selectTab("seasons"));
+	tabMoonsBtn.addEventListener("click", () => selectTab("moons"));
 
-  // Weekdays builders
-  const renderWeekdays = () => {
-    weekdaysList.innerHTML = localWeekdays.map((day, idx) => `
+	// Weekdays builders
+	const renderWeekdays = () => {
+		weekdaysList.innerHTML = localWeekdays
+			.map(
+				(day, idx) => `
       <div style="display: flex; gap: 0.4rem; align-items: center;">
         <input type="text" class="weekday-input" data-idx="${idx}" value="${day}" style="flex: 1; padding: 0.25rem; background: #0f0f12; border: 1px solid #444; color: white; border-radius: 4px; font-size: 0.8rem;" />
         <button class="remove-weekday-btn" data-idx="${idx}" style="background: #ef4444; border: none; width: 24px; height: 24px; color: white; font-weight: bold; border-radius: 4px; cursor: pointer;">&times;</button>
       </div>
-    `).join("");
+    `,
+			)
+			.join("");
 
-    document.querySelectorAll(".weekday-input").forEach(input => {
-      input.addEventListener("change", (e) => {
-        const target = e.target as HTMLInputElement;
-        const idx = parseInt(target.dataset.idx || "0", 10);
-        localWeekdays[idx] = target.value;
-      });
-    });
+		document.querySelectorAll(".weekday-input").forEach((input) => {
+			input.addEventListener("change", (e) => {
+				const target = e.target as HTMLInputElement;
+				const idx = parseInt(target.dataset.idx || "0", 10);
+				localWeekdays[idx] = target.value;
+			});
+		});
 
-    document.querySelectorAll(".remove-weekday-btn").forEach(btn => {
-      btn.addEventListener("click", (e) => {
-        const target = e.currentTarget as HTMLButtonElement;
-        const idx = parseInt(target.dataset.idx || "0", 10);
-        localWeekdays.splice(idx, 1);
-        renderWeekdays();
-      });
-    });
-  };
+		document.querySelectorAll(".remove-weekday-btn").forEach((btn) => {
+			btn.addEventListener("click", (e) => {
+				const target = e.currentTarget as HTMLButtonElement;
+				const idx = parseInt(target.dataset.idx || "0", 10);
+				localWeekdays.splice(idx, 1);
+				renderWeekdays();
+			});
+		});
+	};
 
-  addWeekdayBtn.addEventListener("click", () => {
-    localWeekdays.push(`Day ${localWeekdays.length + 1}`);
-    renderWeekdays();
-  });
+	addWeekdayBtn.addEventListener("click", () => {
+		localWeekdays.push(`Day ${localWeekdays.length + 1}`);
+		renderWeekdays();
+	});
 
-  // Months builders
-  const renderMonths = () => {
-    monthsList.innerHTML = localMonths.map((m, idx) => `
+	// Months builders
+	const renderMonths = () => {
+		monthsList.innerHTML = localMonths
+			.map(
+				(m, idx) => `
       <div style="display: flex; gap: 0.4rem; align-items: center;">
         <input type="text" class="month-name-input" data-idx="${idx}" value="${m.name}" style="flex: 2; padding: 0.25rem; background: #0f0f12; border: 1px solid #444; color: white; border-radius: 4px; font-size: 0.8rem;" />
         <div style="display: flex; align-items: center; gap: 0.2rem; flex: 1;">
@@ -155,42 +202,46 @@ const manualPlacementBtn = document.getElementById("manualPlacementBtn") as HTML
         </div>
         <button class="remove-month-btn" data-idx="${idx}" style="background: #ef4444; border: none; width: 24px; height: 24px; color: white; font-weight: bold; border-radius: 4px; cursor: pointer;">&times;</button>
       </div>
-    `).join("");
+    `,
+			)
+			.join("");
 
-    document.querySelectorAll(".month-name-input").forEach(input => {
-      input.addEventListener("change", (e) => {
-        const target = e.target as HTMLInputElement;
-        const idx = parseInt(target.dataset.idx || "0", 10);
-        localMonths[idx].name = target.value;
-      });
-    });
+		document.querySelectorAll(".month-name-input").forEach((input) => {
+			input.addEventListener("change", (e) => {
+				const target = e.target as HTMLInputElement;
+				const idx = parseInt(target.dataset.idx || "0", 10);
+				localMonths[idx].name = target.value;
+			});
+		});
 
-    document.querySelectorAll(".month-weeks-input").forEach(input => {
-      input.addEventListener("change", (e) => {
-        const target = e.target as HTMLInputElement;
-        const idx = parseInt(target.dataset.idx || "0", 10);
-        localMonths[idx].weekCount = parseInt(target.value, 10) || 4;
-      });
-    });
+		document.querySelectorAll(".month-weeks-input").forEach((input) => {
+			input.addEventListener("change", (e) => {
+				const target = e.target as HTMLInputElement;
+				const idx = parseInt(target.dataset.idx || "0", 10);
+				localMonths[idx].weekCount = parseInt(target.value, 10) || 4;
+			});
+		});
 
-    document.querySelectorAll(".remove-month-btn").forEach(btn => {
-      btn.addEventListener("click", (e) => {
-        const target = e.currentTarget as HTMLButtonElement;
-        const idx = parseInt(target.dataset.idx || "0", 10);
-        localMonths.splice(idx, 1);
-        renderMonths();
-      });
-    });
-  };
+		document.querySelectorAll(".remove-month-btn").forEach((btn) => {
+			btn.addEventListener("click", (e) => {
+				const target = e.currentTarget as HTMLButtonElement;
+				const idx = parseInt(target.dataset.idx || "0", 10);
+				localMonths.splice(idx, 1);
+				renderMonths();
+			});
+		});
+	};
 
-  addMonthBtn.addEventListener("click", () => {
-    localMonths.push({ name: `Month ${localMonths.length + 1}`, weekCount: 4 });
-    renderMonths();
-  });
+	addMonthBtn.addEventListener("click", () => {
+		localMonths.push({ name: `Month ${localMonths.length + 1}`, weekCount: 4 });
+		renderMonths();
+	});
 
-  // Seasons builders
-  const renderSeasons = () => {
-    seasonsList.innerHTML = localSeasons.map((s, idx) => `
+	// Seasons builders
+	const renderSeasons = () => {
+		seasonsList.innerHTML = localSeasons
+			.map(
+				(s, idx) => `
       <div style="background: rgba(15, 15, 18, 0.6); padding: 0.6rem; border: 1px solid #333; border-radius: 6px; display: flex; flex-direction: column; gap: 0.4rem;">
         <div style="display: flex; gap: 0.4rem; align-items: center; justify-content: space-between;">
           <input type="text" class="season-name-input" data-idx="${idx}" value="${s.name}" style="flex: 2; padding: 0.25rem; background: #0f0f12; border: 1px solid #444; color: white; border-radius: 4px; font-size: 0.8rem; font-weight: bold;" />
@@ -225,90 +276,94 @@ const manualPlacementBtn = document.getElementById("manualPlacementBtn") as HTML
           </div>
         </div>
       </div>
-    `).join("");
+    `,
+			)
+			.join("");
 
-    document.querySelectorAll(".season-name-input").forEach(input => {
-      input.addEventListener("change", (e) => {
-        const target = e.target as HTMLInputElement;
-        const idx = parseInt(target.dataset.idx || "0", 10);
-        localSeasons[idx].name = target.value;
-      });
-    });
+		document.querySelectorAll(".season-name-input").forEach((input) => {
+			input.addEventListener("change", (e) => {
+				const target = e.target as HTMLInputElement;
+				const idx = parseInt(target.dataset.idx || "0", 10);
+				localSeasons[idx].name = target.value;
+			});
+		});
 
-    document.querySelectorAll(".season-start-select").forEach(sel => {
-      sel.addEventListener("change", (e) => {
-        const target = e.target as HTMLSelectElement;
-        const idx = parseInt(target.dataset.idx || "0", 10);
-        localSeasons[idx].startMonth = parseInt(target.value, 10);
-      });
-    });
+		document.querySelectorAll(".season-start-select").forEach((sel) => {
+			sel.addEventListener("change", (e) => {
+				const target = e.target as HTMLSelectElement;
+				const idx = parseInt(target.dataset.idx || "0", 10);
+				localSeasons[idx].startMonth = parseInt(target.value, 10);
+			});
+		});
 
-    document.querySelectorAll(".season-end-select").forEach(sel => {
-      sel.addEventListener("change", (e) => {
-        const target = e.target as HTMLSelectElement;
-        const idx = parseInt(target.dataset.idx || "0", 10);
-        localSeasons[idx].endMonth = parseInt(target.value, 10);
-      });
-    });
+		document.querySelectorAll(".season-end-select").forEach((sel) => {
+			sel.addEventListener("change", (e) => {
+				const target = e.target as HTMLSelectElement;
+				const idx = parseInt(target.dataset.idx || "0", 10);
+				localSeasons[idx].endMonth = parseInt(target.value, 10);
+			});
+		});
 
-    document.querySelectorAll(".season-temp-input").forEach(input => {
-      input.addEventListener("change", (e) => {
-        const target = e.target as HTMLInputElement;
-        const idx = parseInt(target.dataset.idx || "0", 10);
-        localSeasons[idx].tempMod = parseFloat(target.value) || 0;
-      });
-    });
+		document.querySelectorAll(".season-temp-input").forEach((input) => {
+			input.addEventListener("change", (e) => {
+				const target = e.target as HTMLInputElement;
+				const idx = parseInt(target.dataset.idx || "0", 10);
+				localSeasons[idx].tempMod = parseFloat(target.value) || 0;
+			});
+		});
 
-    document.querySelectorAll(".season-prec-input").forEach(input => {
-      input.addEventListener("change", (e) => {
-        const target = e.target as HTMLInputElement;
-        const idx = parseInt(target.dataset.idx || "0", 10);
-        localSeasons[idx].precMod = parseFloat(target.value) || 1.0;
-      });
-    });
+		document.querySelectorAll(".season-prec-input").forEach((input) => {
+			input.addEventListener("change", (e) => {
+				const target = e.target as HTMLInputElement;
+				const idx = parseInt(target.dataset.idx || "0", 10);
+				localSeasons[idx].precMod = parseFloat(target.value) || 1.0;
+			});
+		});
 
-    document.querySelectorAll(".season-pop-input").forEach(input => {
-      input.addEventListener("change", (e) => {
-        const target = e.target as HTMLInputElement;
-        const idx = parseInt(target.dataset.idx || "0", 10);
-        localSeasons[idx].popMod = parseFloat(target.value) || 1.0;
-      });
-    });
+		document.querySelectorAll(".season-pop-input").forEach((input) => {
+			input.addEventListener("change", (e) => {
+				const target = e.target as HTMLInputElement;
+				const idx = parseInt(target.dataset.idx || "0", 10);
+				localSeasons[idx].popMod = parseFloat(target.value) || 1.0;
+			});
+		});
 
-    document.querySelectorAll(".season-prod-input").forEach(input => {
-      input.addEventListener("change", (e) => {
-        const target = e.target as HTMLInputElement;
-        const idx = parseInt(target.dataset.idx || "0", 10);
-        localSeasons[idx].prodMod = parseFloat(target.value) || 1.0;
-      });
-    });
+		document.querySelectorAll(".season-prod-input").forEach((input) => {
+			input.addEventListener("change", (e) => {
+				const target = e.target as HTMLInputElement;
+				const idx = parseInt(target.dataset.idx || "0", 10);
+				localSeasons[idx].prodMod = parseFloat(target.value) || 1.0;
+			});
+		});
 
-    document.querySelectorAll(".remove-season-btn").forEach(btn => {
-      btn.addEventListener("click", (e) => {
-        const target = e.currentTarget as HTMLButtonElement;
-        const idx = parseInt(target.dataset.idx || "0", 10);
-        localSeasons.splice(idx, 1);
-        renderSeasons();
-      });
-    });
-  };
+		document.querySelectorAll(".remove-season-btn").forEach((btn) => {
+			btn.addEventListener("click", (e) => {
+				const target = e.currentTarget as HTMLButtonElement;
+				const idx = parseInt(target.dataset.idx || "0", 10);
+				localSeasons.splice(idx, 1);
+				renderSeasons();
+			});
+		});
+	};
 
-  addSeasonBtn.addEventListener("click", () => {
-    localSeasons.push({
-      name: `Season ${localSeasons.length + 1}`,
-      startMonth: 0,
-      endMonth: 2,
-      tempMod: 0,
-      precMod: 1.0,
-      popMod: 1.0,
-      prodMod: 1.0
-    });
-    renderSeasons();
-  });
+	addSeasonBtn.addEventListener("click", () => {
+		localSeasons.push({
+			name: `Season ${localSeasons.length + 1}`,
+			startMonth: 0,
+			endMonth: 2,
+			tempMod: 0,
+			precMod: 1.0,
+			popMod: 1.0,
+			prodMod: 1.0,
+		});
+		renderSeasons();
+	});
 
-  // Moons builders
-  const renderMoons = () => {
-    moonsList.innerHTML = localMoons.map((m, idx) => `
+	// Moons builders
+	const renderMoons = () => {
+		moonsList.innerHTML = localMoons
+			.map(
+				(m, idx) => `
       <div style="background: rgba(15, 15, 18, 0.6); padding: 0.6rem; border: 1px solid #333; border-radius: 6px; display: flex; flex-direction: column; gap: 0.4rem;">
         <div style="display: flex; gap: 0.4rem; align-items: center; justify-content: space-between;">
           <input type="text" class="moon-name-input" data-idx="${idx}" value="${m.name}" style="flex: 2; padding: 0.25rem; background: #0f0f12; border: 1px solid #444; color: white; border-radius: 4px; font-size: 0.8rem; font-weight: bold;" />
@@ -321,148 +376,166 @@ const manualPlacementBtn = document.getElementById("manualPlacementBtn") as HTML
         <div style="margin-top: 0.4rem;">
           <span style="font-size: 0.75rem; color: #fbbf24; font-weight: bold;">Moon Phase States</span>
           <div class="phases-container" data-idx="${idx}" style="display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.2rem;">
-            ${(m.customPhases || []).map((p, pIdx) => `
+            ${(m.customPhases || [])
+							.map(
+								(p, pIdx) => `
               <div style="display: flex; gap: 0.2rem; align-items: center; font-size: 0.75rem;">
                 <input type="text" class="phase-name-input" data-moon="${idx}" data-phase="${pIdx}" value="${p.name}" placeholder="Phase" style="flex: 2; background: #0f0f12; border: 1px solid #444; color: white; font-size: 0.7rem; padding: 0.15rem;" />
                 <input type="number" step="0.1" class="phase-ratio-input" data-moon="${idx}" data-phase="${pIdx}" value="${p.ratio}" placeholder="Weight" style="width: 35px; background: #0f0f12; border: 1px solid #444; color: #a7f3d0; font-size: 0.7rem; padding: 0.15rem;" />
                 <input type="number" step="0.1" class="phase-mod-input" data-moon="${idx}" data-phase="${pIdx}" value="${p.modifier}" placeholder="Mod" style="width: 35px; background: #0f0f12; border: 1px solid #444; color: #a7f3d0; font-size: 0.7rem; padding: 0.15rem;" />
                 <button class="remove-phase-btn" data-moon="${idx}" data-phase="${pIdx}" style="background: #ef4444; border: none; padding: 0 0.2rem; color: white; cursor: pointer; font-size: 0.7rem; border-radius: 3px;">&times;</button>
               </div>
-            `).join("")}
+            `,
+							)
+							.join("")}
           </div>
           <button class="add-phase-btn" data-idx="${idx}" style="background: #10b981; border: none; margin-top: 0.4rem; padding: 0.2rem 0.4rem; color: white; border-radius: 3px; font-size: 0.7rem; cursor: pointer;">+ Add Phase State</button>
         </div>
       </div>
-    `).join("");
+    `,
+			)
+			.join("");
 
-    document.querySelectorAll(".moon-name-input").forEach(input => {
-      input.addEventListener("change", (e) => {
-        const target = e.target as HTMLInputElement;
-        const idx = parseInt(target.dataset.idx || "0", 10);
-        localMoons[idx].name = target.value;
-      });
-    });
+		document.querySelectorAll(".moon-name-input").forEach((input) => {
+			input.addEventListener("change", (e) => {
+				const target = e.target as HTMLInputElement;
+				const idx = parseInt(target.dataset.idx || "0", 10);
+				localMoons[idx].name = target.value;
+			});
+		});
 
-    document.querySelectorAll(".moon-length-input").forEach(input => {
-      input.addEventListener("change", (e) => {
-        const target = e.target as HTMLInputElement;
-        const idx = parseInt(target.dataset.idx || "0", 10);
-        localMoons[idx].cycleLength = parseInt(target.value, 10) || 30;
-      });
-    });
+		document.querySelectorAll(".moon-length-input").forEach((input) => {
+			input.addEventListener("change", (e) => {
+				const target = e.target as HTMLInputElement;
+				const idx = parseInt(target.dataset.idx || "0", 10);
+				localMoons[idx].cycleLength = parseInt(target.value, 10) || 30;
+			});
+		});
 
-    document.querySelectorAll(".phase-name-input").forEach(input => {
-      input.addEventListener("change", (e) => {
-        const target = e.target as HTMLInputElement;
-        const mIdx = parseInt(target.dataset.moon || "0", 10);
-        const pIdx = parseInt(target.dataset.phase || "0", 10);
-        localMoons[mIdx].customPhases[pIdx].name = target.value;
-      });
-    });
+		document.querySelectorAll(".phase-name-input").forEach((input) => {
+			input.addEventListener("change", (e) => {
+				const target = e.target as HTMLInputElement;
+				const mIdx = parseInt(target.dataset.moon || "0", 10);
+				const pIdx = parseInt(target.dataset.phase || "0", 10);
+				localMoons[mIdx].customPhases[pIdx].name = target.value;
+			});
+		});
 
-    document.querySelectorAll(".phase-ratio-input").forEach(input => {
-      input.addEventListener("change", (e) => {
-        const target = e.target as HTMLInputElement;
-        const mIdx = parseInt(target.dataset.moon || "0", 10);
-        const pIdx = parseInt(target.dataset.phase || "0", 10);
-        localMoons[mIdx].customPhases[pIdx].ratio = parseFloat(target.value) || 1.0;
-      });
-    });
+		document.querySelectorAll(".phase-ratio-input").forEach((input) => {
+			input.addEventListener("change", (e) => {
+				const target = e.target as HTMLInputElement;
+				const mIdx = parseInt(target.dataset.moon || "0", 10);
+				const pIdx = parseInt(target.dataset.phase || "0", 10);
+				localMoons[mIdx].customPhases[pIdx].ratio =
+					parseFloat(target.value) || 1.0;
+			});
+		});
 
-    document.querySelectorAll(".phase-mod-input").forEach(input => {
-      input.addEventListener("change", (e) => {
-        const target = e.target as HTMLInputElement;
-        const mIdx = parseInt(target.dataset.moon || "0", 10);
-        const pIdx = parseInt(target.dataset.phase || "0", 10);
-        localMoons[mIdx].customPhases[pIdx].modifier = parseFloat(target.value) || 1.0;
-      });
-    });
+		document.querySelectorAll(".phase-mod-input").forEach((input) => {
+			input.addEventListener("change", (e) => {
+				const target = e.target as HTMLInputElement;
+				const mIdx = parseInt(target.dataset.moon || "0", 10);
+				const pIdx = parseInt(target.dataset.phase || "0", 10);
+				localMoons[mIdx].customPhases[pIdx].modifier =
+					parseFloat(target.value) || 1.0;
+			});
+		});
 
-    document.querySelectorAll(".remove-phase-btn").forEach(btn => {
-      btn.addEventListener("click", (e) => {
-        const target = e.currentTarget as HTMLButtonElement;
-        const mIdx = parseInt(target.dataset.moon || "0", 10);
-        const pIdx = parseInt(target.dataset.phase || "0", 10);
-        localMoons[mIdx].customPhases.splice(pIdx, 1);
-        renderMoons();
-      });
-    });
+		document.querySelectorAll(".remove-phase-btn").forEach((btn) => {
+			btn.addEventListener("click", (e) => {
+				const target = e.currentTarget as HTMLButtonElement;
+				const mIdx = parseInt(target.dataset.moon || "0", 10);
+				const pIdx = parseInt(target.dataset.phase || "0", 10);
+				localMoons[mIdx].customPhases.splice(pIdx, 1);
+				renderMoons();
+			});
+		});
 
-    document.querySelectorAll(".add-phase-btn").forEach(btn => {
-      btn.addEventListener("click", (e) => {
-        const target = e.currentTarget as HTMLButtonElement;
-        const idx = parseInt(target.dataset.idx || "0", 10);
-        localMoons[idx].customPhases.push({
-          name: `Phase ${localMoons[idx].customPhases.length + 1}`,
-          ratio: 1.0,
-          modifier: 1.0
-        });
-        renderMoons();
-      });
-    });
+		document.querySelectorAll(".add-phase-btn").forEach((btn) => {
+			btn.addEventListener("click", (e) => {
+				const target = e.currentTarget as HTMLButtonElement;
+				const idx = parseInt(target.dataset.idx || "0", 10);
+				localMoons[idx].customPhases.push({
+					name: `Phase ${localMoons[idx].customPhases.length + 1}`,
+					ratio: 1.0,
+					modifier: 1.0,
+				});
+				renderMoons();
+			});
+		});
 
-    document.querySelectorAll(".remove-moon-btn").forEach(btn => {
-      btn.addEventListener("click", (e) => {
-        const target = e.currentTarget as HTMLButtonElement;
-        const idx = parseInt(target.dataset.idx || "0", 10);
-        localMoons.splice(idx, 1);
-        renderMoons();
-      });
-    });
-  };
+		document.querySelectorAll(".remove-moon-btn").forEach((btn) => {
+			btn.addEventListener("click", (e) => {
+				const target = e.currentTarget as HTMLButtonElement;
+				const idx = parseInt(target.dataset.idx || "0", 10);
+				localMoons.splice(idx, 1);
+				renderMoons();
+			});
+		});
+	};
 
-  addMoonBtn.addEventListener("click", () => {
-    localMoons.push({
-      name: `Moon ${localMoons.length + 1}`,
-      cycleLength: 30,
-      customPhases: [
-        { name: "New Moon", ratio: 1.0, modifier: 1.0 },
-        { name: "Full Moon", ratio: 1.0, modifier: 1.0 }
-      ]
-    });
-    renderMoons();
-  });
+	addMoonBtn.addEventListener("click", () => {
+		localMoons.push({
+			name: `Moon ${localMoons.length + 1}`,
+			cycleLength: 30,
+			customPhases: [
+				{ name: "New Moon", ratio: 1.0, modifier: 1.0 },
+				{ name: "Full Moon", ratio: 1.0, modifier: 1.0 },
+			],
+		});
+		renderMoons();
+	});
 
-  const closePanel = () => {
-    panel.style.display = "none";
-  };
+	const closePanel = () => {
+		panel.style.display = "none";
+	};
 
-  closeBtn.addEventListener("click", closePanel);
-  cancelBtn.addEventListener("click", closePanel);
+	closeBtn.addEventListener("click", closePanel);
+	cancelBtn.addEventListener("click", closePanel);
 
-  if(quickRecalcBtn) quickRecalcBtn.addEventListener("click", () => console.log("Cycles recalculated"));
-if(syncEcologyBtn) syncEcologyBtn.addEventListener("click", () => console.log("Ecology synced"));
-if(syncMagicBtn) syncMagicBtn.addEventListener("click", () => console.log("Magic synced"));
-if(manualPlacementBtn) manualPlacementBtn.addEventListener("click", () => console.log("Manual placement mode"));
+	if (quickRecalcBtn)
+		quickRecalcBtn.addEventListener("click", () =>
+			console.log("Cycles recalculated"),
+		);
+	if (syncEcologyBtn)
+		syncEcologyBtn.addEventListener("click", () =>
+			console.log("Ecology synced"),
+		);
+	if (syncMagicBtn)
+		syncMagicBtn.addEventListener("click", () => console.log("Magic synced"));
+	if (manualPlacementBtn)
+		manualPlacementBtn.addEventListener("click", () =>
+			console.log("Manual placement mode"),
+		);
 
-applyBtn.addEventListener("click", () => {
-    store.updateState({
-      weekdays: [...localWeekdays],
-      months: [...localMonths],
-      seasons: [...localSeasons],
-      moons: [...localMoons]
-    });
-    panel.style.display = "none";
-    onUpdate();
-  });
+	applyBtn.addEventListener("click", () => {
+		store.updateState({
+			weekdays: [...localWeekdays],
+			months: [...localMonths],
+			seasons: [...localSeasons],
+			moons: [...localMoons],
+		});
+		panel.style.display = "none";
+		onUpdate();
+	});
 
-  // Export activation hook
-  (window as any).openCalendarEditor = () => {
-    const state = store.getState();
-    localWeekdays = [...state.weekdays];
-    localMonths = state.months.map(m => ({ ...m }));
-    localSeasons = state.seasons.map(s => ({ ...s }));
-    localMoons = state.moons.map(m => ({
-      ...m,
-      customPhases: m.customPhases.map(p => ({ ...p }))
-    }));
+	// Export activation hook
+	(window as any).openCalendarEditor = () => {
+		const state = store.getState();
+		localWeekdays = [...state.weekdays];
+		localMonths = state.months.map((m) => ({ ...m }));
+		localSeasons = state.seasons.map((s) => ({ ...s }));
+		localMoons = state.moons.map((m) => ({
+			...m,
+			customPhases: m.customPhases.map((p) => ({ ...p })),
+		}));
 
-    renderWeekdays();
-    renderMonths();
-    renderSeasons();
-    renderMoons();
-    selectTab("weeks");
+		renderWeekdays();
+		renderMonths();
+		renderSeasons();
+		renderMoons();
+		selectTab("weeks");
 
-    panel.style.display = "block";
-  };
+		panel.style.display = "block";
+	};
 }

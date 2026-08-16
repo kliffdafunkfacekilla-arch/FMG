@@ -1,1 +1,3 @@
-export function mountReligionsEditor() { console.log("Mounted " + ed); }
+export function mountReligionsEditor() {
+	console.log(`Mounted ${ed}`);
+}

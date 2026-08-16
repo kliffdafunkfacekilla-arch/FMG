@@ -1,12 +1,12 @@
 import { store } from "../state/store";
 
 export function mountStyleEditor(containerId: string, onUpdate: () => void) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
+	const container = document.getElementById(containerId);
+	if (!container) return;
 
-  const defaultStyles = JSON.stringify(store.getState().layerStyles);
+	const defaultStyles = JSON.stringify(store.getState().layerStyles);
 
-  container.innerHTML = `
+	container.innerHTML = `
     <div style="display: flex; flex-direction: column; gap: 0.8rem;">
       <h4 style="margin: 0; color: #10b981; font-size: 0.95rem;">Visual Theme Preset</h4>
       <select id="stylePreset" style="width: 100%; padding: 0.4rem; background: #0f0f12; border: 1px solid rgba(255,255,255,0.1); color: white; border-radius: 6px; cursor: pointer;">
@@ -52,47 +52,61 @@ export function mountStyleEditor(containerId: string, onUpdate: () => void) {
     </div>
   `;
 
-  const presetSelect = document.getElementById("stylePreset") as HTMLSelectElement;
-  const layerSelect = document.getElementById("styleLayerSelect") as HTMLSelectElement;
-  const controlsDiv = document.getElementById("styleControls") as HTMLDivElement;
-  const resetBtn = document.getElementById("styleResetBtn") as HTMLButtonElement;
-  const filterToggle = document.getElementById("globalFilterToggle") as HTMLInputElement;
-  
-  presetSelect.addEventListener("change", () => {
-    const val = presetSelect.value;
-    const windowObj = window as any;
-    if (val === "monochrome") {
-      windowObj.triggerLayerSelect("heightmap");
-    } else {
-      windowObj.triggerLayerSelect("states");
-    }
-    onUpdate();
-  });
-  
-  resetBtn.addEventListener("click", () => {
-    store.updateState({ layerStyles: JSON.parse(defaultStyles) });
-    renderControls();
-    onUpdate();
-  });
-  
-  filterToggle.addEventListener("change", (e) => {
-    const target = e.target as HTMLInputElement;
-    const canvas = document.getElementById("mapCanvas") as HTMLCanvasElement;
-    if (canvas) {
-        if (target.checked) {
-            canvas.style.filter = "sepia(0.4) contrast(1.1) brightness(0.9)";
-        } else {
-            canvas.style.filter = "none";
-        }
-    }
-  });
+	const presetSelect = document.getElementById(
+		"stylePreset",
+	) as HTMLSelectElement;
+	const layerSelect = document.getElementById(
+		"styleLayerSelect",
+	) as HTMLSelectElement;
+	const controlsDiv = document.getElementById(
+		"styleControls",
+	) as HTMLDivElement;
+	const resetBtn = document.getElementById(
+		"styleResetBtn",
+	) as HTMLButtonElement;
+	const filterToggle = document.getElementById(
+		"globalFilterToggle",
+	) as HTMLInputElement;
 
-  const renderControls = () => {
-    const layer = layerSelect.value;
-    const state = store.getState();
-    const currentStyle = state.layerStyles[layer] || { opacity: 1, color: "#ffffff", size: 1 };
-    
-    controlsDiv.innerHTML = `
+	presetSelect.addEventListener("change", () => {
+		const val = presetSelect.value;
+		const windowObj = window as any;
+		if (val === "monochrome") {
+			windowObj.triggerLayerSelect("heightmap");
+		} else {
+			windowObj.triggerLayerSelect("states");
+		}
+		onUpdate();
+	});
+
+	resetBtn.addEventListener("click", () => {
+		store.updateState({ layerStyles: JSON.parse(defaultStyles) });
+		renderControls();
+		onUpdate();
+	});
+
+	filterToggle.addEventListener("change", (e) => {
+		const target = e.target as HTMLInputElement;
+		const canvas = document.getElementById("mapCanvas") as HTMLCanvasElement;
+		if (canvas) {
+			if (target.checked) {
+				canvas.style.filter = "sepia(0.4) contrast(1.1) brightness(0.9)";
+			} else {
+				canvas.style.filter = "none";
+			}
+		}
+	});
+
+	const renderControls = () => {
+		const layer = layerSelect.value;
+		const state = store.getState();
+		const currentStyle = state.layerStyles[layer] || {
+			opacity: 1,
+			color: "#ffffff",
+			size: 1,
+		};
+
+		controlsDiv.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <label>Opacity (<span id="opacityVal">${currentStyle.opacity}</span>)</label>
             <input type="range" id="styleOpacity" min="0" max="1" step="0.05" value="${currentStyle.opacity}" style="width: 100px; cursor: pointer;">
@@ -106,58 +120,58 @@ export function mountStyleEditor(containerId: string, onUpdate: () => void) {
             <input type="color" id="styleColor" value="${colorToHex(currentStyle.color)}" style="background: transparent; border: none; padding: 0; width: 24px; height: 24px; cursor: pointer;">
         </div>
     `;
-    
-    document.getElementById("styleOpacity")?.addEventListener("input", (e) => {
-        const val = parseFloat((e.target as HTMLInputElement).value);
-        document.getElementById("opacityVal")!.innerText = val.toString();
-        updateStyle(layer, { opacity: val });
-    });
-    
-    document.getElementById("styleSize")?.addEventListener("change", (e) => {
-        const val = parseFloat((e.target as HTMLInputElement).value);
-        updateStyle(layer, { size: val });
-    });
-    
-    document.getElementById("styleColor")?.addEventListener("change", (e) => {
-        const val = (e.target as HTMLInputElement).value;
-        updateStyle(layer, { color: val });
-    });
-  };
-  
-  const updateStyle = (layer: string, changes: any) => {
-      const state = store.getState();
-      const current = state.layerStyles[layer] || {};
-      const newStyles = {
-          ...state.layerStyles,
-          [layer]: { ...current, ...changes }
-      };
-      store.updateState({ layerStyles: newStyles });
-      onUpdate();
-  };
-  
-  const colorToHex = (color: string) => {
-      if (!color) return "#ffffff";
-      if (color.startsWith("#")) {
-          if (color.length === 4) {
-              return "#" + color[1]+color[1]+color[2]+color[2]+color[3]+color[3];
-          }
-          if (color.length > 7) {
-              return color.substring(0, 7);
-          }
-          return color;
-      }
-      if (color.startsWith("rgba") || color.startsWith("rgb")) {
-          const m = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
-          if (m) {
-              const r = parseInt(m[1]).toString(16).padStart(2, "0");
-              const g = parseInt(m[2]).toString(16).padStart(2, "0");
-              const b = parseInt(m[3]).toString(16).padStart(2, "0");
-              return `#${r}${g}${b}`;
-          }
-      }
-      return "#ffffff"; // fallback
-  };
 
-  layerSelect.addEventListener("change", renderControls);
-  renderControls();
+		document.getElementById("styleOpacity")?.addEventListener("input", (e) => {
+			const val = parseFloat((e.target as HTMLInputElement).value);
+			document.getElementById("opacityVal")!.innerText = val.toString();
+			updateStyle(layer, { opacity: val });
+		});
+
+		document.getElementById("styleSize")?.addEventListener("change", (e) => {
+			const val = parseFloat((e.target as HTMLInputElement).value);
+			updateStyle(layer, { size: val });
+		});
+
+		document.getElementById("styleColor")?.addEventListener("change", (e) => {
+			const val = (e.target as HTMLInputElement).value;
+			updateStyle(layer, { color: val });
+		});
+	};
+
+	const updateStyle = (layer: string, changes: any) => {
+		const state = store.getState();
+		const current = state.layerStyles[layer] || {};
+		const newStyles = {
+			...state.layerStyles,
+			[layer]: { ...current, ...changes },
+		};
+		store.updateState({ layerStyles: newStyles });
+		onUpdate();
+	};
+
+	const colorToHex = (color: string) => {
+		if (!color) return "#ffffff";
+		if (color.startsWith("#")) {
+			if (color.length === 4) {
+				return `#${color[1]}${color[1]}${color[2]}${color[2]}${color[3]}${color[3]}`;
+			}
+			if (color.length > 7) {
+				return color.substring(0, 7);
+			}
+			return color;
+		}
+		if (color.startsWith("rgba") || color.startsWith("rgb")) {
+			const m = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+			if (m) {
+				const r = parseInt(m[1], 10).toString(16).padStart(2, "0");
+				const g = parseInt(m[2], 10).toString(16).padStart(2, "0");
+				const b = parseInt(m[3], 10).toString(16).padStart(2, "0");
+				return `#${r}${g}${b}`;
+			}
+		}
+		return "#ffffff"; // fallback
+	};
+
+	layerSelect.addEventListener("change", renderControls);
+	renderControls();
 }

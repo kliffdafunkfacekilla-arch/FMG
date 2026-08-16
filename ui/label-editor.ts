@@ -1,19 +1,19 @@
 import { store } from "../state/store";
 
 export interface MapLabel {
-  id: number;
-  text: string;
-  x: number;
-  y: number;
-  rotation: number; // in degrees
-  size: number;
+	id: number;
+	text: string;
+	x: number;
+	y: number;
+	rotation: number; // in degrees
+	size: number;
 }
 
 export function mountLabelEditor(containerId: string, onUpdate: () => void) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
+	const container = document.getElementById(containerId);
+	if (!container) return;
 
-  container.innerHTML = `
+	container.innerHTML = `
     <div style="background: rgba(30, 30, 38, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); padding: 1rem; border-radius: 12px; font-size: 0.85rem; color: #e2e8f0; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 0.5rem;">
       <h3 style="margin-top: 0; color: #fb7185; border-bottom: 1px solid #333; padding-bottom: 0.25rem;">Labels Editor</h3>
       
@@ -39,25 +39,29 @@ export function mountLabelEditor(containerId: string, onUpdate: () => void) {
     </div>
   `;
 
-  const txtInput = document.getElementById("labelTextInput") as HTMLInputElement;
-  const sizeInput = document.getElementById("labelSizeInput") as HTMLInputElement;
-  const rotInput = document.getElementById("labelRotInput") as HTMLInputElement;
-  const btn = document.getElementById("addLabelBtn") as HTMLButtonElement;
+	const txtInput = document.getElementById(
+		"labelTextInput",
+	) as HTMLInputElement;
+	const sizeInput = document.getElementById(
+		"labelSizeInput",
+	) as HTMLInputElement;
+	const rotInput = document.getElementById("labelRotInput") as HTMLInputElement;
+	const btn = document.getElementById("addLabelBtn") as HTMLButtonElement;
 
-  btn.addEventListener("click", () => {
-    const state = store.getState() as any;
-    const labels = state.labels || [];
+	btn.addEventListener("click", () => {
+		const state = store.getState() as any;
+		const labels = state.labels || [];
 
-    const newLabel: MapLabel = {
-      id: Math.floor(Math.random() * 100000),
-      text: txtInput.value,
-      x: state.width / 2 || 400,
-      y: state.height / 2 || 300,
-      size: parseInt(sizeInput.value, 10) || 16,
-      rotation: parseInt(rotInput.value, 10) || 0
-    };
+		const newLabel: MapLabel = {
+			id: Math.floor(Math.random() * 100000),
+			text: txtInput.value,
+			x: state.width / 2 || 400,
+			y: state.height / 2 || 300,
+			size: parseInt(sizeInput.value, 10) || 16,
+			rotation: parseInt(rotInput.value, 10) || 0,
+		};
 
-    store.updateState({ labels: [...labels, newLabel] });
-    onUpdate();
-  });
+		store.updateState({ labels: [...labels, newLabel] });
+		onUpdate();
+	});
 }
