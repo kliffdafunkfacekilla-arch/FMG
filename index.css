@@ -112,7 +112,7 @@ a {
 }
 
 .pointer {
-	cursor: pointer;
+	cursor: pointer !important;
 }
 
 #prec text {
@@ -882,7 +882,7 @@ fieldset {
 #styleElements .whiteButton {
 	padding: 0 0.8em;
 	border: 0;
-	background-color: #ffffff;
+	background-color: #ffffff !important;
 }
 
 .overflow-table {
@@ -1371,7 +1371,7 @@ div.slider .ui-slider-handle {
 }
 
 .hidden {
-	display: none;
+	display: none !important;
 }
 
 .table {
@@ -1506,7 +1506,7 @@ div.states > .statePopulation {
 }
 
 div.states:hover > .hiddenIcon {
-	visibility: visible;
+	visibility: visible !important;
 }
 
 div.states .icon-pencil,
@@ -1707,7 +1707,7 @@ div.states.active {
 
 div.states.Self {
 	margin-bottom: 0.2em;
-	cursor: default;
+	cursor: default !important;
 	padding: 0.2em 0 0 0.5em;
 	font-weight: bold;
 }
@@ -1794,7 +1794,7 @@ div.editorLine {
 	font-size: 12px;
 	font-weight: bold;
 	font-family: var(--sans-serif);
-	cursor: move;
+	cursor: move !important;
 }
 
 #pickerCloseRect {
@@ -1860,7 +1860,7 @@ div.editorLine {
 	background-color: #dedede;
 	font-size: 8px;
 	cursor: pointer;
-	padding: 0px 3px;
+	padding: 0px 3px !important;
 }
 
 .unitsHeader {
@@ -1983,7 +1983,7 @@ ul.share-buttons {
 
 ul.share-buttons li {
 	padding: 0;
-	background: none;
+	background: none !important;
 	width: 16%;
 	margin: 0;
 }
@@ -2446,7 +2446,7 @@ svg.button {
 
 #chat-widget-container {
 	user-select: none;
-	z-index: 99;
+	z-index: 99 !important;
 }
 
 #chat-widget-minimized {
@@ -2629,11 +2629,11 @@ div.states .marketBadge {
 
 /* Tooltip demo step: hide overlay and restore all pointer events so the map is fully hoverable */
 body.tour-free-roam .driver-overlay {
-	opacity: 0;
+	opacity: 0 !important;
 }
 
 body.tour-free-roam * {
-	pointer-events: auto;
+	pointer-events: auto !important;
 }
 
 #startTourButton {

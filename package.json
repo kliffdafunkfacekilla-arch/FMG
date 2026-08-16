@@ -14,17 +14,12 @@
 	"author": "Azgaar",
 	"main": "main.js",
 	"scripts": {
-		"dev": "vite",
-		"build": "vite build && npm run share-zip",
-		"share-zip": "powershell -Command \"Compress-Archive -Path (Get-ChildItem -Path . -Exclude 'node_modules', 'dist', '.git', '*.zip') -DestinationPath '../fmg-rebuild-share.zip' -Force\"",
-		"preview": "vite preview",
+		"dev": "vite --host 0.0.0.0 --port 3000",
+		"build": "vite build",
+		"preview": "vite preview --host 0.0.0.0 --port 3000",
 		"test": "vitest",
 		"test:e2e": "playwright test",
-		"lint": "biome check --write",
-		"prepare": "simple-git-hooks"
-	},
-	"simple-git-hooks": {
-		"pre-commit": "echo 'Skipping pre-commit lint check'"
+		"lint": "biome check --write"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.6",
@@ -54,6 +49,6 @@
 		"three": "^0.184.0"
 	},
 	"engines": {
-		"node": ">=24.0.0"
+		"node": ">=20.0.0"
 	}
 }
