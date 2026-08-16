@@ -14,11 +14,16 @@ export function mountLabelEditor(containerId: string, onUpdate: () => void) {
 	if (!container) return;
 
 	container.innerHTML = `
+<<<<<<< HEAD
     <div id="labelEditorPanel" style="display: none; background: rgba(30, 30, 38, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); padding: 1rem; border-radius: 12px; font-size: 0.85rem; color: #e2e8f0; width: 100%; box-sizing: border-box; flex-direction: column; gap: 0.5rem; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
       <h3 style="margin-top: 0; color: #fb7185; border-bottom: 1px solid #333; padding-bottom: 0.25rem; display: flex; justify-content: space-between; align-items: center;">
         <span>Labels Editor</span>
         <span id="closeLabelBtn" style="cursor: pointer; color: #94a3b8; font-size: 1.1rem;">&times;</span>
       </h3>
+=======
+    <div style="background: rgba(30, 30, 38, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); padding: 1rem; border-radius: 12px; font-size: 0.85rem; color: #e2e8f0; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 0.5rem;">
+      <h3 style="margin-top: 0; color: #fb7185; border-bottom: 1px solid #333; padding-bottom: 0.25rem;">Labels Editor</h3>
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
       
       <div>
         <label style="display: block; margin-bottom: 0.2rem; color: #94a3b8;">Label Text:</label>
@@ -51,6 +56,7 @@ export function mountLabelEditor(containerId: string, onUpdate: () => void) {
 	const rotInput = document.getElementById("labelRotInput") as HTMLInputElement;
 	const btn = document.getElementById("addLabelBtn") as HTMLButtonElement;
 
+<<<<<<< HEAD
 	const panel = document.getElementById("labelEditorPanel") as HTMLDivElement;
 	const closeBtn = document.getElementById("closeLabelBtn") as HTMLSpanElement;
 
@@ -73,6 +79,21 @@ export function mountLabelEditor(containerId: string, onUpdate: () => void) {
 			rotation: parseInt(rotInput.value, 10) || 0,
 		};
 
+=======
+	btn.addEventListener("click", () => {
+		const state = store.getState() as any;
+		const labels = state.labels || [];
+
+		const newLabel: MapLabel = {
+			id: Math.floor(Math.random() * 100000),
+			text: txtInput.value,
+			x: state.width / 2 || 400,
+			y: state.height / 2 || 300,
+			size: parseInt(sizeInput.value, 10) || 16,
+			rotation: parseInt(rotInput.value, 10) || 0,
+		};
+
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		store.updateState({ labels: [...labels, newLabel] });
 		onUpdate();
 	});

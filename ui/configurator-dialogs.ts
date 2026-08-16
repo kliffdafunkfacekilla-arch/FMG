@@ -20,8 +20,11 @@ export interface SetupConfig {
 	windsAngle: number;
 	precipitationInput: number;
 	distanceUnit: string;
+<<<<<<< HEAD
 	enableUnderwater: boolean;
 	underwaterCount: number;
+=======
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 }
 
 // Default winds for the 6 latitude tiers (N pole -> S pole), matching the
@@ -44,10 +47,14 @@ const DISTANCE_UNITS: Record<string, DistanceUnitInfo> = {
 };
 
 /** Compute the latitude window (top edge, span, bottom edge) for the globe. */
+<<<<<<< HEAD
 function computeLatitudeWindow(
 	mapSizePercent: number,
 	latitudePercent: number,
 ) {
+=======
+function computeLatitudeWindow(mapSizePercent: number, latitudePercent: number) {
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 	const latT = (mapSizePercent / 100) * 180;
 	const latN = 90 - (180 - latT) * (latitudePercent / 100);
 	const latS = latN - latT;
@@ -65,10 +72,15 @@ function temperatureAtLatitude(
 	const tropicalGradient = 0.15;
 	const tempNorthTropic = equatorTemp - tropics[0] * tropicalGradient;
 	const tempSouthTropic = equatorTemp + tropics[1] * tropicalGradient;
+<<<<<<< HEAD
 	const northernGradient =
 		(tempNorthTropic - northPoleTemp) / (90 - tropics[0]);
 	const southernGradient =
 		(tempSouthTropic - southPoleTemp) / (90 + tropics[1]);
+=======
+	const northernGradient = (tempNorthTropic - northPoleTemp) / (90 - tropics[0]);
+	const southernGradient = (tempSouthTropic - southPoleTemp) / (90 + tropics[1]);
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 
 	if (lat <= 16 && lat >= -20) {
 		return equatorTemp - Math.abs(lat) * tropicalGradient;
@@ -209,6 +221,7 @@ export function mountConfigurator(
             <input id="numReligions" type="number" min="0" max="50" value="5" style="width: 100%; padding: 0.2rem; background: #0f0f12; border: 1px solid #444; color: white; border-radius: 4px;" />
           </div>
 
+<<<<<<< HEAD
           <!-- Underwater Civilizations -->
           <div style="border: 1px solid rgba(59, 130, 246, 0.2); background: rgba(30, 41, 59, 0.4); border-radius: 6px; padding: 0.5rem; display: flex; flex-direction: column; gap: 0.35rem;">
             <div style="display: flex; align-items: center; gap: 0.4rem;">
@@ -221,6 +234,8 @@ export function mountConfigurator(
             </div>
           </div>
 
+=======
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
           <button id="regenNewMapBtn" style="background: #3b82f6; border: none; padding: 0.35rem; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.75rem; width: 100%; margin-top: 0.2rem;">
             Generate New Map
           </button>
@@ -371,6 +386,7 @@ export function mountConfigurator(
 		"distanceUnit",
 	) as HTMLSelectElement;
 
+<<<<<<< HEAD
 	const enableUnderwater = document.getElementById(
 		"enableUnderwater",
 	) as HTMLInputElement;
@@ -552,6 +568,164 @@ export function mountConfigurator(
 			`${Math.abs(Math.round(lat))}&#176;${lat >= 0 ? "N" : "S"}`;
 		const lonHalf = Math.round(((w / h) * latT) / 2);
 
+=======
+	// --- Configure World inputs ---
+	const cfgEquator = document.getElementById("cfgEquator") as HTMLInputElement;
+	const cfgNorthPole = document.getElementById("cfgNorthPole") as HTMLInputElement;
+	const cfgSouthPole = document.getElementById("cfgSouthPole") as HTMLInputElement;
+	const cfgMapSize = document.getElementById("cfgMapSize") as HTMLInputElement;
+	const cfgLatitude = document.getElementById(
+		"cfgLatitude",
+	) as HTMLInputElement;
+	const cfgPrec = document.getElementById("cfgPrec") as HTMLInputElement;
+	const lblEquator = document.getElementById("lblEquator") as HTMLSpanElement;
+	const lblNorthPole = document.getElementById("lblNorthPole") as HTMLSpanElement;
+	const lblSouthPole = document.getElementById("lblSouthPole") as HTMLSpanElement;
+	const lblMapSize = document.getElementById("lblMapSize") as HTMLSpanElement;
+	const lblLatitude = document.getElementById("lblLatitude") as HTMLSpanElement;
+	const lblPrec = document.getElementById("lblPrec") as HTMLSpanElement;
+	const worldInfoBlock = document.getElementById(
+		"worldInfoBlock",
+	) as HTMLDivElement;
+	const globeSvg = document.getElementById(
+		"worldGlobe",
+	) as unknown as SVGSVGElement;
+
+	const regenBtn = document.getElementById(
+		"regenNewMapBtn",
+	) as HTMLButtonElement;
+	const updateClimateBtn = document.getElementById(
+		"updateClimateBtn",
+	) as HTMLButtonElement;
+	const seedHistoryBtn = document.getElementById(
+		"seedHistoryBtn",
+	) as HTMLButtonElement;
+
+	// Mutable winds state (6 latitude tiers, N pole -> S pole).
+	let winds = [...DEFAULT_WINDS];
+
+	// --- Globe + info rendering ---------------------------------------------
+	const R = 128;
+	const CX = 160;
+	const CY = 150;
+	const latToY = (lat: number) => CY - R * Math.sin((lat * Math.PI) / 180);
+
+	const renderGlobe = () => {
+		if (!globeSvg) return;
+		const equatorTemp = parseInt(cfgEquator.value, 10);
+		const northPoleTemp = parseInt(cfgNorthPole.value, 10);
+		const southPoleTemp = parseInt(cfgSouthPole.value, 10);
+		const { latN, latS } = computeLatitudeWindow(
+			parseInt(cfgMapSize.value, 10),
+			parseInt(cfgLatitude.value, 10),
+		);
+
+		const parts: string[] = [];
+		parts.push(
+			`<defs><clipPath id="globeClip"><circle cx="${CX}" cy="${CY}" r="${R}" /></clipPath></defs>`,
+		);
+
+		// Temperature bands (clipped to the globe circle).
+		parts.push(`<g clip-path="url(#globeClip)">`);
+		const step = 2;
+		for (let lat = 90; lat > -90; lat -= step) {
+			const y0 = latToY(lat);
+			const y1 = latToY(lat - step);
+			const midTemp = temperatureAtLatitude(
+				lat - step / 2,
+				equatorTemp,
+				northPoleTemp,
+				southPoleTemp,
+			);
+			parts.push(
+				`<rect x="${CX - R}" y="${y0.toFixed(2)}" width="${2 * R}" height="${(y1 - y0 + 0.6).toFixed(2)}" fill="${temperatureColor(midTemp)}" />`,
+			);
+		}
+		// Map latitude window highlight.
+		const winTop = latToY(latN);
+		const winBottom = latToY(latS);
+		parts.push(
+			`<rect x="${CX - R}" y="${winTop.toFixed(2)}" width="${2 * R}" height="${(winBottom - winTop).toFixed(2)}" fill="none" stroke="#111" stroke-width="2.5" />`,
+		);
+		parts.push(`</g>`);
+
+		// Globe outline.
+		parts.push(
+			`<circle cx="${CX}" cy="${CY}" r="${R}" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="1.5" />`,
+		);
+
+		// Latitude gridlines + labels.
+		for (const lat of [90, 60, 30, 0, -30, -60, -90]) {
+			const y = latToY(lat);
+			const half = R * Math.cos((lat * Math.PI) / 180);
+			parts.push(
+				`<line x1="${CX - half}" y1="${y.toFixed(2)}" x2="${CX + half}" y2="${y.toFixed(2)}" stroke="rgba(255,255,255,0.25)" stroke-width="1" stroke-dasharray="3 3" />`,
+			);
+			parts.push(
+				`<text x="6" y="${(y + 4).toFixed(2)}" fill="#cbd5e1" font-size="11" font-family="sans-serif">${Math.abs(lat)}&#176;</text>`,
+			);
+		}
+
+		// Wind arrows: 6 tiers centered at 75,45,15,-15,-45,-75.
+		const tierCenters = [75, 45, 15, -15, -45, -75];
+		const ax = CX + R + 16;
+		tierCenters.forEach((lat, tier) => {
+			const y = latToY(lat);
+			const angle = winds[tier] ?? 0;
+			// Draw an arrow pointing toward the wind's heading; rotate around origin.
+			parts.push(
+				`<g class="windArrow" data-tier="${tier}" transform="rotate(${angle}, ${ax}, ${y.toFixed(2)})" style="cursor: pointer;">
+          <line x1="${ax}" y1="${(y + 8).toFixed(2)}" x2="${ax}" y2="${(y - 8).toFixed(2)}" stroke="#f8fafc" stroke-width="2" />
+          <path d="M ${ax - 4} ${(y - 3).toFixed(2)} L ${ax} ${(y - 9).toFixed(2)} L ${ax + 4} ${(y - 3).toFixed(2)}" fill="none" stroke="#f8fafc" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+        </g>`,
+			);
+		});
+		// "wind" caption top-right.
+		parts.push(
+			`<text x="${ax - 12}" y="18" fill="#94a3b8" font-size="11" font-style="italic" font-family="sans-serif">wind</text>`,
+		);
+
+		globeSvg.innerHTML = parts.join("");
+
+		// Clicking a wind arrow rotates that tier by 45°.
+		globeSvg.querySelectorAll(".windArrow").forEach((el) => {
+			el.addEventListener("click", () => {
+				const tier = parseInt(el.getAttribute("data-tier") || "0", 10);
+				winds[tier] = (winds[tier] + 45) % 360;
+				renderGlobe();
+			});
+		});
+	};
+
+	const cToF = (c: number) => Math.round((c * 9) / 5 + 32);
+	const isImperial = () => distanceUnit.value === "miles";
+	const tempLabel = (c: number) =>
+		isImperial() ? `${cToF(c)}&#176;F` : `${c}&#176;C`;
+
+	const renderInfo = () => {
+		const unit = DISTANCE_UNITS[distanceUnit.value] || DISTANCE_UNITS.kms;
+		const w = parseInt(canvasWidth.value, 10) || 1000;
+		const h = parseInt(canvasHeight.value, 10) || 650;
+		const { latN, latT, latS } = computeLatitudeWindow(
+			parseInt(cfgMapSize.value, 10),
+			parseInt(cfgLatitude.value, 10),
+		);
+
+		const toUnit = (km: number) => Math.round(km * unit.perKm);
+		const widthDist = toUnit(w * KM_PER_PIXEL);
+		const heightDist = toUnit(h * KM_PER_PIXEL);
+
+		const pxPerDeg = h / Math.max(latT, 0.001);
+		const meridianPx = Math.round(pxPerDeg * 180);
+		const meridianKm = meridianPx * KM_PER_PIXEL;
+		const meridianDist = toUnit(meridianKm);
+		const earthPercent = Math.round((meridianKm / EARTH_MERIDIAN_KM) * 100);
+
+		const latLabel = (lat: number) =>
+			`${Math.abs(Math.round(lat))}&#176;${lat >= 0 ? "N" : "S"}`;
+		const lonHalf = Math.round(((w / h) * latT) / 2);
+
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		worldInfoBlock.innerHTML = `
       <div>Canvas size:<br>${w}x${h} px = ${widthDist}x${heightDist} ${unit.label}</div>
       <div style="margin-top: 0.3rem;">Meridian length:<br>${meridianPx} px = ${meridianDist} ${unit.label} = ${earthPercent}% of Earth</div>
@@ -576,6 +750,7 @@ export function mountConfigurator(
 			lblPointsCount.innerText = pointsCountSlider.value;
 		});
 
+<<<<<<< HEAD
 	[
 		cfgEquator,
 		cfgNorthPole,
@@ -584,6 +759,9 @@ export function mountConfigurator(
 		cfgLatitude,
 		cfgPrec,
 	].forEach((el) => {
+=======
+	[cfgEquator, cfgNorthPole, cfgSouthPole, cfgMapSize, cfgLatitude, cfgPrec].forEach((el) => {
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		el.addEventListener("input", refreshWorld);
 	});
 	distanceUnit.addEventListener("change", refreshWorld);
@@ -591,6 +769,7 @@ export function mountConfigurator(
 	canvasHeight.addEventListener("input", renderInfo);
 
 	// --- Preset buttons ---
+<<<<<<< HEAD
 	document
 		.querySelectorAll<HTMLButtonElement>(".worldPresetBtn")
 		.forEach((btn) => {
@@ -620,6 +799,35 @@ export function mountConfigurator(
 				refreshWorld();
 			});
 		});
+=======
+	document.querySelectorAll<HTMLButtonElement>(".worldPresetBtn").forEach((btn) => {
+		btn.addEventListener("click", () => {
+			const preset = btn.getAttribute("data-preset");
+			switch (preset) {
+				case "whole":
+					cfgMapSize.value = "100";
+					cfgLatitude.value = "50";
+					break;
+				case "northern":
+					cfgMapSize.value = "50";
+					cfgLatitude.value = "0";
+					break;
+				case "tropical":
+					cfgMapSize.value = "34";
+					cfgLatitude.value = "50";
+					break;
+				case "southern":
+					cfgMapSize.value = "50";
+					cfgLatitude.value = "100";
+					break;
+				case "winds":
+					winds = [...DEFAULT_WINDS];
+					break;
+			}
+			refreshWorld();
+		});
+	});
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 
 	// Generate a unique seed helper.
 	const rollSeed = () => "map-" + Math.floor(Math.random() * 1000000);
@@ -647,8 +855,11 @@ export function mountConfigurator(
 		windsAngle: winds[2],
 		precipitationInput: parseInt(cfgPrec.value, 10),
 		distanceUnit: distanceUnit?.value || "kms",
+<<<<<<< HEAD
 		enableUnderwater: enableUnderwater ? enableUnderwater.checked : true,
 		underwaterCount: underwaterCount ? (parseInt(underwaterCount.value, 10) || 0) : 2,
+=======
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 	});
 
 	// --- Modal open/close ---

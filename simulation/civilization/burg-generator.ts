@@ -164,13 +164,17 @@ export function calculateSuitability(
 	biomes: Uint8Array,
 	rivers: Uint16Array,
 	flux: Float32Array,
+<<<<<<< HEAD
 	cellCultures?: Uint8Array,
 	cultures?: Culture[],
+=======
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 ): Float32Array {
 	const pointsN = heights.length;
 	const score = new Float32Array(pointsN);
 
 	for (let i = 0; i < pointsN; i++) {
+<<<<<<< HEAD
 		const cultureId = cellCultures ? cellCultures[i] : 0;
 		const culture = cultures ? cultures.find((c) => c.id === cultureId) : null;
 		const isOceanDweller = culture && culture.habitat === "ocean";
@@ -239,6 +243,60 @@ export function calculateSuitability(
 		score[i] = Math.max(0, cellScore);
 	}
 
+=======
+		if (heights[i] < 20) continue; // no cities in the ocean/lakes
+
+		let cellScore = 5.0;
+
+		// 1. Biome habitability bonuses
+		const biome = biomes[i];
+		if (biome === 1 || biome === 2) cellScore -= 4.0; // desert penalty
+		if (biome === 11) cellScore = 0; // glaciers are uninhabitable
+		if (biome === 6 || biome === 8) cellScore += 5.0; // temperate dec/rain forests are great
+
+		// 2. Proximity to water / coastlines
+		let isCoast = false;
+		for (const c of grid.cells.c[i]) {
+			if (heights[c] < 20) {
+				isCoast = true;
+				break;
+			}
+		}
+		if (isCoast) cellScore += 6.0; // port possibility
+
+		// 3. Rivers & Confluences
+		if (rivers[i] > 0) {
+			cellScore += 4.0;
+			// confluence bonus
+			const fluxVal = flux ? flux[i] || 1.0 : 1.0;
+			if (fluxVal > 50.0) {
+				cellScore += 5.0;
+			}
+		}
+
+		// 4. Integrations of Rating Equations
+		const harborRating = calculateHarborRating(grid, heights, i);
+		const crossroadRating = calculateCrossroadRating(grid, heights, biomes, i);
+		const defensiveRating = calculateDefensiveRating(grid, heights, i);
+		const capitalRating = calculateCapitalRating(
+			grid,
+			heights,
+			biomes,
+			rivers,
+			flux,
+			i,
+		);
+
+		cellScore +=
+			harborRating * 0.5 +
+			crossroadRating * 0.3 +
+			defensiveRating * 0.2 +
+			capitalRating * 0.4;
+
+		score[i] = Math.max(0, cellScore);
+	}
+
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 	return score;
 }
 
@@ -253,7 +311,11 @@ export function generateBurgs(
 	cultures?: Culture[],
 ): Burg[] {
 	const pointsN = heights.length;
+<<<<<<< HEAD
 	const score = calculateSuitability(grid, heights, biomes, rivers, flux, cellCultures, cultures);
+=======
+	const score = calculateSuitability(grid, heights, biomes, rivers, flux);
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 	const burgs: Burg[] = [];
 
 	const placedCellIds = new Set<number>();
@@ -290,6 +352,7 @@ export function generateBurgs(
 		const cellId = candidate.cellId;
 		const [x, y] = grid.points[cellId];
 
+<<<<<<< HEAD
 		const cultureId = cellCultures ? cellCultures[cellId] : 0;
 		const culture = cultures ? cultures.find((c) => c.id === cultureId) : null;
 		const isOceanDweller = culture && culture.habitat === "ocean";
@@ -335,6 +398,51 @@ export function generateBurgs(
 			isOceanDweller,
 		);
 
+=======
+		// Check if near coast to assign port flag
+		let port = 0;
+		for (const c of grid.cells.c[cellId]) {
+			if (heights[c] < 20) {
+				port = 1; // standard water body port
+				break;
+			}
+		}
+
+		let name = "";
+		if (cellCultures && cultures) {
+			const cultureId = cellCultures[cellId];
+			const culture = cultures.find((c) => c.id === cultureId);
+			if (culture && culture.base !== undefined) {
+				name = Names.getBase(culture.base);
+			}
+		}
+
+		if (!name) {
+			const pref =
+				BURG_NAMES_PREFIX[Math.floor(Math.random() * BURG_NAMES_PREFIX.length)];
+			const suff =
+				BURG_NAMES_SUFFIX[Math.floor(Math.random() * BURG_NAMES_SUFFIX.length)];
+			name = `${pref}${suff}`;
+		}
+
+		const harborRating = calculateHarborRating(grid, heights, cellId);
+		const crossroadRating = calculateCrossroadRating(
+			grid,
+			heights,
+			biomes,
+			cellId,
+		);
+		const defensiveRating = calculateDefensiveRating(grid, heights, cellId);
+		const capitalRating = calculateCapitalRating(
+			grid,
+			heights,
+			biomes,
+			rivers,
+			flux,
+			cellId,
+		);
+
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		burgs.push({
 			id: nextBurgId++,
 			cell: cellId,

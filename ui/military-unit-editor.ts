@@ -10,6 +10,7 @@ export function mountMilitaryUnitEditor(containerId: string) {
 	const container = document.getElementById(containerId);
 	if (!container) return;
 
+<<<<<<< HEAD
 	const renderEditor = () => {
 		const state = store.getState() as any;
 		const unitTypes = state.militaryUnitTypes || [
@@ -24,6 +25,11 @@ export function mountMilitaryUnitEditor(containerId: string) {
         <span>⚔️ Regiment Classes Setup</span>
         <span id="closeMilitaryBtn" style="cursor: pointer; color: #94a3b8; font-size: 1.2rem;">&times;</span>
       </h3>
+=======
+	container.innerHTML = `
+    <div style="background: rgba(30, 30, 38, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); padding: 1rem; border-radius: 12px; font-size: 0.85rem; color: #e2e8f0; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 0.5rem;">
+      <h3 style="margin-top: 0; color: #38bdf8; border-bottom: 1px solid #333; padding-bottom: 0.25rem;">Military Units Setup</h3>
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
       
       <!-- Existing Unit Types List -->
       <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 600; text-transform: uppercase; margin-bottom: 0.3rem;">Active Unit Types</div>
@@ -82,6 +88,7 @@ export function mountMilitaryUnitEditor(containerId: string) {
     </div>
     `;
 
+<<<<<<< HEAD
 		// Attach Events
 		const panel = document.getElementById("militaryUnitPanel") as HTMLDivElement;
 		const closeBtn = document.getElementById("closeMilitaryBtn") as HTMLSpanElement;
@@ -166,4 +173,23 @@ export function mountMilitaryUnitEditor(containerId: string) {
 
 	// Initial render
 	renderEditor();
+=======
+	const select = document.getElementById("milTypeSelect") as HTMLSelectElement;
+	const attack = document.getElementById("milAttack") as HTMLInputElement;
+	const speed = document.getElementById("milSpeed") as HTMLInputElement;
+
+	select.addEventListener("change", () => {
+		const val = select.value;
+		if (val === "infantry") {
+			attack.value = "10";
+			speed.value = "1.0";
+		} else if (val === "cavalry") {
+			attack.value = "15";
+			speed.value = "1.8";
+		} else {
+			attack.value = "20";
+			speed.value = "2.2";
+		}
+	});
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 }

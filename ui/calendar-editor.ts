@@ -1,4 +1,5 @@
 import {
+<<<<<<< HEAD
 	initializeEcology,
 	simulateEcologyStep,
 } from "../simulation/ecology/ecology-simulator";
@@ -9,11 +10,16 @@ import {
 	generateMagicNodes,
 } from "../simulation/magic/magic-system";
 import {
+=======
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 	type CustomMonth,
 	type CustomMoon,
 	CustomMoonPhase,
 	type CustomSeason,
+<<<<<<< HEAD
 	type CustomHoliday,
+=======
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 	store,
 } from "../state/store";
 
@@ -118,9 +124,12 @@ export function mountCalendarEditor(containerId: string, onUpdate: () => void) {
 	const tabMoonsBtn = document.getElementById(
 		"tabMoonsBtn",
 	) as HTMLButtonElement;
+<<<<<<< HEAD
 	const tabHolidaysBtn = document.getElementById(
 		"tabHolidaysBtn",
 	) as HTMLButtonElement;
+=======
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 
 	const tabWeeksContent = document.getElementById(
 		"tabWeeksContent",
@@ -131,9 +140,12 @@ export function mountCalendarEditor(containerId: string, onUpdate: () => void) {
 	const tabMoonsContent = document.getElementById(
 		"tabMoonsContent",
 	) as HTMLDivElement;
+<<<<<<< HEAD
 	const tabHolidaysContent = document.getElementById(
 		"tabHolidaysContent",
 	) as HTMLDivElement;
+=======
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 
 	const weekdaysList = document.getElementById(
 		"weekdaysList",
@@ -155,6 +167,7 @@ export function mountCalendarEditor(containerId: string, onUpdate: () => void) {
 	const moonsList = document.getElementById("moonsList") as HTMLDivElement;
 	const addMoonBtn = document.getElementById("addMoonBtn") as HTMLButtonElement;
 
+<<<<<<< HEAD
 	const holidaysList = document.getElementById("holidaysList") as HTMLDivElement;
 	const addHolidayBtn = document.getElementById("addHolidayBtn") as HTMLButtonElement;
 
@@ -188,6 +201,32 @@ export function mountCalendarEditor(containerId: string, onUpdate: () => void) {
 	tabMoonsBtn.addEventListener("click", () => selectTab("moons"));
 	tabHolidaysBtn.addEventListener("click", () => selectTab("holidays"));
 
+=======
+	let localWeekdays: string[] = [];
+	let localMonths: CustomMonth[] = [];
+	let localSeasons: CustomSeason[] = [];
+	let localMoons: CustomMoon[] = [];
+
+	// Tab Switch logic
+	const selectTab = (tab: "weeks" | "seasons" | "moons") => {
+		tabWeeksBtn.style.background = tab === "weeks" ? "#2563eb" : "#1e1e24";
+		tabWeeksBtn.style.color = tab === "weeks" ? "white" : "#94a3b8";
+		tabWeeksContent.style.display = tab === "weeks" ? "block" : "none";
+
+		tabSeasonsBtn.style.background = tab === "seasons" ? "#2563eb" : "#1e1e24";
+		tabSeasonsBtn.style.color = tab === "seasons" ? "white" : "#94a3b8";
+		tabSeasonsContent.style.display = tab === "seasons" ? "block" : "none";
+
+		tabMoonsBtn.style.background = tab === "moons" ? "#2563eb" : "#1e1e24";
+		tabMoonsBtn.style.color = tab === "moons" ? "white" : "#94a3b8";
+		tabMoonsContent.style.display = tab === "moons" ? "block" : "none";
+	};
+
+	tabWeeksBtn.addEventListener("click", () => selectTab("weeks"));
+	tabSeasonsBtn.addEventListener("click", () => selectTab("seasons"));
+	tabMoonsBtn.addEventListener("click", () => selectTab("moons"));
+
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 	// Weekdays builders
 	const renderWeekdays = () => {
 		weekdaysList.innerHTML = localWeekdays
@@ -409,6 +448,7 @@ export function mountCalendarEditor(containerId: string, onUpdate: () => void) {
           <input type="number" class="moon-length-input" data-idx="${idx}" value="${m.cycleLength}" min="1" style="width: 100%; padding: 0.25rem; background: #0f0f12; border: 1px solid #444; color: #fbbf24; border-radius: 4px; font-size: 0.8rem; font-weight: bold;" />
         </div>
         <div style="margin-top: 0.4rem;">
+<<<<<<< HEAD
           <span style="font-size: 0.75rem; color: #fbbf24; font-weight: bold;">Moon Phase States & Effects</span>
           <div class="phases-container" data-idx="${idx}" style="display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.2rem;">
             ${(m.customPhases || [])
@@ -432,6 +472,18 @@ export function mountCalendarEditor(containerId: string, onUpdate: () => void) {
                     <option value="peace_surge" ${p.effect === "peace_surge" ? "selected" : ""}>🌕 Celestial Harmony (+3 daily happiness, +2 daily safety)</option>
                   </select>
                 </div>
+=======
+          <span style="font-size: 0.75rem; color: #fbbf24; font-weight: bold;">Moon Phase States</span>
+          <div class="phases-container" data-idx="${idx}" style="display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.2rem;">
+            ${(m.customPhases || [])
+							.map(
+								(p, pIdx) => `
+              <div style="display: flex; gap: 0.2rem; align-items: center; font-size: 0.75rem;">
+                <input type="text" class="phase-name-input" data-moon="${idx}" data-phase="${pIdx}" value="${p.name}" placeholder="Phase" style="flex: 2; background: #0f0f12; border: 1px solid #444; color: white; font-size: 0.7rem; padding: 0.15rem;" />
+                <input type="number" step="0.1" class="phase-ratio-input" data-moon="${idx}" data-phase="${pIdx}" value="${p.ratio}" placeholder="Weight" style="width: 35px; background: #0f0f12; border: 1px solid #444; color: #a7f3d0; font-size: 0.7rem; padding: 0.15rem;" />
+                <input type="number" step="0.1" class="phase-mod-input" data-moon="${idx}" data-phase="${pIdx}" value="${p.modifier}" placeholder="Mod" style="width: 35px; background: #0f0f12; border: 1px solid #444; color: #a7f3d0; font-size: 0.7rem; padding: 0.15rem;" />
+                <button class="remove-phase-btn" data-moon="${idx}" data-phase="${pIdx}" style="background: #ef4444; border: none; padding: 0 0.2rem; color: white; cursor: pointer; font-size: 0.7rem; border-radius: 3px;">&times;</button>
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
               </div>
             `,
 							)
@@ -489,6 +541,7 @@ export function mountCalendarEditor(containerId: string, onUpdate: () => void) {
 			});
 		});
 
+<<<<<<< HEAD
 		document.querySelectorAll(".phase-effect-select").forEach((sel) => {
 			sel.addEventListener("change", (e) => {
 				const target = e.target as HTMLSelectElement;
@@ -504,10 +557,32 @@ export function mountCalendarEditor(containerId: string, onUpdate: () => void) {
 				const mIdx = parseInt(target.dataset.moon || "0", 10);
 				const pIdx = parseInt(target.dataset.phase || "0", 10);
 				localMoons[mIdx].customPhases.splice(pIdx, 1);
+=======
+		document.querySelectorAll(".remove-phase-btn").forEach((btn) => {
+			btn.addEventListener("click", (e) => {
+				const target = e.currentTarget as HTMLButtonElement;
+				const mIdx = parseInt(target.dataset.moon || "0", 10);
+				const pIdx = parseInt(target.dataset.phase || "0", 10);
+				localMoons[mIdx].customPhases.splice(pIdx, 1);
 				renderMoons();
 			});
 		});
 
+		document.querySelectorAll(".add-phase-btn").forEach((btn) => {
+			btn.addEventListener("click", (e) => {
+				const target = e.currentTarget as HTMLButtonElement;
+				const idx = parseInt(target.dataset.idx || "0", 10);
+				localMoons[idx].customPhases.push({
+					name: `Phase ${localMoons[idx].customPhases.length + 1}`,
+					ratio: 1.0,
+					modifier: 1.0,
+				});
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
+				renderMoons();
+			});
+		});
+
+<<<<<<< HEAD
 		document.querySelectorAll(".add-phase-btn").forEach((btn) => {
 			btn.addEventListener("click", (e) => {
 				const target = e.currentTarget as HTMLButtonElement;
@@ -870,6 +945,80 @@ export function mountCalendarEditor(containerId: string, onUpdate: () => void) {
 		renderHolidays();
 		selectTab("weeks");
 
+=======
+		document.querySelectorAll(".remove-moon-btn").forEach((btn) => {
+			btn.addEventListener("click", (e) => {
+				const target = e.currentTarget as HTMLButtonElement;
+				const idx = parseInt(target.dataset.idx || "0", 10);
+				localMoons.splice(idx, 1);
+				renderMoons();
+			});
+		});
+	};
+
+	addMoonBtn.addEventListener("click", () => {
+		localMoons.push({
+			name: `Moon ${localMoons.length + 1}`,
+			cycleLength: 30,
+			customPhases: [
+				{ name: "New Moon", ratio: 1.0, modifier: 1.0 },
+				{ name: "Full Moon", ratio: 1.0, modifier: 1.0 },
+			],
+		});
+		renderMoons();
+	});
+
+	const closePanel = () => {
+		panel.style.display = "none";
+	};
+
+	closeBtn.addEventListener("click", closePanel);
+	cancelBtn.addEventListener("click", closePanel);
+
+	if (quickRecalcBtn)
+		quickRecalcBtn.addEventListener("click", () =>
+			console.log("Cycles recalculated"),
+		);
+	if (syncEcologyBtn)
+		syncEcologyBtn.addEventListener("click", () =>
+			console.log("Ecology synced"),
+		);
+	if (syncMagicBtn)
+		syncMagicBtn.addEventListener("click", () => console.log("Magic synced"));
+	if (manualPlacementBtn)
+		manualPlacementBtn.addEventListener("click", () =>
+			console.log("Manual placement mode"),
+		);
+
+	applyBtn.addEventListener("click", () => {
+		store.updateState({
+			weekdays: [...localWeekdays],
+			months: [...localMonths],
+			seasons: [...localSeasons],
+			moons: [...localMoons],
+		});
+		panel.style.display = "none";
+		onUpdate();
+	});
+
+	// Export activation hook
+	(window as any).openCalendarEditor = () => {
+		const state = store.getState();
+		localWeekdays = [...state.weekdays];
+		localMonths = state.months.map((m) => ({ ...m }));
+		localSeasons = state.seasons.map((s) => ({ ...s }));
+		localMoons = state.moons.map((m) => ({
+			...m,
+			customPhases: m.customPhases.map((p) => ({ ...p })),
+		}));
+
+		renderWeekdays();
+		renderMonths();
+		renderSeasons();
+		renderMoons();
+		selectTab("weeks");
+
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		panel.style.display = "block";
 	};
 
@@ -902,13 +1051,19 @@ export function mountCalendarEditor(containerId: string, onUpdate: () => void) {
 			...m,
 			customPhases: m.customPhases.map((p) => ({ ...p })),
 		}));
+<<<<<<< HEAD
 		localHolidays = (state.holidays || []).map((h) => ({ ...h }));
 
+=======
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		renderWeekdays();
 		renderMonths();
 		renderSeasons();
 		renderMoons();
+<<<<<<< HEAD
 		renderHolidays();
+=======
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		selectTab("weeks");
 
 		// Wire cancel button to collapse the inline container

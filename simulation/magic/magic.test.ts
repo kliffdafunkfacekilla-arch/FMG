@@ -105,7 +105,11 @@ describe("Custom Magic System Simulation", () => {
 
 		// Mock high probability loop
 		let mutated = false;
+<<<<<<< HEAD
 		for (let k = 0; k < 500; k++) {
+=======
+		for (let k = 0; k < 100; k++) {
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 			const nextBiomes = runMagicVolatilityChecks(biomes, flux, volatileTypes);
 			if (nextBiomes[25] === 3 || nextBiomes[25] === 4) {
 				mutated = true;

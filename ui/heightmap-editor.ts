@@ -16,11 +16,16 @@ export function mountHeightmapEditor(
 	if (!container) return;
 
 	container.innerHTML = `
+<<<<<<< HEAD
     <div id="heightmapEditorPanel" style="display: none; background: rgba(30, 30, 38, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); padding: 1rem; border-radius: 12px; font-size: 0.85rem; color: #e2e8f0; width: 100%; box-sizing: border-box; flex-direction: column; gap: 0.6rem; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
       <h3 style="margin-top: 0; color: #fbbf24; border-bottom: 1px solid #333; padding-bottom: 0.25rem; font-size: 0.95rem; display: flex; justify-content: space-between; align-items: center;">
         <span>Heightmap Editor</span>
         <span id="closeHeightmapBtn" style="cursor: pointer; color: #94a3b8; font-size: 1.1rem;">&times;</span>
       </h3>
+=======
+    <div style="background: rgba(30, 30, 38, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); padding: 1rem; border-radius: 12px; font-size: 0.85rem; color: #e2e8f0; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 0.6rem;">
+      <h3 style="margin-top: 0; color: #fbbf24; border-bottom: 1px solid #333; padding-bottom: 0.25rem; font-size: 0.95rem;">Heightmap Editor</h3>
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
       
       <!-- Sub-tabs navigation -->
       <div style="display: flex; gap: 0.2rem; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 0.4rem; margin-bottom: 0.2rem;">
@@ -146,6 +151,7 @@ export function mountHeightmapEditor(
 	templateTab.addEventListener("click", () => switchTab(templateTab, tempSec));
 	importTab.addEventListener("click", () => switchTab(importTab, impSec));
 
+<<<<<<< HEAD
 	const closeBtn = document.getElementById("closeHeightmapBtn");
 	const panel = document.getElementById("heightmapEditorPanel");
 	if (closeBtn && panel) {
@@ -325,12 +331,110 @@ export function mountHeightmapEditor(
 				heights[i] = Math.round((val / 255) * 100);
 			}
 
+=======
+	// Brush controls
+	modeSelect.addEventListener("change", () => {
+		if (modeSelect.value === "set") {
+			setWrap.style.display = "block";
+		} else {
+			setWrap.style.display = "none";
+		}
+		const win = window as any;
+		if (win.triggerLayerSelect && modeSelect.value !== "none") {
+			win.triggerLayerSelect("heightmap");
+		}
+	});
+
+	// Template execution
+	runTemplateBtn.addEventListener("click", () => {
+		const rules = templateText.value.trim();
+		if (!rules) return;
+
+		const state = store.getState() as any;
+		if (!state.grid || !state.heights) return;
+
+		const generator = new HeightmapGenerator(
+			state.grid,
+			state.width,
+			state.height,
+			state.seed || "map-seed",
+		);
+		// Run template calculations
+		const nextHeights = generator.executeTemplate(rules);
+
+		// Re-run hydrology simulation based on new heights
+		const hydro = generateHydrology(
+			state.grid,
+			nextHeights,
+			state.prec || new Uint8Array(state.heights.length).fill(10),
+		);
+		const baked = bakeErosion(
+			state.grid,
+			hydro.heights,
+			hydro.flowDirections,
+			2,
+		);
+
+		store.updateState({
+			heights: baked,
+			flowDirections: hydro.flowDirections,
+			flux: hydro.flux,
+			rivers: hydro.rivers,
+		});
+
+		onUpdate();
+	});
+
+	// Image import
+	btn.addEventListener("click", () => {
+		fileInput.click();
+	});
+
+	fileInput.addEventListener("change", (e) => {
+		const target = e.target as HTMLInputElement;
+		const file = target.files?.[0];
+		if (!file) return;
+
+		const img = new Image();
+		img.src = URL.createObjectURL(file);
+		img.onload = () => {
+			const state = store.getState() as any;
+			if (!state.grid || !state.heights) return;
+
+			const tempCanvas = document.createElement("canvas");
+			tempCanvas.width = state.width;
+			tempCanvas.height = state.height;
+			const tempCtx = tempCanvas.getContext("2d");
+			if (!tempCtx) return;
+
+			tempCtx.drawImage(img, 0, 0, state.width, state.height);
+			const imgData = tempCtx.getImageData(0, 0, state.width, state.height);
+
+			const heights = new Uint8Array(state.heights.length);
+			const points = state.grid.points;
+
+			for (let i = 0; i < points.length; i++) {
+				const [px, py] = points[i];
+				const cx = Math.min(Math.max(Math.round(px), 0), state.width - 1);
+				const cy = Math.min(Math.max(Math.round(py), 0), state.height - 1);
+
+				const idx = (cy * state.width + cx) * 4;
+				const r = imgData.data[idx];
+				const g = imgData.data[idx + 1];
+				const b = imgData.data[idx + 2];
+
+				const val = Math.round((r + g + b) / 3);
+				heights[i] = Math.round((val / 255) * 100);
+			}
+
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 			store.updateState({ heights });
 			onUpdate();
 			URL.revokeObjectURL(img.src);
 		};
 	});
 
+<<<<<<< HEAD
 	// Export heightmap brush config globally
 	(window as any).getCurrentHeightmapBrushConfig = () => {
 		return {
@@ -348,4 +452,11 @@ export function mountHeightmapEditor(
 			value: 50,
 		};
 	};
+=======
+	// Export brush retrieval hook globally
+	(window as any).getCurrentBrushConfig = (): BrushConfig => ({
+		mode: modeSelect.value as any,
+		value: parseInt(setVal.value, 10) || 50,
+	});
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 }

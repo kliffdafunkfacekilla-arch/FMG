@@ -105,7 +105,10 @@ export function generateCultures(
 	flux?: Float32Array,
 	rivers?: Uint16Array,
 	existingCultures?: Culture[],
+<<<<<<< HEAD
 	underwaterCount = 0,
+=======
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 ): { cultures: Culture[]; cellCultures: Uint8Array } {
 	const pointsN = heights.length;
 	const cellCultures = new Uint8Array(pointsN).fill(0); // 0 = Wild / No Culture
@@ -124,6 +127,7 @@ export function generateCultures(
 		}
 	}
 
+<<<<<<< HEAD
 	const oceanCandidates: number[] = [];
 	if (underwaterCount > 0) {
 		for (let i = 0; i < pointsN; i++) {
@@ -283,6 +287,105 @@ export function generateCultures(
 
 		if (curr.cost > minCost[curr.cellId]) continue;
 
+=======
+	if (candidates.length === 0) {
+		return { cultures, cellCultures };
+	}
+
+	// Shuffle candidates
+	candidates.sort(() => rng() - 0.5);
+
+	const actualCount = Math.min(count, candidates.length);
+	const centers = candidates.slice(0, actualCount);
+
+	// Initialize seeds
+	type QItem = {
+		cellId: number;
+		cost: number;
+		cultureId: number;
+		type: string;
+		nativeBiome: number;
+		expansionism: number;
+		habitat: "land" | "ocean" | "amphibious";
+	};
+	const queue = new FlatQueue<QItem>();
+	for (let i = 0; i < actualCount; i++) {
+		const cultureId = i + 1;
+		const center = centers[i];
+		const existing = existingCultures?.find((c) => c.id === cultureId);
+
+		const name = CULTURE_NAMES[i % CULTURE_NAMES.length];
+
+		let base = i % 10; // Default to standard sequential bases
+		let type = "Generic";
+		if (name === "Highland") {
+			type = "Highland";
+			base = 22; // Celtic/Keltan
+		} else if (name === "Nomadic" || name === "Steppe") {
+			type = "Nomadic";
+			base = 31; // Mongolian/Ulus
+		} else if (name === "Maritime") {
+			type = "Naval";
+			base = 25; // Polynesian/Maui
+		} else if (name === "Riverine") {
+			type = "River";
+			base = 18; // Arabic/Eurabic
+		} else if (name === "Sylvan") {
+			type = "Sylvan";
+			base = 33; // Elven/Quenian
+		}
+
+		let cultureName = existing ? existing.name : Names.getBase(base);
+		if (
+			!existing &&
+			!cultureName.endsWith("ic") &&
+			!cultureName.endsWith("ian") &&
+			!cultureName.endsWith("an")
+		) {
+			cultureName += "ian";
+		}
+
+		const habitat = existing ? existing.habitat : "land";
+
+		cultures.push({
+			id: cultureId,
+			name: cultureName,
+			color: existing?.color || CULTURE_COLORS[i % CULTURE_COLORS.length],
+			center,
+			base,
+			habitat,
+		});
+		cellCultures[center] = cultureId;
+
+		queue.push(
+			{
+				cellId: center,
+				cost: 0,
+				cultureId,
+				type,
+				nativeBiome: biomes[center],
+				expansionism: 1.0,
+				habitat,
+			},
+			0,
+		);
+	}
+
+	// 2. Dijkstra expansion
+	const minCost = new Float32Array(pointsN).fill(Infinity);
+	for (let i = 0; i < actualCount; i++) {
+		minCost[centers[i]] = 0;
+	}
+
+	const maxExpansionCost = pointsN * 0.6;
+
+	// Simple priority queue loop (Dijkstra)
+	while (queue.length > 0) {
+		const curr = queue.pop()!;
+
+		if (curr.cost > minCost[curr.cellId]) continue;
+
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		const neighbors = grid.cells.c[curr.cellId] || [];
 		for (const n of neighbors) {
 			const sourceBiome = biomes[curr.cellId];
@@ -320,7 +423,11 @@ export function generateCultures(
 
 			if (totalCost < minCost[n]) {
 				minCost[n] = totalCost;
+<<<<<<< HEAD
 				if (curr.habitat === "ocean" || heights[n] >= 20 || targetBiome !== 11) {
+=======
+				if (heights[n] >= 20 || targetBiome !== 11) {
+>>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 					cellCultures[n] = curr.cultureId;
 				}
 				queue.push(
