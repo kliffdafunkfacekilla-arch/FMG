@@ -49,6 +49,15 @@ export interface NestedUnit {
 	speedY: number;
 }
 
+export interface TradeCaravan {
+	id: string;
+	routeId: string; // matches route id in routes[]
+	goodId: number;
+	stateId: number;
+	progress: number; // 0..1 along route path
+	speed: number; // progress units per tick (e.g. 0.02)
+}
+
 export interface NestedLocalZone {
 	id: number;
 	name: string;
@@ -281,6 +290,23 @@ export interface AppState {
 	showTemp: boolean;
 	showPrec: boolean;
 
+	// Border & Fill Mode
+	showBorders: boolean;
+	borderType: "political" | "province" | "culture" | "all";
+	/** Per thematic layer: "fill" draws colored cells, "border-only" draws only outlines, "both" draws both */
+	layerFillModes: Record<string, "fill" | "border-only" | "both">;
+
+	// Visual Detail Layers
+	showReliefIcons: boolean; // procedural terrain sprites at zoom >= 3
+	showEmblems: boolean;     // state heraldry shields over capitals
+	showCoastlines: boolean;  // fractal concentric coastline rings at zoom >= 2.5
+	showScalebar: boolean;    // scale bar overlay
+	showLegend: boolean;      // color legend overlay for active thematic layer
+	worldSizeKm: number;      // world diameter in km for scalebar calculation
+
+	// Trade Caravans
+	tradeCaravans: TradeCaravan[];
+
 	// Civilization & Political Data
 	states: any[] | null;
 	burgs: any[] | null;
@@ -399,6 +425,19 @@ class StateStore {
 			showTemp: false,
 			showPrec: false,
 
+			showBorders: true,
+			borderType: "political",
+			layerFillModes: {},
+
+			showReliefIcons: true,
+			showEmblems: true,
+			showCoastlines: true,
+			showScalebar: true,
+			showLegend: false,
+			worldSizeKm: 10000,
+
+			tradeCaravans: [],
+
 			states: [],
 			burgs: [],
 			cultures: [],
@@ -425,14 +464,20 @@ class StateStore {
 				"provinces",
 				"religions",
 				"goods",
+				"coastlines",
+				"borders",
 				"grid",
 				"rivers",
 				"zones",
 				"routes",
+				"caravans",
+				"relief",
 				"markers",
 				"burgs",
+				"emblems",
 				"military",
 				"labels",
+				"scalebar",
 			],
 			layerStyles: {
 				heightmap: { opacity: 1.0, color: "rgba(0, 0, 0, 0.15)", size: 1.0 },
@@ -456,6 +501,12 @@ class StateStore {
 				markers: { opacity: 1.0, color: "#fbbf24", size: 1.0 },
 				labels: { opacity: 1.0, color: "#ffffff", size: 11.0 },
 				zones: { opacity: 0.4, color: "rgba(0, 0, 0, 0.1)", size: 1.0 },
+				borders: { opacity: 1.0, color: "#1a1a1a", size: 1.5 },
+				coastlines: { opacity: 0.6, color: "#1a4a6e", size: 1.0 },
+				relief: { opacity: 0.85, color: "#5a7a3a", size: 1.0 },
+				emblems: { opacity: 0.9, color: "#ffffff", size: 1.0 },
+				caravans: { opacity: 1.0, color: "#f59e0b", size: 1.0 },
+				scalebar: { opacity: 0.85, color: "#ffffff", size: 1.0 },
 			},
 
 			magicTypes: [

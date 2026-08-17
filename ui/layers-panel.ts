@@ -6,49 +6,46 @@ export function mountLayersPanel(containerId: string) {
 
 	const getVisibilityKey = (layer: string): keyof AppState | null => {
 		switch (layer) {
-			case "grid":
-				return "showGrid";
-			case "rivers":
-				return "showRivers";
-			case "routes":
-				return "showRoutes";
-			case "burgs":
-				return "showBurgs";
-			case "military":
-				return "showMilitary";
-			case "markers":
-				return "showMarkers";
-			case "labels":
-				return "showLabels";
-			case "zones":
-				return "showZones";
-			default:
-				return null;
+			case "grid": return "showGrid";
+			case "rivers": return "showRivers";
+			case "routes": return "showRoutes";
+			case "burgs": return "showBurgs";
+			case "military": return "showMilitary";
+			case "markers": return "showMarkers";
+			case "labels": return "showLabels";
+			case "zones": return "showZones";
+			case "borders": return "showBorders";
+			case "coastlines": return "showCoastlines";
+			case "relief": return "showReliefIcons";
+			case "emblems": return "showEmblems";
+			case "caravans": return "showRoutes"; // caravans follow routes visibility
+			case "scalebar": return "showScalebar";
+			default: return null;
 		}
 	};
 
+	/** Thematic fill-mode layers: show fill mode toggle button */
+	const FILL_MODE_LAYERS = new Set(["heightmap", "biomes", "cultures", "states", "provinces", "religions", "goods", "temp", "prec"]);
+
 	const getShortcut = (layer: string): string => {
 		switch (layer) {
-			case "grid":
-				return "G";
-			case "rivers":
-				return "R";
-			case "routes":
-				return "T";
-			case "burgs":
-				return "B";
-			case "military":
-				return "M";
-			case "markers":
-				return "K";
-			case "labels":
-				return "L";
-			case "zones":
-				return "Z";
-			default:
-				return "";
+			case "grid": return "G";
+			case "rivers": return "R";
+			case "routes": return "T";
+			case "burgs": return "B";
+			case "military": return "M";
+			case "markers": return "K";
+			case "labels": return "L";
+			case "zones": return "Z";
+			case "borders": return "D";
+			case "coastlines": return "C";
+			case "relief": return "I";
+			case "emblems": return "E";
+			case "scalebar": return "S";
+			default: return "";
 		}
 	};
+
 
 	const wrapper = document.createElement("div");
 	wrapper.id = "layersEditorPanel";
@@ -124,14 +121,17 @@ export function mountLayersPanel(containerId: string) {
 
 			const visKey = getVisibilityKey(layerId);
 			const isVisible = visKey ? state[visKey as keyof AppState] : true;
-
 			const shortcut = getShortcut(layerId);
 			const shortcutHint = shortcut ? ` [${shortcut}]` : "";
+			const isFillLayer = FILL_MODE_LAYERS.has(layerId);
+			const fillMode: string = (state.layerFillModes?.[layerId]) || "fill";
+			const fillModeLabel = fillMode === "border-only" ? "⬜ Border" : fillMode === "both" ? "⊞ Both" : "■ Fill";
 
 			li.innerHTML = `
-        <span style="font-weight: bold; color: ${isVisible ? "#fff" : "#64748b"}; text-transform: capitalize;">
+        <span style="font-weight: bold; color: ${isVisible ? "#fff" : "#64748b"}; text-transform: capitalize; flex:1;">
           ≡ ${layerId}
         </span>
+        ${isFillLayer ? `<button title="Fill mode" class="fillModeBtn" data-layer="${layerId}" data-mode="${fillMode}" style="background: #1e3a5f; border: none; color: #93c5fd; padding: 0.15rem 0.4rem; border-radius: 4px; cursor: pointer; font-size: 0.7rem; margin-right: 0.25rem;">${fillModeLabel}</button>` : ""}
         ${visKey ? `<button title="Toggle visibility${shortcutHint}" class="toggleLayerBtn" data-key="${visKey}" style="background: ${isVisible ? "#10b981" : "#4b5563"}; border: none; color: white; padding: 0.2rem 0.5rem; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">${isVisible ? "ON" : "OFF"}</button>` : ""}
       `;
 
@@ -176,14 +176,25 @@ export function mountLayersPanel(containerId: string) {
 		const toggleBtns = layersList.querySelectorAll(".toggleLayerBtn");
 		toggleBtns.forEach((btn) => {
 			btn.addEventListener("click", (e) => {
-				const key = (e.currentTarget as HTMLButtonElement).getAttribute(
-					"data-key",
-				);
+				const key = (e.currentTarget as HTMLButtonElement).getAttribute("data-key");
 				if (key) {
 					const currentState = store.getState()[key as keyof AppState];
 					store.updateState({ [key]: !currentState });
 					renderLayers();
 				}
+			});
+		});
+
+		// Fill mode cycle: fill → border-only → both → fill
+		const fillModeBtns = layersList.querySelectorAll(".fillModeBtn");
+		fillModeBtns.forEach((btn) => {
+			btn.addEventListener("click", (e) => {
+				const layerKey = (e.currentTarget as HTMLButtonElement).getAttribute("data-layer")!;
+				const current = (e.currentTarget as HTMLButtonElement).getAttribute("data-mode") || "fill";
+				const next = current === "fill" ? "border-only" : current === "border-only" ? "both" : "fill";
+				const newModes = { ...(store.getState().layerFillModes || {}), [layerKey]: next };
+				store.updateState({ layerFillModes: newModes } as any);
+				renderLayers();
 			});
 		});
 	};
@@ -247,6 +258,11 @@ export function mountLayersPanel(containerId: string) {
 			case "Z":
 				targetKey = "showZones";
 				break;
+			case "D": targetKey = "showBorders"; break;
+			case "C": targetKey = "showCoastlines"; break;
+			case "I": targetKey = "showReliefIcons"; break;
+			case "E": targetKey = "showEmblems"; break;
+			case "S": targetKey = "showScalebar"; break;
 		}
 
 		if (targetKey) {

@@ -927,6 +927,356 @@ export function renderMap(
 		ctx.restore();
 	};
 
+	// ─── NEW VISUAL LAYERS ─────────────────────────────────────────────────
+
+	const drawBorders = () => {
+		if (!state.showBorders) return;
+		ctx.save();
+		const style = state.layerStyles?.borders || { opacity: 1.0, color: "#1a1a1a", size: 1.5 };
+		ctx.globalAlpha = style.opacity;
+		const zoom = state.zoom || 1.0;
+		ctx.lineCap = "round";
+		ctx.lineJoin = "round";
+
+		const bt = state.borderType || "political";
+
+		for (let i = 0; i < pointsN; i++) {
+			const neighbors = grid.cells.c[i];
+			if (!neighbors) continue;
+			for (let ni = 0; ni < neighbors.length; ni++) {
+				const j = neighbors[ni];
+				if (j <= i) continue; // avoid drawing each edge twice
+
+				let drawLine = false;
+				let lineWidth = 0.8;
+				let lineColor = style.color;
+				let lineDash: number[] = [];
+
+				// Political (state) borders — thick solid
+				if ((bt === "political" || bt === "all") && cellStates) {
+					const si = cellStates[i];
+					const sj = cellStates[j];
+					if (si !== sj && (si > 0 || sj > 0)) {
+						drawLine = true;
+						lineWidth = (style.size * 2.0) / Math.sqrt(zoom);
+						lineColor = style.color;
+					}
+				}
+				// Province borders — medium dashed
+				if (!drawLine && (bt === "province" || bt === "all") && cellProvinces) {
+					const pi = cellProvinces[i];
+					const pj = cellProvinces[j];
+					if (pi !== pj && (pi > 0 || pj > 0)) {
+						drawLine = true;
+						lineWidth = (style.size * 1.2) / Math.sqrt(zoom);
+						lineColor = "rgba(80, 80, 80, 0.9)";
+						lineDash = [4 / zoom, 4 / zoom];
+					}
+				}
+				// Cultural borders — thin dotted
+				if (!drawLine && (bt === "culture" || bt === "all") && cellCultures) {
+					const ci = cellCultures[i];
+					const cj = cellCultures[j];
+					if (ci !== cj && (ci > 0 || cj > 0)) {
+						drawLine = true;
+						lineWidth = (style.size * 0.7) / Math.sqrt(zoom);
+						lineColor = "rgba(160, 100, 200, 0.6)";
+						lineDash = [2 / zoom, 5 / zoom];
+					}
+				}
+
+				if (!drawLine) continue;
+
+				// Find the shared Voronoi edge between cells i and j
+				const vI = grid.cells.v[i] || [];
+				const vJ = grid.cells.v[j] || [];
+				const shared: [number, number][] = [];
+				const setJ = new Set(vJ);
+				for (const vid of vI) {
+					if (setJ.has(vid)) {
+						const vp = grid.vertices.p[vid];
+						if (vp) shared.push(vp as [number, number]);
+					}
+				}
+				if (shared.length < 2) continue;
+
+				ctx.strokeStyle = lineColor;
+				ctx.lineWidth = lineWidth;
+				ctx.setLineDash(lineDash);
+				ctx.beginPath();
+				ctx.moveTo(shared[0][0], shared[0][1]);
+				ctx.lineTo(shared[1][0], shared[1][1]);
+				ctx.stroke();
+			}
+		}
+		ctx.setLineDash([]);
+		ctx.restore();
+	};
+
+	const drawFractalCoastlines = () => {
+		if (!state.showCoastlines || !heights) return;
+		const zoom = state.zoom || 1.0;
+		if (zoom < 2.5) return;
+
+		ctx.save();
+		const style = state.layerStyles?.coastlines || { opacity: 0.6, color: "#1a4a6e", size: 1.0 };
+		ctx.lineCap = "round";
+		ctx.lineJoin = "round";
+
+		// 3 rings with decreasing opacity — matches original ocean-layers.ts look
+		const rings = [
+			{ threshold: 20, alpha: style.opacity, width: (2.0 * style.size) / Math.sqrt(zoom) },
+			{ threshold: 15, alpha: style.opacity * 0.6, width: (1.2 * style.size) / Math.sqrt(zoom) },
+			{ threshold: 10, alpha: style.opacity * 0.35, width: (0.7 * style.size) / Math.sqrt(zoom) },
+		];
+
+		for (const ring of rings) {
+			ctx.globalAlpha = ring.alpha;
+			ctx.strokeStyle = style.color;
+			ctx.lineWidth = ring.width;
+
+			for (let i = 0; i < pointsN; i++) {
+				if ((heights[i] || 0) >= ring.threshold) continue; // only ocean cells at this depth
+
+				const neighbors = grid.cells.c[i];
+				if (!neighbors) continue;
+				for (const j of neighbors) {
+					if ((heights[j] || 0) < ring.threshold) continue; // neighbor is also ocean — skip
+
+					// Find shared edge
+					const vI = grid.cells.v[i] || [];
+					const vJ = grid.cells.v[j] || [];
+					const shared: [number, number][] = [];
+					const setJ = new Set(vJ);
+					for (const vid of vI) {
+						if (setJ.has(vid)) {
+							const vp = grid.vertices.p[vid];
+							if (vp) shared.push(vp as [number, number]);
+						}
+					}
+					if (shared.length < 2) continue;
+
+					// Apply fractal sine-wave offset to midpoint for organic coastlines
+					const [ax, ay] = shared[0];
+					const [bx, by] = shared[1];
+					const mx = (ax + bx) / 2 + Math.sin(ay * 0.08 + ax * 0.05) * (3.5 / zoom);
+					const my = (ay + by) / 2 + Math.cos(ax * 0.08 + ay * 0.05) * (3.5 / zoom);
+
+					ctx.beginPath();
+					ctx.moveTo(ax, ay);
+					ctx.quadraticCurveTo(mx, my, bx, by);
+					ctx.stroke();
+				}
+			}
+		}
+		ctx.restore();
+	};
+
+	const drawReliefIcons = () => {
+		if (!state.showReliefIcons || !heights || !biomes) return;
+		const zoom = state.zoom || 1.0;
+		if (zoom < 3.0) return;
+
+		ctx.save();
+		const style = state.layerStyles?.relief || { opacity: 0.85, color: "#5a7a3a", size: 1.0 };
+		ctx.globalAlpha = style.opacity;
+		const scale = style.size / Math.sqrt(zoom);
+
+		// Stride: show every Nth cell to avoid overwhelming density
+		const stride = Math.max(1, Math.floor(4 / zoom));
+
+		for (let i = 0; i < pointsN; i += stride) {
+			const pt = grid.points[i];
+			if (!pt) continue;
+			const [cx, cy] = pt;
+			const h = heights[i] || 0;
+			const b = biomes[i] || 0;
+
+			// Forest biomes (5-9): draw a tree
+			if ((b >= 5 && b <= 9) && h >= 20) {
+				const treeH = 9 * scale;
+				const treeW = 6 * scale;
+				// Trunk
+				ctx.fillStyle = "#8B5E3C";
+				ctx.fillRect(cx - scale, cy, scale * 2, scale * 3);
+				// Canopy (triangle)
+				ctx.fillStyle = "#3A7A3A";
+				ctx.beginPath();
+				ctx.moveTo(cx, cy - treeH);
+				ctx.lineTo(cx - treeW / 2, cy);
+				ctx.lineTo(cx + treeW / 2, cy);
+				ctx.closePath();
+				ctx.fill();
+			}
+
+			// High elevation: draw mountain
+			if (h >= 70) {
+				const mH = 12 * scale;
+				const mW = 10 * scale;
+				// Base mountain
+				ctx.fillStyle = "#8a7a6a";
+				ctx.beginPath();
+				ctx.moveTo(cx, cy - mH);
+				ctx.lineTo(cx - mW / 2, cy + scale);
+				ctx.lineTo(cx + mW / 2, cy + scale);
+				ctx.closePath();
+				ctx.fill();
+				// Snow cap
+				if (h >= 85) {
+					ctx.fillStyle = "#eaeaea";
+					ctx.beginPath();
+					ctx.moveTo(cx, cy - mH);
+					ctx.lineTo(cx - mW * 0.25, cy - mH * 0.55);
+					ctx.lineTo(cx + mW * 0.25, cy - mH * 0.55);
+					ctx.closePath();
+					ctx.fill();
+				}
+			}
+		}
+		ctx.restore();
+	};
+
+	const drawTradeCaravans = () => {
+		const caravans = state.tradeCaravans;
+		if (!caravans || caravans.length === 0) return;
+		if (!routes) return;
+		const zoom = state.zoom || 1.0;
+		if (zoom < 1.5) return;
+
+		ctx.save();
+		const style = state.layerStyles?.caravans || { opacity: 1.0, color: "#f59e0b", size: 1.0 };
+		ctx.globalAlpha = style.opacity;
+		const iconR = (6 * style.size) / Math.sqrt(zoom);
+
+		for (const caravan of caravans) {
+			// Find matching route
+			const route = (routes as any[]).find((r: any) => r.id === caravan.routeId || r.routeId === caravan.routeId);
+			if (!route || !route.path || route.path.length < 2) continue;
+
+			// Interpolate position along path using progress (0..1)
+			const pathLen = route.path.length;
+			const rawIdx = caravan.progress * (pathLen - 1);
+			const idx0 = Math.floor(rawIdx);
+			const idx1 = Math.min(idx0 + 1, pathLen - 1);
+			const t = rawIdx - idx0;
+
+			const p0 = grid.points[route.path[idx0]];
+			const p1 = grid.points[route.path[idx1]];
+			if (!p0 || !p1) continue;
+
+			const cx = p0[0] + (p1[0] - p0[0]) * t;
+			const cy = p0[1] + (p1[1] - p0[1]) * t;
+
+			// Draw caravan emoji icon — type derived from route type
+			const emoji = route.type === "waterway" ? "⛵" : "🐪";
+			const fontSize = Math.max(8, (14 * style.size) / Math.sqrt(zoom));
+			ctx.font = `${fontSize}px serif`;
+			ctx.textAlign = "center";
+			ctx.textBaseline = "middle";
+			ctx.shadowColor = "rgba(0,0,0,0.7)";
+			ctx.shadowBlur = 3 / Math.sqrt(zoom);
+			ctx.fillText(emoji, cx, cy);
+			ctx.shadowBlur = 0;
+		}
+		ctx.restore();
+	};
+
+	const drawEmblems = () => {
+		if (!state.showEmblems || !burgs) return;
+		const zoom = state.zoom || 1.0;
+		if (zoom < 1.5) return;
+
+		ctx.save();
+		const style = state.layerStyles?.emblems || { opacity: 0.9, color: "#ffffff", size: 1.0 };
+		ctx.globalAlpha = style.opacity;
+
+		const drawShield = (x: number, y: number, color: string, stateId: number, sc: number) => {
+			// Shield outline
+			const sw = 14 * sc;
+			const sh = 18 * sc;
+			ctx.save();
+			ctx.translate(x, y);
+
+			// Shield path (pointed bottom)
+			ctx.beginPath();
+			ctx.moveTo(-sw / 2, -sh / 2);
+			ctx.lineTo(sw / 2, -sh / 2);
+			ctx.lineTo(sw / 2, sh * 0.2);
+			ctx.quadraticCurveTo(sw / 2, sh / 2, 0, sh / 2);
+			ctx.quadraticCurveTo(-sw / 2, sh / 2, -sw / 2, sh * 0.2);
+			ctx.closePath();
+
+			ctx.fillStyle = color;
+			ctx.fill();
+			ctx.strokeStyle = "rgba(0,0,0,0.8)";
+			ctx.lineWidth = 1.0 * sc;
+			ctx.stroke();
+
+			// Procedural charge based on stateId mod 6
+			const charge = stateId % 6;
+			ctx.fillStyle = "rgba(255,255,255,0.7)";
+			if (charge === 0) {
+				// Star
+				const pts = 5;
+				const outer = sw * 0.28;
+				const inner = sw * 0.13;
+				ctx.beginPath();
+				for (let p = 0; p < pts * 2; p++) {
+					const r = p % 2 === 0 ? outer : inner;
+					const a = (p * Math.PI) / pts - Math.PI / 2;
+					p === 0 ? ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r) : ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+				}
+				ctx.closePath();
+				ctx.fill();
+			} else if (charge === 1) {
+				// Cross
+				const cw = sw * 0.12;
+				const cl = sh * 0.45;
+				ctx.fillRect(-cw / 2, -cl / 2, cw, cl);
+				ctx.fillRect(-cl / 2, -cw / 2, cl, cw);
+			} else if (charge === 2) {
+				// Circle
+				ctx.beginPath();
+				ctx.arc(0, 0, sw * 0.22, 0, Math.PI * 2);
+				ctx.fill();
+			} else if (charge === 3) {
+				// Diamond
+				const ds = sw * 0.28;
+				ctx.beginPath();
+				ctx.moveTo(0, -ds);
+				ctx.lineTo(ds, 0);
+				ctx.lineTo(0, ds);
+				ctx.lineTo(-ds, 0);
+				ctx.closePath();
+				ctx.fill();
+			} else if (charge === 4) {
+				// Three horizontal bars (stripes)
+				const bh = sh * 0.12;
+				for (let b = -1; b <= 1; b++) {
+					ctx.fillRect(-sw * 0.35, b * sh * 0.26 - bh / 2, sw * 0.7, bh);
+				}
+			} else {
+				// Triangle (chevron)
+				ctx.beginPath();
+				ctx.moveTo(0, -sh * 0.28);
+				ctx.lineTo(sw * 0.35, sh * 0.15);
+				ctx.lineTo(-sw * 0.35, sh * 0.15);
+				ctx.closePath();
+				ctx.fill();
+			}
+			ctx.restore();
+		};
+
+		for (const b of burgs) {
+			if (!b.isCapital) continue;
+			const stateId = b.stateId || 1;
+			const color = STATE_COLORS[(stateId - 1) % STATE_COLORS.length] || "#555";
+			const sc = (style.size * (zoom >= 4.0 ? 1.2 : 0.75)) / Math.sqrt(zoom);
+			drawShield(b.x, b.y - 20 / Math.sqrt(zoom), color, stateId, sc);
+		}
+		ctx.restore();
+	};
+
 	// 2. Loop through layerOrder to draw in correct sequence
 	const order = state.layerOrder || [
 		"heightmap",
@@ -938,14 +1288,20 @@ export function renderMap(
 		"provinces",
 		"religions",
 		"goods",
+		"coastlines",
+		"borders",
 		"grid",
 		"rivers",
 		"zones",
 		"routes",
+		"caravans",
+		"relief",
 		"markers",
 		"burgs",
+		"emblems",
 		"military",
 		"labels",
+		"scalebar",
 	];
 	for (const layerId of order) {
 		if (
@@ -971,6 +1327,11 @@ export function renderMap(
 		else if (layerId === "military") drawMilitary();
 		else if (layerId === "markers") drawMarkers();
 		else if (layerId === "labels") drawLabels();
+		else if (layerId === "borders") drawBorders();
+		else if (layerId === "coastlines") drawFractalCoastlines();
+		else if (layerId === "relief") drawReliefIcons();
+		else if (layerId === "caravans") drawTradeCaravans();
+		else if (layerId === "emblems") drawEmblems();
 	}
 
 	// 3. Draw Nested LOD system overlay & entities

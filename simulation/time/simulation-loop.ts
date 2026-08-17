@@ -1603,6 +1603,24 @@ export class SimulationLoop {
 			}
 		}
 
+		// ─── TRADE CARAVAN ADVANCEMENT ──────────────────────────────────────
+		const caravans = currentState.tradeCaravans || [];
+		const routes = currentState.routes || [];
+		const updatedCaravans = caravans.map((caravan: any) => {
+			const newProgress = Math.min(1.0, caravan.progress + caravan.speed * ticks);
+			// If arrived, log delivery and reset to start
+			if (newProgress >= 1.0) {
+				const goodName = GOODS[caravan.goodId]?.name || "Goods";
+				if (lodUpdates.globalLogs) {
+					const timeStr = `Day ${calendar.day + 1}, Year ${calendar.year + 1}`;
+					lodUpdates.globalLogs.unshift({ time: timeStr, msg: `Caravan delivered ${goodName} cargo along trade route.`, type: "caravan" });
+					if (lodUpdates.globalLogs.length > 30) lodUpdates.globalLogs.pop();
+				}
+				return { ...caravan, progress: 0 };
+			}
+			return { ...caravan, progress: newProgress };
+		});
+
 		store.updateState({
 			tick: calendar.tick,
 			calendar,
@@ -1632,7 +1650,9 @@ export class SimulationLoop {
 			regionalLogs: lodUpdates.regionalLogs,
 			localLogs: lodUpdates.localLogs,
 			parentStates,
+			tradeCaravans: updatedCaravans,
 		} as any);
+
 	}
 
 	private simulateNestedLOD(

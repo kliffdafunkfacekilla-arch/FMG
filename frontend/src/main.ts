@@ -3,6 +3,7 @@ import {
 	serializeMapState,
 } from "../../core/serialization";
 import { renderMap } from "../../renderer/canvas-renderer";
+import { drawScalebarOverlay, drawCurvedStateLabels } from "../../renderer/scalebar-renderer";
 import { drawMinimap } from "../../renderer/minimap-renderer";
 import { ThreeRenderer } from "../../renderer/three-renderer";
 import { generateBiomes } from "../../simulation/biomes/biomes-generator";
@@ -51,6 +52,7 @@ import { mountRouteEditor } from "../../ui/route-editor";
 import { mountStateEditor } from "../../ui/state-editor";
 import { mountStyleEditor } from "../../ui/style-editor";
 import { mountDashboard } from "../../ui/data-dashboard";
+import { mountCustomResourceEditor } from "../../ui/custom-resource-editor";
 
 console.log("FMG Full-Stack Rebuild Frontend Initialized.");
 
@@ -401,6 +403,7 @@ if (app) {
 		renderCurrentLayer();
 	});
 	mountDashboard("dashboardMount");
+	mountCustomResourceEditor("app");
 
 	// Bind Interactive Editors button group click listeners
 	const btnOpenHeightmap = document.getElementById("btnOpenHeightmap");
@@ -1471,7 +1474,19 @@ if (app) {
 
 	const renderCurrentLayer = () => {
 		if (!canvas || is3DMode) return;
-		renderMap(canvas, store.getState(), currentLayer);
+		const state = store.getState();
+		renderMap(canvas, state, currentLayer);
+		// Scalebar/legend drawn in screen-space after the main scene transform
+		drawScalebarOverlay(canvas, state);
+		// Curved state labels drawn in world-space (inside transform)
+		const ctx = canvas.getContext("2d");
+		if (ctx && state.states && state.burgs && state.showLabels) {
+			ctx.save();
+			ctx.translate(state.offsetX || 0, state.offsetY || 0);
+			ctx.scale(state.zoom || 1.0, state.zoom || 1.0);
+			drawCurvedStateLabels(ctx, state.states, state.burgs, state.zoom || 1.0, state.layerStyles);
+			ctx.restore();
+		}
 	};
 
 	const ensureToolsTabVisible = () => {
@@ -2582,6 +2597,16 @@ if (app) {
 	store.subscribe((state) => {
 		if (canvas) {
 			renderMap(canvas, state, currentLayer);
+			drawScalebarOverlay(canvas, state);
+			// Curved state labels
+			const ctx = canvas.getContext("2d");
+			if (ctx && state.states && state.burgs && state.showLabels) {
+				ctx.save();
+				ctx.translate(state.offsetX || 0, state.offsetY || 0);
+				ctx.scale(state.zoom || 1.0, state.zoom || 1.0);
+				drawCurvedStateLabels(ctx, state.states, state.burgs, state.zoom || 1.0, state.layerStyles);
+				ctx.restore();
+			}
 		}
 		renderLODPanel(state);
 		renderInteractiveMinimap(state);
