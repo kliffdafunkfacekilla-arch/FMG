@@ -24,13 +24,9 @@ const grid = {
 	},
 };
 const biomesData = {
-<<<<<<< HEAD
 	habitability: [
 		0, 0, 0, 4, 10, 22, 25, 50, 100, 80, 50, 12, 0, 0, 80, 100, 30, 10, 5,
 	],
-=======
-	habitability: [0, 0, 0, 4, 10, 22, 25, 50, 100, 80, 50, 12, 0, 0],
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 };
 
 type PackedGraph = {
@@ -131,7 +127,6 @@ const GOODS_DATA: GoodData[] = [
 		color: "#966F33",
 		value: 1,
 		chance: 4,
-<<<<<<< HEAD
 		distribution: "land() && biome(5, 6, 7, 8, 9)",
 		unit: "pile",
 		demandCoverage: { construction: 1, utilities: 1 },
@@ -144,13 +139,6 @@ const GOODS_DATA: GoodData[] = [
 			9: 0.1,
 			12: 0.05,
 		},
-=======
-		distribution: "biome(5, 6, 7, 8, 9)",
-		unit: "pile",
-		demandCoverage: { construction: 1, utilities: 1 },
-		multipliers: { cultureType: { Hunting: 1.5 } },
-		biomeOutput: { 5: 0.1, 6: 0.1, 7: 0.1, 8: 0.1, 9: 0.1, 12: 0.05 },
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 	},
 	{
 		name: "Stone",
@@ -161,11 +149,7 @@ const GOODS_DATA: GoodData[] = [
 		value: 2,
 		chance: 4,
 		distribution:
-<<<<<<< HEAD
 			"land() && (minHeight(40) || (minHeight(20) && elevation())) && biome(1, 2, 3, 4)",
-=======
-			"(minHeight(40) || (minHeight(20) && elevation())) && biome(1, 2, 3, 4)",
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		unit: "pallet",
 		demandCoverage: { construction: 1 },
 		multipliers: { cultureType: { Hunting: 0.6, Nomadic: 0.6 } },
@@ -179,11 +163,7 @@ const GOODS_DATA: GoodData[] = [
 		color: "#d6d0bf",
 		value: 6,
 		chance: 1,
-<<<<<<< HEAD
 		distribution: "land() && (minHeight(60) || (minHeight(30) && elevation()))",
-=======
-		distribution: "minHeight(60) || (minHeight(30) && elevation())",
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		unit: "pallet",
 		demandCoverage: { construction: 0.5, luxury: 0.5 },
 		multipliers: { cultureType: { Highland: 1.4 } },
@@ -197,11 +177,7 @@ const GOODS_DATA: GoodData[] = [
 		value: 3,
 		chance: 5,
 		distribution:
-<<<<<<< HEAD
 			"land() && (minHeight(60) || (biome(12) && nth(7)) || (minHeight(20) && nth(10)))",
-=======
-			"minHeight(60) || (biome(12) && nth(7)) || (minHeight(20) && nth(10))",
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		unit: "wagon",
 		multipliers: { cultureType: { Highland: 1.4 } },
 		biomeOutput: { 12: 0.1 },
@@ -214,12 +190,8 @@ const GOODS_DATA: GoodData[] = [
 		color: "#b87333",
 		value: 4,
 		chance: 2,
-<<<<<<< HEAD
 		distribution:
 			"land() && (minHeight(60) || (minHeight(30) && elevation()))",
-=======
-		distribution: "minHeight(60) || (minHeight(30) && elevation())",
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		unit: "wagon",
 		multipliers: { cultureType: { Highland: 1.4 } },
 	},
@@ -231,12 +203,8 @@ const GOODS_DATA: GoodData[] = [
 		color: "#454343",
 		value: 4,
 		chance: 2,
-<<<<<<< HEAD
 		distribution:
 			"land() && (minHeight(60) || (minHeight(30) && elevation()))",
-=======
-		distribution: "minHeight(60) || (minHeight(30) && elevation())",
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		unit: "wagon",
 		multipliers: { cultureType: { Highland: 1.4 } },
 	},
@@ -248,12 +216,8 @@ const GOODS_DATA: GoodData[] = [
 		color: "#C0C0C0",
 		value: 8,
 		chance: 2,
-<<<<<<< HEAD
 		distribution:
 			"land() && (minHeight(60) || (minHeight(30) && elevation()))",
-=======
-		distribution: "minHeight(60) || (minHeight(30) && elevation())",
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		unit: "bullion",
 		multipliers: { cultureType: { Hunting: 0.5, Highland: 1.4, Nomadic: 0.5 } },
 	},
@@ -265,11 +229,7 @@ const GOODS_DATA: GoodData[] = [
 		color: "#ffd700",
 		value: 15,
 		chance: 2,
-<<<<<<< HEAD
 		distribution: "land() && river() && minHeight(40)",
-=======
-		distribution: "river() && minHeight(40)",
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		unit: "bullion",
 		multipliers: { cultureType: { Highland: 1.4, Nomadic: 0.5 } },
 	},
@@ -281,11 +241,7 @@ const GOODS_DATA: GoodData[] = [
 		color: "#F5DEB3",
 		value: 1,
 		chance: 4,
-<<<<<<< HEAD
 		distribution: "land() && minHabitability(20) && habitability()",
-=======
-		distribution: "minHabitability(20) && habitability()",
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		unit: "wain",
 		demandCoverage: { food: 1 },
 		multipliers: { cultureType: { River: 1.2, Lake: 1.2, Nomadic: 0.5 } },
@@ -300,11 +256,7 @@ const GOODS_DATA: GoodData[] = [
 		value: 2,
 		chance: 4,
 		distribution:
-<<<<<<< HEAD
 			"land() && ((biome(3, 4) && !elevation()) || (biome(6) && random(70)) || (biome(5) && nth(5)))",
-=======
-			"(biome(3, 4) && !elevation()) || (biome(6) && random(70)) || (biome(5) && nth(5))",
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		unit: "head",
 		demandCoverage: { food: 1 },
 		multipliers: { cultureType: { Nomadic: 2 } },
@@ -334,11 +286,7 @@ const GOODS_DATA: GoodData[] = [
 		color: "#c38a8a",
 		value: 2,
 		chance: 3,
-<<<<<<< HEAD
 		distribution: "land() && biome(5, 6, 7, 8, 9)",
-=======
-		distribution: "biome(5, 6, 7, 8, 9)",
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		unit: "wain",
 		demandCoverage: { food: 1 },
 		multipliers: { cultureType: { Naval: 0.6, Nomadic: 1.4, Hunting: 2 } },
@@ -360,11 +308,7 @@ const GOODS_DATA: GoodData[] = [
 		color: "#963e48",
 		value: 2,
 		chance: 3,
-<<<<<<< HEAD
 		distribution: "land() && (biome(6) || (biome(4) && random(50) && river()))",
-=======
-		distribution: "biome(6) || (biome(4) && random(50) && river())",
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		unit: "barrel",
 		demandCoverage: { food: 0.5, luxury: 0.5 },
 		multipliers: { cultureType: { Highland: 1.2, Nomadic: 0.5 } },
@@ -378,11 +322,7 @@ const GOODS_DATA: GoodData[] = [
 		color: "#BDBD7D",
 		value: 2,
 		chance: 3,
-<<<<<<< HEAD
 		distribution: "land() && biome(3) && shore(1, 2)",
-=======
-		distribution: "biome(3) && shore(1, 2)",
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		unit: "barrel",
 		demandCoverage: { food: 1 },
 		multipliers: { cultureType: { Generic: 0.8, Nomadic: 0.5 } },
@@ -396,11 +336,7 @@ const GOODS_DATA: GoodData[] = [
 		color: "#DCBC66",
 		value: 2,
 		chance: 3,
-<<<<<<< HEAD
 		distribution: "land() && biome(6, 8, 9)",
-=======
-		distribution: "biome(6, 8, 9)",
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		unit: "barrel",
 		demandCoverage: { food: 0.5 },
 		multipliers: { cultureType: { Generic: 1.2 } },
@@ -415,11 +351,7 @@ const GOODS_DATA: GoodData[] = [
 		value: 2,
 		chance: 3,
 		distribution:
-<<<<<<< HEAD
 			'land() && (shore(1) && type("salt", "dry") || (biome(1, 2) && random(70)) || (biome(12) && nth(10)))',
-=======
-			'shore(1) && type("salt", "dry") || (biome(1, 2) && random(70)) || (biome(12) && nth(10))',
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		unit: "bag",
 		demandCoverage: { utilities: 1 },
 		multipliers: { cultureType: { Naval: 1.2 } },
@@ -698,11 +630,7 @@ const GOODS_DATA: GoodData[] = [
 		color: "#7fcdff",
 		value: 1,
 		chance: 3,
-<<<<<<< HEAD
 		distribution: "ocean() && maxTemp(7)",
-=======
-		distribution: "shore(-1) && type('ocean') && maxTemp(7)",
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		unit: "barrel",
 		demandCoverage: { food: 1, utilities: 0.2 },
 		multipliers: { cultureType: { Naval: 1.4, Nomadic: 0.5 } },
@@ -1182,7 +1110,6 @@ const GOODS_DATA: GoodData[] = [
 		unit: "bottle",
 		demandCoverage: { luxury: 2 },
 	},
-<<<<<<< HEAD
 	{
 		name: "Coral",
 		tags: ["construction", "luxury", "raw"],
@@ -1299,8 +1226,6 @@ const GOODS_DATA: GoodData[] = [
 		demandCoverage: { utilities: 1 },
 		biomeOutput: { 15: 0.05, 16: 0.05 },
 	},
-=======
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 ];
 
 export class GoodsModule {
@@ -1420,11 +1345,8 @@ export class GoodsModule {
 				return types.includes(feature.group || feature.type);
 			},
 			river: () => pack.cells.r[cellId],
-<<<<<<< HEAD
 			land: () => pack.cells.h[cellId] >= 20,
 			ocean: () => pack.cells.h[cellId] < 20,
-=======
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		};
 	}
 
@@ -1511,7 +1433,6 @@ export function generateGoods(
 	Goods.generate({ randomSeed: "map-seed" });
 
 	return pack.cells.good;
-<<<<<<< HEAD
 }
 
 export function getGoodColorForCell(
@@ -1569,6 +1490,4 @@ export function getGoodIconForCell(
 		if (goodId === 16) return "🧂";
 	}
 	return GOODS[goodId].icon;
-=======
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 }

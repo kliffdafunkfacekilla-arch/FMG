@@ -5,7 +5,6 @@ export function mountMarkersEditor(containerId: string, onUpdate: () => void) {
 	const container = document.getElementById(containerId);
 	if (!container) return;
 
-<<<<<<< HEAD
 	// Establish default spawn configurations if not already defined
 	const win = window as any;
 	if (!win.markerSpawnConfig) {
@@ -17,8 +16,6 @@ export function mountMarkersEditor(containerId: string, onUpdate: () => void) {
 		};
 	}
 
-=======
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 	container.innerHTML = `
     <div id="markersEditorPanel" style="display: none; background: rgba(30, 30, 38, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); padding: 1rem; border-radius: 12px; font-size: 0.85rem; color: #e2e8f0; width: 100%; box-sizing: border-box; box-shadow: 0 4px 15px rgba(0,0,0,0.5); margin-top: 0.5rem;">
       <h3 style="margin-top: 0; color: #fbbf24; border-bottom: 1px solid #333; padding-bottom: 0.25rem; display: flex; justify-content: space-between; align-items: center;">
@@ -122,7 +119,6 @@ export function mountMarkersEditor(containerId: string, onUpdate: () => void) {
 	const closeBtn = document.getElementById(
 		"closeMarkersBtn",
 	) as HTMLSpanElement;
-<<<<<<< HEAD
 
 	const regenBtn = document.getElementById(
 		"regenAllMarkersBtn",
@@ -310,63 +306,6 @@ export function mountMarkersEditor(containerId: string, onUpdate: () => void) {
 		onUpdate();
 	});
 
-=======
-	const regenBtn = document.getElementById(
-		"regenAllMarkersBtn",
-	) as HTMLButtonElement;
-
-	const closePanel = () => {
-		panel.style.display = "none";
-	};
-	closeBtn.addEventListener("click", closePanel);
-
-	const markerTypes = [
-		{
-			icon: "🏔️",
-			type: "Mountain Peak",
-			biome: "Taiga / Glacier",
-			freq: "Medium",
-		},
-		{ icon: "🌋", type: "Volcanic Fissure", biome: "Chaos Land", freq: "Low" },
-		{ icon: "🏝️", type: "Reef Atoll", biome: "Shallow Reef", freq: "High" },
-		{ icon: "遺跡", type: "Ancient Ruins", biome: "Any Land", freq: "Low" },
-		{
-			icon: "🌲",
-			type: "Sacred Grove",
-			biome: "deciduous Forest",
-			freq: "Medium",
-		},
-	];
-
-	const renderMarkersTable = () => {
-		tableBody.innerHTML = "";
-		markerTypes.forEach((m) => {
-			const tr = document.createElement("tr");
-			tr.style.borderBottom = "1px solid #222";
-			tr.innerHTML = `
-        <td style="padding: 0.4rem; font-size: 1.1rem; text-align: center;">${m.icon}</td>
-        <td style="padding: 0.4rem; color: #fff; font-weight: bold;">${m.type}</td>
-        <td style="padding: 0.4rem; color: #94a3b8;">${m.biome}</td>
-        <td style="padding: 0.4rem; text-align: center; color: #a855f7; font-weight: bold;">${m.freq}</td>
-      `;
-			tableBody.appendChild(tr);
-		});
-	};
-
-	regenBtn.addEventListener("click", () => {
-		const state = store.getState() as any;
-		if (!state.grid || !state.heights || !state.biomes) return;
-		const nextMarkers = generateMarkers(
-			state.grid,
-			state.heights,
-			state.biomes,
-			state.seed || "regen-seed",
-		);
-		store.updateState({ markers: nextMarkers });
-		onUpdate();
-	});
-
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 	(window as any).openMarkersEditor = () => {
 		renderMarkersTable();
 		panel.style.display = "block";

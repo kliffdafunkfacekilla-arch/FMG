@@ -122,7 +122,6 @@ export function mountDiplomacyEditor(
     </div>
   `;
 
-<<<<<<< HEAD
 	const panel = document.getElementById("diplomacyEditorPanel") as HTMLDivElement;
 	const tableBody = document.getElementById("diplomacyTableBody") as HTMLTableSectionElement;
 	const closeBtn = document.getElementById("closeDiplomacyBtn") as HTMLSpanElement;
@@ -216,59 +215,6 @@ export function mountDiplomacyEditor(
 				states.find((s: any) => s.id === rel.stateB)?.name ||
 				`State ${rel.stateB}`;
 
-=======
-	const panel = document.getElementById(
-		"diplomacyEditorPanel",
-	) as HTMLDivElement;
-	const tableBody = document.getElementById(
-		"diplomacyTableBody",
-	) as HTMLTableSectionElement;
-	const closeBtn = document.getElementById(
-		"closeDiplomacyBtn",
-	) as HTMLSpanElement;
-
-	const editForm = document.getElementById(
-		"diplomacyEditForm",
-	) as HTMLDivElement;
-	const editTitle = document.getElementById(
-		"diplomacyEditTitle",
-	) as HTMLElement;
-	const typeSelect = document.getElementById(
-		"editRelationType",
-	) as HTMLSelectElement;
-	const threatSlider = document.getElementById(
-		"editRelationThreat",
-	) as HTMLInputElement;
-
-	const saveBtn = document.getElementById(
-		"saveRelationBtn",
-	) as HTMLButtonElement;
-	const cancelBtn = document.getElementById(
-		"cancelRelationBtn",
-	) as HTMLButtonElement;
-
-	let activeIndex: number | null = null;
-
-	const closePanel = () => {
-		panel.style.display = "none";
-	};
-	closeBtn.addEventListener("click", closePanel);
-
-	const renderRelationsList = () => {
-		const state = store.getState() as any;
-		const relations = state.relations || [];
-		const states = state.states || [];
-
-		tableBody.innerHTML = "";
-		relations.forEach((rel: StateRelation, idx: number) => {
-			const stateAName =
-				states.find((s: any) => s.id === rel.stateA)?.name ||
-				`State ${rel.stateA}`;
-			const stateBName =
-				states.find((s: any) => s.id === rel.stateB)?.name ||
-				`State ${rel.stateB}`;
-
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 			const tr = document.createElement("tr");
 			tr.style.borderBottom = "1px solid #222";
 			tr.innerHTML = `
@@ -330,7 +276,6 @@ export function mountDiplomacyEditor(
 		editForm.style.display = "none";
 	});
 
-<<<<<<< HEAD
 	// --- ESPIONAGE COVER OOPS IMPLEMENTATION ---
 	const getSourceAndTarget = () => {
 		const state = store.getState() as any;
@@ -546,8 +491,6 @@ export function mountDiplomacyEditor(
 		onUpdate();
 	});
 
-=======
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 	(window as any).openDiplomacyEditor = () => {
 		renderRelationsList();
 		panel.style.display = "block";

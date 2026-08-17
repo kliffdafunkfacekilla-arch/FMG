@@ -164,13 +164,8 @@ export function generateStates(
 		const stateName = existing
 			? existing.name
 			: `${STATE_NAMES[i % STATE_NAMES.length]} ${name}`;
-<<<<<<< HEAD
 		const stateType = i === 0 ? "Naval" : i === 1 ? "Nomadic" : (culture && culture.habitat === "ocean" ? "Aquatic" : "Generic");
 		const habitat = existing ? existing.habitat : (culture ? culture.habitat : "land");
-=======
-		const stateType = i === 0 ? "Naval" : i === 1 ? "Nomadic" : "Generic";
-		const habitat = existing ? existing.habitat : "land";
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 
 		states.push({
 			id: stateId,

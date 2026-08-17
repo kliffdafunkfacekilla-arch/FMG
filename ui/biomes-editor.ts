@@ -1,6 +1,5 @@
 import { store } from "../state/store";
 
-<<<<<<< HEAD
 export function initBiomeConfig() {
 	const win = window as any;
 	if (win.customBiomeConfig) return win.customBiomeConfig;
@@ -97,12 +96,6 @@ export function mountBiomesEditor(containerId: string, onUpdate: () => void) {
 	// Init shared biome config first
 	const configList = initBiomeConfig();
 
-=======
-export function mountBiomesEditor(containerId: string, onUpdate: () => void) {
-	const container = document.getElementById(containerId);
-	if (!container) return;
-
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 	container.innerHTML = `
     <div id="biomesEditorPanel" style="display: none; background: rgba(30, 30, 38, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); padding: 1rem; border-radius: 12px; font-size: 0.85rem; color: #e2e8f0; width: 100%; box-sizing: border-box; box-shadow: 0 4px 15px rgba(0,0,0,0.5); margin-top: 0.5rem;">
       <h3 style="margin-top: 0; color: #10b981; border-bottom: 1px solid #333; padding-bottom: 0.25rem; display: flex; justify-content: space-between; align-items: center;">
@@ -183,12 +176,6 @@ export function mountBiomesEditor(containerId: string, onUpdate: () => void) {
 	) as HTMLTableSectionElement;
 	const closeBtn = document.getElementById("closeBiomesBtn") as HTMLSpanElement;
 
-<<<<<<< HEAD
-=======
-	const paintSelect = document.getElementById(
-		"biomePaintSelect",
-	) as HTMLSelectElement;
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 	const editForm = document.getElementById("biomeEditForm") as HTMLDivElement;
 	const editTitle = document.getElementById("biomeEditTitle") as HTMLElement;
 
@@ -209,7 +196,6 @@ export function mountBiomesEditor(containerId: string, onUpdate: () => void) {
 
 	let activeBiomeId: number | null = null;
 
-<<<<<<< HEAD
 	// Painting State
 	let isBiomeBrushActive = false;
 	let selectedBiomeToPaint = 3; // Default Savanna
@@ -345,64 +331,6 @@ export function mountBiomesEditor(containerId: string, onUpdate: () => void) {
 		const currentList = (window as any).customBiomeConfig || configList;
 		currentList.forEach((b: any, idx: number) => {
 			const color = b.color || "#ffffff";
-=======
-	const biomeNames = [
-		"Marine",
-		"Hot desert",
-		"Cold desert",
-		"Savanna",
-		"Grassland",
-		"Tropical seasonal forest",
-		"Temperate deciduous forest",
-		"Tropical rainforest",
-		"Temperate rainforest",
-		"Taiga",
-		"Tundra",
-		"Glacier",
-		"Wetland",
-		"Shallow Reef",
-		"Kelp Forest",
-		"Pelagic Zone",
-		"Abyssal Plain",
-		"Oceanic Trench",
-		"Chaos Land",
-		"Chaos Water",
-	];
-
-	// Default color map for reference or updates
-	const defaultColors = [
-		"#0077be",
-		"#e6c280",
-		"#b3d1ff",
-		"#c2d68f",
-		"#9bbb59",
-		"#4f81bd",
-		"#8064a2",
-		"#31859c",
-		"#4bacc6",
-		"#2c5234",
-		"#7f7f7f",
-		"#ffffff",
-		"#76b5c5",
-		"#15b8a6",
-		"#22c55e",
-		"#1d4ed8",
-		"#172554",
-		"#030712",
-		"#ec4899",
-		"#8b5cf6",
-	];
-
-	const closePanel = () => {
-		panel.style.display = "none";
-	};
-	closeBtn.addEventListener("click", closePanel);
-
-	const renderBiomesTable = () => {
-		tableBody.innerHTML = "";
-		biomeNames.forEach((name, idx) => {
-			const color = defaultColors[idx] || "#ffffff";
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 			const tr = document.createElement("tr");
 			tr.style.borderBottom = "1px solid #222";
 			tr.innerHTML = `
@@ -426,7 +354,6 @@ export function mountBiomesEditor(containerId: string, onUpdate: () => void) {
 					10,
 				);
 				activeBiomeId = id;
-<<<<<<< HEAD
 				const currentList = (window as any).customBiomeConfig || configList;
 				const b = currentList[id];
 
@@ -476,39 +403,6 @@ export function mountBiomesEditor(containerId: string, onUpdate: () => void) {
 		renderBiomesTable();
 		panel.style.display = "block";
 		renderBiomePaintGrid();
-=======
-				editTitle.innerText = `Edit: ${biomeNames[id]}`;
-				colorInput.value = defaultColors[id] || "#ffffff";
-				tempInput.value = "15"; // fallback mid-value
-				moistInput.value = "50";
-				editForm.style.display = "flex";
-			});
-		});
-	};
-
-	saveBtn.addEventListener("click", () => {
-		if (activeBiomeId !== null) {
-			// Modify local color configurations
-			defaultColors[activeBiomeId] = colorInput.value;
-			editForm.style.display = "none";
-			renderBiomesTable();
-			onUpdate();
-		}
-	});
-
-	cancelBtn.addEventListener("click", () => {
-		editForm.style.display = "none";
-	});
-
-	// Export paint value retrieval globally
-	(window as any).getCurrentBiomePaintValue = (): number => {
-		return parseInt(paintSelect.value, 10);
-	};
-
-	(window as any).openBiomesEditor = () => {
-		renderBiomesTable();
-		panel.style.display = "block";
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		const win = window as any;
 		if (win.triggerLayerSelect) {
 			win.triggerLayerSelect("biomes"); // Auto shift map view to Biomes

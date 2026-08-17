@@ -156,17 +156,13 @@ export function calculateMagePopulations(
 	magicFlux: Float32Array,
 	populations: Float32Array,
 	magicTypes: MagicTypeConfig[],
-<<<<<<< HEAD
 	cellStates?: Uint8Array,
 	states?: any[],
 	cellReligions?: Uint8Array,
-=======
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 ): Uint32Array {
 	const pointsN = magicFlux.length;
 	const magePop = new Uint32Array(pointsN);
 
-<<<<<<< HEAD
 	for (let i = 0; i < pointsN; i++) {
 		const pop = populations[i] || 0;
 		const flux = magicFlux[i] || 0.0;
@@ -324,21 +320,6 @@ export function applyMagicDailyCostsAndEffects(
 			}
 		}
 	}
-=======
-	// Aggregate base rarity from all config types
-	const baseRarity = magicTypes.reduce((sum, t) => sum + t.rarity, 0) || 0.01;
-
-	for (let i = 0; i < pointsN; i++) {
-		const pop = populations[i] || 0;
-		const flux = magicFlux[i];
-
-		// Mages thrive in high-flux areas (scales up to 4x base rarity)
-		const localRarity = baseRarity * (0.5 + (flux / 100.0) * 3.5);
-		magePop[i] = Math.round(pop * localRarity);
-	}
-
-	return magePop;
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 }
 
 // Apply dynamic magical vector modifiers to economics, military, growth, and taxation

@@ -91,7 +91,6 @@ export function getBiomeId(
 	if (height < 20) {
 		if (temperature < 0) return 11; // Frozen Ocean (Ice Cap/Glacier)
 
-<<<<<<< HEAD
 		// Ocean code using height in inverse: depth scale from 1 (shallow shelf) to 20 (deepest trench)
 		const inverseHeight = 20 - height;
 
@@ -128,29 +127,6 @@ export function getBiomeId(
 	if (temperature >= 25 && !hasRiver && moisture < 8) return 1; // Hot desert
 	if (isWetland(moisture, temperature, height)) return 12; // Wetland
 
-=======
-		const nuts = localNutrients || 10.0;
-
-		if (height >= 15) {
-			// High temp and high nutrients -> Coral Reef; cool + nutrients -> Kelp Forest; otherwise generic Marine shelf
-			if (temperature >= 18 && nuts >= 12.0) return 13; // Shallow Reef
-			if (nuts >= 8.0) return 14; // Kelp Forest
-			return 0; // Marine
-		}
-		if (height >= 10) {
-			if (nuts >= 8.0) return 14; // Kelp Forest
-			return 15; // Pelagic Zone
-		}
-		if (height >= 5) return 15; // Pelagic Zone
-		if (height >= 2) return 16; // Abyssal Plain
-		return 17; // Oceanic Trench
-	}
-
-	if (temperature < -5) return 11; // Glacier/Ice cap
-	if (temperature >= 25 && !hasRiver && moisture < 8) return 1; // Hot desert
-	if (isWetland(moisture, temperature, height)) return 12; // Wetland
-
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 	const moistureBand = Math.min(Math.floor(moisture / 5), 4); // [0-4]
 	const temperatureBand = Math.min(
 		Math.max(Math.floor(20 - temperature), 0),
@@ -189,11 +165,7 @@ export function generateBiomes(
 	for (let cellId = 0; cellId < pointsN; cellId++) {
 		const height = heights[cellId];
 		const hasRiver = rivers ? rivers[cellId] > 0 : false;
-<<<<<<< HEAD
 		const moisture = height < 20 ? (prec[cellId] || 0) : calculateMoisture(cellId);
-=======
-		const moisture = height < 20 ? 0 : calculateMoisture(cellId);
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		const temperature = temp[cellId] || 0;
 		const localNutrients = oceanNutrients ? oceanNutrients[cellId] : undefined;
 

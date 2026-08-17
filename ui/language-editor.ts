@@ -1,7 +1,6 @@
 import { generateName } from "../simulation/civilization/name-generator";
 import { store } from "../state/store";
 
-<<<<<<< HEAD
 interface Culture {
 	id: number;
 	name: string;
@@ -24,15 +23,6 @@ export function mountLanguageEditor(
         <span id="cultureEditorTitle">Cultures & Languages</span>
         <span id="closeLanguageBtn" style="cursor: pointer; color: #94a3b8; font-size: 1.1rem;">&times;</span>
       </h3>
-=======
-export function mountLanguageEditor(containerId: string) {
-	const container = document.getElementById(containerId);
-	if (!container) return;
-
-	container.innerHTML = `
-    <div style="background: rgba(30, 30, 38, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); padding: 1rem; border-radius: 12px; font-size: 0.85rem; color: #e2e8f0; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 0.5rem;">
-      <h3 style="margin-top: 0; color: #a78bfa; border-bottom: 1px solid #333; padding-bottom: 0.25rem;">Language Syllable Editor</h3>
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
       
       <!-- 1. Cultures List Sub-panel -->
       <div id="cultureListSubPanel" style="display: block;">
@@ -104,7 +94,6 @@ export function mountLanguageEditor(containerId: string) {
     </div>
   `;
 
-<<<<<<< HEAD
 	const panel = document.getElementById(
 		"languageEditorPanel",
 	) as HTMLDivElement;
@@ -317,21 +306,4 @@ export function mountLanguageEditor(containerId: string) {
 
 	// Perform initial load
 	renderCulturesList();
-=======
-	const langSelect = document.getElementById("langSelect") as HTMLSelectElement;
-	const preview = document.getElementById(
-		"langTestPreview",
-	) as HTMLInputElement;
-	const genBtn = document.getElementById("testGenBtn") as HTMLButtonElement;
-
-	const testName = () => {
-		const seed = "test-" + Math.floor(Math.random() * 100000);
-		preview.value = generateName(langSelect.value, seed);
-	};
-
-	genBtn.addEventListener("click", testName);
-	langSelect.addEventListener("change", testName);
-
-	testName();
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 }

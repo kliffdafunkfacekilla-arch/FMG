@@ -141,7 +141,6 @@ export function mountMagicEditor(containerId: string, onUpdate: () => void) {
 				}
 			});
 		});
-<<<<<<< HEAD
 
 		const delBtns = tableBody.querySelectorAll(".deleteSingleMagicBtn");
 		delBtns.forEach((btn) => {
@@ -201,31 +200,6 @@ export function mountMagicEditor(containerId: string, onUpdate: () => void) {
 		editForm.style.display = "none";
 	});
 
-=======
-	};
-
-	saveBtn.addEventListener("click", () => {
-		if (activeIndex !== null) {
-			const state = store.getState() as any;
-			const types = [...(state.magicTypes || [])];
-			if (types[activeIndex]) {
-				types[activeIndex].wieldability = wieldSelect.value as any;
-				types[activeIndex].cost = parseInt(costInput.value, 10);
-				types[activeIndex].rarity = parseFloat(ratioInput.value) / 100;
-				store.updateState({ magicTypes: types });
-			}
-			activeIndex = null;
-			editForm.style.display = "none";
-			renderMagicTable();
-			onUpdate();
-		}
-	});
-
-	cancelBtn.addEventListener("click", () => {
-		editForm.style.display = "none";
-	});
-
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 	(window as any).openMagicEditor = () => {
 		renderMagicTable();
 		panel.style.display = "block";

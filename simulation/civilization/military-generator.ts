@@ -36,7 +36,6 @@ export function generateMilitary(
 		}
 
 		// 2. Spawning border patrol forces
-<<<<<<< HEAD
 		// Find cells belonging to this state that border cells of a different state (or neutral)
 		const borderCells: number[] = [];
 		const pointsN = heights.length;
@@ -44,13 +43,6 @@ export function generateMilitary(
 		for (let i = 0; i < pointsN; i++) {
 			const matchesHabitat = isOceanState ? (heights[i] < 20) : (heights[i] >= 20);
 			if (cellStates[i] === state.id && matchesHabitat) {
-=======
-		// Find land cells belonging to this state that border cells of a different state (or neutral)
-		const borderCells: number[] = [];
-		const pointsN = heights.length;
-		for (let i = 0; i < pointsN; i++) {
-			if (cellStates[i] === state.id && heights[i] >= 20) {
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 				for (const c of grid.cells.c[i]) {
 					if (cellStates[c] !== state.id) {
 						borderCells.push(i);

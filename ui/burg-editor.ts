@@ -111,7 +111,6 @@ export function mountBurgEditor(containerId: string, onUpdate: () => void) {
 	) as HTMLButtonElement;
 	const closeBtn = document.getElementById("closeBurgBtn") as HTMLSpanElement;
 
-<<<<<<< HEAD
 	const burgSelect = document.getElementById(
 		"editBurgSelect",
 	) as HTMLSelectElement;
@@ -206,59 +205,6 @@ export function mountBurgEditor(containerId: string, onUpdate: () => void) {
 			});
 			burgSelectContainer.style.display = "block";
 		}
-=======
-	const closePanel = () => {
-		panel.style.display = "none";
-	};
-
-	closeBtn.addEventListener("click", closePanel);
-	cancelBtn.addEventListener("click", closePanel);
-
-	saveBtn.addEventListener("click", () => {
-		if (activeBurg) {
-			activeBurg.name = nameInput.value;
-			activeBurg.population = parseInt(popInput.value, 10) || 1000;
-			activeBurg.isCapital = chkCapital.checked;
-			activeBurg.port = chkPort.checked ? 1 : 0;
-
-			// Update state store
-			const state = store.getState() as any;
-			if (state.burgs) {
-				const updatedBurgs = state.burgs.map((b: Burg) =>
-					b.id === activeBurg!.id ? { ...activeBurg } : b,
-				);
-
-				// Also update cellCultures if culture changed
-				const cellCultures = state.cellCultures
-					? new Uint8Array(state.cellCultures)
-					: null;
-				if (cellCultures && cultureSelect.value) {
-					cellCultures[activeBurg.cell] = parseInt(cultureSelect.value, 10);
-				}
-
-				store.updateState({
-					burgs: updatedBurgs,
-					cellCultures,
-				});
-			}
-
-			panel.style.display = "none";
-			onUpdate();
-		}
-	});
-
-	// Export activation hook
-	(window as any).openBurgEditor = (burg: Burg) => {
-		activeBurg = burg;
-		nameInput.value = burg.name;
-		popInput.value = String(burg.population);
-
-		chkCapital.checked = !!burg.isCapital;
-		chkPort.checked = !!burg.port;
-
-		// Read state parameters
-		const state = store.getState() as any;
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 
 		// Populate Culture dropdown
 		cultureSelect.innerHTML = "";
@@ -267,14 +213,10 @@ export function mountBurgEditor(containerId: string, onUpdate: () => void) {
 				const opt = document.createElement("option");
 				opt.value = String(c.id);
 				opt.innerText = c.name;
-<<<<<<< HEAD
 				if (
 					state.cellCultures &&
 					state.cellCultures[targetBurg.cell] === c.id
 				) {
-=======
-				if (state.cellCultures && state.cellCultures[burg.cell] === c.id) {
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 					opt.selected = true;
 				}
 				cultureSelect.appendChild(opt);
@@ -282,13 +224,8 @@ export function mountBurgEditor(containerId: string, onUpdate: () => void) {
 		}
 
 		// Display height and temperature
-<<<<<<< HEAD
 		const heightVal = state.heights ? state.heights[targetBurg.cell] : 0;
 		const tempVal = state.temp ? state.temp[targetBurg.cell] : 0;
-=======
-		const heightVal = state.heights ? state.heights[burg.cell] : 0;
-		const tempVal = state.temp ? state.temp[burg.cell] : 0;
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 
 		valElevation.innerText = `${Math.round(heightVal * 15)}m`;
 		valTemp.innerText = `${Math.round(tempVal)}°C`;

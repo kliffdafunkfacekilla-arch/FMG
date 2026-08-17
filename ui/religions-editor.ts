@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import { store } from "../state/store";
 
 interface Religion {
@@ -475,8 +474,4 @@ export function mountReligionsEditor(
 
 	// Perform initial load
 	renderReligionsList();
-=======
-export function mountReligionsEditor() {
-	console.log("Mounted " + ed);
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 }

@@ -1,15 +1,10 @@
 import { BIOME_COLORS } from "../simulation/biomes/biomes-generator";
-<<<<<<< HEAD
 import {
 	GOODS,
 	getGoodColorForCell,
 	getGoodNameForCell,
 } from "../simulation/civilization/goods-generator";
 import { type AppState, store } from "../state/store";
-=======
-import { GOODS } from "../simulation/civilization/goods-generator";
-import type { AppState } from "../state/store";
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 import { meander } from "./meander";
 
 const STATE_COLORS = [
@@ -161,17 +156,12 @@ export function renderMap(
 	ctx.scale(state.zoom || 1.0, state.zoom || 1.0);
 
 	// 1. Draw helper definitions
-<<<<<<< HEAD
 	const drawThematicLayer = (type: string) => {
 		const layerType = type;
-=======
-	const drawPrimary = () => {
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		ctx.save();
 		const style = state.layerStyles?.[layerType] || { opacity: 1.0 };
 		ctx.globalAlpha = style.opacity;
 
-<<<<<<< HEAD
 		const zoom = state.zoom || 1.0;
 
 		// Viewport bounds in map coordinates for smart frustum culling of subdivided cells
@@ -930,342 +920,6 @@ export function renderMap(
 
 			ctx.shadowColor = "rgba(0,0,0,0.8)";
 			ctx.shadowBlur = 4.0 / Math.sqrt(zoom);
-=======
-		for (let i = 0; i < pointsN; i++) {
-			const vertices = grid.cells.v[i];
-			if (!vertices || vertices.length === 0) continue;
-
-			ctx.beginPath();
-			const firstV = grid.vertices.p[vertices[0]];
-			if (!firstV) continue;
-			ctx.moveTo(firstV[0], firstV[1]);
-
-			for (let j = 1; j < vertices.length; j++) {
-				const v = grid.vertices.p[vertices[j]];
-				if (v) ctx.lineTo(v[0], v[1]);
-			}
-			ctx.closePath();
-
-			let color = "#333";
-			if (layerType === "heightmap" && heights) {
-				color = getHeightColor(heights[i]);
-			} else if (layerType === "biomes" && biomes) {
-				color = BIOME_COLORS[biomes[i]] || "#333";
-			} else if (layerType === "temp" && temp) {
-				color = getTempColor(temp[i]);
-			} else if (layerType === "prec" && prec) {
-				color = getPrecColor(prec[i]);
-			} else if (layerType === "cultures" && cellCultures && heights) {
-				const cultId = cellCultures[i];
-				color =
-					heights[i] < 20
-						? getHeightColor(heights[i])
-						: cultId > 0
-							? CULTURE_COLORS[(cultId - 1) % CULTURE_COLORS.length]
-							: "#555";
-			} else if (layerType === "states" && cellStates && heights) {
-				const stateId = cellStates[i];
-				color =
-					heights[i] < 20
-						? getHeightColor(heights[i])
-						: stateId > 0
-							? STATE_COLORS[(stateId - 1) % STATE_COLORS.length]
-							: "#555";
-			} else if (layerType === "provinces" && cellProvinces && heights) {
-				const provId = cellProvinces[i];
-				color =
-					heights[i] < 20
-						? getHeightColor(heights[i])
-						: provId > 0
-							? PROVINCE_COLORS[(provId - 1) % PROVINCE_COLORS.length]
-							: "#555";
-			} else if (layerType === "religions" && cellReligions && heights) {
-				const relId = cellReligions[i];
-				color =
-					heights[i] < 20
-						? getHeightColor(heights[i])
-						: relId > 0
-							? RELIGION_COLORS[(relId - 1) % RELIGION_COLORS.length]
-							: "#555";
-			} else if (layerType === "goods" && cellGoods && heights) {
-				const goodId = cellGoods[i];
-				color =
-					heights[i] < 20
-						? getHeightColor(heights[i])
-						: goodId > 0
-							? GOODS[goodId].color
-							: "#555";
-			}
-
-			ctx.fillStyle = color;
-			ctx.fill();
-		}
-		ctx.restore();
-	};
-
-	const drawGrid = () => {
-		if (!state.showGrid) return;
-		ctx.save();
-		const style = state.layerStyles?.grid || {
-			opacity: 0.5,
-			color: "rgba(0,0,0,0.15)",
-			size: 0.5,
-		};
-		ctx.globalAlpha = style.opacity;
-		ctx.strokeStyle = style.color;
-		ctx.lineWidth = style.size;
-
-		for (let i = 0; i < pointsN; i++) {
-			const vertices = grid.cells.v[i];
-			if (!vertices || vertices.length === 0) continue;
-			ctx.beginPath();
-			const firstV = grid.vertices.p[vertices[0]];
-			if (!firstV) continue;
-			ctx.moveTo(firstV[0], firstV[1]);
-			for (let j = 1; j < vertices.length; j++) {
-				const v = grid.vertices.p[vertices[j]];
-				if (v) ctx.lineTo(v[0], v[1]);
-			}
-			ctx.closePath();
-			ctx.stroke();
-		}
-		ctx.restore();
-	};
-
-	const drawRivers = () => {
-		if (!state.showRivers || !rivers || !flowDirections) return;
-		if (
-			layerType === "cultures" ||
-			layerType === "states" ||
-			layerType === "provinces" ||
-			layerType === "religions" ||
-			layerType === "goods"
-		)
-			return;
-
-		ctx.save();
-		const style = state.layerStyles?.rivers || {
-			opacity: 0.9,
-			color: "#466eab",
-			size: 1.0,
-		};
-		ctx.globalAlpha = style.opacity;
-		ctx.strokeStyle = style.color;
-		ctx.lineCap = "round";
-		ctx.lineJoin = "round";
-
-		const headwaters = new Uint8Array(pointsN).fill(1);
-		for (let i = 0; i < pointsN; i++) {
-			const next = flowDirections[i];
-			if (next !== -1) {
-				headwaters[next] = 0;
-			}
-		}
-
-		for (let i = 0; i < pointsN; i++) {
-			if (rivers[i] > 0 && headwaters[i] === 1) {
-				const chain: [number, number][] = [];
-				let curr: number = i;
-				while (curr !== -1 && rivers[curr] > 0) {
-					chain.push(grid.points[curr]);
-					curr = flowDirections[curr];
-					if (curr !== -1 && heights[curr] < 20) {
-						chain.push(grid.points[curr]);
-						break;
-					}
-				}
-
-				if (chain.length >= 2) {
-					const meandered = meander(chain, { meandering: 0.5 });
-					const fluxVal = state.flux ? state.flux[i] || 10 : 10;
-					ctx.lineWidth = minmax(
-						Math.sqrt(fluxVal) * 0.15 * style.size,
-						0.5,
-						6.0 * style.size,
-					);
-					ctx.beginPath();
-					ctx.moveTo(meandered[0][0], meandered[0][1]);
-					for (let j = 1; j < meandered.length; j++) {
-						ctx.lineTo(meandered[j][0], meandered[j][1]);
-					}
-					ctx.stroke();
-				}
-			}
-		}
-		ctx.restore();
-	};
-
-	const drawZones = () => {
-		if (!state.showZones || !zones) return;
-		if (layerType === "goods") return;
-
-		ctx.save();
-		const style = state.layerStyles?.zones || { opacity: 0.4 };
-		ctx.globalAlpha = style.opacity;
-
-		for (const z of zones) {
-			ctx.fillStyle = z.color;
-			for (const cellId of z.cells) {
-				const vertices = grid.cells.v[cellId];
-				if (!vertices) continue;
-				ctx.beginPath();
-				const firstV = grid.vertices.p[vertices[0]];
-				if (!firstV) continue;
-				ctx.moveTo(firstV[0], firstV[1]);
-				for (let j = 1; j < vertices.length; j++) {
-					const v = grid.vertices.p[vertices[j]];
-					if (v) ctx.lineTo(v[0], v[1]);
-				}
-				ctx.closePath();
-				ctx.fill();
-			}
-		}
-		ctx.restore();
-	};
-
-	const drawRoutes = () => {
-		if (!state.showRoutes || !routes) return;
-		ctx.save();
-		const style = state.layerStyles?.routes || {
-			opacity: 0.85,
-			color: "rgba(141, 110, 99, 0.85)",
-			size: 1.8,
-		};
-		ctx.globalAlpha = style.opacity;
-
-		for (const r of routes) {
-			if (r.type === "road") {
-				ctx.strokeStyle = style.color || "rgba(141, 110, 99, 0.85)";
-				ctx.lineWidth = style.size;
-				ctx.setLineDash([]);
-			} else {
-				ctx.strokeStyle = "rgba(33, 150, 243, 0.6)";
-				ctx.lineWidth = style.size * 0.8;
-				ctx.setLineDash([5, 5]);
-			}
-			ctx.beginPath();
-			const firstPt = grid.points[r.path[0]];
-			ctx.moveTo(firstPt[0], firstPt[1]);
-			for (let k = 1; k < r.path.length; k++) {
-				const pt = grid.points[r.path[k]];
-				ctx.lineTo(pt[0], pt[1]);
-			}
-			ctx.stroke();
-		}
-		ctx.restore();
-	};
-
-	const drawBurgs = () => {
-		if (!state.showBurgs || !burgs) return;
-		ctx.save();
-		const style = state.layerStyles?.burgs || {
-			opacity: 1.0,
-			color: "#ffffff",
-			size: 4.0,
-		};
-		ctx.globalAlpha = style.opacity;
-
-		for (const b of burgs) {
-			const radius = b.isCapital ? style.size * 1.5 : style.size;
-			ctx.fillStyle = b.isCapital ? "#ef4444" : style.color;
-			ctx.strokeStyle = "#1e1e24";
-			ctx.lineWidth = 2.0;
-
-			ctx.beginPath();
-			ctx.arc(b.x, b.y, radius, 0, 2 * Math.PI);
-			ctx.fill();
-			ctx.stroke();
-
-			ctx.fillStyle = "#ffffff";
-			ctx.font = `bold ${b.isCapital ? 12 : 10}px 'Outfit', 'Inter', sans-serif`;
-			ctx.shadowColor = "rgba(0,0,0,0.8)";
-			ctx.shadowBlur = 0;
-			ctx.fillText(b.name, b.x + radius + 3, b.y + 4);
-		}
-		ctx.restore();
-	};
-
-	const drawMilitary = () => {
-		if (!state.showMilitary || !military) return;
-		ctx.save();
-		const style = state.layerStyles?.military || { opacity: 1.0, size: 1.5 };
-		ctx.globalAlpha = style.opacity;
-
-		for (const m of military) {
-			const pt = grid.points[m.cell];
-			if (!pt) continue;
-			const [mx, my] = pt;
-			const shieldColor =
-				STATE_COLORS[(m.stateId - 1) % STATE_COLORS.length] || "#888";
-			ctx.fillStyle = shieldColor;
-			ctx.strokeStyle = "#ffffff";
-			ctx.lineWidth = style.size;
-			ctx.fillRect(mx - 8, my - 24, 16, 16);
-			ctx.strokeRect(mx - 8, my - 24, 16, 16);
-			ctx.strokeStyle = "#ffffff";
-			ctx.lineWidth = 1.0;
-			ctx.beginPath();
-			ctx.moveTo(mx - 8, my - 24);
-			ctx.lineTo(mx - 8, my - 8);
-			ctx.stroke();
-			const letter = m.type[0].toUpperCase();
-			ctx.fillStyle = "#ffffff";
-			ctx.font = "bold 9px 'Outfit', 'Inter', sans-serif";
-			ctx.fillText(letter, mx - 3, my - 12);
-		}
-		ctx.restore();
-	};
-
-	const drawMarkers = () => {
-		if (!state.showMarkers || !markers) return;
-		ctx.save();
-		const style = state.layerStyles?.markers || {
-			opacity: 1.0,
-			color: "#fbbf24",
-			size: 1.0,
-		};
-		ctx.globalAlpha = style.opacity;
-
-		for (const mk of markers) {
-			ctx.strokeStyle = "#000000";
-			ctx.lineWidth = 1.0;
-			if (mk.type === "volcano") {
-				ctx.fillStyle = "#f87171";
-				ctx.beginPath();
-				ctx.moveTo(mk.x, mk.y - 7 * style.size);
-				ctx.lineTo(mk.x + 6 * style.size, mk.y + 5 * style.size);
-				ctx.lineTo(mk.x - 6 * style.size, mk.y + 5 * style.size);
-				ctx.closePath();
-				ctx.fill();
-				ctx.stroke();
-			} else {
-				ctx.fillStyle = style.color;
-				const w = 10 * style.size;
-				ctx.fillRect(mk.x - w / 2, mk.y - w / 2, w, w);
-				ctx.strokeRect(mk.x - w / 2, mk.y - w / 2, w, w);
-			}
-		}
-		ctx.restore();
-	};
-
-	const drawLabels = () => {
-		if (!state.showLabels || !labels) return;
-		ctx.save();
-		const style = state.layerStyles?.labels || { opacity: 1.0, size: 11.0 };
-		ctx.globalAlpha = style.opacity;
-
-		for (const l of labels) {
-			ctx.save();
-			ctx.translate(l.x, l.y);
-			ctx.rotate((l.rotation * Math.PI) / 180);
-
-			ctx.fillStyle = "#ffffff";
-			ctx.font = `bold ${l.size * (style.size / 11.0)}px 'Outfit', 'Inter', sans-serif`;
-			ctx.textAlign = "center";
-
-			ctx.shadowColor = "rgba(0,0,0,0.8)";
-			ctx.shadowBlur = 0;
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 			ctx.fillText(l.text, 0, 0);
 
 			ctx.restore();
@@ -1275,7 +929,6 @@ export function renderMap(
 
 	// 2. Loop through layerOrder to draw in correct sequence
 	const order = state.layerOrder || [
-<<<<<<< HEAD
 		"heightmap",
 		"biomes",
 		"temp",
@@ -1285,9 +938,6 @@ export function renderMap(
 		"provinces",
 		"religions",
 		"goods",
-=======
-		"primary",
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		"grid",
 		"rivers",
 		"zones",
@@ -1298,7 +948,6 @@ export function renderMap(
 		"labels",
 	];
 	for (const layerId of order) {
-<<<<<<< HEAD
 		if (
 			layerId === "heightmap" ||
 			layerId === "biomes" ||
@@ -1315,10 +964,6 @@ export function renderMap(
 				drawThematicLayer(layerId);
 			}
 		} else if (layerId === "grid") drawGrid();
-=======
-		if (layerId === "primary") drawPrimary();
-		else if (layerId === "grid") drawGrid();
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		else if (layerId === "rivers") drawRivers();
 		else if (layerId === "zones") drawZones();
 		else if (layerId === "routes") drawRoutes();
@@ -1328,7 +973,6 @@ export function renderMap(
 		else if (layerId === "labels") drawLabels();
 	}
 
-<<<<<<< HEAD
 	// 3. Draw Nested LOD system overlay & entities
 	drawNestedLODSystem(ctx, canvas, state);
 
@@ -1723,7 +1367,4 @@ function drawLocalTravelGrid(
 		ctx.fillText(labelStr, px, py + 8 / zoom);
 		ctx.restore();
 	}
-=======
-	ctx.restore();
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 }

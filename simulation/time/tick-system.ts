@@ -8,11 +8,7 @@ export interface CalendarState {
 	seasonOffset: number; // For climate temperature shifts (-1.0 to 1.0)
 	weekday: string;
 	seasonName: string;
-<<<<<<< HEAD
 	moonPhases: { moonName: string; phaseName: string; modifier: number; effect?: string }[];
-=======
-	moonPhases: { moonName: string; phaseName: string; modifier: number }[];
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 	activeModifiers?: {
 		tempMod: number;
 		precMod: number;
@@ -181,20 +177,14 @@ export class TickSystem {
 			let accDays = 0;
 			let phaseName = "Unknown";
 			let modifier = 1.0;
-<<<<<<< HEAD
 			let effect = "";
-=======
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 
 			for (const p of moon.customPhases) {
 				const phaseDuration = p.ratio * dayFactor;
 				if (moonDay < accDays + phaseDuration) {
 					phaseName = p.name;
 					modifier = p.modifier;
-<<<<<<< HEAD
 					effect = p.effect || "";
-=======
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 					break;
 				}
 				accDays += phaseDuration;
@@ -204,10 +194,7 @@ export class TickSystem {
 				moonName: moon.name,
 				phaseName,
 				modifier,
-<<<<<<< HEAD
 				effect,
-=======
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 			};
 		});
 

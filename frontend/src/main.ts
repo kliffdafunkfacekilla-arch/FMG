@@ -21,25 +21,15 @@ import { generateStates } from "../../simulation/civilization/state-generator";
 import { generateZones } from "../../simulation/civilization/zones-generator";
 import { generateClimate } from "../../simulation/climate/climate-generator";
 import { generateJitteredGrid } from "../../simulation/grid/grid-generator";
-<<<<<<< HEAD
 import { projectZoomState } from "../../simulation/grid/zoom-projector";
-=======
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 import { bakeErosion } from "../../simulation/heightmap/erosion-bake";
 import { HeightmapGenerator } from "../../simulation/heightmap/heightmap-generator";
 import { generateHydrology } from "../../simulation/hydrology/hydrology-generator";
 import { SimulationLoop } from "../../simulation/time/simulation-loop";
-<<<<<<< HEAD
 import { TickSystem } from "../../simulation/time/tick-system";
 import { store } from "../../state/store";
 import { mountBiomesEditor } from "../../ui/biomes-editor";
 import { mountBurgEditor } from "../../ui/burg-editor";
-=======
-import { store } from "../../state/store";
-import { mountBiomesEditor } from "../../ui/biomes-editor";
-import { mountBurgEditor } from "../../ui/burg-editor";
-import { mountBurgTypeEditor } from "../../ui/burg-type-editor";
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 import { mountCalendarEditor } from "../../ui/calendar-editor";
 import {
 	mountConfigurator,
@@ -49,10 +39,7 @@ import { mountStyleAndBiomeEditor } from "../../ui/dialogs-sections";
 import { mountDiplomacyEditor } from "../../ui/diplomacy-editor";
 import { mountEcologyEditor } from "../../ui/ecology-editor";
 import { mountExportOptions } from "../../ui/export-options";
-<<<<<<< HEAD
 import { mountFringeEditor } from "../../ui/fringe-editor";
-=======
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 import { mountHeightmapEditor } from "../../ui/heightmap-editor";
 import { mountLabelEditor } from "../../ui/label-editor";
 import { mountLanguageEditor } from "../../ui/language-editor";
@@ -63,10 +50,7 @@ import { mountReligionsEditor } from "../../ui/religions-editor";
 import { mountRouteEditor } from "../../ui/route-editor";
 import { mountStateEditor } from "../../ui/state-editor";
 import { mountStyleEditor } from "../../ui/style-editor";
-<<<<<<< HEAD
 import { mountDashboard } from "../../ui/data-dashboard";
-=======
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 
 console.log("FMG Full-Stack Rebuild Frontend Initialized.");
 
@@ -277,13 +261,10 @@ if (app) {
 	const loadingOverlay = document.getElementById(
 		"loadingOverlay",
 	) as HTMLDivElement;
-<<<<<<< HEAD
 
 	// Mount Export Options FIRST so that saveBtn, loadBtn, toggle3DBtn exist in the DOM before we query them
 	mountExportOptions("exporterMount", canvas);
 
-=======
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 	const toggle3DBtn = document.getElementById(
 		"toggle3DBtn",
 	) as HTMLButtonElement;
@@ -294,7 +275,6 @@ if (app) {
 	const statusEl = document.getElementById(
 		"connectionStatus",
 	) as HTMLSpanElement;
-<<<<<<< HEAD
 
 	(window as any).triggerLayerSelect = (selectedPreset: string) => {
 		currentLayer = selectedPreset as any;
@@ -375,15 +355,6 @@ if (app) {
 			store.updateState(backgroundLayerUpdates);
 		}
 
-=======
-	const layersPresetSelect = document.getElementById(
-		"layersPreset",
-	) as HTMLSelectElement;
-
-	(window as any).triggerLayerSelect = (layerName: string) => {
-		currentLayer = layerName as any;
-		if (layersPresetSelect) layersPresetSelect.value = layerName;
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		renderLayersChecklist();
 		renderCurrentLayer();
 	};
@@ -401,21 +372,12 @@ if (app) {
 	});
 
 	mountLabelEditor("labelMount", () => renderCurrentLayer());
-<<<<<<< HEAD
-=======
-	mountExportOptions("exporterMount", canvas);
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 
 	mountStyleAndBiomeEditor("styleBiomesMount", () => renderCurrentLayer());
 	mountStyleEditor("styleEditorMount", () => renderCurrentLayer());
 
-<<<<<<< HEAD
 	mountLanguageEditor("languageMount", () => renderCurrentLayer());
 	mountReligionsEditor("religionsEditorMount", () => renderCurrentLayer());
-=======
-	mountLanguageEditor("languageMount");
-	mountBurgTypeEditor("burgTypeMount");
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 	mountMilitaryUnitEditor("militaryUnitMount");
 	mountRouteEditor("routeEditorMount", () => {
 		renderCurrentLayer();
@@ -435,13 +397,10 @@ if (app) {
 	mountEcologyEditor("ecologyEditorMount", () => {
 		renderCurrentLayer();
 	});
-<<<<<<< HEAD
 	mountFringeEditor("fringeEditorMount", () => {
 		renderCurrentLayer();
 	});
 	mountDashboard("dashboardMount");
-=======
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 
 	// Bind Interactive Editors button group click listeners
 	const btnOpenHeightmap = document.getElementById("btnOpenHeightmap");
@@ -454,7 +413,6 @@ if (app) {
 	const btnOpenMarkers = document.getElementById("btnOpenMarkers");
 	const btnOpenMagic = document.getElementById("btnOpenMagic");
 	const btnOpenEcology = document.getElementById("btnOpenEcology");
-<<<<<<< HEAD
 	const btnOpenBurgs = document.getElementById("btnOpenBurgs");
 	const btnOpenMilitary = document.getElementById("btnOpenMilitary");
 	const btnOpenReligions = document.getElementById("btnOpenReligions");
@@ -848,114 +806,59 @@ if (app) {
 	if (btnOpenHeightmap) {
 		btnOpenHeightmap.addEventListener("click", () => {
 			toggleToolPanel("heightmap", "btnOpenHeightmap");
-=======
-
-	if (btnOpenHeightmap) {
-		btnOpenHeightmap.addEventListener("click", () => {
-			const win = window as any;
-			if (win.triggerLayerSelect) win.triggerLayerSelect("heightmap");
-			const editorPanel =
-				document.getElementById("hmPaintSection")?.parentElement;
-			if (editorPanel) editorPanel.style.display = "flex";
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		});
 	}
 
 	if (btnOpenStates) {
 		btnOpenStates.addEventListener("click", () => {
-<<<<<<< HEAD
 			toggleToolPanel("states", "btnOpenStates");
-=======
-			const win = window as any;
-			if (win.openStatesList) win.openStatesList();
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		});
 	}
 
 	if (btnOpenDiplomacy) {
 		btnOpenDiplomacy.addEventListener("click", () => {
-<<<<<<< HEAD
 			toggleToolPanel("diplomacy", "btnOpenDiplomacy");
-=======
-			const win = window as any;
-			if (win.openDiplomacyEditor) win.openDiplomacyEditor();
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		});
 	}
 
 	if (btnOpenRoutes) {
 		btnOpenRoutes.addEventListener("click", () => {
-<<<<<<< HEAD
 			toggleToolPanel("routes", "btnOpenRoutes");
-=======
-			const win = window as any;
-			if (win.triggerLayerSelect) win.triggerLayerSelect("states");
-			const editorPanel = document.getElementById("routeEditorPanel");
-			if (editorPanel) editorPanel.style.display = "block";
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		});
 	}
 
 	if (btnOpenLabels) {
 		btnOpenLabels.addEventListener("click", () => {
-<<<<<<< HEAD
 			toggleToolPanel("labels", "btnOpenLabels");
-=======
-			const win = window as any;
-			if (win.triggerLayerSelect) win.triggerLayerSelect("states");
-			const editorPanel = document.getElementById("labelEditorPanel");
-			if (editorPanel) editorPanel.style.display = "block";
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		});
 	}
 
 	if (btnOpenLanguages) {
 		btnOpenLanguages.addEventListener("click", () => {
-<<<<<<< HEAD
 			toggleToolPanel("languages", "btnOpenLanguages");
-=======
-			const editorPanel = document.getElementById("languageEditorPanel");
-			if (editorPanel) editorPanel.style.display = "block";
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		});
 	}
 
 	if (btnOpenBiomes) {
 		btnOpenBiomes.addEventListener("click", () => {
-<<<<<<< HEAD
 			toggleToolPanel("biomes", "btnOpenBiomes");
-=======
-			const win = window as any;
-			if (win.openBiomesEditor) win.openBiomesEditor();
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		});
 	}
 
 	if (btnOpenMarkers) {
 		btnOpenMarkers.addEventListener("click", () => {
-<<<<<<< HEAD
 			toggleToolPanel("markers", "btnOpenMarkers");
-=======
-			const win = window as any;
-			if (win.openMarkersEditor) win.openMarkersEditor();
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		});
 	}
 
 	if (btnOpenMagic) {
 		btnOpenMagic.addEventListener("click", () => {
-<<<<<<< HEAD
 			toggleToolPanel("magic", "btnOpenMagic");
-=======
-			const win = window as any;
-			if (win.openMagicEditor) win.openMagicEditor();
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		});
 	}
 
 	if (btnOpenEcology) {
 		btnOpenEcology.addEventListener("click", () => {
-<<<<<<< HEAD
 			toggleToolPanel("ecology", "btnOpenEcology");
 		});
 	}
@@ -987,10 +890,6 @@ if (app) {
 	if (btnOpenDashboard) {
 		btnOpenDashboard.addEventListener("click", () => {
 			toggleToolPanel("dashboard", "btnOpenDashboard");
-=======
-			const win = window as any;
-			if (win.openEcologyEditor) win.openEcologyEditor();
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		});
 	}
 
@@ -1007,54 +906,26 @@ if (app) {
 	// Intercept editor openings and brush actions to automatically switch active layers matching FMG workflow
 	const originalOpenBurgEditor = (window as any).openBurgEditor;
 	(window as any).openBurgEditor = (burg: any) => {
-<<<<<<< HEAD
 		(window as any).triggerLayerSelect("states");
-=======
-		currentLayer = "states";
-		if (layersPresetSelect) layersPresetSelect.value = "states";
-		renderLayersChecklist();
-		renderCurrentLayer();
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		if (originalOpenBurgEditor) originalOpenBurgEditor(burg);
 	};
 
 	const originalOpenStateEditor = (window as any).openStateEditor;
 	(window as any).openStateEditor = (state: any) => {
-<<<<<<< HEAD
 		(window as any).triggerLayerSelect("states");
-=======
-		currentLayer = "states";
-		if (layersPresetSelect) layersPresetSelect.value = "states";
-		renderLayersChecklist();
-		renderCurrentLayer();
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		if (originalOpenStateEditor) originalOpenStateEditor(state);
 	};
 
 	const originalOpenRouteEditor = (window as any).openRouteEditor;
 	(window as any).openRouteEditor = (route: any) => {
-<<<<<<< HEAD
 		(window as any).triggerLayerSelect("states");
-=======
-		currentLayer = "states";
-		if (layersPresetSelect) layersPresetSelect.value = "states";
-		renderLayersChecklist();
-		renderCurrentLayer();
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		if (originalOpenRouteEditor) originalOpenRouteEditor(route);
 	};
 
 	const originalOpenLabelEditor = (window as any).openLabelEditor;
 	if (originalOpenLabelEditor) {
 		(window as any).openLabelEditor = (label: any) => {
-<<<<<<< HEAD
 			(window as any).triggerLayerSelect("states");
-=======
-			currentLayer = "states";
-			if (layersPresetSelect) layersPresetSelect.value = "states";
-			renderLayersChecklist();
-			renderCurrentLayer();
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 			originalOpenLabelEditor(label);
 		};
 	}
@@ -1138,7 +1009,6 @@ if (app) {
 			handleTimeTick(totalDays * 24);
 		});
 	}
-<<<<<<< HEAD
 
 	// Wire Simulation Controls (under the minimap)
 	const simStep1Btn = document.getElementById("simStep1Btn");
@@ -1166,8 +1036,6 @@ if (app) {
 		});
 	}
 
-=======
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 	if (minimapCanvas) drawMinimap(minimapCanvas, store.getState());
 
 	// Wire up collapsible trigger logic
@@ -1194,18 +1062,8 @@ if (app) {
 	}
 
 	// Wire up Tab switching
-<<<<<<< HEAD
 	const tabs = ["optionsTab", "layersTab", "toolsTab"];
 	const contents = ["optionsContent", "layersContent", "toolsContent"];
-=======
-	const tabs = ["optionsTab", "layersTab", "styleTab", "toolsTab"];
-	const contents = [
-		"optionsContent",
-		"layersContent",
-		"styleContent",
-		"toolsContent",
-	];
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 
 	tabs.forEach((tabId, idx) => {
 		const tabBtn = document.getElementById(tabId) as HTMLButtonElement;
@@ -1312,7 +1170,6 @@ if (app) {
 				);
 				const hg = new HeightmapGenerator(grid, width, height, seed);
 
-<<<<<<< HEAD
 				let templateStr = "";
 				if (config.heightmapType === "Volcano") {
 					templateStr = `
@@ -1406,43 +1263,6 @@ if (app) {
 						Smooth 3 0 0 0
 						Mask 3 0 0 0
 					`;
-=======
-				let templateStr = `
-          Hill 1 80-85 60-80 40-60
-          Hill 1 80-85 20-30 40-60
-          Hill 6-7 15-30 25-75 15-85
-          Multiply 0.6 land 0 0
-          Hill 8-10 5-10 15-85 20-80
-          Range 1-2 35-55 5-95 20-80
-          Strait 1 vertical 0 0
-          Smooth 3 0 0 0
-          Mask 3 0 0 0
-        `;
-				if (config.heightmapType === "Volcano") {
-					templateStr = `
-            Hill 1 90-95 50-50 20-30
-            Hill 4 10-20 20-80 20-80
-            Multiply 0.8
-            Smooth 5
-          `;
-				} else if (
-					config.heightmapType === "High Island" ||
-					config.heightmapType === "Low Island"
-				) {
-					templateStr = `
-            Hill 2 70-80 40-60 30-50
-            Smooth 4
-          `;
-				} else if (
-					config.heightmapType === "Archipelago" ||
-					config.heightmapType === "Atoll"
-				) {
-					templateStr = `
-            Hill 10 5-15 10-90 10-90
-            Multiply 0.5
-            Smooth 3
-          `;
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 				}
 
 				const rawHeights = hg.executeTemplate(templateStr);
@@ -1477,11 +1297,8 @@ if (app) {
 					seed,
 					hydro.flux,
 					hydro.rivers,
-<<<<<<< HEAD
 					undefined,
 					config.enableUnderwater ? config.underwaterCount : 0,
-=======
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 				);
 				const burgs = generateBurgs(
 					grid,
@@ -1678,7 +1495,6 @@ if (app) {
 	let startX = 0;
 	let startY = 0;
 
-<<<<<<< HEAD
 	let isPaintingBrush = false;
 	let lastPaintedCellId: number | null = null;
 
@@ -1843,8 +1659,6 @@ if (app) {
 		return false;
 	};
 
-=======
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 	canvas.addEventListener("mousedown", (e) => {
 		if (is3DMode) return;
 		const state = store.getState() as any;
@@ -1858,7 +1672,6 @@ if (app) {
 		const mapX = (clickX - state.offsetX) / state.zoom;
 		const mapY = (clickY - state.offsetY) / state.zoom;
 
-<<<<<<< HEAD
 		// Check if we click a region anchor or a local zone anchor for dragging
 		const zoom = state.zoom || 1.0;
 		if (state.regions) {
@@ -1897,8 +1710,6 @@ if (app) {
 			return;
 		}
 
-=======
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		// Check if we click a burg
 		if (state.burgs) {
 			for (const b of state.burgs) {
@@ -1911,7 +1722,6 @@ if (app) {
 			}
 		}
 
-<<<<<<< HEAD
 		// Intercept simulation manual placement clicks!
 		if ((window as any).isSimulationManualPlacementActive) {
 			const clickedCellId = cellId;
@@ -1982,9 +1792,6 @@ if (app) {
 			setTimeout(() => feedbackEl.remove(), 900);
 			return;
 		}
-=======
-		const cellId = findClosestCellIndex(mapX, mapY, state.grid.points);
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 
 		// Check if we click a route
 		if (state.routes) {
@@ -1999,7 +1806,6 @@ if (app) {
 
 		// Check if we click a state
 		const sId = state.cellStates ? state.cellStates[cellId] : 0;
-<<<<<<< HEAD
 		const hmBrush = (window as any).getCurrentHeightmapBrushConfig
 			? (window as any).getCurrentHeightmapBrushConfig()
 			: null;
@@ -2015,13 +1821,6 @@ if (app) {
 			(relBrush && relBrush.active);
 
 		if (sId > 0 && state.states && !isBrushActive) {
-=======
-		const brush = (window as any).getCurrentBrushConfig
-			? (window as any).getCurrentBrushConfig()
-			: { mode: "none" };
-
-		if (sId > 0 && state.states && brush.mode === "none") {
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 			const activeState = state.states.find((s: any) => s.id === sId);
 			if (activeState) {
 				ensureToolsTabVisible();
@@ -2030,47 +1829,6 @@ if (app) {
 			}
 		}
 
-<<<<<<< HEAD
-=======
-		// If brush is active, perform brush painting
-		if (brush.mode !== "none") {
-			const originalHeight = state.heights[cellId];
-			let newHeight = originalHeight;
-
-			if (brush.mode === "add") {
-				newHeight = Math.min(originalHeight + 15, 100);
-			} else if (brush.mode === "sub") {
-				newHeight = Math.max(originalHeight - 15, 0);
-			} else if (brush.mode === "set") {
-				newHeight = brush.value;
-			} else if (brush.mode === "smooth") {
-				const neighbors = state.grid.cells.c[cellId] || [];
-				const sum = neighbors.reduce(
-					(acc: number, n: number) => acc + state.heights[n],
-					originalHeight,
-				);
-				newHeight = Math.round(sum / (neighbors.length + 1));
-			}
-
-			const updatedHeights = new Uint8Array(state.heights);
-			updatedHeights[cellId] = newHeight;
-			store.updateState({ heights: updatedHeights });
-			renderCurrentLayer();
-			if (minimapCanvas) drawMinimap(minimapCanvas, store.getState());
-
-			if (socket && socket.readyState === WebSocket.OPEN) {
-				socket.send(
-					JSON.stringify({
-						op: "MUTATE_CELL",
-						cellId,
-						changes: { height: newHeight / 100.0 },
-					}),
-				);
-			}
-			return;
-		}
-
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		// Otherwise, start panning!
 		isPanning = true;
 		startX = e.clientX;
@@ -2078,7 +1836,6 @@ if (app) {
 	});
 
 	canvas.addEventListener("mousemove", (e) => {
-<<<<<<< HEAD
 		if (draggedRegionId !== null) {
 			const rect = canvas.getBoundingClientRect();
 			const clickX = ((e.clientX - rect.left) / rect.width) * canvas.width;
@@ -2177,8 +1934,6 @@ if (app) {
 			return;
 		}
 
-=======
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		if (isPanning) {
 			const dx = e.clientX - startX;
 			const dy = e.clientY - startY;
@@ -2196,13 +1951,10 @@ if (app) {
 
 	window.addEventListener("mouseup", () => {
 		isPanning = false;
-<<<<<<< HEAD
 		isPaintingBrush = false;
 		lastPaintedCellId = null;
 		draggedRegionId = null;
 		draggedLocalZoneId = null;
-=======
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 	});
 
 	canvas.addEventListener("wheel", (e) => {
@@ -2210,12 +1962,7 @@ if (app) {
 		e.preventDefault();
 
 		const state = store.getState() as any;
-<<<<<<< HEAD
 		if (!state.regions || state.regions.length === 0) return;
-=======
-		const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85;
-		const nextZoom = Math.min(Math.max(state.zoom * zoomFactor, 1.0), 8.0);
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 
 		const rect = canvas.getBoundingClientRect();
 		const mouseX = ((e.clientX - rect.left) / rect.width) * canvas.width;
@@ -2224,7 +1971,6 @@ if (app) {
 		const mapX = (mouseX - state.offsetX) / state.zoom;
 		const mapY = (mouseY - state.offsetY) / state.zoom;
 
-<<<<<<< HEAD
 		const isScrollUp = e.deltaY < 0;
 
 		if (isScrollUp) {
@@ -2325,14 +2071,6 @@ if (app) {
 				}
 			}
 		}
-=======
-		store.updateState({
-			zoom: nextZoom,
-			offsetX: mouseX - mapX * nextZoom,
-			offsetY: mouseY - mapY * nextZoom,
-		});
-		renderCurrentLayer();
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 	});
 
 	const renderLayersChecklist = () => {
@@ -2341,7 +2079,6 @@ if (app) {
 
 		const state = store.getState() as any;
 		const order = state.layerOrder || [
-<<<<<<< HEAD
 			"heightmap",
 			"biomes",
 			"temp",
@@ -2351,9 +2088,6 @@ if (app) {
 			"provinces",
 			"religions",
 			"goods",
-=======
-			"primary",
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 			"grid",
 			"rivers",
 			"zones",
@@ -2364,7 +2098,6 @@ if (app) {
 			"labels",
 		];
 
-<<<<<<< HEAD
 		const layerMeta: Record<string, { name: string; toggleId: string }> = {
 			heightmap: { name: "⛰️ Heightmap", toggleId: "showHeightmap" },
 			biomes: { name: "🍃 Biomes Terrain", toggleId: "showBiomes" },
@@ -2549,92 +2282,11 @@ if (app) {
 					percentLabel.textContent = `${Math.round(val * 100)}%`;
 				}
 
-=======
-		// Mapping layer order items to display properties
-		const layerMeta: Record<
-			string,
-			{ name: string; isPrimary: boolean; toggleId?: string }
-		> = {
-			primary: {
-				name: `Primary Layer (${currentLayer.toUpperCase()})`,
-				isPrimary: true,
-			},
-			grid: { name: "Grid Cells", isPrimary: false, toggleId: "showGrid" },
-			rivers: { name: "Rivers", isPrimary: false, toggleId: "showRivers" },
-			zones: { name: "Special Zones", isPrimary: false, toggleId: "showZones" },
-			routes: {
-				name: "Routes & Roads",
-				isPrimary: false,
-				toggleId: "showRoutes",
-			},
-			markers: {
-				name: "Markers & Icons",
-				isPrimary: false,
-				toggleId: "showMarkers",
-			},
-			burgs: {
-				name: "Burgs & Cities",
-				isPrimary: false,
-				toggleId: "showBurgs",
-			},
-			military: {
-				name: "Military Units",
-				isPrimary: false,
-				toggleId: "showMilitary",
-			},
-			labels: { name: "Text Labels", isPrimary: false, toggleId: "showLabels" },
-		};
-
-		listEl.innerHTML = order
-			.map((layerId, idx) => {
-				const meta = layerMeta[layerId] || { name: layerId, isPrimary: false };
-				const isVisible = meta.isPrimary
-					? true
-					: (state[meta.toggleId!] ?? false);
-				const eyeIcon = isVisible ? "👁️" : "🙈";
-				const iconColor = isVisible ? "#3b82f6" : "#475569";
-				const rowBackground = meta.isPrimary
-					? "rgba(59, 130, 246, 0.15)"
-					: "transparent";
-
-				return `
-        <div class="draggable-layer-row" draggable="true" data-index="${idx}" data-layer-id="${layerId}" style="display: flex; align-items: center; justify-content: space-between; padding: 0.3rem 0.5rem; border-radius: 4px; background: ${rowBackground}; width: 100%; box-sizing: border-box; gap: 0.5rem; cursor: grab; border: 1px solid rgba(255,255,255,0.05); user-select: none;">
-          <span style="font-weight: ${meta.isPrimary ? "bold" : "normal"}; color: ${meta.isPrimary ? "#f1f5f9" : "#cbd5e1"}; font-size: 0.8rem; pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;">
-            ⋮⋮ ${meta.name}
-          </span>
-          <button class="layer-toggle-btn" data-id="${layerId}" data-toggle-id="${meta.toggleId || ""}" style="background: transparent; border: none; font-size: 0.95rem; cursor: pointer; color: ${iconColor}; padding: 0 0.2rem; outline: none;">
-            ${eyeIcon}
-          </button>
-        </div>
-      `;
-			})
-			.join("");
-
-		// Bind eye button visibility toggles
-		const toggles = listEl.querySelectorAll(".layer-toggle-btn");
-		toggles.forEach((btn) => {
-			btn.addEventListener("click", (e) => {
-				e.stopPropagation();
-				const id = btn.getAttribute("data-id")!;
-				const toggleId = btn.getAttribute("data-toggle-id")!;
-
-				if (id !== "primary") {
-					const propName = toggleId as keyof AppState;
-					const currentVal = state[propName];
-					store.updateState({ [propName]: !currentVal });
-				}
-
-				renderLayersChecklist();
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 				renderCurrentLayer();
 			});
 		});
 
-<<<<<<< HEAD
 		// Bind HTML5 drag-and-drop events for Core Base Layers
-=======
-		// Bind HTML5 drag-and-drop events
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 		let dragSrcIndex: number | null = null;
 		const rows = listEl.querySelectorAll(".draggable-layer-row");
 
@@ -2658,7 +2310,6 @@ if (app) {
 				e.preventDefault();
 				const targetIndex = parseInt(row.getAttribute("data-index")!, 10);
 				if (dragSrcIndex !== null && dragSrcIndex !== targetIndex) {
-<<<<<<< HEAD
 					const nextCoreOrder = [...activeCoreOrder];
 					const [dragged] = nextCoreOrder.splice(dragSrcIndex, 1);
 					nextCoreOrder.splice(targetIndex, 0, dragged);
@@ -2675,13 +2326,6 @@ if (app) {
 					}
 
 					store.updateState({ layerOrder: resultOrder });
-=======
-					const nextOrder = [...order];
-					const [dragged] = nextOrder.splice(dragSrcIndex, 1);
-					nextOrder.splice(targetIndex, 0, dragged);
-
-					store.updateState({ layerOrder: nextOrder });
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 					renderLayersChecklist();
 					renderCurrentLayer();
 				}
@@ -2815,7 +2459,6 @@ if (app) {
 		styleLayerSelect.addEventListener("change", renderStyleControls);
 	}
 
-<<<<<<< HEAD
 	// Wire up stylePreset theme selector
 	const stylePresetSelect = document.getElementById(
 		"stylePreset",
@@ -2834,39 +2477,10 @@ if (app) {
 			} else if (val === "clean") {
 				currentLayer = "states";
 				store.updateState({
-=======
-	if (layersPresetSelect) {
-		layersPresetSelect.addEventListener("change", () => {
-			const selectedPreset = layersPresetSelect.value as any;
-			currentLayer = selectedPreset;
-
-			// Automatically update overlays depending on the preset chosen
-			if (
-				selectedPreset === "states" ||
-				selectedPreset === "provinces" ||
-				selectedPreset === "cultures"
-			) {
-				store.updateState({
-					showBurgs: true,
-					showRoutes: true,
-					showRivers: false,
-					showGrid: false,
-					showMilitary: false,
-				});
-			} else if (
-				selectedPreset === "heightmap" ||
-				selectedPreset === "temp" ||
-				selectedPreset === "prec"
-			) {
-				store.updateState({
-					showRivers: true,
-					showBurgs: false,
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 					showRoutes: false,
 					showGrid: false,
 					showMilitary: false,
 				});
-<<<<<<< HEAD
 				nextStyles.states = { ...nextStyles.states, opacity: 0.9 };
 			} else {
 				currentLayer = "states";
@@ -2884,32 +2498,10 @@ if (app) {
 			store.updateState({ layerStyles: nextStyles });
 			renderLayersChecklist();
 			renderStyleControls();
-=======
-			} else if (selectedPreset === "biomes") {
-				store.updateState({
-					showRivers: true,
-					showBurgs: false,
-					showRoutes: false,
-					showGrid: false,
-					showMilitary: false,
-				});
-			} else if (selectedPreset === "goods") {
-				store.updateState({
-					showRoutes: true,
-					showBurgs: true,
-					showRivers: false,
-					showGrid: false,
-					showMilitary: false,
-				});
-			}
-
-			renderLayersChecklist();
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 			renderCurrentLayer();
 		});
 	}
 
-<<<<<<< HEAD
 	// Trigger initial lists render
 	setTimeout(() => {
 		renderLayersChecklist();
@@ -3506,155 +3098,6 @@ if (app) {
 		runSimulation((window as any).getCurrentSetupConfig());
 	}
 
-=======
-	// Wire up Options tab Save/Load button redirects
-	const optsSaveBtn = document.getElementById("optsSaveBtn");
-	const optsLoadBtn = document.getElementById("optsLoadBtn");
-	if (optsSaveBtn) {
-		optsSaveBtn.addEventListener("click", () => {
-			saveBtn?.click();
-		});
-	}
-	if (optsLoadBtn) {
-		optsLoadBtn.addEventListener("click", () => {
-			loadBtn?.click();
-		});
-	}
-
-	// Wire up stylePreset theme selector
-	const stylePresetSelect = document.getElementById(
-		"stylePreset",
-	) as HTMLSelectElement;
-	if (stylePresetSelect) {
-		stylePresetSelect.addEventListener("change", () => {
-			const val = stylePresetSelect.value;
-			const state = store.getState() as any;
-			const nextStyles = { ...state.layerStyles };
-
-			if (val === "monochrome") {
-				currentLayer = "heightmap";
-				if (layersPresetSelect) layersPresetSelect.value = "heightmap";
-				nextStyles.heightmap = { ...nextStyles.heightmap, opacity: 1.0 };
-				nextStyles.states = { ...nextStyles.states, opacity: 0.0 };
-				nextStyles.cultures = { ...nextStyles.cultures, opacity: 0.0 };
-			} else if (val === "clean") {
-				currentLayer = "states";
-				if (layersPresetSelect) layersPresetSelect.value = "states";
-				store.updateState({
-					showRoutes: false,
-					showGrid: false,
-					showMilitary: false,
-				});
-				nextStyles.states = { ...nextStyles.states, opacity: 0.9 };
-			} else {
-				currentLayer = "states";
-				if (layersPresetSelect) layersPresetSelect.value = "states";
-				store.updateState({
-					showRoutes: true,
-					showGrid: false,
-					showBurgs: true,
-					showRivers: true,
-					showLabels: true,
-				});
-				nextStyles.states = { ...nextStyles.states, opacity: 0.85 };
-				nextStyles.heightmap = { ...nextStyles.heightmap, opacity: 1.0 };
-			}
-
-			store.updateState({ layerStyles: nextStyles });
-			renderLayersChecklist();
-			renderStyleControls();
-			renderCurrentLayer();
-		});
-	}
-
-	// Trigger initial lists render
-	setTimeout(() => {
-		renderLayersChecklist();
-		renderStyleControls();
-	}, 100);
-
-	if (toggle3DBtn && threeContainer) {
-		toggle3DBtn.addEventListener("click", () => {
-			is3DMode = !is3DMode;
-			if (is3DMode) {
-				canvas.style.display = "none";
-				threeContainer.style.display = "block";
-				if (!threeRenderer) {
-					threeRenderer = new ThreeRenderer(threeContainer);
-				}
-				threeRenderer.updateTerrain(store.getState());
-				threeRenderer.startAnimation();
-				if (layersPresetSelect) layersPresetSelect.disabled = true;
-			} else {
-				canvas.style.display = "block";
-				threeContainer.style.display = "none";
-				if (threeRenderer) {
-					threeRenderer.stopAnimation();
-				}
-				if (layersPresetSelect) layersPresetSelect.disabled = false;
-				renderCurrentLayer();
-			}
-		});
-	}
-
-	if (saveBtn) {
-		saveBtn.addEventListener("click", () => {
-			const state = store.getState();
-			const serialized = serializeMapState(state);
-			const blob = new Blob([serialized], { type: "application/json" });
-			const url = URL.createObjectURL(blob);
-			const a = document.createElement("a");
-			a.href = url;
-			a.download = `${state.seed || "map"}.json`;
-			document.body.appendChild(a);
-			a.click();
-			document.body.removeChild(a);
-			URL.revokeObjectURL(url);
-		});
-	}
-
-	if (loadBtn && fileInput) {
-		loadBtn.addEventListener("click", () => {
-			fileInput.click();
-		});
-		fileInput.addEventListener("change", (e) => {
-			const target = e.target as HTMLInputElement;
-			const file = target.files?.[0];
-			if (!file) return;
-
-			const reader = new FileReader();
-			reader.onload = (event) => {
-				try {
-					const contents = event.target?.result as string;
-					const reloadedState = deserializeMapState(contents);
-					store.updateState(reloadedState);
-					renderCurrentLayer();
-					if (minimapCanvas) drawMinimap(minimapCanvas, store.getState());
-					if (threeRenderer && is3DMode) {
-						threeRenderer.updateTerrain(store.getState());
-					}
-				} catch (err) {
-					alert("Error parsing loaded map file.");
-					console.error(err);
-				}
-			};
-			reader.readAsText(file);
-		});
-	}
-
-	// Subscribe to store updates to automatically render the canvas layer
-	store.subscribe((state) => {
-		if (canvas) {
-			renderMap(canvas, state, currentLayer);
-		}
-	});
-
-	updateCanvasSize();
-	if ((window as any).getCurrentSetupConfig) {
-		runSimulation((window as any).getCurrentSetupConfig());
-	}
-
->>>>>>> 244c3607df6c9b04fdb870383198bfe25fbc42ee
 	window.addEventListener("resize", () => {
 		updateCanvasSize();
 		renderCurrentLayer();
