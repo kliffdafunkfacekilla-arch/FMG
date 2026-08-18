@@ -260,6 +260,7 @@ export function renderMap(
 
 			// Cultures Layer
 			if (layerType === "cultures" && cellCultures && heights) {
+				const cellSecondaryCultures = state.cellSecondaryCultures;
 				let sumHeight = 0;
 				for (let idx = 0; idx < candidates.length; idx++) {
 					sumHeight += (heights[candidates[idx]] || 0) * weights[idx];
@@ -279,6 +280,9 @@ export function renderMap(
 				}
 				let maxW = -1;
 				let winner = 0;
+				let secondaryWinner = 0;
+				
+				// We don't interpolate secondary cultures as smoothly, just pick the dominant one from the winner's cell
 				for (const cStr in cultureWeights) {
 					const cNum = parseInt(cStr);
 					if (cultureWeights[cNum] > maxW) {
@@ -286,9 +290,32 @@ export function renderMap(
 						winner = cNum;
 					}
 				}
-				return winner > 0
-					? CULTURE_COLORS[(winner - 1) % CULTURE_COLORS.length]
-					: "#555";
+				
+				if (winner > 0 && cellSecondaryCultures) {
+					// Check if the cell that gave us this winner had a secondary culture
+					let bestCellForWinner = candidates[0];
+					for(let idx = 0; idx < candidates.length; idx++) {
+						if(cellCultures[candidates[idx]] === winner) {
+							bestCellForWinner = candidates[idx];
+							break;
+						}
+					}
+					secondaryWinner = cellSecondaryCultures[bestCellForWinner];
+				}
+
+				if (winner > 0) {
+					const primaryColor = CULTURE_COLORS[(winner - 1) % CULTURE_COLORS.length];
+					if (secondaryWinner > 0) {
+						const secondaryColor = CULTURE_COLORS[(secondaryWinner - 1) % CULTURE_COLORS.length];
+						// Create a striped effect based on world coordinates
+						const stripeWidth = 4.0;
+						if ((Math.floor((pt[0] + pt[1]) / stripeWidth) % 2) === 0) {
+							return secondaryColor;
+						}
+					}
+					return primaryColor;
+				}
+				return "#555";
 			}
 
 			// States Layer

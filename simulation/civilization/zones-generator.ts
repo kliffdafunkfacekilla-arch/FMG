@@ -7,6 +7,7 @@ export interface Zone {
 	type: string;
 	color: string;
 	cells: number[]; // Cell indices included in this zone
+	modifiers?: Record<string, number>; // Dynamic simulation variables (e.g. health: -10)
 }
 
 const ZONE_TYPES = [

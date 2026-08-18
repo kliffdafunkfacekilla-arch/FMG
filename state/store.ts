@@ -224,6 +224,7 @@ export interface AppState {
 	flux: Float32Array | null;
 	rivers: Uint16Array | null;
 	biomes: Uint8Array | null;
+	cellSecondaryCultures: Uint8Array | null;
 
 	// Custom Calendar settings
 	weekdays: string[];
@@ -318,12 +319,23 @@ export interface AppState {
 	fringeGroups: any[] | null;
 	markets?: any[] | null;
 	labels?: any[] | null;
+	zones?: any[] | null;
+	notes?: Note[] | null;
 	cellReligions?: Uint8Array | null;
 	militaryUnitTypes?: { type: string; speed: number; combatValue: number }[];
 
 	// Z-index Order & Styling
 	layerOrder: string[];
 	layerStyles: Record<string, { opacity: number; color: string; size: number }>;
+}
+
+export interface Note {
+	id: string;
+	targetType: "global" | "burg" | "state" | "culture" | "religion" | "province" | "zone" | "resource" | "cell";
+	targetId: string | number;
+	title: string;
+	content: string;
+	tags: string[];
 }
 
 export interface MagicVectorWeights {
@@ -381,6 +393,7 @@ class StateStore {
 			flux: null,
 			rivers: null,
 			biomes: null,
+			cellSecondaryCultures: null,
 
 			plants: null,
 			herbivores: null,
@@ -449,6 +462,7 @@ class StateStore {
 			fringeGroups: [],
 			markets: [],
 			labels: [],
+			notes: [],
 			cellReligions: null,
 			militaryUnitTypes: [
 				{ type: "infantry", speed: 1.0, combatValue: 10 },

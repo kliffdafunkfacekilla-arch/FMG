@@ -26,6 +26,7 @@ export interface SerializedMapData {
 	rivers: number[];
 	biomes: number[];
 	cellCultures: number[];
+	cellSecondaryCultures: number[];
 	cellStates: number[];
 	cellProvinces: number[];
 
@@ -37,6 +38,7 @@ export interface SerializedMapData {
 	routes: any[];
 	military: any[];
 	labels: any[];
+	notes: any[];
 }
 
 export function serializeMapState(state: any): string {
@@ -66,6 +68,7 @@ export function serializeMapState(state: any): string {
 		rivers: state.rivers ? Array.from(state.rivers) : [],
 		biomes: state.biomes ? Array.from(state.biomes) : [],
 		cellCultures: state.cellCultures ? Array.from(state.cellCultures) : [],
+		cellSecondaryCultures: state.cellSecondaryCultures ? Array.from(state.cellSecondaryCultures) : [],
 		cellStates: state.cellStates ? Array.from(state.cellStates) : [],
 		cellProvinces: state.cellProvinces ? Array.from(state.cellProvinces) : [],
 
@@ -76,6 +79,7 @@ export function serializeMapState(state: any): string {
 		routes: state.routes || [],
 		military: state.military || [],
 		labels: state.labels || [],
+		notes: state.notes || [],
 	};
 
 	return JSON.stringify(data);
@@ -117,6 +121,7 @@ export function deserializeMapState(jsonStr: string): any {
 		rivers: new Uint16Array(data.rivers),
 		biomes: new Uint8Array(data.biomes),
 		cellCultures: new Uint8Array(data.cellCultures),
+		cellSecondaryCultures: data.cellSecondaryCultures ? new Uint8Array(data.cellSecondaryCultures) : null,
 		cellStates: new Uint8Array(data.cellStates),
 		cellProvinces: new Uint16Array(data.cellProvinces),
 		cultures: data.cultures,
@@ -125,5 +130,7 @@ export function deserializeMapState(jsonStr: string): any {
 		provinces: data.provinces,
 		routes: data.routes,
 		military: data.military,
+		labels: data.labels || [],
+		notes: data.notes || [],
 	};
 }

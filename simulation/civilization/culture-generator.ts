@@ -106,9 +106,10 @@ export function generateCultures(
 	rivers?: Uint16Array,
 	existingCultures?: Culture[],
 	underwaterCount = 0,
-): { cultures: Culture[]; cellCultures: Uint8Array } {
+): { cultures: Culture[]; cellCultures: Uint8Array; cellSecondaryCultures: Uint8Array } {
 	const pointsN = heights.length;
 	const cellCultures = new Uint8Array(pointsN).fill(0); // 0 = Wild / No Culture
+	const cellSecondaryCultures = new Uint8Array(pointsN).fill(0); // 0 = Wild / No Secondary Culture
 	const cultures: Culture[] = [];
 	const rng = createPRNG(seed);
 
@@ -134,7 +135,7 @@ export function generateCultures(
 	}
 
 	if (candidates.length === 0 && oceanCandidates.length === 0) {
-		return { cultures, cellCultures };
+		return { cultures, cellCultures, cellSecondaryCultures };
 	}
 
 	// Shuffle candidates
@@ -319,6 +320,10 @@ export function generateCultures(
 			if (totalCost > maxExpansionCost) continue;
 
 			if (totalCost < minCost[n]) {
+				// If another culture already owned this cell or was close, make it secondary before taking over
+				if (cellCultures[n] > 0 && cellCultures[n] !== curr.cultureId) {
+					cellSecondaryCultures[n] = cellCultures[n];
+				}
 				minCost[n] = totalCost;
 				if (curr.habitat === "ocean" || heights[n] >= 20 || targetBiome !== 11) {
 					cellCultures[n] = curr.cultureId;
@@ -335,9 +340,16 @@ export function generateCultures(
 					},
 					totalCost,
 				);
+			} else if (cellCultures[n] > 0 && cellCultures[n] !== curr.cultureId) {
+				// Border logic: if we couldn't take over the cell because it's already well-established,
+				// but we are close (cost is within a threshold of minCost), make us the secondary culture.
+				const threshold = 150; 
+				if (totalCost < minCost[n] + threshold) {
+					cellSecondaryCultures[n] = curr.cultureId;
+				}
 			}
 		}
 	}
 
-	return { cultures, cellCultures };
+	return { cultures, cellCultures, cellSecondaryCultures };
 }

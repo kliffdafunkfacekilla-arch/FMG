@@ -707,6 +707,22 @@ export class SimulationLoop {
 						}
 					}
 
+					// Apply Zone Modifiers
+					if (currentState.zones) {
+						for (const zone of currentState.zones) {
+							if (zone.cells && zone.cells.includes(burg.cell) && zone.modifiers) {
+								if (zone.modifiers["happiness"]) burg.happiness = Math.max(10, Math.min(100, burg.happiness + zone.modifiers["happiness"]));
+								if (zone.modifiers["security"]) burg.security = Math.max(10, Math.min(100, burg.security + zone.modifiers["security"]));
+								if (zone.modifiers["health"]) burg.health = Math.max(10, Math.min(100, burg.health + zone.modifiers["health"]));
+								if (zone.modifiers["population"]) {
+									const popChange = Math.round(burg.population * (zone.modifiers["population"] / 100));
+									burg.population = Math.max(10, burg.population + popChange);
+								}
+								// Also support flat modifiers for things like wealth or arbitrary keys, though burgs don't have all arbitrary keys
+							}
+						}
+					}
+
 					const localGroups = activeFringeByBurg.get(burg.id) || [];
 					const hasSmugglers = localGroups.some((g) => g.type === "Smugglers");
 					const hasBanditsOrPirates = localGroups.some(
