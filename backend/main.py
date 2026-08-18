@@ -1,20 +1,12 @@
-import asyncio
-import math
-import random
-from typing import Dict, List, Optional
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from agents.weather import router as weather_router
-from agents.demographics import router as demographics_router
-from agents.orchestrator import router as orchestrator_router
+import chromadb
+from typing import List, Dict, Any, Optional
 
-app = FastAPI(title="Fantasy Map Generator Rebuild API")
+app = FastAPI(title="SAGA AI Director Backend")
 
-app.include_router(weather_router)
-app.include_router(demographics_router)
-app.include_router(orchestrator_router)
-
+# Enable CORS for FMG frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,146 +15,133 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Models
-class Cell(BaseModel):
-    id: int
-    x: float
-    y: float
-    height: float
-    biome: str
-    temperature: float
-    precipitation: float
-    state_id: Optional[int] = None
-    culture_id: Optional[int] = None
+# Initialize ChromaDB Local Client
+chroma_client = chromadb.PersistentClient(path="./chroma_db")
 
-class MapState(BaseModel):
-    seed: str
-    width: int
-    height: int
-    cells: List[Cell]
+# Create Collections
+events_collection = chroma_client.get_or_create_collection(name="saga_events")
+paragons_collection = chroma_client.get_or_create_collection(name="saga_paragons")
+hooks_collection = chroma_client.get_or_create_collection(name="saga_hooks")
 
-# In-memory database of active maps
-active_maps: Dict[str, MapState] = {}
+# Pydantic Models
+class MemoryNode(BaseModel):
+    id: str
+    type: str
+    title: str
+    description: str
+    timestamp: str
 
-def generate_procedural_map(seed: str, width: int, height: int, num_cells: int = 2000) -> MapState:
-    """
-    Generates a procedural map layout. Uses a simple seeded distribution of cells
-    with noise-based heightmaps, temperatures, and biomes.
-    """
-    random.seed(seed)
-    cells = []
+class MemoryNodesPayload(BaseModel):
+    nodes: List[MemoryNode]
+
+class Paragon(BaseModel):
+    id: str
+    name: str
+    affiliationType: str
+    affiliationId: int
+    role: str
+    stats: Dict[str, int]
+    positiveTrait: str
+    neutralTraits: List[str]
+    negativeTrait: str
+
+class ParagonsPayload(BaseModel):
+    paragons: List[Paragon]
+
+class StoryHook(BaseModel):
+    id: str
+    cell: int
+    threatScore: int
+    opportunityScore: int
+    issues: List[str]
+    actors: List[str]
+    openness: str
+
+class StoryHooksPayload(BaseModel):
+    hooks: List[StoryHook]
+
+# Routes
+@app.post("/api/memory/nodes")
+def ingest_memory_nodes(payload: MemoryNodesPayload):
+    if not payload.nodes:
+        return {"success": True, "ingested": 0}
     
-    # Generate points representing cell centers (Voronoi site mocks)
-    for i in range(num_cells):
-        x = random.uniform(0, width)
-        y = random.uniform(0, height)
+    ids = []
+    documents = []
+    metadatas = []
+    
+    for node in payload.nodes:
+        ids.append(node.id)
+        # The document is what Chroma searches against
+        documents.append(f"{node.title}\n{node.description}")
+        metadatas.append({
+            "type": node.type,
+            "timestamp": node.timestamp
+        })
         
-        # Simulating radial/island noise for height
-        dx = x - width / 2
-        dy = y - height / 2
-        dist = math.sqrt(dx*dx + dy*dy)
-        max_dist = math.sqrt((width/2)**2 + (height/2)**2)
-        radial_factor = 1.0 - (dist / max_dist) if max_dist > 0 else 0
+    events_collection.upsert(
+        ids=ids,
+        documents=documents,
+        metadatas=metadatas
+    )
+    return {"success": True, "ingested": len(payload.nodes)}
+
+@app.post("/api/paragons")
+def ingest_paragons(payload: ParagonsPayload):
+    if not payload.paragons:
+        return {"success": True, "ingested": 0}
         
-        # High-frequency noise simulation
-        noise = (math.sin(x * 0.05) + math.cos(y * 0.05) + random.uniform(-0.2, 0.2)) / 3.0
-        height_val = max(0.0, min(1.0, radial_factor * 0.6 + noise * 0.4 + 0.2))
+    ids = []
+    documents = []
+    metadatas = []
+    
+    for p in payload.paragons:
+        ids.append(p.id)
+        documents.append(f"{p.name}, {p.role}. Traits: {p.positiveTrait}, {p.negativeTrait}")
+        metadatas.append({
+            "affiliationType": p.affiliationType,
+            "affiliationId": p.affiliationId,
+            "role": p.role
+        })
         
-        # Climate simulation (temperature decreases with latitude/y coordinate)
-        lat_factor = 1.0 - (y / height) if height > 0 else 0.5
-        temp = 25 * math.sin(lat_factor * math.pi) + random.uniform(-2, 2)
+    paragons_collection.upsert(
+        ids=ids,
+        documents=documents,
+        metadatas=metadatas
+    )
+    return {"success": True, "ingested": len(payload.paragons)}
+
+@app.post("/api/story-hooks")
+def ingest_story_hooks(payload: StoryHooksPayload):
+    if not payload.hooks:
+        return {"success": True, "ingested": 0}
         
-        # Precipitation
-        prec = max(0.0, 100 * (math.sin(x * 0.01) * math.cos(y * 0.01) + 1.0) / 2.0 + random.uniform(-10, 10))
+    ids = []
+    documents = []
+    metadatas = []
+    
+    for h in payload.hooks:
+        ids.append(h.id)
+        doc = f"Issues: {', '.join(h.issues)}. Actors: {', '.join(h.actors)}"
+        documents.append(doc)
+        metadatas.append({
+            "cell": h.cell,
+            "threatScore": h.threatScore,
+            "opportunityScore": h.opportunityScore,
+            "openness": h.openness
+        })
         
-        # Define simple biomes
-        if height_val < 0.25:
-            biome = "Marine"
-        elif height_val < 0.3:
-            biome = "Wetland" if prec > 40 else "Sandy Desert"
-        elif temp < 0:
-            biome = "Tundra"
-        elif prec > 60:
-            biome = "Rainforest"
-        elif prec < 20:
-            biome = "Badlands"
-        else:
-            biome = "Grassland"
-            
-        cells.append(
-            Cell(
-                id=i,
-                x=x,
-                y=y,
-                height=height_val,
-                biome=biome,
-                temperature=temp,
-                precipitation=prec
-            )
-        )
-        
-    return MapState(seed=seed, width=width, height=height, cells=cells)
+    hooks_collection.upsert(
+        ids=ids,
+        documents=documents,
+        metadatas=metadatas
+    )
+    return {"success": True, "ingested": len(payload.hooks)}
 
-# Real-time WebSocket connection manager for multiplayer sync
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections: Dict[str, List[WebSocket]] = {}
-
-    async def connect(self, map_id: str, websocket: WebSocket):
-        await websocket.accept()
-        if map_id not in self.active_connections:
-            self.active_connections[map_id] = []
-        self.active_connections[map_id].append(websocket)
-
-    def disconnect(self, map_id: str, websocket: WebSocket):
-        if map_id in self.active_connections:
-            if websocket in self.active_connections[map_id]:
-                self.active_connections[map_id].remove(websocket)
-
-    async def broadcast(self, map_id: str, message: dict, exclude: Optional[WebSocket] = None):
-        if map_id in self.active_connections:
-            for connection in self.active_connections[map_id]:
-                if connection != exclude:
-                    await connection.send_json(message)
-
-manager = ConnectionManager()
-
-@app.get("/api/map/{map_id}")
-async def get_map(map_id: str, seed: Optional[str] = "fantasy-default", width: int = 1280, height: int = 720):
-    if map_id not in active_maps:
-        active_maps[map_id] = generate_procedural_map(seed, width, height)
-    return active_maps[map_id]
-
-@app.websocket("/ws/map/{map_id}")
-async def websocket_endpoint(websocket: WebSocket, map_id: str):
-    await manager.connect(map_id, websocket)
-    try:
-        while True:
-            data = await websocket.receive_json()
-            
-            # Simple operation handler: mutate cell
-            if data.get("op") == "MUTATE_CELL":
-                cell_id = data.get("cellId")
-                changes = data.get("changes", {})
-                
-                # Apply mutation to internal state
-                if map_id in active_maps:
-                    map_state = active_maps[map_id]
-                    if 0 <= cell_id < len(map_state.cells):
-                        cell = map_state.cells[cell_id]
-                        for key, val in changes.items():
-                            if hasattr(cell, key):
-                                setattr(cell, key, val)
-                
-                # Broadcast delta changes to other connected clients
-                await manager.broadcast(
-                    map_id=map_id,
-                    message={
-                        "op": "CELL_MUTATED",
-                        "cellId": cell_id,
-                        "changes": changes
-                    },
-                    exclude=websocket
-                )
-    except WebSocketDisconnect:
-        manager.disconnect(map_id, websocket)
+@app.get("/api/search/events")
+def search_events(query: str, n_results: int = 5):
+    results = events_collection.query(
+        query_texts=[query],
+        n_results=n_results
+    )
+    return {"results": results}

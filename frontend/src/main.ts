@@ -56,6 +56,7 @@ import { mountDashboard } from "../../ui/data-dashboard";
 import { mountCustomResourceEditor } from "../../ui/custom-resource-editor";
 import { mountSpeciesEditor } from "../../ui/species-editor";
 import { mountParagonsEditor } from "../../ui/paragons-editor";
+import { mountMemoryViewer, openMemoryViewer } from "../../ui/memory-viewer";
 
 console.log("FMG Full-Stack Rebuild Frontend Initialized.");
 
@@ -421,6 +422,12 @@ if (app) {
 	});
 	mountDashboard("dashboardMount");
 	mountCustomResourceEditor("app");
+	
+	// Create mount point for memory viewer and mount it
+	const memoryMount = document.createElement("div");
+	memoryMount.id = "memoryViewerMount";
+	document.body.appendChild(memoryMount);
+	mountMemoryViewer("memoryViewerMount");
 
 	// Bind Interactive Editors button group click listeners
 	const btnOpenHeightmap = document.getElementById("btnOpenHeightmap");
@@ -3189,5 +3196,15 @@ if (app) {
 	window.addEventListener("resize", () => {
 		updateCanvasSize();
 		renderCurrentLayer();
+	});
+
+	document.addEventListener("keydown", (e) => {
+		if (e.key === "c" && e.ctrlKey) {
+			openConfigurator();
+		} else if (e.key === "z" && e.ctrlKey) {
+			restoreSnapshot();
+		} else if (e.key === "m" && e.ctrlKey) {
+			openMemoryViewer();
+		}
 	});
 }

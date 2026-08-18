@@ -162,6 +162,7 @@ export function renderMap(
 		const style = state.layerStyles?.[layerType] || { opacity: 1.0 };
 		ctx.globalAlpha = style.opacity;
 
+		const fillMode = state.layerFillModes?.[layerType] || "fill";
 		const zoom = state.zoom || 1.0;
 
 		// Viewport bounds in map coordinates for smart frustum culling of subdivided cells
@@ -497,10 +498,13 @@ export function renderMap(
 					(p2[1] + p0[1]) / 2,
 				];
 
-				subdivideAndDrawTriangle(p0, m01, m20, depth - 1, cellId);
-				subdivideAndDrawTriangle(p1, m12, m01, depth - 1, cellId);
-				subdivideAndDrawTriangle(p2, m20, m12, depth - 1, cellId);
-				subdivideAndDrawTriangle(m01, m12, m20, depth - 1, cellId);
+				// Subdivide only if we need to draw fills
+				if (fillMode !== "border-only") {
+					subdivideAndDrawTriangle(p0, m01, m20, depth - 1, cellId);
+					subdivideAndDrawTriangle(p1, m12, m01, depth - 1, cellId);
+					subdivideAndDrawTriangle(p2, m20, m12, depth - 1, cellId);
+					subdivideAndDrawTriangle(m01, m12, m20, depth - 1, cellId);
+				}
 			}
 		};
 
@@ -598,8 +602,10 @@ export function renderMap(
 								: "#555";
 				}
 
-				ctx.fillStyle = color;
-				ctx.fill();
+				if (fillMode !== "border-only") {
+					ctx.fillStyle = color;
+					ctx.fill();
+				}
 			} else {
 				// Zoomed in: dynamically subdivide the cells into triangles and interpolate colors
 				const cellCenter = grid.points[i];

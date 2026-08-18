@@ -429,6 +429,15 @@ export function updateStoryHooksForCell(cellId: number) {
 
 		threatEl.innerText = maxThreat.toString();
 		oppEl.innerText = maxOpp.toString();
+
+		// Push generated hooks to the SAGA backend immediately
+		fetch("http://localhost:8000/api/story-hooks", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ hooks: seeds })
+		}).catch(err => {
+			console.warn("Failed to sync Story Hooks to SAGA backend:", err);
+		});
 	}
 
 	// Local Paragons logic

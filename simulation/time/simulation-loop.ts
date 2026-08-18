@@ -444,8 +444,25 @@ export class SimulationLoop {
 
 					if (foodAvailable < foodRequired) {
 						// Starvation: pop declines, zero food supply left
-						const shortage = foodRequired - foodAvailable;
-						burg.population = Math.max(0, burg.population - shortage * 2);
+						let shortage = foodRequired - foodAvailable;
+
+						// SAGA Paragon Integration: Greedy Mayor worsens famine
+						let isGreedyMayor = false;
+						if (currentState.paragons) {
+							const mayor = currentState.paragons.find((p: any) => p.affiliationType === "burg" && p.affiliationId === burg.i);
+							if (mayor && (mayor.negativeTrait === "Greedy" || mayor.negativeTrait === "Selfish" || mayor.negativeTrait === "Corrupt")) {
+								isGreedyMayor = true;
+								shortage = Math.floor(shortage * 1.5);
+								
+								// Log a SAGA Event for the Director
+								if (calendar.tick % 5 === 0 && lodUpdates.globalLogs) {
+									const timeStr = \`Day \${calendar.day + 1}, Year \${calendar.year + 1}\`;
+									lodUpdates.globalLogs.unshift({ time: timeStr, msg: \`The \${mayor.negativeTrait} Mayor \${mayor.name} of \${burg.name} hoarded food during a shortage, worsening the famine.\`, type: "crisis" });
+								}
+							}
+						}
+
+						burg.population = Math.max(0, burg.population - shortage * (isGreedyMayor ? 3 : 2));
 						burg.growthRate = -0.05; // declining
 						m.supply[grainId] = 0;
 						m.supply[fruitId] = 0;
@@ -1810,6 +1827,36 @@ export class SimulationLoop {
 			parentStates,
 			tradeCaravans: updatedCaravans,
 		} as any);
+
+		// Periodically sync Memory Nodes to SAGA Backend
+		if (calendar.tick % 5 === 0 && currentState.memoryGraph) {
+			const unSyncedNodes = currentState.memoryGraph.nodes.filter((n: any) => !n._synced);
+			if (unSyncedNodes.length > 0) {
+				fetch("http://localhost:8000/api/memory/nodes", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ nodes: unSyncedNodes })
+				}).then(res => {
+					if (res.ok) {
+						unSyncedNodes.forEach((n: any) => { n._synced = true; });
+					}
+				}).catch(err => {
+					console.warn("Failed to sync Memory Nodes to SAGA backend:", err);
+				});
+			}
+		}
+
+		// Initial sync of Paragons if they exist and haven't been synced
+		if (calendar.tick === 1 && currentState.paragons) {
+			const paragons = currentState.paragons;
+			fetch("http://localhost:8000/api/paragons", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ paragons })
+			}).catch(err => {
+				console.warn("Failed to sync Paragons to SAGA backend:", err);
+			});
+		}
 
 	}
 

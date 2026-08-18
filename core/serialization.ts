@@ -47,6 +47,7 @@ export interface SerializedMapData {
 	localLogs?: Record<string, any[]>;
 	paragons?: any[];
 	storySeeds?: any[];
+	memoryGraph?: any;
 }
 
 export function serializeMapState(state: any): string {
@@ -96,6 +97,7 @@ export function serializeMapState(state: any): string {
 		localLogs: state.localLogs || {},
 		paragons: state.paragons || [],
 		storySeeds: state.storySeeds || [],
+		memoryGraph: state.memoryGraph || { nodes: [], edges: [] },
 	};
 
 	if (state.speciesPopulations) {
@@ -162,6 +164,7 @@ export function deserializeMapState(jsonStr: string): any {
 		localLogs: data.localLogs || {},
 		paragons: data.paragons || [],
 		storySeeds: data.storySeeds || [],
+		memoryGraph: data.memoryGraph || { nodes: [], edges: [] },
 	};
 
 	if (data.speciesPopulations) {
