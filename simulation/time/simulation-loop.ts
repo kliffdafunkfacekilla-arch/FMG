@@ -880,24 +880,48 @@ export class SimulationLoop {
 					}
 					
 					// Tech Progression Phase
-					if (state.treasury > 500 && state.population > 1000) {
-						if (!state.technologies) state.technologies = [];
-						const availableTechs = ['agriculture', 'bronze_working', 'sailing', 'gunpowder', 'airships', 'cartography', 'banking'];
-						const toResearch = availableTechs.filter(t => !state.technologies!.includes(t));
-						if (toResearch.length > 0) {
-							// E.g. chance to research tech based on wealth and pop
-							const researchChance = 0.005 + (state.treasury / 100000) + (state.population / 200000);
-							if (Math.random() < researchChance) {
-								const unlocked = toResearch[Math.floor(Math.random() * toResearch.length)];
-								state.technologies.push(unlocked);
-								if (calendar.activeModifiers) {
-									if (!calendar.activeModifiers.notifications) {
-										calendar.activeModifiers.notifications = [];
-									}
-									calendar.activeModifiers.notifications.push(
-										`🔬 Tech Breakthrough! The State of ${state.name} has unlocked the secrets of ${unlocked.toUpperCase()}!`
-									);
+					const stateBurgsForTech = updatedBurgs.filter(
+						(b) =>
+							(currentState.cellStates ? currentState.cellStates[b.cell] : 0) ===
+							state.id,
+					);
+					let techScoreTotal = 0;
+
+					for (const b of stateBurgsForTech) {
+						if (b.population < 1000) techScoreTotal += 1;
+						else if (b.population < 5000) techScoreTotal += 3;
+						else if (b.population < 15000) techScoreTotal += 6;
+						else techScoreTotal += 10;
+					}
+
+					if (stateBurgsForTech.length > 0) {
+						state.techLevel = techScoreTotal / stateBurgsForTech.length;
+					} else {
+						state.techLevel = 0;
+					}
+
+					if (!state.technologies) state.technologies = [];
+					const availableTechs = [
+						{ name: 'agriculture', req: 1.5 },
+						{ name: 'bronze_working', req: 2.0 },
+						{ name: 'sailing', req: 3.0 },
+						{ name: 'cartography', req: 4.0 },
+						{ name: 'banking', req: 5.0 },
+						{ name: 'gunpowder', req: 6.0 },
+						{ name: 'airships', req: 8.0 }
+					];
+
+					const toResearch = availableTechs.filter(t => !state.technologies!.includes(t.name) && state.techLevel! >= t.req);
+					if (toResearch.length > 0) {
+						for (const tech of toResearch) {
+							state.technologies.push(tech.name);
+							if (calendar.activeModifiers) {
+								if (!calendar.activeModifiers.notifications) {
+									calendar.activeModifiers.notifications = [];
 								}
+								calendar.activeModifiers.notifications.push(
+									`🔬 Tech Breakthrough! The State of ${state.name} has achieved Tech Level ${state.techLevel.toFixed(1)} and unlocked ${tech.name.toUpperCase()}!`
+								);
 							}
 						}
 					}

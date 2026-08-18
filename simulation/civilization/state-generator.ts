@@ -18,6 +18,7 @@ export interface State {
 	treasury: number;
 	militaryPower: number;
 	habitat: "land" | "ocean" | "amphibious";
+	techLevel?: number;
 	technologies?: string[];
 }
 
