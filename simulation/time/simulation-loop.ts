@@ -640,6 +640,22 @@ export class SimulationLoop {
 					if (burg.health === undefined) burg.health = 85;
 					if (burg.drugSupply === undefined) burg.drugSupply = 0;
 
+					// Apply Religion Modifiers
+					if (currentState.cellReligions && currentState.religions) {
+						const relId = currentState.cellReligions[burg.cell];
+						const religion = currentState.religions.find((r: any) => r.id === relId);
+						if (religion) {
+							if (religion.isCult) {
+								burg.happiness = Math.max(0, burg.happiness - 0.2);
+								burg.security = Math.max(0, burg.security - 0.1);
+							}
+							if (religion.divineBlessing) {
+								burg.health = Math.min(100, burg.health + 0.15);
+								burg.happiness = Math.min(100, burg.happiness + 0.1);
+							}
+						}
+					}
+
 					// Apply custom Moon Phase effects on cities
 					if (moonEffects.includes("outlaw_surge")) {
 						burg.security = Math.max(0, burg.security - 3.0);
