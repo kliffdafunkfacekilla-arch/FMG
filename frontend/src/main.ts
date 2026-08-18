@@ -55,6 +55,7 @@ import { mountStyleEditor } from "../../ui/style-editor";
 import { mountDashboard } from "../../ui/data-dashboard";
 import { mountCustomResourceEditor } from "../../ui/custom-resource-editor";
 import { mountSpeciesEditor } from "../../ui/species-editor";
+import { mountParagonsEditor } from "../../ui/paragons-editor";
 
 console.log("FMG Full-Stack Rebuild Frontend Initialized.");
 
@@ -185,6 +186,7 @@ if (app) {
             <button id="btnOpenReligions" style="background: #f43f5e; color: white; border: none; padding: 0.35rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem;">⛪ Religions</button>
             <button id="btnOpenSpecies" style="background: #10b981; color: white; border: none; padding: 0.35rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem;">🌿 Flora & Fauna</button>
             <button id="btnOpenFringe" style="background: #e11d48; color: white; border: none; padding: 0.35rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem;">🏴‍☠️ Fringe</button>
+            <button id="btnOpenParagons" style="background: #f59e0b; color: white; border: none; padding: 0.35rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem;">✨ Paragons</button>
             <button id="btnOpenDashboard" style="grid-column: span 2; background: #9333ea; color: white; border: none; padding: 0.45rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem; margin-top: 0.2rem;">📊 Analytics Dashboard</button>
           </div>
 
@@ -211,6 +213,7 @@ if (app) {
     <div id="militaryUnitMount" style="position: fixed; top: 10px; left: 340px; z-index: 1000; width: 380px; max-height: 90vh; pointer-events: auto;"></div>
     <div id="religionsEditorMount" style="position: fixed; top: 10px; left: 340px; z-index: 1000; width: 380px; max-height: 90vh; pointer-events: auto;"></div>
     <div id="speciesEditorMount" style="position: fixed; top: 10px; left: 340px; z-index: 1000; width: 380px; max-height: 90vh; pointer-events: auto;"></div>
+    <div id="paragonsEditorMount" style="position: fixed; top: 10px; left: 340px; z-index: 1000; width: 380px; max-height: 90vh; pointer-events: auto;"></div>
     <div id="dashboardMount" style="position: fixed; top: 10px; left: 340px; z-index: 1000; width: 580px; max-height: 90vh; pointer-events: auto;"></div>
 
     <!-- Floating Interactive 10-Square Grid Minimap (Live Canvas + Grid overlay) -->
@@ -390,6 +393,8 @@ if (app) {
 
 	const speciesEditorMount = document.getElementById("speciesEditorMount");
 	if (speciesEditorMount) mountSpeciesEditor("speciesEditorMount");
+    
+    mountParagonsEditor("paragonsEditorMount", () => renderCurrentLayer());
 
 	const labelMount = document.getElementById("labelMount");
 	mountLanguageEditor("languageMount", () => renderCurrentLayer());
@@ -433,6 +438,7 @@ if (app) {
 	const btnOpenReligions = document.getElementById("btnOpenReligions");
 	const btnOpenFringe = document.getElementById("btnOpenFringe");
 	const btnOpenSpecies = document.getElementById("btnOpenSpecies");
+	const btnOpenParagons = document.getElementById("btnOpenParagons");
 	const btnOpenDashboard = document.getElementById("btnOpenDashboard");
 
 	// Helper to dynamically position floating editor panels adjacent to their toolbar triggers
@@ -665,6 +671,7 @@ if (app) {
 		"militaryUnitMount",
 		"religionsEditorMount",
 		"dashboardMount",
+		"paragonsEditorMount",
 	];
 	mountKeys.forEach(makeElementDraggableAndResizable);
 
@@ -766,6 +773,12 @@ if (app) {
 			panelId: "dashboardPanel",
 			displayStyle: "flex",
 			openFn: "openDashboard",
+		},
+		paragons: {
+			mountId: "paragonsEditorMount",
+			panelId: "paragonsEditorPanel",
+			displayStyle: "flex",
+			openFn: "openParagonsEditor",
 		},
 	};
 
@@ -908,6 +921,12 @@ if (app) {
 	if (btnOpenFringe) {
 		btnOpenFringe.addEventListener("click", () => {
 			toggleToolPanel("fringe", "btnOpenFringe");
+		});
+	}
+
+	if (btnOpenParagons) {
+		btnOpenParagons.addEventListener("click", () => {
+			toggleToolPanel("paragons", "btnOpenParagons");
 		});
 	}
 
@@ -1759,6 +1778,14 @@ if (app) {
 			isPaintingBrush = true;
 			lastPaintedCellId = cellId;
 			return;
+		}
+
+		if ((window as any).handleLabelMapClick) {
+			if ((window as any).handleLabelMapClick(mapX, mapY)) return;
+		}
+
+		if ((window as any).handleRouteMapClick) {
+			if ((window as any).handleRouteMapClick(cellId)) return;
 		}
 
 		// Check if we click a burg

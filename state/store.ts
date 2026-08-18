@@ -1,4 +1,5 @@
 import { type Grid, Pack } from "../core/types";
+import { type MemoryGraph } from "../simulation/story/memory-dag";
 import type { CalendarState } from "../simulation/time/tick-system";
 
 export interface CustomMonth {
@@ -398,6 +399,7 @@ export interface AppState {
 	provinces: any[] | null;
 	military: any[] | null;
 	fringeGroups: any[] | null;
+	memoryGraph?: MemoryGraph | null;
 	markets?: any[] | null;
 	labels?: any[] | null;
 	zones?: any[] | null;

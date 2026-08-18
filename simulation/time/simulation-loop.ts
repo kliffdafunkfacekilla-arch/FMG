@@ -26,6 +26,7 @@ import {
 	generateMagicNodes,
 	runMagicVolatilityChecks,
 } from "../magic/magic-system";
+import { ingestLogIntoDAG } from "../story/memory-dag";
 import { TickSystem } from "./tick-system";
 
 export class SimulationLoop {
@@ -265,7 +266,11 @@ export class SimulationLoop {
 						magicEcologyWeights,
 						oceanNutrients,
 						currentState.customSpecies,
-						currentState.speciesPopulations
+						currentState.speciesPopulations,
+						updatedBurgs,
+						currentState.cellStates,
+						updatedStates,
+						updatedMarkets
 					);
 					biomes = nextBiomes;
 				}
@@ -940,6 +945,21 @@ export class SimulationLoop {
 								calendar.activeModifiers.notifications.push(
 									`🔬 Tech Breakthrough! The State of ${state.name} has achieved Tech Level ${state.techLevel.toFixed(1)} and unlocked ${tech.name.toUpperCase()}!`
 								);
+							}
+							
+							// Upgrade state burgs based on tech breakthrough
+							for (const b of stateBurgsForTech) {
+								if (tech.name === "agriculture" && b.population > 500) {
+									if (b.type === "Generic" || b.type === "Shanty") b.type = "Town";
+								} else if (tech.name === "banking" && b.population > 5000) {
+									b.type = "City";
+									b.wealth = (b.wealth || 0) + 10;
+								} else if (tech.name === "gunpowder" && b.population > 10000) {
+									b.type = "Fortified City";
+									b.security = 100;
+								} else if (tech.name === "airships" && b.population > 20000) {
+									b.type = "Metropolis";
+								}
 							}
 						}
 					}
@@ -1823,8 +1843,12 @@ export class SimulationLoop {
 		const timeStr = `Day ${calendar.day + 1} ${curMonth}, Year ${calendar.year + 1}`;
 
 		const addLog = (list: any[], msg: string, type: string) => {
-			list.unshift({ time: timeStr, msg, type });
+			const logObj = { time: timeStr, msg, type };
+			list.unshift(logObj);
 			if (list.length > 30) list.pop();
+			if (currentState.memoryGraph && currentState.paragons) {
+				ingestLogIntoDAG(currentState.memoryGraph, logObj as any, currentState.paragons);
+			}
 		};
 
 		if (lod === "global") {

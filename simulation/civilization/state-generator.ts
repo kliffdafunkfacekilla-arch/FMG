@@ -135,6 +135,7 @@ export function generateStates(
 		stateType: string;
 		culture: number;
 		expansionism: number;
+		xenophobia: number;
 		habitat: "land" | "ocean" | "amphibious";
 	};
 	const queue = new FlatQueue<QItem>();
@@ -182,6 +183,7 @@ export function generateStates(
 			treasury: existing ? existing.treasury : 1000,
 			militaryPower: existing ? existing.militaryPower : 100,
 			habitat,
+			xenophobia: existing ? existing.xenophobia : 0.2,
 			technologies: existing ? existing.technologies : [],
 		});
 
@@ -198,6 +200,7 @@ export function generateStates(
 				stateType,
 				culture: cultureId,
 				expansionism: states[i].expansionism,
+				xenophobia: states[i].xenophobia || 0.2,
 				habitat,
 			},
 			0,
@@ -218,7 +221,9 @@ export function generateStates(
 			const hTo = heights[n];
 			const typeTo = safeTypes[n];
 
-			const cultureCost = curr.culture === cellCultures[n] ? -9 : 100;
+			// Apply xenophobia modifier: if cultures mismatch, cost increases heavily based on state xenophobia
+			const cultureCost = curr.culture === cellCultures[n] ? -9 : (100 * (curr.xenophobia * 5));
+			
 			const isHabitableWater =
 				hTo < 20 && biomesData.habitability[targetBiome] > 0;
 			const populationCost =
@@ -290,6 +295,7 @@ export function generateStates(
 						stateType: curr.stateType,
 						culture: curr.culture,
 						expansionism: curr.expansionism,
+						xenophobia: curr.xenophobia,
 						habitat: curr.habitat,
 					},
 					totalCost,

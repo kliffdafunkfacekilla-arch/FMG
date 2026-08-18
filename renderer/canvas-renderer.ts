@@ -144,7 +144,7 @@ export function renderMap(
 		routes,
 		military,
 		zones,
-		markers,
+		militaryUnits,
 		labels,
 	} = state;
 	const pointsN = grid.points.length;
@@ -328,7 +328,7 @@ export function renderMap(
 
 				const stateWeights: Record<number, number> = {};
 				for (let idx = 0; idx < candidates.length; idx++) {
-					const stateId = cellStates[candidates[idx]];
+					const stateId = cellStates[idx];
 					if (stateId > 0) {
 						stateWeights[stateId] = (stateWeights[stateId] || 0) + weights[idx];
 					}
@@ -983,7 +983,7 @@ export function renderMap(
 				if ((bt === "political" || bt === "all") && cellStates) {
 					const si = cellStates[i];
 					const sj = cellStates[j];
-					if (si !== sj && (si > 0 || sj > 0)) {
+					if (si !== sj && si > 0 && sj > 0) {
 						drawLine = true;
 						lineWidth = (style.size * 2.0) / Math.sqrt(zoom);
 						
@@ -997,7 +997,7 @@ export function renderMap(
 				if (!drawLine && (bt === "province" || bt === "all") && cellProvinces) {
 					const pi = cellProvinces[i];
 					const pj = cellProvinces[j];
-					if (pi !== pj && (pi > 0 || pj > 0)) {
+					if (pi !== pj && pi > 0 && pj > 0) {
 						drawLine = true;
 						lineWidth = (style.size * 1.2) / Math.sqrt(zoom);
 						lineColor = "rgba(80, 80, 80, 0.9)";
@@ -1008,7 +1008,7 @@ export function renderMap(
 				if (!drawLine && (bt === "culture" || bt === "all") && cellCultures) {
 					const ci = cellCultures[i];
 					const cj = cellCultures[j];
-					if (ci !== cj && (ci > 0 || cj > 0)) {
+					if (ci !== cj && ci > 0 && cj > 0) {
 						drawLine = true;
 						lineWidth = (style.size * 0.7) / Math.sqrt(zoom);
 						lineColor = "rgba(160, 100, 200, 0.6)";
@@ -1339,6 +1339,36 @@ export function renderMap(
 		ctx.restore();
 	};
 
+	const drawMapLabels = () => {
+		if (!labels || labels.length === 0) return;
+		const style = state.layerStyles?.labels || { opacity: 0.9, size: 1.0 };
+		
+		ctx.save();
+		ctx.globalAlpha = style.opacity;
+		ctx.textAlign = "center";
+		ctx.textBaseline = "middle";
+
+		for (const lbl of labels as any[]) {
+			ctx.save();
+			ctx.translate(lbl.x, lbl.y);
+			if (lbl.rotation) {
+				ctx.rotate(lbl.rotation * Math.PI / 180);
+			}
+			ctx.font = `bold ${Math.max(4, lbl.size * style.size)}px "Palatino Linotype", "Book Antiqua", Palatino, serif`;
+			
+			// outline
+			ctx.fillStyle = "rgba(0,0,0,0.8)";
+			ctx.lineWidth = Math.max(1, (lbl.size * style.size) / 8);
+			ctx.strokeStyle = "rgba(255,255,255,0.8)";
+			ctx.strokeText(lbl.text, 0, 0);
+			ctx.fillText(lbl.text, 0, 0);
+			
+			ctx.restore();
+		}
+		
+		ctx.restore();
+	};
+
 	// 2. Loop through layerOrder to draw in correct sequence
 	const order = state.layerOrder || [
 		"heightmap",
@@ -1386,9 +1416,9 @@ export function renderMap(
 		else if (layerId === "zones") drawZones();
 		else if (layerId === "routes") drawRoutes();
 		else if (layerId === "burgs") drawBurgs();
-		else if (layerId === "military") drawMilitary();
+		else if (layerId === "military") drawMilitaryUnits();
+		else if (layerId === "labels") drawMapLabels();
 		else if (layerId === "markers") drawMarkers();
-		else if (layerId === "labels") drawLabels();
 		else if (layerId === "borders") drawBorders();
 		else if (layerId === "coastlines") drawFractalCoastlines();
 		else if (layerId === "relief") drawReliefIcons();

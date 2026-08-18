@@ -53,7 +53,11 @@ export function simulateEcologyStep(
 	magicEcologyWeights?: Float32Array,
 	oceanNutrients?: Float32Array,
 	customSpecies?: any[],
-	speciesPopulations?: Record<number, Float32Array>
+	speciesPopulations?: Record<number, Float32Array>,
+	burgs?: any[],
+	cellStates?: Uint8Array,
+	states?: any[],
+	markets?: any[]
 ): Uint8Array {
 	const pointsN = heights.length;
 	const nextPlants = new Float32Array(pointsN);
@@ -304,6 +308,26 @@ export function simulateEcologyStep(
 						}
 					}
 					nextPop[i] -= migVal * (validCount / neighbors.length);
+				}
+				// 5. Harvesting / Farming Interaction
+				if (burgs && cellStates && states && markets && (sp.farmable || sp.tamable) && nextPop[i] > 10) {
+					const localBurg = burgs.find(b => b.cell === i);
+					if (localBurg) {
+						const stateId = cellStates[i];
+						const sovereignState = states.find(s => s.id === stateId);
+						if (sovereignState && (sovereignState.techLevel || 0) >= sp.techLevel) {
+							nextPop[i] = Math.max(0, nextPop[i] * 0.85); // Harvesting depletes pop slightly
+							const localMarket = markets.find(m => m.burgId === localBurg.id);
+							if (localMarket) {
+								if (sp.harvestResource !== undefined && sp.harvestResource >= 0) {
+									localMarket.supply[sp.harvestResource] = (localMarket.supply[sp.harvestResource] || 0) + 1.5;
+								}
+								if (sp.deathResource !== undefined && sp.deathResource >= 0) {
+									localMarket.supply[sp.deathResource] = (localMarket.supply[sp.deathResource] || 0) + 0.5;
+								}
+							}
+						}
+					}
 				}
 			}
 

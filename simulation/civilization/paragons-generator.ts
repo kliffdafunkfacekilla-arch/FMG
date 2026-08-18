@@ -1,9 +1,26 @@
 import { createPRNG } from "../../core/random";
 import type { Paragon } from "../../state/store";
 
-const POSITIVE_TRAITS = ["Benevolent", "Brave", "Charismatic", "Diligent", "Generous", "Honest", "Just", "Patient", "Wise", "Loyal", "Merciful"];
-const NEUTRAL_TRAITS = ["Ambitious", "Cautious", "Determined", "Frugal", "Proud", "Reserved", "Strict", "Traditional", "Unpredictable", "Zealous"];
-const NEGATIVE_TRAITS = ["Cruel", "Cowardly", "Deceitful", "Greedy", "Lazy", "Paranoid", "Selfish", "Vindictive", "Gluttonous", "Arrogant"];
+export const POSITIVE_TRAITS = [
+	"Benevolent", "Brave", "Charismatic", "Diligent", "Generous", "Honest", "Just", "Patient", "Wise", "Loyal", "Merciful",
+	"Honorable", "Charitable", "Inspiring", "Stoic", "Visionary", "Chivalrous", "Empathetic", "Incorruptible", "Humble",
+	"Resilient", "Forgiving", "Altruistic", "Courageous", "Diplomatic", "Optimistic", "Noble", "Protective", "Dedicated",
+	"Idealistic", "Steadfast", "Gracious", "Resourceful", "Tolerant", "Faithful"
+];
+
+export const NEUTRAL_TRAITS = [
+	"Ambitious", "Cautious", "Determined", "Frugal", "Proud", "Reserved", "Strict", "Traditional", "Unpredictable", "Zealous",
+	"Opportunistic", "Pragmatic", "Eccentric", "Enigmatic", "Orthodox", "Suspicious", "Flamboyant", "Stoic", "Secretive",
+	"Methodical", "Competitive", "Cynical", "Independent", "Skeptical", "Outspoken", "Superstitious", "Stubborn", "Intense",
+	"Meticulous", "Restless", "Aloof", "Calculating", "Conservative", "Curious", "Fatalistic"
+];
+
+export const NEGATIVE_TRAITS = [
+	"Cruel", "Cowardly", "Deceitful", "Greedy", "Lazy", "Paranoid", "Selfish", "Vindictive", "Gluttonous", "Arrogant",
+	"Narcissistic", "Vengeful", "Corrupt", "Hedonistic", "Petty", "Jealous", "Spiteful", "Callous", "Manipulative",
+	"Reckless", "Apathetic", "Sadistic", "Impulsive", "Devious", "Incompetent", "Ruthless", "Bigoted", "Treacherous",
+	"Hypocritical", "Slothful", "Envious", "Miserly", "Fanatical", "Wrathful", "Pessimistic"
+];
 
 const FIRST_NAMES = ["Aelar", "Bram", "Cael", "Darius", "Eldon", "Faelar", "Gareth", "Haldor", "Iannis", "Jarek", "Kaelen", "Lorin", "Marius", "Nael", "Orion", "Pavel", "Quinn", "Rowan", "Soren", "Taurin", "Ulric", "Vael", "Willem", "Xander", "Yorick", "Zane", "Alara", "Brisa", "Caelia", "Daria", "Elara", "Faelynn", "Gael", "Halia", "Ilyse", "Jara", "Kaelia", "Lyra", "Mireia", "Naia", "Oria", "Pyra", "Qira", "Rhea", "Sira", "Tyra", "Ulia", "Vira", "Wyla", "Xira", "Yara", "Zira"];
 

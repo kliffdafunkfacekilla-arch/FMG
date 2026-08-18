@@ -78,6 +78,12 @@ export function mountStateEditor(containerId: string, onUpdate: () => void) {
             <option value="amphibious">Amphibious</option>
           </select>
         </div>
+        <div style="background: rgba(16, 185, 129, 0.1); padding: 0.5rem; border-radius: 4px; border: 1px dashed rgba(16, 185, 129, 0.3); margin-top: 0.5rem;">
+          <label style="display: block; margin-bottom: 0.2rem; color: #10b981; font-weight: bold;">State Tech Level:</label>
+          <div id="valStateTechLevel" style="color: #fff; font-size: 1.2rem; font-weight: bold; margin-bottom: 0.2rem;">0.0</div>
+          <label style="display: block; margin-bottom: 0.2rem; color: #94a3b8; font-size: 0.75rem;">Unlocked Technologies:</label>
+          <div id="valStateTechnologies" style="color: #cbd5e1; font-size: 0.8rem;">None</div>
+        </div>
         <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
           <button id="saveStateBtn" style="flex: 1; background: #10b981; border: none; padding: 0.4rem; color: white; font-weight: bold; border-radius: 4px; cursor: pointer;">Save</button>
           <button id="backToStateListBtn" style="flex: 1; background: #4b5563; border: none; padding: 0.4rem; color: white; font-weight: bold; border-radius: 4px; cursor: pointer;">Back</button>
@@ -266,6 +272,13 @@ export function mountStateEditor(containerId: string, onUpdate: () => void) {
 			}
 			capitalSelect.appendChild(opt);
 		});
+
+		if (s.technologies && s.technologies.length > 0) {
+			(document.getElementById("valStateTechnologies") as HTMLDivElement).innerText = s.technologies.join(", ");
+		} else {
+			(document.getElementById("valStateTechnologies") as HTMLDivElement).innerText = "None";
+		}
+		(document.getElementById("valStateTechLevel") as HTMLDivElement).innerText = (s.techLevel || 0).toFixed(1);
 
 		listPanel.style.display = "none";
 		detailPanel.style.display = "flex";
