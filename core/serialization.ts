@@ -36,6 +36,7 @@ export interface SerializedMapData {
 	provinces: any[];
 	routes: any[];
 	military: any[];
+	labels: any[];
 }
 
 export function serializeMapState(state: any): string {
@@ -74,6 +75,7 @@ export function serializeMapState(state: any): string {
 		provinces: state.provinces || [],
 		routes: state.routes || [],
 		military: state.military || [],
+		labels: state.labels || [],
 	};
 
 	return JSON.stringify(data);

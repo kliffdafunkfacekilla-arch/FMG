@@ -317,6 +317,7 @@ export interface AppState {
 	military: any[] | null;
 	fringeGroups: any[] | null;
 	markets?: any[] | null;
+	labels?: any[] | null;
 	cellReligions?: Uint8Array | null;
 	militaryUnitTypes?: { type: string; speed: number; combatValue: number }[];
 
@@ -447,6 +448,7 @@ class StateStore {
 			military: [],
 			fringeGroups: [],
 			markets: [],
+			labels: [],
 			cellReligions: null,
 			militaryUnitTypes: [
 				{ type: "infantry", speed: 1.0, combatValue: 10 },

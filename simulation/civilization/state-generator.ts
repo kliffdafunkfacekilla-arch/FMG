@@ -18,6 +18,7 @@ export interface State {
 	treasury: number;
 	militaryPower: number;
 	habitat: "land" | "ocean" | "amphibious";
+	technologies?: string[];
 }
 
 const STATE_COLORS = [
@@ -180,6 +181,7 @@ export function generateStates(
 			treasury: existing ? existing.treasury : 1000,
 			militaryPower: existing ? existing.militaryPower : 100,
 			habitat,
+			technologies: existing ? existing.technologies : [],
 		});
 
 		cellStates[capitalBurg.cell] = stateId;
