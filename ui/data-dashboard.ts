@@ -1,6 +1,7 @@
 import { store } from "../state/store";
 import { GOODS } from "../simulation/civilization/goods-generator";
 import { initBiomeConfig } from "./biomes-editor";
+import { calculateStoryHooks } from "../simulation/civilization/story-hooks";
 
 interface ChartData {
 	label: string;
@@ -54,6 +55,7 @@ export function mountDashboard(containerId: string) {
         <button class="dbTabBtn" data-tab="economy" style="flex: 1; padding: 0.75rem 0.2rem; background: transparent; border: none; color: #94a3b8; font-weight: 600; cursor: pointer; font-size: 0.75rem; border-bottom: 2px solid transparent; transition: all 0.15s;">💰 Markets &amp; Trade</button>
         <button class="dbTabBtn" data-tab="ecology" style="flex: 1; padding: 0.75rem 0.2rem; background: transparent; border: none; color: #94a3b8; font-weight: 600; cursor: pointer; font-size: 0.75rem; border-bottom: 2px solid transparent; transition: all 0.15s;">🌱 Ecology &amp; Biomes</button>
         <button class="dbTabBtn" data-tab="fringe" style="flex: 1; padding: 0.75rem 0.2rem; background: transparent; border: none; color: #94a3b8; font-weight: 600; cursor: pointer; font-size: 0.75rem; border-bottom: 2px solid transparent; transition: all 0.15s;">🏴‍☠️ Fringe &amp; Wars</button>
+        <button class="dbTabBtn" data-tab="story" style="flex: 1; padding: 0.75rem 0.2rem; background: transparent; border: none; color: #94a3b8; font-weight: 600; cursor: pointer; font-size: 0.75rem; border-bottom: 2px solid transparent; transition: all 0.15s;">📖 Story Seeds</button>
       </div>
 
       <!-- Main Content Split Screen (Charts Left, Inspector Right) -->
@@ -178,6 +180,36 @@ export function mountDashboard(containerId: string) {
                   </thead>
                   <tbody id="dbRelationsTableBody" style="color: #cbd5e1;"></tbody>
                 </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab 5: Story Seeds & Paragons -->
+          <div id="dbTabStory" class="dbTabContent" style="display: none; flex-direction: column; gap: 1.2rem; width: 100%;">
+            <div>
+              <h4 style="margin: 0 0 0.6rem 0; font-size: 0.85rem; text-transform: uppercase; tracking: 0.05em; color: #a855f7;">Story Hooks Calculator</h4>
+              <p style="margin: 0 0 0.8rem 0; font-size: 0.7rem; color: #94a3b8;">Select a location (or hover map if supported) to generate Threat/Opportunity metrics and Story Seeds.</p>
+              
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; text-align: center; margin-bottom: 1rem;">
+                <div style="background: rgba(239, 68, 68, 0.05); padding: 0.5rem; border-radius: 6px; border: 1px solid rgba(239, 68, 68, 0.15);">
+                  <div style="font-size: 0.65rem; color: #fca5a5; font-weight: bold;">Threat Score</div>
+                  <div id="dbStoryThreat" style="font-size: 1.4rem; font-weight: 700; color: #ef4444;">-</div>
+                </div>
+                <div style="background: rgba(16, 185, 129, 0.05); padding: 0.5rem; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.15);">
+                  <div style="font-size: 0.65rem; color: #a7f3d0; font-weight: bold;">Opportunity Score</div>
+                  <div id="dbStoryOpportunity" style="font-size: 1.4rem; font-weight: 700; color: #10b981;">-</div>
+                </div>
+              </div>
+
+              <div id="dbStorySeedsContainer" style="display: flex; flex-direction: column; gap: 0.8rem;">
+                <div style="text-align: center; color: #64748b; font-size: 0.8rem; padding: 2rem;">No area selected. Click a map cell to calculate story hooks.</div>
+              </div>
+            </div>
+
+            <div>
+              <h4 style="margin: 0 0 0.6rem 0; font-size: 0.85rem; text-transform: uppercase; tracking: 0.05em; color: #fbbf24;">Local Paragons</h4>
+              <div id="dbStoryParagons" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                <div style="text-align: center; color: #64748b; font-size: 0.8rem; padding: 1rem;">No local paragons found.</div>
               </div>
             </div>
           </div>
@@ -357,6 +389,89 @@ export function mountDashboard(containerId: string) {
 }
 
 // --- Dynamic Entity Inspector Handler ---
+export function updateStoryHooksForCell(cellId: number) {
+	const state = store.getState() as any;
+	const seeds = calculateStoryHooks(cellId, 3, state);
+	
+	const threatEl = document.getElementById("dbStoryThreat");
+	const oppEl = document.getElementById("dbStoryOpportunity");
+	const seedsContainer = document.getElementById("dbStorySeedsContainer");
+	const paragonsContainer = document.getElementById("dbStoryParagons");
+
+	if (!threatEl || !oppEl || !seedsContainer || !paragonsContainer) return;
+
+	if (seeds.length === 0) {
+		threatEl.innerText = "0";
+		oppEl.innerText = "0";
+		seedsContainer.innerHTML = `<div style="text-align: center; color: #64748b; font-size: 0.8rem; padding: 2rem;">No immediate story hooks in this local area.</div>`;
+	} else {
+		let maxThreat = 0;
+		let maxOpp = 0;
+		seedsContainer.innerHTML = "";
+		
+		seeds.forEach(seed => {
+			if (seed.threatScore > maxThreat) maxThreat = seed.threatScore;
+			if (seed.opportunityScore > maxOpp) maxOpp = seed.opportunityScore;
+
+			const issuesHtml = seed.issues.map(i => `<li>${i}</li>`).join("");
+			seedsContainer.innerHTML += `
+				<div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.8rem;">
+					<div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.4rem; margin-bottom: 0.5rem;">
+						<span style="font-weight: bold; color: #e2e8f0;">Generated Seed</span>
+						<span style="font-size: 0.7rem; color: #a855f7; border: 1px solid #a855f7; padding: 0.1rem 0.3rem; border-radius: 4px;">${seed.openness.toUpperCase()}</span>
+					</div>
+					<ul style="margin: 0; padding-left: 1.2rem; font-size: 0.8rem; color: #cbd5e1; display: flex; flex-direction: column; gap: 0.3rem;">
+						${issuesHtml}
+					</ul>
+				</div>
+			`;
+		});
+
+		threatEl.innerText = maxThreat.toString();
+		oppEl.innerText = maxOpp.toString();
+	}
+
+	// Local Paragons logic
+	const localBurgs = (state.burgs || []).filter((b: any) => {
+		// Just a simple distance check or assume cellId is the burg for simplicity
+		return b.cell === cellId; 
+	});
+	const localStateId = state.cellStates ? state.cellStates[cellId] : -1;
+
+	const localParagons = (state.paragons || []).filter((p: any) => {
+		if (p.affiliationType === "burg" && localBurgs.some((b: any) => b.i === p.affiliationId)) return true;
+		if (p.affiliationType === "state" && p.affiliationId === localStateId) return true;
+		return false;
+	});
+
+	if (localParagons.length === 0) {
+		paragonsContainer.innerHTML = `<div style="text-align: center; color: #64748b; font-size: 0.8rem; padding: 1rem;">No local paragons found.</div>`;
+	} else {
+		paragonsContainer.innerHTML = "";
+		localParagons.forEach((p: any) => {
+			paragonsContainer.innerHTML += `
+				<div style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; padding: 0.6rem; font-size: 0.75rem;">
+					<div style="display: flex; justify-content: space-between; margin-bottom: 0.3rem;">
+						<strong style="color: #fbbf24;">${p.name}</strong>
+						<span style="color: #94a3b8;">${p.role}</span>
+					</div>
+					<div style="display: flex; gap: 0.4rem; font-size: 0.65rem; color: #cbd5e1; margin-bottom: 0.4rem;">
+						<span style="background: rgba(16, 185, 129, 0.1); border: 1px solid #10b981; padding: 0.1rem 0.3rem; border-radius: 3px;">+ ${p.positiveTrait}</span>
+						<span style="background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; padding: 0.1rem 0.3rem; border-radius: 3px;">- ${p.negativeTrait}</span>
+					</div>
+					<div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.2rem; font-size: 0.6rem; color: #94a3b8; text-align: center;">
+						<div>STR: <span style="color:#e2e8f0">${p.stats.might}</span></div>
+						<div>DEX: <span style="color:#e2e8f0">${p.stats.finesse}</span></div>
+						<div>INT: <span style="color:#e2e8f0">${p.stats.knowledge}</span></div>
+						<div>CHA: <span style="color:#e2e8f0">${p.stats.charm}</span></div>
+					</div>
+				</div>
+			`;
+		});
+	}
+}
+
+// --- Dynamic Entity Inspector Handler ---
 function updateInspector(state: any, entity: { type: string; id: any }) {
 	const content = document.getElementById("dbInspectorContent");
 	if (!content) return;
@@ -367,9 +482,11 @@ function updateInspector(state: any, entity: { type: string; id: any }) {
 	if (type === "state") {
 		const s = state.states?.find((st: any) => st.id === id);
 		if (!s) return;
-		const capitalBurg = state.burgs?.find((b: any) => b.id === s.capital);
-		const stateBurgs = state.burgs?.filter((b: any) => b.state === s.id) || [];
+		const capitalBurg = state.burgs?.find((b: any) => b.id === s.capital || b.i === s.capital);
+		const stateBurgs = state.burgs?.filter((b: any) => b.state === s.id || b.state === s.i) || [];
 		const totalStatePop = stateBurgs.reduce((sum: number, b: any) => sum + b.population, 0);
+
+		if (capitalBurg) updateStoryHooksForCell(capitalBurg.cell);
 
 		html = `
       <div style="background: rgba(${hexToRgb(s.color || "#3b82f6")}, 0.1); border: 1px solid ${s.color || "#3b82f6"}; padding: 0.8rem; border-radius: 8px;">
@@ -418,6 +535,35 @@ function updateInspector(state: any, entity: { type: string; id: any }) {
               <span style="color: #94a3b8;">Pop: ${b.population.toLocaleString()}</span>
             </div>
           `).join("")}
+        </div>
+      </div>
+    `;
+	} else if (type === "burg") {
+		const b = state.burgs?.find((bg: any) => bg.id === id || bg.i === id);
+		if (!b) return;
+
+		updateStoryHooksForCell(b.cell);
+
+		const bState = state.states?.find((st: any) => st.id === b.state || st.i === b.state);
+		const bCult = state.cultures?.find((cl: any) => cl.id === b.culture || cl.i === b.culture);
+
+		html = `
+      <div style="background: rgba(129, 140, 248, 0.08); border: 1px solid #818cf8; padding: 0.8rem; border-radius: 8px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem;">
+          <h4 style="margin: 0; font-size: 1.1rem; color: #818cf8; font-weight: bold;">${b.name}</h4>
+          <span style="background: #818cf8; color: #000; font-size: 0.65rem; padding: 0.1rem 0.35rem; border-radius: 10px; font-weight: bold; text-transform: uppercase;">Burg</span>
+        </div>
+        <p style="margin: 0 0 0.8rem 0; font-size: 0.75rem; color: #94a3b8; font-style: italic;">A population center of ${b.population.toLocaleString()} souls.</p>
+
+        <div style="display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.8rem;">
+          <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.2rem;">
+            <span style="color: #94a3b8;">Affiliation:</span>
+            <span style="color: #cbd5e1; font-weight: 600;">${bState ? bState.name : "Independent"}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.2rem;">
+            <span style="color: #94a3b8;">Culture:</span>
+            <span style="color: #cbd5e1; font-weight: 600;">${bCult ? bCult.name : "Unknown"}</span>
+          </div>
         </div>
       </div>
     `;

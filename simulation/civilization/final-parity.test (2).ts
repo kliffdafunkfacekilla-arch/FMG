@@ -44,11 +44,15 @@ describe("Religions, Erosion, Zones, & Markers Parity", () => {
 		}
 
 		// 4. Markers
+		const temp = new Float32Array(heights.length);
+		const prec = new Uint8Array(heights.length);
 		const markers = generateMarkers(
 			grid,
-			erodedHeights,
+			heights,
+			temp,
+			prec,
 			biomes,
-			"parity-seed-abc",
+			"test-seed",
 		);
 		// Ensure structure works even if count is low on small test layouts
 		expect(markers).toBeInstanceOf(Array);

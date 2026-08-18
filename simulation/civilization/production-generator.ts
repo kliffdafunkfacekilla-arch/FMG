@@ -5,8 +5,9 @@ export interface ProductionReport {
 	burgId: number;
 	producedGoods: Record<string, number>;
 }
+import type { Paragon } from "../../state/store";
 
-export function runProductionCycles(markets: BurgMarket[]): ProductionReport[] {
+export function runProductionCycles(markets: BurgMarket[], paragons?: Paragon[]): ProductionReport[] {
 	const reports: ProductionReport[] = [];
 
 	// Map good names to IDs for fast lookup
@@ -23,6 +24,14 @@ export function runProductionCycles(markets: BurgMarket[]): ProductionReport[] {
 
 	for (const m of markets) {
 		const producedGoods: Record<string, number> = {};
+
+		// Find the local mayor
+		const mayor = paragons?.find(p => p.affiliationType === "burg" && p.affiliationId === m.burgId);
+		let prodLimit = 10;
+		if (mayor) {
+			if (mayor.positiveTrait === "Diligent" || mayor.neutralTraits.includes("Ambitious")) prodLimit = 15;
+			if (mayor.negativeTrait === "Lazy" || mayor.negativeTrait === "Greedy") prodLimit = 5;
+		}
 
 		for (const g of manufacturedGoods) {
 			if (!g.recipes) continue;
@@ -45,8 +54,8 @@ export function runProductionCycles(markets: BurgMarket[]): ProductionReport[] {
 					}
 				}
 
-				// Produce the maximum possible amount (cap at 10 to prevent feedback spirals)
-				const toProduce = Math.min(maxPossible, 10);
+				// Produce the maximum possible amount (modified by the Mayor's traits)
+				const toProduce = Math.min(maxPossible, prodLimit);
 				if (toProduce > 0 && toProduce !== Infinity) {
 					// Consume ingredients
 					for (const [ingredientName, requiredQty] of Object.entries(recipe)) {

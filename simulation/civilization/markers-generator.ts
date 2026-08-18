@@ -1,63 +1,90 @@
 import { createPRNG } from "../../core/random";
 import type { Grid } from "../../core/types";
+import type { MarkerType } from "../../state/store";
 
 export interface Marker {
 	id: number;
-	type: "volcano" | "ruins" | "monument" | "spring";
+	type: string; // References MarkerType.id or built-in string
 	name: string;
 	cell: number;
 	x: number;
 	y: number;
+	localMapData?: string; // TTRPG layout data
 }
 
 export function generateMarkers(
 	grid: Grid,
 	heights: Uint8Array,
+	temp: Float32Array,
+	prec: Uint8Array,
 	biomes: Uint8Array,
 	seed: string,
+	markerTypes: MarkerType[] = [],
+	burgCells: number[] = [],
 ): Marker[] {
 	const markers: Marker[] = [];
 	const pointsN = heights.length;
 	const rng = createPRNG(seed);
 	let nextId = 1;
 
+	// O(1) burg lookup
+	const burgSet = new Set(burgCells);
+
 	for (let i = 0; i < pointsN; i++) {
-		if (heights[i] < 20) continue; // no markers at sea
+		const h = heights[i];
+		const t = temp[i];
+		const b = biomes[i];
 
 		const roll = rng();
 
-		// Volcano: Spawns in high mountains (h > 75)
-		if (
-			heights[i] > 75 &&
-			roll < 0.05 &&
-			markers.filter((m) => m.type === "volcano").length < 3
-		) {
-			const [x, y] = grid.points[i];
-			markers.push({
-				id: nextId++,
-				type: "volcano",
-				name: `Mt. Volcano ${nextId}`,
-				cell: i,
-				x,
-				y,
-			});
-		}
+		for (const mType of markerTypes) {
+			// Base rarity check
+			if (roll * 100 > mType.rarity) continue;
 
-		// Ruins: Spawns in temperate/rain forests (biome 6, 8)
-		else if (
-			(biomes[i] === 6 || biomes[i] === 8) &&
-			roll < 0.03 &&
-			markers.filter((m) => m.type === "ruins").length < 4
-		) {
+			// Biome checks
+			if (mType.allowedBiomes.length > 0 && !mType.allowedBiomes.includes(b)) continue;
+			if (mType.forbiddenBiomes.includes(b)) continue;
+
+			// Temp checks
+			if (t < mType.minTemp || t > mType.maxTemp) continue;
+
+			// Nearby requirements
+			if (mType.nearbyReq === "water") {
+				if (h >= 20) {
+					// Must be near water
+					let nearWater = false;
+					const neighbors = grid.cells.c[i] || [];
+					for (const n of neighbors) {
+						if (heights[n] < 20) {
+							nearWater = true;
+							break;
+						}
+					}
+					if (!nearWater) continue;
+				}
+			} else if (mType.nearbyReq === "burg") {
+				let nearBurg = false;
+				const neighbors = grid.cells.c[i] || [];
+				for (const n of neighbors) {
+					if (burgSet.has(n)) {
+						nearBurg = true;
+						break;
+					}
+				}
+				if (!nearBurg && !burgSet.has(i)) continue;
+			}
+
+			// Success! Spawn the marker
 			const [x, y] = grid.points[i];
 			markers.push({
 				id: nextId++,
-				type: "ruins",
-				name: `Ancient Ruins ${nextId}`,
+				type: mType.id,
+				name: `The ${mType.name}`,
 				cell: i,
 				x,
 				y,
 			});
+			break; // only spawn 1 marker per cell
 		}
 	}
 

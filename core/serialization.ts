@@ -41,6 +41,12 @@ export interface SerializedMapData {
 	notes: any[];
 	customSpecies?: any[];
 	speciesPopulations?: Record<string, number[]>;
+	markerTypes?: any[];
+	globalLogs?: any[];
+	regionalLogs?: Record<number, any[]>;
+	localLogs?: Record<string, any[]>;
+	paragons?: any[];
+	storySeeds?: any[];
 }
 
 export function serializeMapState(state: any): string {
@@ -83,7 +89,13 @@ export function serializeMapState(state: any): string {
 		labels: state.labels || [],
 		notes: state.notes || [],
 		customSpecies: state.customSpecies || [],
-		speciesPopulations: {}
+		speciesPopulations: {},
+		markerTypes: state.markerTypes || [],
+		globalLogs: state.globalLogs || [],
+		regionalLogs: state.regionalLogs || {},
+		localLogs: state.localLogs || {},
+		paragons: state.paragons || [],
+		storySeeds: state.storySeeds || [],
 	};
 
 	if (state.speciesPopulations) {
@@ -144,6 +156,12 @@ export function deserializeMapState(jsonStr: string): any {
 		notes: data.notes || [],
 		customSpecies: data.customSpecies || [],
 		speciesPopulations: {} as Record<string, Float32Array>,
+		markerTypes: data.markerTypes || [],
+		globalLogs: data.globalLogs || [],
+		regionalLogs: data.regionalLogs || {},
+		localLogs: data.localLogs || {},
+		paragons: data.paragons || [],
+		storySeeds: data.storySeeds || [],
 	};
 
 	if (data.speciesPopulations) {

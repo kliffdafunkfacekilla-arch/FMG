@@ -80,7 +80,50 @@ export interface NestedRegion {
 export interface NestedLog {
 	time: string;
 	msg: string;
-	type: "info" | "military" | "caravan" | "magic" | "local" | "beast";
+	type: "info" | "military" | "caravan" | "magic" | "local" | "beast" | "marker";
+	entities?: number[];
+	importance?: number;
+	location?: [number, number];
+}
+
+export interface MarkerType {
+	id: string;
+	name: string;
+	type: "landmark" | "dungeon" | "lair" | "holy_place" | "secret" | "camp" | "habitat" | "other";
+	rarity: number; // 0 to 100 spawn chance
+	allowedBiomes: number[]; // e.g. [6, 8]
+	forbiddenBiomes: number[]; // e.g. [0, 1, 2]
+	minTemp: number;
+	maxTemp: number;
+	frequentedByNPCs: boolean;
+	effect: string;
+	nearbyReq: "water" | "burg" | "route" | "none";
+}
+
+export interface Paragon {
+	id: string;
+	name: string;
+	affiliationType: "burg" | "state" | "religion" | "fringe" | "other";
+	affiliationId: number | string;
+	role: string;
+	stats: {
+		might: number; endurance: number; finesse: number; reflex: number;
+		vitality: number; fortitude: number; knowledge: number; logic: number;
+		awareness: number; intuition: number; charm: number; willpower: number;
+	};
+	positiveTrait: string;
+	neutralTraits: [string, string];
+	negativeTrait: string;
+}
+
+export interface StorySeed {
+	id: string;
+	cell: number;
+	threatScore: number;
+	opportunityScore: number;
+	issues: string[];
+	actors: string[]; // references Paragon IDs
+	openness: "secret" | "rumor" | "well-known";
 }
 
 export interface Species {
@@ -270,6 +313,14 @@ export interface AppState {
 	globalLogs: NestedLog[];
 	regionalLogs: Record<number, NestedLog[]>;
 	localLogs: Record<string, NestedLog[]>;
+
+	// Custom Systems
+	customSpecies?: Species[];
+	speciesPopulations?: Record<string, Float32Array>; // Maps species ID to a cell array of population values
+	activeSpeciesId?: number | null;
+	markerTypes: MarkerType[];
+	paragons?: Paragon[];
+	storySeeds?: StorySeed[];
 
 	// Ecology & Stressors
 	plants: Float32Array | null;
@@ -498,6 +549,7 @@ class StateStore {
 			customSpecies: [],
 			speciesPopulations: {},
 			activeSpeciesId: null,
+			markerTypes: [],
 			militaryUnitTypes: [
 				{ type: "infantry", speed: 1.0, combatValue: 10 },
 				{ type: "cavalry", speed: 1.8, combatValue: 15 },

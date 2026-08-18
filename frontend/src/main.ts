@@ -12,6 +12,7 @@ import { generateCultures } from "../../simulation/civilization/culture-generato
 import { generateDiplomacy } from "../../simulation/civilization/diplomacy-generator";
 import { generateGoods } from "../../simulation/civilization/goods-generator";
 import { generateMarkers } from "../../simulation/civilization/markers-generator";
+import { generateParagons } from "../../simulation/civilization/paragons-generator";
 import { generateMarkets } from "../../simulation/civilization/markets-generator";
 import { generateMilitary } from "../../simulation/civilization/military-generator";
 import { runProductionCycles } from "../../simulation/civilization/production-generator";
@@ -1368,12 +1369,26 @@ if (app) {
 					seed,
 				);
 				const zones = generateZones(grid, heights, seed);
-				const markers = generateMarkers(grid, heights, biomes, seed);
+				
+				const burgCells = burgs.map((b: any) => b.cell);
+				let markerTypes = store.getState().markerTypes || [];
+				if (markerTypes.length === 0) {
+					// Seed default marker types if none exist
+					markerTypes = [
+						{ id: "volcano", name: "Volcano", type: "landmark", rarity: 5, allowedBiomes: [], forbiddenBiomes: [0, 1, 2, 11, 13, 14, 15, 16, 17], minTemp: -50, maxTemp: 100, frequentedByNPCs: false, effect: "danger", nearbyReq: "none" },
+						{ id: "ruins", name: "Ancient Ruins", type: "dungeon", rarity: 3, allowedBiomes: [6, 8], forbiddenBiomes: [0, 1, 2], minTemp: 5, maxTemp: 30, frequentedByNPCs: false, effect: "wealth", nearbyReq: "none" },
+						{ id: "monument", name: "Monument", type: "holy_place", rarity: 2, allowedBiomes: [], forbiddenBiomes: [0, 1, 2], minTemp: -50, maxTemp: 100, frequentedByNPCs: true, effect: "happiness", nearbyReq: "burg" },
+						{ id: "spring", name: "Holy Spring", type: "holy_place", rarity: 4, allowedBiomes: [4, 7, 8, 9], forbiddenBiomes: [0, 1, 2], minTemp: 0, maxTemp: 40, frequentedByNPCs: true, effect: "health", nearbyReq: "none" },
+					];
+					store.updateState({ markerTypes });
+				}
+				const markers = generateMarkers(grid, heights, temp, prec, biomes, seed, markerTypes, burgCells);
+				const paragons = generateParagons(states, burgs, religions, seed);
 				const relations = generateDiplomacy(states, seed);
 
 				const cellGoods = generateGoods(grid, heights, biomes);
 				const markets = generateMarkets(grid, burgs, cellGoods);
-				const production = runProductionCycles(markets);
+				const production = runProductionCycles(markets, paragons);
 
 				const t1 = performance.now();
 
@@ -1395,17 +1410,18 @@ if (app) {
 					cellReligions,
 					cellGoods,
 					burgs,
-					routes,
+					cultures,
+					states,
 					provinces,
+					routes,
 					military,
 					religions,
 					zones,
 					markers,
+					relations,
+					paragons,
 					markets,
 					production,
-					states,
-					relations,
-					cultures,
 					labels: [],
 				} as any);
 
