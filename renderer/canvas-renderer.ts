@@ -959,7 +959,11 @@ export function renderMap(
 					if (si !== sj && (si > 0 || sj > 0)) {
 						drawLine = true;
 						lineWidth = (style.size * 2.0) / Math.sqrt(zoom);
-						lineColor = style.color;
+						
+						// Use the color of the state (prefer si if valid, else sj)
+						const stateId = si > 0 ? si : sj;
+						const stateObj = state.states?.find((s: any) => s.id === stateId);
+						lineColor = stateObj?.color || style.color;
 					}
 				}
 				// Province borders — medium dashed
