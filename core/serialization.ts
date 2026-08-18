@@ -39,6 +39,8 @@ export interface SerializedMapData {
 	military: any[];
 	labels: any[];
 	notes: any[];
+	customSpecies?: any[];
+	speciesPopulations?: Record<string, number[]>;
 }
 
 export function serializeMapState(state: any): string {
@@ -80,7 +82,15 @@ export function serializeMapState(state: any): string {
 		military: state.military || [],
 		labels: state.labels || [],
 		notes: state.notes || [],
+		customSpecies: state.customSpecies || [],
+		speciesPopulations: {}
 	};
+
+	if (state.speciesPopulations) {
+		for (const [idStr, arr] of Object.entries(state.speciesPopulations)) {
+			data.speciesPopulations![idStr] = Array.from(arr as Float32Array);
+		}
+	}
 
 	return JSON.stringify(data);
 }
@@ -108,7 +118,7 @@ export function deserializeMapState(jsonStr: string): any {
 		},
 	};
 
-	return {
+	const result = {
 		seed: data.seed,
 		width: data.width,
 		height: data.height,
@@ -132,5 +142,15 @@ export function deserializeMapState(jsonStr: string): any {
 		military: data.military,
 		labels: data.labels || [],
 		notes: data.notes || [],
+		customSpecies: data.customSpecies || [],
+		speciesPopulations: {} as Record<string, Float32Array>,
 	};
+
+	if (data.speciesPopulations) {
+		for (const [idStr, arr] of Object.entries(data.speciesPopulations)) {
+			(result as any).speciesPopulations[idStr] = new Float32Array(arr as number[]);
+		}
+	}
+
+	return result;
 }

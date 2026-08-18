@@ -52,6 +52,8 @@ export function simulateEcologyStep(
 	rates: EcologyRates,
 	magicEcologyWeights?: Float32Array,
 	oceanNutrients?: Float32Array,
+	customSpecies?: any[],
+	speciesPopulations?: Record<number, Float32Array>
 ): Uint8Array {
 	const pointsN = heights.length;
 	const nextPlants = new Float32Array(pointsN);
@@ -243,6 +245,72 @@ export function simulateEcologyStep(
 			state.plants[i] = Math.max(0, nextPlants[i] + diffusedP[i]);
 			state.herbivores[i] = Math.max(0, nextHerbivores[i] + diffusedH[i]);
 			state.predators[i] = Math.max(0, nextPredators[i] + diffusedC[i]);
+		}
+	}
+	// 4. Custom Flora & Fauna Engine
+	if (customSpecies && speciesPopulations) {
+		for (const sp of customSpecies) {
+			const pop = speciesPopulations[sp.id];
+			if (!pop) continue;
+
+			const growthFactor = sp.growthRate / 50.0; 
+			const migrationFactor = (sp.expansionRate / 100.0) * 0.1; 
+			
+			const nextPop = new Float32Array(pointsN);
+			const diffPop = new Float32Array(pointsN);
+
+			for (let i = 0; i < pointsN; i++) {
+				const currentPop = pop[i];
+				const b = updatedBiomes[i];
+				
+				// Habitat check
+				const isLand = heights[i] >= 20;
+				if ((sp.habitat === "land" && !isLand) || (sp.habitat === "marine" && isLand)) {
+					nextPop[i] = Math.max(0, currentPop * 0.5); // Die off rapidly in wrong habitat
+					continue;
+				}
+
+				// Biome preference multiplier
+				let biomeMult = 0.1; // Default poor survival
+				if (b === sp.primaryBiome) biomeMult = 1.0;
+				else if (b === sp.secondaryBiome) biomeMult = 0.5;
+				else if (b === sp.tertiaryBiome) biomeMult = 0.2;
+
+				// Local limit based on plant/herbivore availability
+				let K = 1000.0 * biomeMult;
+				if (sp.type === "fauna") {
+					if (sp.subType === "carnivore") {
+						K = Math.min(K, state.herbivores[i] * 5.0);
+					} else {
+						K = Math.min(K, state.plants[i] * 2.0);
+					}
+				}
+
+				// Growth
+				const growth = growthFactor * currentPop * (1 - currentPop / Math.max(1, K));
+				nextPop[i] = Math.max(0, currentPop + growth);
+
+				// Diffuse
+				if (nextPop[i] > 10) {
+					const neighbors = grid.cells.c[i] || [];
+					const migVal = nextPop[i] * migrationFactor;
+					let validCount = 0;
+					
+					for (const n of neighbors) {
+						const nIsLand = heights[n] >= 20;
+						if ((sp.habitat === "land" && nIsLand) || (sp.habitat === "marine" && !nIsLand)) {
+							validCount++;
+							diffPop[n] += migVal / neighbors.length;
+						}
+					}
+					nextPop[i] -= migVal * (validCount / neighbors.length);
+				}
+			}
+
+			// Apply diffuses
+			for (let i = 0; i < pointsN; i++) {
+				pop[i] = Math.max(0, nextPop[i] + diffPop[i]);
+			}
 		}
 	}
 

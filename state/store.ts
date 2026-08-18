@@ -83,6 +83,36 @@ export interface NestedLog {
 	type: "info" | "military" | "caravan" | "magic" | "local" | "beast";
 }
 
+export interface Species {
+	id: number;
+	name: string;
+	type: "flora" | "fauna";
+	subType: "carnivore" | "herbivore" | "plant" | "fungus";
+	habitat: "marine" | "land";
+	classType: "mammal" | "reptile" | "avian" | "insect" | "tree" | "herb" | "flower" | "grass" | "mushroom" | "slime" | "mould" | "lichen";
+	
+	// Biome Preferences (Indices of Biomes)
+	primaryBiome: number;
+	secondaryBiome: number;
+	tertiaryBiome: number;
+	
+	// Tags
+	hostile: boolean;
+	poisonous: boolean; // or venomous
+	farmable: boolean;
+	tamable: boolean;
+	techLevel: number; // Minimum tech level to farm/tame (1-10)
+	
+	// Simulation Sliders (0-100)
+	growthRate: number;
+	expansionRate: number;
+	danger: number;
+	
+	// Resources (IDs referencing the GOODS array)
+	deathResource: number; 
+	harvestResource: number; 
+}
+
 export function generateDefaultRegions(): NestedRegion[] {
 	const regionNames = [
 		"Dragon's Teeth Peaks",
@@ -464,6 +494,10 @@ class StateStore {
 			labels: [],
 			notes: [],
 			cellReligions: null,
+			cellSecondaryCultures: null,
+			customSpecies: [],
+			speciesPopulations: {},
+			activeSpeciesId: null,
 			militaryUnitTypes: [
 				{ type: "infantry", speed: 1.0, combatValue: 10 },
 				{ type: "cavalry", speed: 1.8, combatValue: 15 },
@@ -480,6 +514,7 @@ class StateStore {
 				"provinces",
 				"religions",
 				"goods",
+				"species",
 				"coastlines",
 				"borders",
 				"grid",
@@ -507,6 +542,7 @@ class StateStore {
 				},
 				religions: { opacity: 0.8, color: "rgba(0, 0, 0, 0.15)", size: 1.0 },
 				goods: { opacity: 0.85, color: "rgba(0, 0, 0, 0.15)", size: 1.0 },
+				species: { opacity: 0.7, color: "rgba(0, 0, 0, 0.15)", size: 1.0 },
 				temp: { opacity: 1.0, color: "rgba(0, 0, 0, 0.15)", size: 1.0 },
 				prec: { opacity: 1.0, color: "rgba(0, 0, 0, 0.15)", size: 1.0 },
 				grid: { opacity: 0.5, color: "rgba(0, 0, 0, 0.15)", size: 0.5 },

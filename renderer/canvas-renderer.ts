@@ -1308,6 +1308,37 @@ export function renderMap(
 		ctx.restore();
 	};
 
+	const drawSpeciesIcons = () => {
+		const zoom = state.zoom || 1.0;
+		if (zoom < 3.5 || !state.customSpecies || !state.speciesPopulations || state.activeSpeciesId === undefined) return;
+		
+		const activeSp = state.customSpecies.find((s: any) => s.id === state.activeSpeciesId);
+		const activePop = state.speciesPopulations[state.activeSpeciesId];
+		if (!activeSp || !activePop) return;
+
+		const style = state.layerStyles?.species || { opacity: 0.8, size: 1.0 };
+		ctx.save();
+		ctx.globalAlpha = style.opacity;
+
+		const sc = style.size * (zoom >= 6.0 ? 0.6 : 0.4) / Math.sqrt(zoom);
+		ctx.font = `${Math.max(10, 16 * sc)}px sans-serif`;
+		ctx.textAlign = "center";
+		ctx.textBaseline = "middle";
+
+		// Draw icon at high population points
+		for (let i = 0; i < grid.points.length; i += 3) { // Sample points to avoid clutter
+			const pop = activePop[i];
+			if (pop > 200) { // arbitrary threshold
+				const pt = grid.points[i];
+				if (!pt) continue;
+				const icon = activeSp.type === "flora" ? "🌿" : "🦊";
+				ctx.fillText(icon, pt[0], pt[1]);
+			}
+		}
+
+		ctx.restore();
+	};
+
 	// 2. Loop through layerOrder to draw in correct sequence
 	const order = state.layerOrder || [
 		"heightmap",
@@ -1363,6 +1394,12 @@ export function renderMap(
 		else if (layerId === "relief") drawReliefIcons();
 		else if (layerId === "caravans") drawTradeCaravans();
 		else if (layerId === "emblems") drawEmblems();
+		else if (layerId === "species") {
+			if (state.showSpecies !== false) {
+				drawThematicLayer("species");
+				drawSpeciesIcons();
+			}
+		}
 	}
 
 	// 3. Draw Nested LOD system overlay & entities

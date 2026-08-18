@@ -264,6 +264,8 @@ export class SimulationLoop {
 						ecologyRates,
 						magicEcologyWeights,
 						oceanNutrients,
+						currentState.customSpecies,
+						currentState.speciesPopulations
 					);
 					biomes = nextBiomes;
 				}

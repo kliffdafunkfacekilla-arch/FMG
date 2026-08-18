@@ -53,6 +53,7 @@ import { mountStateEditor } from "../../ui/state-editor";
 import { mountStyleEditor } from "../../ui/style-editor";
 import { mountDashboard } from "../../ui/data-dashboard";
 import { mountCustomResourceEditor } from "../../ui/custom-resource-editor";
+import { mountSpeciesEditor } from "../../ui/species-editor";
 
 console.log("FMG Full-Stack Rebuild Frontend Initialized.");
 
@@ -181,6 +182,7 @@ if (app) {
             <button id="btnOpenBurgs" style="background: #ec4899; color: white; border: none; padding: 0.35rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem;">🏰 Burgs</button>
             <button id="btnOpenMilitary" style="background: #64748b; color: white; border: none; padding: 0.35rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem;">⚔️ Military</button>
             <button id="btnOpenReligions" style="background: #f43f5e; color: white; border: none; padding: 0.35rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem;">⛪ Religions</button>
+            <button id="btnOpenSpecies" style="background: #10b981; color: white; border: none; padding: 0.35rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem;">🌿 Flora & Fauna</button>
             <button id="btnOpenFringe" style="background: #e11d48; color: white; border: none; padding: 0.35rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem;">🏴‍☠️ Fringe</button>
             <button id="btnOpenDashboard" style="grid-column: span 2; background: #9333ea; color: white; border: none; padding: 0.45rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem; margin-top: 0.2rem;">📊 Analytics Dashboard</button>
           </div>
@@ -207,6 +209,7 @@ if (app) {
     <div id="languageMount" style="position: fixed; top: 10px; left: 340px; z-index: 1000; width: 380px; max-height: 90vh; pointer-events: auto;"></div>
     <div id="militaryUnitMount" style="position: fixed; top: 10px; left: 340px; z-index: 1000; width: 380px; max-height: 90vh; pointer-events: auto;"></div>
     <div id="religionsEditorMount" style="position: fixed; top: 10px; left: 340px; z-index: 1000; width: 380px; max-height: 90vh; pointer-events: auto;"></div>
+    <div id="speciesEditorMount" style="position: fixed; top: 10px; left: 340px; z-index: 1000; width: 380px; max-height: 90vh; pointer-events: auto;"></div>
     <div id="dashboardMount" style="position: fixed; top: 10px; left: 340px; z-index: 1000; width: 580px; max-height: 90vh; pointer-events: auto;"></div>
 
     <!-- Floating Interactive 10-Square Grid Minimap (Live Canvas + Grid overlay) -->
@@ -378,9 +381,17 @@ if (app) {
 	mountStyleAndBiomeEditor("styleBiomesMount", () => renderCurrentLayer());
 	mountStyleEditor("styleEditorMount", () => renderCurrentLayer());
 
+	const militaryUnitMount = document.getElementById("militaryUnitMount");
+	if (militaryUnitMount) mountMilitaryUnitEditor("militaryUnitMount");
+
+	const religionsEditorMount = document.getElementById("religionsEditorMount");
+	if (religionsEditorMount) mountReligionsEditor("religionsEditorMount");
+
+	const speciesEditorMount = document.getElementById("speciesEditorMount");
+	if (speciesEditorMount) mountSpeciesEditor("speciesEditorMount");
+
+	const labelMount = document.getElementById("labelMount");
 	mountLanguageEditor("languageMount", () => renderCurrentLayer());
-	mountReligionsEditor("religionsEditorMount", () => renderCurrentLayer());
-	mountMilitaryUnitEditor("militaryUnitMount");
 	mountRouteEditor("routeEditorMount", () => {
 		renderCurrentLayer();
 	});
@@ -420,6 +431,7 @@ if (app) {
 	const btnOpenMilitary = document.getElementById("btnOpenMilitary");
 	const btnOpenReligions = document.getElementById("btnOpenReligions");
 	const btnOpenFringe = document.getElementById("btnOpenFringe");
+	const btnOpenSpecies = document.getElementById("btnOpenSpecies");
 	const btnOpenDashboard = document.getElementById("btnOpenDashboard");
 
 	// Helper to dynamically position floating editor panels adjacent to their toolbar triggers
@@ -881,6 +893,14 @@ if (app) {
 	if (btnOpenReligions) {
 		btnOpenReligions.addEventListener("click", () => {
 			toggleToolPanel("religions", "btnOpenReligions");
+		});
+	}
+
+	if (btnOpenSpecies) {
+		btnOpenSpecies.addEventListener("click", () => {
+			if ((window as any).openSpeciesEditor) {
+				(window as any).openSpeciesEditor();
+			}
 		});
 	}
 
