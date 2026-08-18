@@ -499,6 +499,18 @@ export class SimulationLoop {
 							}
 						}
 
+						// Apply Xenophobia penalty to trade volume if they belong to different states
+						let tradeVolumeMultiplier = 1.0;
+						if (stateAId !== stateBId) {
+							const sA = currentState.states?.find((s: any) => s.id === stateAId);
+							const sB = currentState.states?.find((s: any) => s.id === stateBId);
+							const xenoA = sA?.xenophobia || 1.0;
+							const xenoB = sB?.xenophobia || 1.0;
+							if (xenoA > 1.5 || xenoB > 1.5) {
+								tradeVolumeMultiplier = 0.5; // High xenophobia cuts trade in half
+							}
+						}
+
 						if (canTrade) {
 							// Find a commodity that A has in surplus (>15) and B has in deficit (<5)
 							let tradeGoodIdStr = "";
@@ -519,10 +531,10 @@ export class SimulationLoop {
 							if (tradeGoodIdStr) {
 								const gId = parseInt(tradeGoodIdStr, 10);
 								const goodName = GOODS[gId]?.name || `Good #${gId}`;
-								const tradeQty = Math.min(
+								const tradeQty = Math.floor(Math.min(
 									6,
-									Math.floor(((marketA.supply[gId] || 15) - 10) / 2),
-								);
+									Math.floor(((marketA.supply[gId] || 15) - 10) / 2)
+								) * tradeVolumeMultiplier);
 
 								if (tradeQty > 0) {
 									// Route safety calculation based on local law enforcement levels of both terminals
@@ -864,6 +876,56 @@ export class SimulationLoop {
 								targetMilitary,
 								state.militaryPower + 2,
 							);
+						}
+					}
+					
+					// Tech Progression Phase
+					if (state.treasury > 500 && state.population > 1000) {
+						if (!state.technologies) state.technologies = [];
+						const availableTechs = ['agriculture', 'bronze_working', 'sailing', 'gunpowder', 'airships', 'cartography', 'banking'];
+						const toResearch = availableTechs.filter(t => !state.technologies!.includes(t));
+						if (toResearch.length > 0) {
+							// E.g. chance to research tech based on wealth and pop
+							const researchChance = 0.005 + (state.treasury / 100000) + (state.population / 200000);
+							if (Math.random() < researchChance) {
+								const unlocked = toResearch[Math.floor(Math.random() * toResearch.length)];
+								state.technologies.push(unlocked);
+								if (calendar.activeModifiers) {
+									if (!calendar.activeModifiers.notifications) {
+										calendar.activeModifiers.notifications = [];
+									}
+									calendar.activeModifiers.notifications.push(
+										`🔬 Tech Breakthrough! The State of ${state.name} has unlocked the secrets of ${unlocked.toUpperCase()}!`
+									);
+								}
+							}
+						}
+					}
+					
+					// State Expansionism Cell Stealing
+					if (state.expansionism > 1.0 && currentState.cellStates && currentState.grid && currentState.grid.cells) {
+						// Small chance per tick per state to steal a border cell
+						if (Math.random() < (state.expansionism - 1.0) * 0.1) {
+							const stateBurgs = updatedBurgs.filter(b => currentState.cellStates![b.cell] === state.id);
+							if (stateBurgs.length > 0) {
+								const b = stateBurgs[Math.floor(Math.random() * stateBurgs.length)];
+								const neighbors = currentState.grid.cells.c[b.cell] || [];
+								for (const n of neighbors) {
+									// If neighbor is neutral or belongs to another state, claim it!
+									if (currentState.cellStates[n] !== state.id) {
+										currentState.cellStates[n] = state.id;
+										if (calendar.activeModifiers) {
+											if (!calendar.activeModifiers.notifications) {
+												calendar.activeModifiers.notifications = [];
+											}
+											calendar.activeModifiers.notifications.push(
+												`🗺️ Expansion! The State of ${state.name} has aggressively expanded its borders into neighboring territory.`
+											);
+										}
+										break;
+									}
+								}
+							}
 						}
 					}
 
@@ -1627,9 +1689,27 @@ export class SimulationLoop {
 			// If arrived, log delivery and reset to start
 			if (newProgress >= 1.0) {
 				const goodName = GOODS[caravan.goodId]?.name || "Goods";
+				let multiplier = 1;
+				const route = routes.find((r: any) => r.id === caravan.routeId);
+				let routeTypeStr = "route";
+				
+				if (route) {
+					if (route.type === "trail") multiplier = 1;
+					else if (route.type === "road") multiplier = 2;
+					else if (route.type === "sea") multiplier = 3;
+					else if (route.type === "airship") multiplier = 5;
+					routeTypeStr = route.type;
+				}
+				
+				const valueGenerated = Math.floor(10 * multiplier * Math.random());
+				const receivingState = updatedStates.find((s: any) => s.id === caravan.stateId);
+				if (receivingState) {
+					receivingState.treasury += valueGenerated;
+				}
+
 				if (lodUpdates.globalLogs) {
 					const timeStr = `Day ${calendar.day + 1}, Year ${calendar.year + 1}`;
-					lodUpdates.globalLogs.unshift({ time: timeStr, msg: `Caravan delivered ${goodName} cargo along trade route.`, type: "caravan" });
+					lodUpdates.globalLogs.unshift({ time: timeStr, msg: `Caravan delivered ${goodName} cargo via ${routeTypeStr} (+${valueGenerated} 🪙 to ${receivingState ? receivingState.name : 'Unknown'}).`, type: "caravan" });
 					if (lodUpdates.globalLogs.length > 30) lodUpdates.globalLogs.pop();
 				}
 				return { ...caravan, progress: 0 };
