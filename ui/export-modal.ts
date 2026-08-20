@@ -122,7 +122,7 @@ export class ExportModal {
                 const url = exportCanvas.toDataURL("image/png");
                 const a = document.createElement("a");
                 a.href = url;
-                a.download = \`fantasy-map-\${scale}x.png\`;
+                a.download = `fantasy-map-${scale}x.png`;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
