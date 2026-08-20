@@ -71,6 +71,14 @@ export function mountLayersPanel(containerId: string) {
       <span id="closeLayersBtn" style="cursor: pointer; color: #94a3b8; font-size: 1.1rem;">&times;</span>
     </h3>
     <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(0,0,0,0.2); padding: 0.4rem; border-radius: 6px; margin-bottom: 0.6rem;">
+      <span style="font-weight: bold; color: #fbbf24;">View Mode:</span>
+      <div style="display: flex; gap: 0.2rem;">
+        <button id="viewModeLand" style="background: #333; border: 1px solid #444; color: white; border-radius: 4px; padding: 0.2rem 0.5rem; cursor: pointer;">Land</button>
+        <button id="viewModeBoth" style="background: #3b82f6; border: 1px solid #444; color: white; border-radius: 4px; padding: 0.2rem 0.5rem; cursor: pointer;">Both</button>
+        <button id="viewModeOcean" style="background: #333; border: 1px solid #444; color: white; border-radius: 4px; padding: 0.2rem 0.5rem; cursor: pointer;">Ocean</button>
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(0,0,0,0.2); padding: 0.4rem; border-radius: 6px; margin-bottom: 0.6rem;">
       <span style="font-weight: bold; color: #fbbf24;">Preset:</span>
       <select id="presetSelect" style="padding: 0.2rem; background: #0f0f12; border: 1px solid #444; color: white; border-radius: 4px; flex-grow: 1; margin: 0 0.5rem;">
         <option value="Political">Political</option>
@@ -199,6 +207,21 @@ export function mountLayersPanel(containerId: string) {
 		});
 	};
 
+	const updateViewModeButtons = () => {
+		const state = store.getState();
+		const landBtn = document.getElementById("viewModeLand")!;
+		const bothBtn = document.getElementById("viewModeBoth")!;
+		const oceanBtn = document.getElementById("viewModeOcean")!;
+		
+		landBtn.style.background = state.viewMode === "land" ? "#3b82f6" : "#333";
+		bothBtn.style.background = state.viewMode === "both" ? "#3b82f6" : "#333";
+		oceanBtn.style.background = state.viewMode === "ocean" ? "#3b82f6" : "#333";
+	};
+
+	document.getElementById("viewModeLand")?.addEventListener("click", () => store.updateState({ viewMode: "land" }));
+	document.getElementById("viewModeBoth")?.addEventListener("click", () => store.updateState({ viewMode: "both" }));
+	document.getElementById("viewModeOcean")?.addEventListener("click", () => store.updateState({ viewMode: "ocean" }));
+
 	presetSelect.addEventListener("change", (e) => {
 		const val = (e.target as HTMLSelectElement).value;
 		const stateUpdate: Partial<AppState> = {};
@@ -217,12 +240,14 @@ export function mountLayersPanel(containerId: string) {
 	store.subscribe((state) => {
 		if (wrapper.style.display !== "none") {
 			renderLayers();
+			updateViewModeButtons();
 		}
 	});
 
 	(window as any).openLayersPanel = () => {
 		wrapper.style.display = "block";
 		renderLayers();
+		updateViewModeButtons();
 	};
 
 	document.addEventListener("keydown", (e) => {

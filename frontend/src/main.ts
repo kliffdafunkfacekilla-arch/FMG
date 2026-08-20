@@ -57,6 +57,9 @@ import { mountCustomResourceEditor } from "../../ui/custom-resource-editor";
 import { mountSpeciesEditor } from "../../ui/species-editor";
 import { mountParagonsEditor } from "../../ui/paragons-editor";
 import { mountMemoryViewer, openMemoryViewer } from "../../ui/memory-viewer";
+import { VaultImporter } from "../../ui/vault-importer";
+import { SplashScreen } from "../../ui/splash-screen";
+import "../../ui/tutorial-manager";
 
 console.log("FMG Full-Stack Rebuild Frontend Initialized.");
 
@@ -75,6 +78,9 @@ let socket: WebSocket | null = null;
 const currentSessionId = "session-" + Math.floor(Math.random() * 100000);
 let is3DMode = false;
 let threeRenderer: ThreeRenderer | null = null;
+
+import { AssetManager } from "../../renderer/asset-manager";
+AssetManager.init().catch(console.error);
 
 (window as any).triggerLayerSelect = (layer: any) => {
 	currentLayer = layer;
@@ -141,7 +147,6 @@ if (app) {
           <button id="toolsTab" class="tablinks" style="flex: 1; padding: 0.8rem 0.1rem; background: transparent; border: none; color: #94a3b8; font-weight: 600; cursor: pointer; font-size: 0.8rem; border-bottom: 2px solid transparent;">Tools</button>
         </div>
 
-        <!-- Options Tab Content -->
         <div id="optionsContent" class="tabcontent" style="padding: 1rem; overflow-y: auto; display: flex; flex-direction: column; gap: 0.8rem; box-sizing: border-box;">
           <h4 style="margin: 0; color: #fbbf24; font-size: 0.95rem;">World Setup</h4>
           <div id="configuratorMount"></div>
@@ -155,7 +160,7 @@ if (app) {
             <button id="tickYearBtn" style="flex: 1; padding: 0.35rem; background: #3b82f6; color: white; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">+1 Year</button>
           </div>
 
-          <h4 style="margin: 0.5rem 0 0 0; color: #fbbf24; font-size: 0.95rem;">File &amp; Export</h4>
+          <h4 style="margin: 0.5rem 0 0 0; color: #fbbf24; font-size: 0.95rem;">File &amp; Map Operations</h4>
           <div id="exporterMount"></div>
         </div>
 
@@ -189,6 +194,7 @@ if (app) {
             <button id="btnOpenFringe" style="background: #e11d48; color: white; border: none; padding: 0.35rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem;">🏴‍☠️ Fringe</button>
             <button id="btnOpenParagons" style="background: #f59e0b; color: white; border: none; padding: 0.35rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem;">✨ Paragons</button>
             <button id="btnOpenDashboard" style="grid-column: span 2; background: #9333ea; color: white; border: none; padding: 0.45rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem; margin-top: 0.2rem;">📊 Analytics Dashboard</button>
+            <button id="btnOpenGuide" style="grid-column: span 2; background: #059669; color: white; border: none; padding: 0.45rem; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem; margin-top: 0.2rem;">✨ AI Guided World Builder</button>
           </div>
 
           <!-- Nested LOD & Event Logs Panel -->
@@ -447,6 +453,15 @@ if (app) {
 	const btnOpenSpecies = document.getElementById("btnOpenSpecies");
 	const btnOpenParagons = document.getElementById("btnOpenParagons");
 	const btnOpenDashboard = document.getElementById("btnOpenDashboard");
+	const btnOpenVault = document.getElementById("btnOpenVault");
+	const btnOpenGuide = document.getElementById("btnOpenGuide");
+
+	if (btnOpenVault) {
+		btnOpenVault.onclick = () => VaultImporter.open();
+	}
+	if (btnOpenGuide) {
+		btnOpenGuide.onclick = () => GuidedBuilder.open();
+	}
 
 	// Helper to dynamically position floating editor panels adjacent to their toolbar triggers
 	const positionPanelFromButton = (btnId: string, mountId: string) => {
@@ -1483,7 +1498,192 @@ if (app) {
 		}, 50);
 	};
 
-	mountConfigurator("configuratorMount", (config) => runSimulation(config));
+	(window as any).runVaultSimulation = (payload: any) => {
+		if (!canvas || !loadingOverlay) return;
+		loadingOverlay.style.display = "flex";
+		console.log("Starting Vault-to-World simulation override...");
+		
+		const width = payload.heightmap_width || 800;
+		const height = payload.heightmap_height || 600;
+		
+		canvas.width = width;
+		canvas.height = height;
+		if (threeRenderer) {
+			threeRenderer.resize(width, height);
+		}
+		
+		setTimeout(() => {
+			try {
+				const t0 = performance.now();
+				const seed = "vault-" + Math.floor(Math.random() * 1000000);
+				
+				const grid = generateJitteredGrid(width, height, 10000, seed);
+				const hg = new HeightmapGenerator(grid, width, height, seed);
+				
+				if (payload.heightmap && payload.heightmap.length > 0) {
+					hg.addFromExternal(payload.heightmap, width, height);
+				} else {
+					hg.executeTemplate(`Hill 1 80-85 60-80 40-60\nSmooth 3`);
+				}
+				
+				const rawHeights = hg.heights;
+				const climateOpts = {
+					temperatureEquator: 20, temperatureNorthPole: -30, temperatureSouthPole: -15,
+					winds: [225, 45, 225, 315, 135, 315], precInput: 100,
+				};
+				const { temp, prec } = generateClimate(grid, rawHeights, width, height, climateOpts);
+				const hydro = generateHydrology(grid, rawHeights, prec);
+				const heights = bakeErosion(grid, hydro.heights, hydro.flowDirections, 3);
+				const biomes = generateBiomes(grid, heights, temp, prec, hydro.rivers);
+				
+				const { cultures, cellCultures } = generateCultures(grid, heights, biomes, 6, seed, hydro.flux, hydro.rivers, undefined, 2);
+				
+				const burgs = generateBurgs(grid, heights, biomes, hydro.rivers, hydro.flux, 30, cellCultures, cultures);
+				const { states, cellStates } = generateStates(grid, heights, cellCultures, burgs, 8, biomes, hydro.rivers, hydro.flux, undefined, cultures);
+				
+				// Handle political map override
+				if (payload.political_map && payload.political_map.length > 0) {
+				    // Map cell indices to states from political map
+				    const stateNameToId = new Map<string, number>();
+				    let stateIdCounter = states.length;
+				    
+				    for (let i = 0; i < grid.points.length; i++) {
+				        const pt = grid.points[i];
+				        const px = Math.floor((pt[0] / width) * width); // Scale to map width
+				        const py = Math.floor((pt[1] / height) * height);
+				        const idx = py * width + px;
+				        
+				        if (idx >= 0 && idx < payload.political_map.length) {
+				            const stateName = payload.political_map[idx];
+				            if (stateName) {
+				                if (!stateNameToId.has(stateName)) {
+				                    states.push({
+				                        i: stateIdCounter,
+				                        name: stateName,
+				                        color: "#" + Math.floor(Math.random()*16777215).toString(16),
+				                        center: i,
+				                        burgs: []
+				                    } as any);
+				                    stateNameToId.set(stateName, stateIdCounter);
+				                    stateIdCounter++;
+				                }
+				                cellStates[i] = stateNameToId.get(stateName)!;
+				            } else if (payload.options?.missing_data === "empty") {
+				                cellStates[i] = 0; // Wilds
+				            }
+				        }
+				    }
+				}
+				
+				// Handle political map burgs override
+				if (payload.burgs && payload.burgs.length > 0) {
+				    let burgIdCounter = burgs.length;
+				    for (const pb of payload.burgs) {
+				        // Find nearest cell
+				        const px = Math.floor((pb.x / width) * width);
+				        const py = Math.floor((pb.y / height) * height);
+				        const idx = py * width + px; // Approximate center cell
+				        
+				        let cell = -1;
+				        // Simple approximation for nearest cell center
+				        let minDist = Infinity;
+				        for (let i = 0; i < grid.points.length; i++) {
+				            const pt = grid.points[i];
+				            const dx = pt[0] - pb.x;
+				            const dy = pt[1] - pb.y;
+				            const dist = dx*dx + dy*dy;
+				            if (dist < minDist) {
+				                minDist = dist;
+				                cell = i;
+				            }
+				        }
+				        
+				        if (cell !== -1) {
+				            const stateId = cellStates[cell];
+				            burgs.push({
+				                i: burgIdCounter,
+				                cell,
+				                x: grid.points[cell][0],
+				                y: grid.points[cell][1],
+				                state: stateId,
+				                name: pb.name,
+				                population: pb.size,
+				                type: pb.capital ? "Capital" : "Generic",
+				                culture: cellCultures[cell],
+				                feature: 0
+				            } as any);
+				            if (stateId > 0 && pb.capital) {
+				                states[stateId].capital = burgIdCounter;
+				                states[stateId].center = cell;
+				            }
+				            burgIdCounter++;
+				        }
+				    }
+				}
+				
+				const routes = generateRoutes(grid, heights, burgs);
+				const { provinces, cellProvinces } = generateProvinces(grid, heights, cellStates, burgs, states);
+				const military = generateMilitary(grid, heights, cellStates, states, burgs);
+				const { religions, cellReligions } = generateReligions(grid, heights, cellCultures, 5, seed);
+				const zones = generateZones(grid, heights, seed);
+				
+				const burgCells = burgs.map((b: any) => b.cell);
+				let markerTypes = store.getState().markerTypes || [];
+				
+				const stateMap = {
+					grid, heights, temp, prec, hydro, biomes, cultures, cellCultures,
+					burgs, burgCells, states, cellStates, routes, provinces, cellProvinces,
+					military, religions, cellReligions, zones, markerTypes,
+					width, height, seed,
+					year: 100, era: "Vault Era",
+					distanceUnit: "kms", sizeVariety: 1.5, growthRate: 1.0,
+					chronicle: []
+				};
+				
+				store.updateState(stateMap as any);
+				
+				drawMap(canvas, store.getState());
+				
+				const t1 = performance.now();
+				console.log(`Vault world generated in ${Math.round(t1 - t0)}ms`);
+				
+			} catch(err) {
+				console.error("Vault simulation error:", err);
+			} finally {
+				loadingOverlay.style.display = "none";
+			}
+		}, 50);
+	};
+
+	// Show splash screen first
+	SplashScreen.open(
+	    () => {
+	        mountConfigurator("configuratorMount", (config) => {
+	            runSimulation(config);
+	            if ((window as any).TutorialManager) {
+	                (window as any).TutorialManager.start();
+	            }
+	        });
+	    },
+	    () => {
+	        // Load map flow triggers file input
+	        const input = document.createElement("input");
+	        input.type = "file";
+	        input.accept = ".map";
+	        input.onchange = (e: any) => {
+	            const file = e.target.files[0];
+	            if (file) {
+	                // Assuming a global loadMap implementation exists
+	                if ((window as any).loadMap) {
+	                    (window as any).loadMap(file);
+	                } else {
+	                    console.warn("loadMap function not defined globally yet.");
+	                }
+	            }
+	        };
+	        input.click();
+	    }
+	);
 
 	(window as any).runClimateRegen = (opts: {
 		equatorTemp: number;

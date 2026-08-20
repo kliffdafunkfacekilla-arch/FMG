@@ -4,6 +4,11 @@ from pydantic import BaseModel
 import chromadb
 from typing import List, Dict, Any, Optional
 
+from combat import resolve_action
+from models import ActionRequest, ActionResponse
+from vault_ingester import ingest_vault
+from guide_orchestrator import get_next_suggestion
+
 app = FastAPI(title="SAGA AI Director Backend")
 
 # Enable CORS for FMG frontend
@@ -59,6 +64,20 @@ class StoryHook(BaseModel):
 
 class StoryHooksPayload(BaseModel):
     hooks: List[StoryHook]
+
+class WorldStatePayload(BaseModel):
+    world_state: Dict[str, Any]
+
+class VaultImportOptions(BaseModel):
+    build_states: bool = True
+    build_cultures: bool = True
+    build_religions: bool = True
+    build_paragons: bool = True
+    missing_data: str = "autofill"
+
+class VaultImportPayload(BaseModel):
+    vault_path: str
+    options: VaultImportOptions = VaultImportOptions()
 
 # Routes
 @app.post("/api/memory/nodes")
@@ -145,3 +164,26 @@ def search_events(query: str, n_results: int = 5):
         n_results=n_results
     )
     return {"results": results}
+
+@app.post("/api/action/resolve", response_model=ActionResponse)
+def resolve_action_endpoint(req: ActionRequest):
+    """
+    Resolve a 1d20 action based on the Margin of Success rules.
+    """
+    return resolve_action(req)
+
+@app.post("/api/vault/import")
+def import_vault_endpoint(payload: VaultImportPayload):
+    """
+    Reads a vault of notes and ingests them into ChromaDB.
+    """
+    return ingest_vault(payload.vault_path, payload.options.model_dump())
+
+@app.post("/api/guide/suggest")
+def guide_suggest_endpoint(payload: WorldStatePayload):
+    """
+    Analyzes world state and returns a suggestion for the next building step.
+    """
+    suggestion = get_next_suggestion(payload.world_state)
+    return suggestion.model_dump()
+

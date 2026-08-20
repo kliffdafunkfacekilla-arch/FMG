@@ -1,4 +1,5 @@
 import { AppState } from "../state/store";
+import { ExportModal } from "./export-modal";
 
 export function mountExportOptions(
 	containerId: string,
@@ -12,13 +13,15 @@ export function mountExportOptions(
 
 	container.innerHTML = `
     <div style="display: flex; flex-direction: column; gap: 0.5rem; width: 100%; box-sizing: border-box;">
+      <button id="regenNewMapBtn" style="background: #eab308; ${btnStyle} width: 100%; color: black;">✨ Generate New Map</button>
       <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.4rem;">
         <button id="saveBtn" style="background: #10b981; ${btnStyle}">💾 Save JSON</button>
-        <button id="loadBtn" style="background: #eab308; ${btnStyle}">📂 Load JSON</button>
+        <button id="loadBtn" style="background: #3b82f6; ${btnStyle}">📂 Load JSON</button>
       </div>
+      <button id="btnOpenVault" style="background: #5e4fa2; ${btnStyle} width: 100%;">📥 Import Notes Vault</button>
       <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.4rem;">
-        <button id="exportPngBtn" style="background: #3b82f6; ${btnStyle}">🖼️ Export PNG</button>
-        <button id="exportSvgBtn" style="background: #3b82f6; ${btnStyle}">📐 Export SVG</button>
+        <button id="exportPngBtn" style="background: #64748b; ${btnStyle}">🖼️ Export PNG</button>
+        <button id="exportSvgBtn" style="background: #64748b; ${btnStyle}">📐 Export SVG</button>
       </div>
       <button id="toggle3DBtn" style="background: #8b5cf6; ${btnStyle} width: 100%;">🌐 Toggle 3D View</button>
       <input id="fileInput" type="file" accept=".json" style="display: none;" />
@@ -29,13 +32,7 @@ export function mountExportOptions(
 	const svgBtn = document.getElementById("exportSvgBtn") as HTMLButtonElement;
 
 	pngBtn.addEventListener("click", () => {
-		const url = canvas.toDataURL("image/png");
-		const a = document.createElement("a");
-		a.href = url;
-		a.download = "fantasy-map.png";
-		document.body.appendChild(a);
-		a.click();
-		document.body.removeChild(a);
+		ExportModal.open(canvas);
 	});
 
 	svgBtn.addEventListener("click", () => {

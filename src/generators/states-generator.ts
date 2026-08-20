@@ -601,9 +601,8 @@ class StatesModule {
 	generateDiplomacy() {
 		TIME && console.time("generateDiplomacy");
 		const { cells, states } = pack;
-		states[0].diplomacy = [];
-		// FIRST STATE IS ALWAYS NEUTRAL and contains the history of diplomacy
-		const chronicle = states[0].diplomacy;
+		(pack as any).chronicle = [];
+		const chronicle = (pack as any).chronicle;
 		const valid = states.filter((s) => s.i && !s.removed); // will filter out neutral as i is 0 => false
 
 		// Pre-Calculate state area since collectStatistics() hasn't run yet.
@@ -834,7 +833,7 @@ class StatesModule {
 					states[a].diplomacy![d] = states[d].diplomacy![a] = "Enemy";
 				});
 			});
-			// TODO: record war in chronicle to keep state interface clean
+			// Record war in global chronicle instead of states interface
 			chronicle.push(war as any); // add a record to diplomatical history
 		}
 		TIME && console.timeEnd("generateDiplomacy");

@@ -127,6 +127,15 @@ export interface StorySeed {
 	openness: "secret" | "rumor" | "well-known";
 }
 
+export interface DynamicEvent {
+	id: string;
+	type: "battle" | "disaster" | "magic";
+	x: number;
+	y: number;
+	duration: number; // ticks remaining
+	progress: number; // 0 to 1
+}
+
 export interface Species {
 	id: number;
 	name: string;
@@ -322,6 +331,7 @@ export interface AppState {
 	markerTypes: MarkerType[];
 	paragons?: Paragon[];
 	storySeeds?: StorySeed[];
+	events?: DynamicEvent[]; // Visual transient events (battles, disasters)
 
 	// Ecology & Stressors
 	plants: Float32Array | null;
@@ -354,6 +364,7 @@ export interface AppState {
 	magicSens: number;
 
 	// Layer Overlay Visibility flags
+	viewMode: "both" | "land" | "ocean";
 	showGrid: boolean;
 	showRivers: boolean;
 	showRoutes: boolean;
@@ -502,7 +513,8 @@ class StateStore {
 			preyRate: 100,
 			predRate: 100,
 			magicSens: 1.0,
-
+			
+			viewMode: "both",
 			showGrid: false,
 			showRivers: true,
 			showRoutes: true,
@@ -552,6 +564,7 @@ class StateStore {
 			speciesPopulations: {},
 			activeSpeciesId: null,
 			markerTypes: [],
+			events: [],
 			militaryUnitTypes: [
 				{ type: "infantry", speed: 1.0, combatValue: 10 },
 				{ type: "cavalry", speed: 1.8, combatValue: 15 },
@@ -581,12 +594,14 @@ class StateStore {
 				"burgs",
 				"emblems",
 				"military",
+				"events",
 				"labels",
 				"scalebar",
 			],
 			layerStyles: {
 				heightmap: { opacity: 1.0, color: "rgba(0, 0, 0, 0.15)", size: 1.0 },
 				biomes: { opacity: 1.0, color: "rgba(0, 0, 0, 0.15)", size: 1.0 },
+				events: { opacity: 1.0, color: "#ff0000", size: 1.0 },
 				cultures: { opacity: 0.8, color: "rgba(0, 0, 0, 0.15)", size: 1.0 },
 				states: { opacity: 0.85, color: "rgba(0, 0, 0, 0.25)", size: 1.0 },
 				provinces: {

@@ -219,11 +219,6 @@ export function mountConfigurator(
               <label style="color: #94a3b8; font-size: 0.74rem;">Underwater Civs Count:</label>
               <input id="underwaterCount" type="number" min="0" max="20" value="2" style="width: 50px; padding: 0.15rem; background: #0f0f12; border: 1px solid #444; color: white; border-radius: 4px; text-align: center;" />
             </div>
-          </div>
-
-          <button id="regenNewMapBtn" style="background: #3b82f6; border: none; padding: 0.35rem; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.75rem; width: 100%; margin-top: 0.2rem;">
-            Generate New Map
-          </button>
         </div>
       </details>
 
@@ -724,11 +719,7 @@ export function mountConfigurator(
 		closeClimateModal();
 	});
 
-	if (seedHistoryBtn) {
-		seedHistoryBtn.addEventListener("click", () => {
-			alert("Seed History functionality would open here.");
-		});
-	}
+	// Seed History button removed per user request
 
 	// Calendar editor toggles inline below the Configure World modal.
 	const openCalendarEditorBtn = document.getElementById(

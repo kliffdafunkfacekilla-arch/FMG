@@ -80,6 +80,22 @@ export class HeightmapGenerator {
 		this.linePower = linePowerMap[cells] || 0.81;
 	}
 
+	addFromExternal(heightmap: number[], imgWidth: number, imgHeight: number): void {
+		// Map pixel values (0-1 float) to grid heights (0-100 uint8)
+		for (let i = 0; i < this.grid.points.length; i++) {
+			const pt = this.grid.points[i];
+			const px = Math.floor((pt[0] / this.width) * imgWidth);
+			const py = Math.floor((pt[1] / this.height) * imgHeight);
+			const idx = py * imgWidth + px;
+			if (idx >= 0 && idx < heightmap.length) {
+				const val = heightmap[idx];
+				this.heights[i] = lim(val * 100);
+			} else {
+				this.heights[i] = 0;
+			}
+		}
+	}
+
 	addHill(
 		countStr: string,
 		heightStr: string,

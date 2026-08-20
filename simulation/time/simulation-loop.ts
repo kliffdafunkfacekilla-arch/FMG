@@ -222,9 +222,58 @@ export class SimulationLoop {
 			// Instantiate Hash Maps once outside the day loop to avoid hundreds of daily allocations
 			const burgMap = new Map(updatedBurgs.map((b) => [b.id, b]));
 			const stateMap = new Map(updatedStates.map((s) => [s.id, s]));
+			const activeEvents = currentState.events ? [...currentState.events] : [];
 
 			// We run the daily loop
 			for (let day = 0; day < daysPassed; day++) {
+				// Manage Dynamic Events (Decay duration)
+				for (let i = activeEvents.length - 1; i >= 0; i--) {
+					const evt = activeEvents[i];
+					evt.duration--;
+					evt.progress += 0.05;
+					if (evt.duration <= 0) {
+						activeEvents.splice(i, 1);
+					}
+				}
+
+				// Randomly spawn Battle Events between neighboring rival burgs
+				if (Math.random() < 0.05 && updatedBurgs.length > 1) {
+					const b1 = updatedBurgs[Math.floor(Math.random() * updatedBurgs.length)];
+					const b2 = updatedBurgs[Math.floor(Math.random() * updatedBurgs.length)];
+					if (b1.id !== b2.id && b1.stateId !== b2.stateId) {
+						// Simple check: are they close?
+						const dx = b1.x - b2.x;
+						const dy = b1.y - b2.y;
+						const dist = Math.sqrt(dx*dx + dy*dy);
+						if (dist < 40) {
+							activeEvents.push({
+								id: `evt-${Date.now()}-${Math.random()}`,
+								type: "battle",
+								x: (b1.x + b2.x) / 2,
+								y: (b1.y + b2.y) / 2,
+								duration: 5,
+								progress: 0
+							});
+						}
+					}
+				}
+
+				// Randomly spawn Disaster Events
+				if (Math.random() < 0.02) {
+					const cell = Math.floor(Math.random() * pointsN);
+					const pt = currentState.grid?.points[cell];
+					if (pt) {
+						activeEvents.push({
+							id: `evt-${Date.now()}-${Math.random()}`,
+							type: "disaster",
+							x: pt[0],
+							y: pt[1],
+							duration: 10,
+							progress: 0
+						});
+					}
+				}
+
 				// 1. Magic Volatility Checks
 				if (magicFlux && magicTypes.length > 0) {
 					const nextBiomes = runMagicVolatilityChecks(
@@ -456,8 +505,8 @@ export class SimulationLoop {
 								
 								// Log a SAGA Event for the Director
 								if (calendar.tick % 5 === 0 && lodUpdates.globalLogs) {
-									const timeStr = \`Day \${calendar.day + 1}, Year \${calendar.year + 1}\`;
-									lodUpdates.globalLogs.unshift({ time: timeStr, msg: \`The \${mayor.negativeTrait} Mayor \${mayor.name} of \${burg.name} hoarded food during a shortage, worsening the famine.\`, type: "crisis" });
+									const timeStr = `Day ${calendar.day + 1}, Year ${calendar.year + 1}`;
+									lodUpdates.globalLogs.unshift({ time: timeStr, msg: `The ${mayor.negativeTrait} Mayor ${mayor.name} of ${burg.name} hoarded food during a shortage, worsening the famine.`, type: "crisis" });
 								}
 							}
 						}
@@ -2004,6 +2053,7 @@ export class SimulationLoop {
 			}
 		}
 
+		store.updateState({ events: activeEvents });
 		return { regions, globalLogs, regionalLogs, localLogs };
 	}
 

@@ -6,6 +6,7 @@ import {
 } from "../simulation/civilization/goods-generator";
 import { type AppState, store } from "../state/store";
 import { meander } from "./meander";
+import { AssetManager } from "./asset-manager";
 
 const STATE_COLORS = [
 	"#2563eb",
@@ -150,6 +151,14 @@ export function renderMap(
 	const pointsN = grid.points.length;
 
 	ctx.clearRect(0, 0, canvas.width, canvas.height);
+	
+	if (state.viewMode === "land") {
+		canvas.style.backgroundColor = "#020617"; // Very dark void for clipped oceans
+	} else if (state.viewMode === "ocean") {
+		canvas.style.backgroundColor = "#020617"; // Very dark void for clipped land
+	} else {
+		canvas.style.backgroundColor = "transparent";
+	}
 
 	ctx.save();
 	ctx.translate(state.offsetX || 0, state.offsetY || 0);
@@ -535,6 +544,10 @@ export function renderMap(
 				}
 			}
 
+			const h = heights?.[i] ?? 0;
+			if (state.viewMode === "land" && h < 20) continue;
+			if (state.viewMode === "ocean" && h >= 20) continue;
+
 			const vertices = grid.cells.v[i];
 			if (!vertices || vertices.length === 0) continue;
 
@@ -686,6 +699,10 @@ export function renderMap(
 
 		for (let i = 0; i < pointsN; i++) {
 			if (rivers[i] > 0 && headwaters[i] === 1) {
+				const h = heights[i];
+				if (state.viewMode === "land" && h < 20) continue;
+				if (state.viewMode === "ocean" && h >= 20) continue;
+
 				const chain: [number, number][] = [];
 				const cellsInRiver: number[] = [];
 				let curr: number = i;
@@ -826,19 +843,30 @@ export function renderMap(
 			}
 
 			if (!isVisible) continue;
+			
+			const h = heights?.[b.cell] ?? 20;
+			if (state.viewMode === "land" && h < 20) continue;
+			if (state.viewMode === "ocean" && h >= 20) continue;
 
 			// Inversely scaled radius to keep icons perfectly sized and sharp
 			const baseRadius = b.isCapital ? style.size * 1.5 : style.size;
 			const radius = baseRadius / Math.sqrt(zoom);
 
-			ctx.fillStyle = b.isCapital ? "#ef4444" : style.color;
-			ctx.strokeStyle = "#1e1e24";
-			ctx.lineWidth = 1.5 / Math.sqrt(zoom);
+			const img = (zoom >= 2.0) ? AssetManager.get("city") : null;
+			if (img) {
+				const w = (b.isCapital ? 24 : 16) / Math.sqrt(zoom);
+				const h = w;
+				ctx.drawImage(img, b.x - w/2, b.y - h/2, w, h);
+			} else {
+				ctx.fillStyle = b.isCapital ? "#ef4444" : style.color;
+				ctx.strokeStyle = "#1e1e24";
+				ctx.lineWidth = 1.5 / Math.sqrt(zoom);
 
-			ctx.beginPath();
-			ctx.arc(b.x, b.y, radius, 0, 2 * Math.PI);
-			ctx.fill();
-			ctx.stroke();
+				ctx.beginPath();
+				ctx.arc(b.x, b.y, radius, 0, 2 * Math.PI);
+				ctx.fill();
+				ctx.stroke();
+			}
 
 			ctx.fillStyle = "#ffffff";
 			const baseFontSize = b.isCapital ? 12 : 10;
@@ -1127,46 +1155,65 @@ export function renderMap(
 			if (!pt) continue;
 			const [cx, cy] = pt;
 			const h = heights[i] || 0;
+
+			if (state.viewMode === "land" && h < 20) continue;
+			if (state.viewMode === "ocean" && h >= 20) continue;
+
 			const b = biomes[i] || 0;
 
 			// Forest biomes (5-9): draw a tree
 			if ((b >= 5 && b <= 9) && h >= 20) {
-				const treeH = 9 * scale;
-				const treeW = 6 * scale;
-				// Trunk
-				ctx.fillStyle = "#8B5E3C";
-				ctx.fillRect(cx - scale, cy, scale * 2, scale * 3);
-				// Canopy (triangle)
-				ctx.fillStyle = "#3A7A3A";
-				ctx.beginPath();
-				ctx.moveTo(cx, cy - treeH);
-				ctx.lineTo(cx - treeW / 2, cy);
-				ctx.lineTo(cx + treeW / 2, cy);
-				ctx.closePath();
-				ctx.fill();
+				const isPine = (b === 6 || b === 9); // Taiga or Boreal
+				const img = AssetManager.get(isPine ? "treePine" : "treeDeciduous");
+				if (img) {
+					const w = 12 * scale;
+					const ht = 12 * scale;
+					ctx.drawImage(img, cx - w/2, cy - ht, w, ht);
+				} else {
+					const treeH = 9 * scale;
+					const treeW = 6 * scale;
+					// Trunk
+					ctx.fillStyle = "#8B5E3C";
+					ctx.fillRect(cx - scale, cy, scale * 2, scale * 3);
+					// Canopy (triangle)
+					ctx.fillStyle = "#3A7A3A";
+					ctx.beginPath();
+					ctx.moveTo(cx, cy - treeH);
+					ctx.lineTo(cx - treeW / 2, cy);
+					ctx.lineTo(cx + treeW / 2, cy);
+					ctx.closePath();
+					ctx.fill();
+				}
 			}
 
 			// High elevation: draw mountain
 			if (h >= 70) {
-				const mH = 12 * scale;
-				const mW = 10 * scale;
-				// Base mountain
-				ctx.fillStyle = "#8a7a6a";
-				ctx.beginPath();
-				ctx.moveTo(cx, cy - mH);
-				ctx.lineTo(cx - mW / 2, cy + scale);
-				ctx.lineTo(cx + mW / 2, cy + scale);
-				ctx.closePath();
-				ctx.fill();
-				// Snow cap
-				if (h >= 85) {
-					ctx.fillStyle = "#eaeaea";
+				const img = AssetManager.get(h >= 85 ? "mountainSnow" : "mountain");
+				if (img) {
+					const w = 16 * scale;
+					const ht = 16 * scale;
+					ctx.drawImage(img, cx - w/2, cy - ht, w, ht);
+				} else {
+					const mH = 12 * scale;
+					const mW = 10 * scale;
+					// Base mountain
+					ctx.fillStyle = "#8a7a6a";
 					ctx.beginPath();
 					ctx.moveTo(cx, cy - mH);
-					ctx.lineTo(cx - mW * 0.25, cy - mH * 0.55);
-					ctx.lineTo(cx + mW * 0.25, cy - mH * 0.55);
+					ctx.lineTo(cx - mW / 2, cy + scale);
+					ctx.lineTo(cx + mW / 2, cy + scale);
 					ctx.closePath();
 					ctx.fill();
+					// Snow cap
+					if (h >= 85) {
+						ctx.fillStyle = "#eaeaea";
+						ctx.beginPath();
+						ctx.moveTo(cx, cy - mH);
+						ctx.lineTo(cx - mW * 0.25, cy - mH * 0.55);
+						ctx.lineTo(cx + mW * 0.25, cy - mH * 0.55);
+						ctx.closePath();
+						ctx.fill();
+					}
 				}
 			}
 		}
@@ -1360,7 +1407,8 @@ export function renderMap(
 			if (lbl.rotation) {
 				ctx.rotate(lbl.rotation * Math.PI / 180);
 			}
-			ctx.font = `bold ${Math.max(4, lbl.size * style.size)}px "Palatino Linotype", "Book Antiqua", Palatino, serif`;
+			const fontFam = style.fontOverride || '"Palatino Linotype", "Book Antiqua", Palatino, serif';
+			ctx.font = `bold ${Math.max(4, lbl.size * style.size)}px ${fontFam}`;
 			
 			// outline
 			ctx.fillStyle = "rgba(0,0,0,0.8)";
@@ -1376,6 +1424,105 @@ export function renderMap(
 	};
 
 	// 2. Loop through layerOrder to draw in correct sequence
+	const drawEvents = () => {
+		const events = state.events;
+		if (!events || events.length === 0) return;
+		
+		const zoom = state.zoom || 1.0;
+		ctx.save();
+		
+		for (const evt of events) {
+			const { x, y, type, progress } = evt;
+			
+			// Clip by view mode
+			if (state.viewMode !== "both" && heights && grid.points) {
+				let nearest = 0;
+				let minDist = Infinity;
+				for (let i = 0; i < grid.points.length; i+=10) { // stride 10 for performance
+					const p = grid.points[i];
+					if(!p) continue;
+					const dx = p[0] - x;
+					const dy = p[1] - y;
+					const dist = dx*dx + dy*dy;
+					if (dist < minDist) {
+						minDist = dist;
+						nearest = i;
+					}
+				}
+				const h = heights[nearest] || 0;
+				if (state.viewMode === "land" && h < 20) continue;
+				if (state.viewMode === "ocean" && h >= 20) continue;
+			}
+			
+			if (type === "battle") {
+				// Crossed swords and fire effect
+				ctx.save();
+				ctx.translate(x, y);
+				
+				// Animated pulsing fire background
+				const fireScale = 1 + Math.sin(Date.now() * 0.01) * 0.2;
+				ctx.fillStyle = "rgba(239, 68, 68, 0.4)"; // Red glow
+				ctx.beginPath();
+				ctx.arc(0, 0, (12 * fireScale) / Math.sqrt(zoom), 0, Math.PI * 2);
+				ctx.fill();
+				
+				// Crossed swords icon (simple text emoji)
+				ctx.fillStyle = "#ffffff";
+				ctx.font = `${14 / Math.sqrt(zoom)}px sans-serif`;
+				ctx.textAlign = "center";
+				ctx.textBaseline = "middle";
+				ctx.fillText("⚔️", 0, 0);
+				
+				// Progress bar (morale)
+				ctx.fillStyle = "rgba(0,0,0,0.5)";
+				ctx.fillRect(-10 / zoom, 8 / zoom, 20 / zoom, 3 / zoom);
+				ctx.fillStyle = "#ef4444";
+				ctx.fillRect(-10 / zoom, 8 / zoom, (20 * progress) / zoom, 3 / zoom);
+				
+				ctx.restore();
+			} else if (type === "disaster") {
+				// Swirling storm / disaster effect
+				ctx.save();
+				ctx.translate(x, y);
+				ctx.rotate(Date.now() * 0.002); // Spin
+				
+				ctx.fillStyle = "rgba(75, 85, 99, 0.6)"; // Dark gray cloud
+				ctx.beginPath();
+				ctx.arc(0, 0, 15 / Math.sqrt(zoom), 0, Math.PI * 2);
+				ctx.fill();
+				
+				ctx.restore();
+				
+				ctx.save();
+				ctx.translate(x, y);
+				ctx.fillStyle = "#ffffff";
+				ctx.font = `${14 / Math.sqrt(zoom)}px sans-serif`;
+				ctx.textAlign = "center";
+				ctx.textBaseline = "middle";
+				ctx.fillText("🌪️", 0, 0);
+				ctx.restore();
+			} else if (type === "magic") {
+				// Sparkles
+				ctx.save();
+				ctx.translate(x, y);
+				const magicScale = 1 + Math.sin(Date.now() * 0.015) * 0.3;
+				ctx.fillStyle = "rgba(168, 85, 247, 0.5)"; // Purple glow
+				ctx.beginPath();
+				ctx.arc(0, 0, (10 * magicScale) / Math.sqrt(zoom), 0, Math.PI * 2);
+				ctx.fill();
+				
+				ctx.fillStyle = "#ffffff";
+				ctx.font = `${12 / Math.sqrt(zoom)}px sans-serif`;
+				ctx.textAlign = "center";
+				ctx.textBaseline = "middle";
+				ctx.fillText("✨", 0, 0);
+				ctx.restore();
+			}
+		}
+		
+		ctx.restore();
+	};
+
 	const order = state.layerOrder || [
 		"heightmap",
 		"biomes",
@@ -1398,6 +1545,7 @@ export function renderMap(
 		"burgs",
 		"emblems",
 		"military",
+		"events",
 		"labels",
 		"scalebar",
 	];
@@ -1430,6 +1578,7 @@ export function renderMap(
 		else if (layerId === "relief") drawReliefIcons();
 		else if (layerId === "caravans") drawTradeCaravans();
 		else if (layerId === "emblems") drawEmblems();
+		else if (layerId === "events") drawEvents();
 		else if (layerId === "species") {
 			if (state.showSpecies !== false) {
 				drawThematicLayer("species");
@@ -1685,27 +1834,41 @@ function drawProceduralTerrain(
 
 		if (assetType === 0) {
 			// Deciduous Tree
-			ctx.save();
-			ctx.fillStyle = "#78350f"; // Brown trunk
-			ctx.fillRect(x - 0.4 / zoom, y, 0.8 / zoom, 3.5 / zoom);
-			ctx.fillStyle = "#15803d"; // Green leaf canopy
-			ctx.beginPath();
-			ctx.arc(x, y - 1.2 / zoom, 2.5 / zoom, 0, Math.PI * 2);
-			ctx.fill();
-			ctx.restore();
+			const img = AssetManager.get("treeDeciduous");
+			if (img) {
+				const w = 12 / zoom;
+				const h = 12 / zoom;
+				ctx.drawImage(img, x - w/2, y - h, w, h);
+			} else {
+				ctx.save();
+				ctx.fillStyle = "#78350f"; // Brown trunk
+				ctx.fillRect(x - 0.4 / zoom, y, 0.8 / zoom, 3.5 / zoom);
+				ctx.fillStyle = "#15803d"; // Green leaf canopy
+				ctx.beginPath();
+				ctx.arc(x, y - 1.2 / zoom, 2.5 / zoom, 0, Math.PI * 2);
+				ctx.fill();
+				ctx.restore();
+			}
 		} else if (assetType === 1) {
 			// Conifer Pine Tree
-			ctx.save();
-			ctx.fillStyle = "#451a03"; // Dark trunk
-			ctx.fillRect(x - 0.3 / zoom, y, 0.6 / zoom, 3.0 / zoom);
-			ctx.fillStyle = "#14532d"; // Dark green triangle
-			ctx.beginPath();
-			ctx.moveTo(x, y - 4.5 / zoom);
-			ctx.lineTo(x - 2.2 / zoom, y - 0.5 / zoom);
-			ctx.lineTo(x + 2.2 / zoom, y - 0.5 / zoom);
-			ctx.closePath();
-			ctx.fill();
-			ctx.restore();
+			const img = AssetManager.get("treePine");
+			if (img) {
+				const w = 12 / zoom;
+				const h = 12 / zoom;
+				ctx.drawImage(img, x - w/2, y - h, w, h);
+			} else {
+				ctx.save();
+				ctx.fillStyle = "#451a03"; // Dark trunk
+				ctx.fillRect(x - 0.3 / zoom, y, 0.6 / zoom, 3.0 / zoom);
+				ctx.fillStyle = "#14532d"; // Dark green triangle
+				ctx.beginPath();
+				ctx.moveTo(x, y - 4.5 / zoom);
+				ctx.lineTo(x - 2.2 / zoom, y - 0.5 / zoom);
+				ctx.lineTo(x + 2.2 / zoom, y - 0.5 / zoom);
+				ctx.closePath();
+				ctx.fill();
+				ctx.restore();
+			}
 		} else if (assetType === 2) {
 			// Farm Field Plot
 			ctx.save();

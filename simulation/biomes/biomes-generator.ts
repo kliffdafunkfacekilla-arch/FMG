@@ -14,13 +14,20 @@ export const BIOME_NAMES: string[] = [
 	"Tundra", // 10
 	"Glacier", // 11
 	"Wetland", // 12
-	"Shallow Reef", // 13
-	"Kelp Forest", // 14
-	"Pelagic Zone", // 15
-	"Abyssal Plain", // 16
-	"Oceanic Trench", // 17
-	"Chaos Land", // 18
-	"Chaos Water", // 19
+	"Brine pools", // 13
+	"Still waters", // 14
+	"Open seafloor", // 15
+	"Seagrass meadows", // 16
+	"Seasonal volcanic vents", // 17
+	"Temperate kelp forests", // 18
+	"Tropical reefs", // 19
+	"Temperate reefs", // 20
+	"Deep fissure canyons", // 21
+	"Artic waters", // 22
+	"Under water glacier", // 23
+	"Tidal plains", // 24
+	"Chaos Land", // 25
+	"Chaos Water", // 26
 ];
 
 export const BIOME_COLORS: string[] = [
@@ -37,11 +44,18 @@ export const BIOME_COLORS: string[] = [
 	"#96784b", // Tundra
 	"#d5e7eb", // Glacier
 	"#0b9131", // Wetland
-	"#006994", // Shallow Reef
-	"#004B49", // Kelp Forest
-	"#000080", // Pelagic Zone
-	"#000033", // Abyssal Plain
-	"#000011", // Oceanic Trench
+	"#808000", // Brine pools
+	"#000080", // Still waters
+	"#000033", // Open seafloor
+	"#2e8b57", // Seagrass meadows
+	"#ff4500", // Seasonal volcanic vents
+	"#004B49", // Temperate kelp forests
+	"#006994", // Tropical reefs
+	"#4682b4", // Temperate reefs
+	"#000011", // Deep fissure canyons
+	"#5f9ea0", // Artic waters
+	"#b0e0e6", // Under water glacier
+	"#20b2aa", // Tidal plains
 	"#4B0082", // Chaos Land
 	"#190033", // Chaos Water
 ];
@@ -89,38 +103,34 @@ export function getBiomeId(
 	localNutrients?: number,
 ): number {
 	if (height < 20) {
-		if (temperature < 0) return 11; // Frozen Ocean (Ice Cap/Glacier)
+		if (temperature < -5) return 23; // Frozen Sea
 
-		// Ocean code using height in inverse: depth scale from 1 (shallow shelf) to 20 (deepest trench)
-		const inverseHeight = 20 - height;
-
-		// Ocean moisture/rain equivalent: local precipitation + upwelling nutrients
-		const oceanRain = moisture + (localNutrients || 10.0) * 1.5;
-
-		// Ocean wind/current equivalent: thermal currents influenced by temperature and nutrients
-		const oceanWind = Math.abs(temperature) + (localNutrients || 10.0) * 0.5;
-
-		if (inverseHeight <= 5) { // Equivalent to lowlands (height >= 15)
-			// High ocean rain and warm wind -> Shallow Coral Reef
-			if (temperature >= 18 && oceanRain >= 18.0) return 13; // Shallow Reef
-			// Cool temp but rich ocean rain -> Kelp Forest
-			if (oceanRain >= 12.0) return 14; // Kelp Forest
-			return 0; // Marine (default shelf)
-		}
+		// Use localNutrients as the ocean's "moisture/rain" equivalent
+		const nutrientScore = localNutrients || 0;
 		
-		if (inverseHeight <= 10) { // Equivalent to hills (height >= 10)
-			// Deep ocean rain equivalent sustains kelp forests even at depth
-			if (oceanRain >= 15.0) return 14; // Kelp Forest
-			return 15; // Pelagic Zone
-		}
+		const nutrientBand = Math.min(Math.floor(nutrientScore / 15), 4); // [0-4]
+		const tempBand = Math.min(Math.max(Math.floor(20 - temperature), 0), 25); // [0-25]
 
-		if (inverseHeight <= 17) { // Equivalent to mountains (height >= 3)
-			// Deep abyssal plain
-			return 16; // Abyssal Plain
-		}
+		// Fetch the "land" biome ID from the matrix
+		const landBiomeId = biomesMatrix[nutrientBand]?.[tempBand] ?? 4; 
+		
+		// Map the land biome ID to its marine counterpart (1:1 with ID + 12)
+		const marineMap: Record<number, number> = {
+			1: 13, // Hot desert -> Brine pools
+			2: 14, // Cold desert -> Still waters
+			3: 15, // Savanna -> Open seafloor
+			4: 16, // Grassland -> Seagrass meadows
+			5: 17, // Tropical seasonal forest -> Seasonal volcanic vents
+			6: 18, // Temperate deciduous forest -> Temperate kelp forests
+			7: 19, // Tropical rainforest -> Tropical reefs
+			8: 20, // Temperate rainforest -> Temperate reefs
+			9: 21,  // Taiga -> Deep fissure canyons
+			10: 22, // Tundra -> Artic waters
+			11: 23, // Glacier -> Under water glacier
+			12: 24  // Wetland -> Tidal plains
+		};
 
-		// Deepest trenches
-		return 17; // Oceanic Trench
+		return marineMap[landBiomeId] ?? 0;
 	}
 
 	if (temperature < -5) return 11; // Glacier/Ice cap

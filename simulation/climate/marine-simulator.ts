@@ -134,10 +134,60 @@ export function calculateOceanNutrients(
 	const pointsN = heights.length;
 	const nutrients = new Float32Array(pointsN);
 
-	// 1. Add Upwelling shelf nutrient contribution (driven upward towards land)
+	// 1. Thermal Currents (Ocean Rivers)
+	// We trace paths from the deepest trenches ("mountains") flowing "uphill" to the land.
+	const thermalCurrents = new Float32Array(pointsN);
+	
+	// Sort ocean cells by depth (lowest height first, which means deepest trench)
+	const oceanCells = [];
 	for (let i = 0; i < pointsN; i++) {
 		if (heights[i] < 20) {
-			nutrients[i] += upwellingFlux[i] * 0.8;
+			oceanCells.push(i);
+			// Base nutrient at trenches
+			if (heights[i] < 5) {
+				thermalCurrents[i] = 50.0 + Math.random() * 50.0;
+			}
+		}
+	}
+	// Sort by height ascending (deepest first)
+	oceanCells.sort((a, b) => heights[a] - heights[b]);
+
+	// Flow nutrients "uphill" from deep to shallow
+	for (let i = 0; i < oceanCells.length; i++) {
+		const cell = oceanCells[i];
+		const currentPayload = thermalCurrents[cell];
+		if (currentPayload <= 0) continue;
+
+		const h = heights[cell];
+		const neighbors = grid.cells.c[cell] || [];
+		
+		// Find neighbors that are shallower (higher height, up to coast)
+		let bestNeighbor = -1;
+		let maxDiff = -1;
+		
+		for (const n of neighbors) {
+			const nh = heights[n];
+			if (nh >= 20) continue; // Don't flow onto land
+			if (nh > h) { // Must flow to shallower water
+				const diff = nh - h;
+				if (diff > maxDiff) {
+					maxDiff = diff;
+					bestNeighbor = n;
+				}
+			}
+		}
+
+		if (bestNeighbor !== -1) {
+			// Pass 80% of nutrients uphill, leave 20%
+			thermalCurrents[bestNeighbor] += currentPayload * 0.8;
+			thermalCurrents[cell] = currentPayload * 0.2;
+		}
+	}
+
+	// Add thermal current upwelling to baseline nutrients
+	for (let i = 0; i < pointsN; i++) {
+		if (heights[i] < 20) {
+			nutrients[i] += (upwellingFlux[i] || 0) * 0.2 + thermalCurrents[i] * 0.5;
 		}
 	}
 

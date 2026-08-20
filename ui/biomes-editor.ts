@@ -18,11 +18,18 @@ export function initBiomeConfig() {
 		"Tundra",
 		"Glacier",
 		"Wetland",
-		"Shallow Reef",
-		"Kelp Forest",
-		"Pelagic Zone",
-		"Abyssal Plain",
-		"Oceanic Trench",
+		"Brine pools",
+		"Still waters",
+		"Open seafloor",
+		"Seagrass meadows",
+		"Seasonal volcanic vents",
+		"Temperate kelp forests",
+		"Tropical reefs",
+		"Temperate reefs",
+		"Deep fissure canyons",
+		"Artic waters",
+		"Under water glacier",
+		"Tidal plains",
 		"Chaos Land",
 		"Chaos Water",
 	];
@@ -31,40 +38,58 @@ export function initBiomeConfig() {
 		"#0077be", "#e6c280", "#b3d1ff", "#c2d68f", "#9bbb59",
 		"#4f81bd", "#8064a2", "#31859c", "#4bacc6", "#2c5234",
 		"#7f7f7f", "#ffffff", "#76b5c5", "#15b8a6", "#22c55e",
-		"#1d4ed8", "#172554", "#030712", "#ec4899", "#8b5cf6"
+		"#1d4ed8", "#172554", "#030712",
+		"#ff4500", "#2e8b57", "#808000", "#4682b4", "#5f9ea0", "#b0e0e6", // New marine
+		"#ec4899", "#8b5cf6"
 	];
 
 	const defaultTemps = [
-		15, 38, -5, 26, 18, 22, 12, 28, 14, 2, -8, -15, 16, 20, 14, 15, 4, 2, 25, 25
+		15, 38, -5, 26, 18, 22, 12, 28, 14, 2, -8, -15, 16, 20, 14, 15, 4, 2,
+		80, 22, 10, 15, 12, -2, // New marine
+		25, 25
 	];
 
 	const defaultMoistures = [
-		90, 10, 5, 35, 45, 60, 55, 85, 75, 40, 15, 2, 80, 95, 90, 85, 50, 45, 50, 50
+		90, 10, 5, 35, 45, 60, 55, 85, 75, 40, 15, 2, 80, 95, 90, 85, 50, 45,
+		100, 85, 10, 85, 80, 100, // New marine
+		50, 50
 	];
 
 	const defaultPreyRates = [
-		80, 40, 30, 110, 130, 120, 100, 140, 110, 80, 50, 10, 120, 95, 110, 85, 40, 20, 100, 100
+		80, 40, 30, 110, 130, 120, 100, 140, 110, 80, 50, 10, 120, 95, 110, 85, 40, 20,
+		60, 110, 10, 90, 70, 20, // New marine
+		100, 100
 	];
 
 	const defaultPredRates = [
-		90, 50, 30, 120, 110, 100, 100, 130, 110, 90, 60, 5, 100, 90, 100, 80, 35, 15, 100, 100
+		90, 50, 30, 120, 110, 100, 100, 130, 110, 90, 60, 5, 100, 90, 100, 80, 35, 15,
+		40, 90, 10, 85, 75, 30, // New marine
+		100, 100
 	];
 
 	const defaultPlants = [
-		10, 5, 2, 40, 75, 80, 70, 95, 85, 50, 20, 1, 90, 45, 80, 30, 5, 1, 50, 50
+		10, 5, 2, 40, 75, 80, 70, 95, 85, 50, 20, 1, 90, 45, 80, 30, 5, 1,
+		5, 85, 0, 15, 10, 1, // New marine
+		50, 50
 	];
 
 	const defaultResources = [
-		35, 45, 55, 50, 60, 70, 65, 80, 75, 60, 40, 15, 60, 75, 70, 50, 30, 10, 50, 50
+		35, 45, 55, 50, 60, 70, 65, 80, 75, 60, 40, 15, 60, 75, 70, 50, 30, 10,
+		90, 60, 80, 40, 60, 10, // New marine
+		50, 50
 	];
 
 	const defaultHarvests = [
-		20, 10, 5, 30, 45, 50, 40, 60, 50, 35, 15, 2, 30, 40, 45, 25, 10, 2, 40, 40
+		20, 10, 5, 30, 45, 50, 40, 60, 50, 35, 15, 2, 30, 40, 45, 25, 10, 2,
+		5, 35, 0, 20, 15, 5, // New marine
+		40, 40
 	];
 
 	const defaultGoods = [
 		"Fish", "Salt", "Iron", "Game", "Grain", "Wood", "Wood", "Spices", "Wood", "Furs",
-		"Furs", "Amber", "Hemp", "Pearls", "Hemp", "Fish", "Gemstones", "Gold", "Dyes", "Dyes"
+		"Furs", "Amber", "Hemp", "Pearls", "Hemp", "Fish", "Gemstones", "Gold",
+		"Iron", "Fish", "Salt", "Fish", "Gemstones", "Amber", // New marine
+		"Dyes", "Dyes"
 	];
 
 	const config: any[] = [];
