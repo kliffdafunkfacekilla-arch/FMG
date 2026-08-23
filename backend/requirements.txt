@@ -3,3 +3,8 @@ uvicorn
 chromadb
 pydantic
 Pillow
+google-genai
+python-dotenv
+langgraph
+langchain_ollama
+httpx

@@ -1,0 +1,25 @@
+---
+title: 4.1 The Scute Confederacy — The Stone Masons of the Knife's Edge
+category: factions
+---
+
+# 4.1 The Scute Confederacy — The Stone Masons of the Knife's Edge
+
+**Patron Dragon:** Carulkem, The Furnace Eternal (Nexus). *(Corrected — three separate source documents named the patron as "Vecelo," including one that welded the names into "Vecelo, The Raging Maw." The described effects — constant firestorms and flash-freezing — are Carulkem's Tungsten signature, not Vecelo's. Vecelo/Motus remains patron of the Strangler Fig cult and Arbor-Prime instead.)*
+
+**Origin — The Black Scale Revolution:** The reptilian Scute were once enslaved by the Feathered Lizards, forced to mine copper, silver, nickel, and gems from tunnels beneath their masters' mountain fortress — an obsession driven by the Feathered Lizards' proximity to a hidden Dragon Grove. Digging crews eventually broke into a jeweled tunnel leading toward the Grove itself; the Feathered Lizard rulers, consumed by greed, went to claim it and left their slaves chained in the dark. A cataclysmic elemental surge from the Grove collapsed the tunnels, freeing the slaves — who then discovered a cache of **dark glass bottles** (focused chemical explosives) in the ruins.
+
+A cadre of seven survivors, the **Black Scale 7**, planned and executed a coordinated demolition of the fortress's foundations at sundown, collapsing the entire mountain into a jagged pit and trapping their former masters at the bottom. When the trapped Feathered Lizards begged for mercy, the Black Scale 7 offered the **Law of the Chain**: wear the chains you once forced on us, or die. This is the origin of Scute law.
+
+**Society — Three Pillars (Law of the Chain):** Not spelled out individually anywhere in the source, so drafted here from what the culture already demonstrates consistently:
+1. **Labor is Sacred, Idleness is Theft** — descends directly from the choice offered at the pit's edge (chains and labor, or death); honest work is the baseline moral currency of Scute society.
+2. **Retribution is Precise, Never Collateral** — the River Folk Incident is the clearest example: punish only the guilty, with surgical exactness, never the innocent bystander.
+3. **Strength is Proven at the Knife's Edge** — their foreign-policy metric applied inward first: a person's (and a faction's) worth is measured by their demonstrated capacity to endure hardship without flinching.
+
+**Religion:** A faith built around tracking the sun, the moon, and eclipses to predict elemental chaos. The pit formed by the fortress's collapse is now **"the Pit"** — a gladiator arena repurposed for divination, where prisoners are given "Gate assignments" and priests read the outcomes (including blood-splatter patterns) as prophecy. Scute priests have a genuinely high hit rate — they reportedly predicted the great fire in the Heartland.
+
+**Culture:** Judge every other faction by one metric — proximity to "the knife's edge," i.e., capacity to endure hardship without complaint. Comfort-seeking or bureaucratic complexity (see: the Vaneer Concord) earns open contempt; the Iron Caldera's Ironborn, who share a similar chaos-forged-us origin, earn the Scute's highest respect.
+
+**Architecture & Economy:** Monolithic stone construction, chosen specifically because stone is one of the only materials that survives the thermal whiplash of Carulkem's firestorm/flash-freeze cycle without shattering. Their sheet metal is also a vital component in mass-produced Aether-Skiffs worldwide — a source of quiet global leverage beyond their obvious stonework. Mountain-top farms produce prized exports including "the Strongest Booze" (a famously potent spirit tied to their religious rituals) and psychedelic/narcotic plants, a lucrative and often-smuggled black market good. Known for honest, brutal-if-necessary trade — see the River Folk Incident, where a merchant who sold non-criminal slaves was punished with a precision raid rather than war, and is now kept alive in chains to serve drinks at trade meetings as a standing warning.
+
+**Military:** The **Storm-Lancer Corps** — an elite aerial branch riding the **Cloud-Cutter Ray** (a derived reptile, "Aether-Manta," habitat the high-altitude "Hard Clouds" of the Scute Archipelago). Recruitment is a rite called **"The Nest-Heist"**: a climber spends days on a peak projecting calm dominance rather than hiding, luring a Ray in using crushed Gem-Shell Beetles (its favorite food) or vibrating the rock to mimic a beetle swarm, then wins it over with a "Throat-Rattle" — a reptilian mimicry of the Ray's own mating/nesting hum. Governed by the philosophy **"The Knife's Edge": partnership is harder than slavery, but stronger.** Veteran riders who've lost their mount are "The Grounded"; poaching another rider's bonded Ray is punished under a law known simply as **"The Chain or The Blade."** Modern airships are called **the Machetes**, named for the Black Scale 7's preference for precision over brute force.

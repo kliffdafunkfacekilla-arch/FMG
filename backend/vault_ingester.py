@@ -109,24 +109,42 @@ def process_political_map(image_path: str, legend_path: str, target_width: int =
         
     return political_map, burgs
 
+import re
+
 def mock_llm_parse_entity(filename: str, content: str, folder_context: str, payload: VaultWorldPayload) -> None:
     """
     Mock LLM function that fakes extracting structured entities from raw notes and populates the payload.
     """
-    title = filename.replace(".md", "").replace(".txt", "")
+    title = filename.replace(".md", "").replace(".txt", "").replace("-", " ").title()
     
-    # Very basic mock logic based on folder context
-    if folder_context.lower() == "states" or "state" in filename.lower():
-        payload.states.append(VaultState(name=title, color="#aa3333", capital=f"City of {title}"))
-    elif folder_context.lower() == "cultures" or "culture" in filename.lower():
-        payload.cultures.append(VaultCulture(name=title, color="#33aa33"))
-    elif folder_context.lower() == "religions" or "religion" in filename.lower():
-        payload.religions.append(VaultReligion(name=title, color="#3333aa", type="Folk"))
-    elif folder_context.lower() == "paragons" or "character" in filename.lower():
+    # Try to parse frontmatter for a cleaner title
+    if content.startswith('---'):
+        parts = content.split('---', 2)
+        if len(parts) >= 3:
+            fm = parts[1]
+            for line in fm.split('\n'):
+                if line.startswith('title:'):
+                    title = line.split(':', 1)[1].strip()
+                    break
+
+    clean_title = re.sub(r'^[0-9\.\-]+\s*', '', title)
+    clean_title = clean_title.replace('\ufffd', '-').replace('', '-')
+
+    # Determine type by folder context or filename
+    f_lower = folder_context.lower()
+    if f_lower in ["states", "factions"] or "state" in filename.lower() or "faction" in filename.lower():
+        payload.states.append(VaultState(name=clean_title, color="#aa3333", capital=f"City of {clean_title}"))
+    elif f_lower in ["cultures"] or "culture" in filename.lower():
+        payload.cultures.append(VaultCulture(name=clean_title, color="#33aa33"))
+    elif f_lower in ["religions", "magistars"] or "religion" in filename.lower():
+        # Avoid the overview files
+        if not filename.startswith('magistars-overview') and not filename.startswith('the-twelve-powers') and not filename.startswith('the-twelve-elemental') and not filename.startswith('the-toll'):
+            payload.religions.append(VaultReligion(name=f"Cult of {clean_title.split(' ')[0]}", color="#3333aa", type="Folk"))
+    elif f_lower == "paragons" or "character" in filename.lower():
         doc_id = str(uuid.uuid4())
         paragons_collection.upsert(
             ids=[doc_id],
-            documents=[f"{title}\n{content[:200]}"],
+            documents=[f"{clean_title}\n{content[:200]}"],
             metadatas=[{"role": "Leader"}]
         )
         payload.paragons_ingested += 1
@@ -134,7 +152,7 @@ def mock_llm_parse_entity(filename: str, content: str, folder_context: str, payl
         doc_id = str(uuid.uuid4())
         events_collection.upsert(
             ids=[doc_id],
-            documents=[f"{title}\n{content[:200]}"],
+            documents=[f"{clean_title}\n{content[:200]}"],
             metadatas=[{"layer": folder_context}]
         )
         payload.events_ingested += 1

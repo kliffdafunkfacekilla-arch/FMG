@@ -29,7 +29,10 @@
 		"@types/lineclip": "^2.0.0",
 		"@types/node": "^25.0.10",
 		"@types/polylabel": "^1.1.3",
+		"@types/react": "^19.2.18",
+		"@types/react-dom": "^19.2.4",
 		"@types/three": "^0.184.1",
+		"@vitejs/plugin-react": "^6.1.0",
 		"@vitest/browser": "^4.1.10",
 		"@vitest/browser-playwright": "^4.0.18",
 		"playwright": "^1.57.0",
@@ -45,7 +48,10 @@
 		"driver.js": "^1.4.0",
 		"flatqueue": "^3.1.0",
 		"lineclip": "^2.0.0",
+		"lucide-react": "^1.33.0",
 		"polylabel": "^2.0.1",
+		"react": "^19.2.8",
+		"react-dom": "^19.2.8",
 		"three": "^0.184.0"
 	},
 	"engines": {

@@ -1,0 +1,20 @@
+---
+title: Shadow Week (resolved)
+category: cosmology
+---
+
+# Shadow Week (resolved)
+**Once a year, Cruorbus's orbit carries it into perfect alignment with the sun, producing a 13-day total solar eclipse.** *(Correcting the duration here too — Ostraka's normal week is 12 days, and Shadow Week is a distinct, longer 13-day event, not a regular week. The "7-day" figure repeated across most of the source material — including one document's precise "168-hour" claim — is simply the old, wrong number and should be purged wherever it appears.)* With the world in shadow, the chaos flow across the leyline network *slows down* — which, counterintuitively, **calms** most ambient chaos activity (fewer flow-driven Blowouts, fewer wild-flux incidents). But that same slowdown starves the Groves of the steady bombardment they need to keep their seals at full strength, so **the 12 Dragon Prisons weaken for the 13 days.** The danger during Shadow Week isn't chaotic flow violence — it's containment failure: Worm Cult activity spikes, and each Magistar's psychic/Signature Chaos influence bleeds through stronger than normal.
+
+This is a real correction to the old material, not just a re-skin: previous drafts frame Shadow Week purely as "peak reality-tearing, brace for Blowouts." The corrected version is closer to "the world goes quiet and dark, and something with teeth gets a little looser in its cage" — global lockdown protocols during Shadow Week should be about cult suppression and Grove security, not just weathering random chaos surges.
+
+**Shadow Week, faction by faction (corrected):**
+- **Iron Caldera** — no change needed. The Festival of Life (feasting, celebration, sealed gates) already reads as "safe enough to party while the world's calm" under the new model.
+- **Avian Empire** — drop the "Erranith reaches orbital proximity" cause; the effect (peak failure rate of local physics) stays, just caused by the annual Cruorbus eclipse instead.
+- **Verdant Tangle** — drop "Aetheric Tension weakens... Tangle geography becomes dangerously fluid" as a Blowout-style danger; keep the leadership rotations and currency dumps (still makes sense as prudent crisis-management for a week of weakened containment), just reframe the trigger as flow-slowdown + Grove-weakening rather than raw Tension collapse.
+- **Ghostwind Raiders** — no change needed. Calling it their "Chaos-Free" operational window still works — arguably works *better* now, since the flow genuinely does calm during Shadow Week.
+- **Ursine Hegemony** — barely needs touching. "The peak of Stagus's influence" is already exactly right under the new model (his prison weakens, his influence bleeds through harder) — just drop any accompanying "slackening of Aetheric Tension" language that implies danger from the flow itself rather than from Stagus.
+- **Vaneer Concord ("The Great Audit")** — no change needed; a bureaucratic lockdown-and-inventory response works regardless of the underlying cause.
+- **Fulcrum Bank / Aetherium Coin ("Shadow Week Minting Protocol")** — confirmed and specific: the coin's unique un-counterfeitable magical reaction only works during the total darkness of the eclipse, making Shadow Week the Avians' exclusive annual "minting season." Banks go on high alert with "iron cage defenses" while the mints run continuously — for the Avians, the darkest week of the year is also the most profitable.
+
+**Calendar (resolved):** a Celestial Codex document describes a 12-month calendar, each month built from 12-day weeks, with the year ending in an intercalary Shadowfall/Shadow Week period. With Shadow Week locked at 13 days and the normal week at 12 days: if each month is 4 weeks (48 days) × 12 months = 576 days, plus the 13-day Shadowfall, that's a **589-day year**. The months are named after the 12 Powers (Nexar, Massis, Motom, Fluxen, Vitan, Lexis, Ration, Ordis, Luxen, Omin, Aurum, Anum) — solid, keep as-is. Also worth keeping: Cruorbus's violent tumble is what's causing Ostraka's axial tilt/wobble and seasonal variation, which fits the corrected cosmology cleanly.

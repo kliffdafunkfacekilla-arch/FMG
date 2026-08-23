@@ -1,0 +1,15 @@
+---
+title: The Sacred Spire and the Engineer's Mountain Range
+category: cosmology
+---
+
+# The Sacred Spire and the Engineer's Mountain Range
+The Engineer's petrified body isn't a generic mountain range — it's four distinct zones, each with its own climate and culture based on which part of his fallen form it sits on: **the Sacred Spire** (Head & Torso — the Grey Wardens' headquarters, carved directly into the skull by Metrion, one of the three survivors, during the Reforging era), **the Snowspire Plateau** (Right Arm — home to **Snowpeak Citadel**, Mama Koda's origin, Section 4.24, sitting directly opposite the Spire across the Convergence), **the Sheer Cliffs** (Left Arm), and **the Flower Valley** (the Legs — the Flower Valley Folk, Section 4.16). The soil everywhere in the range carries **the Divine Echo** — a lingering resonance that dampens chaos effects and fades within a day's hard ride of the head; wielders describe it as an unfading, unnerving chime that some find mournful, others read as a warning.
+
+**The Sacred Groves, properly named:** each prison carries the imprisoned dragon's own epithet — the Grove of the Glazier (Stagus), the Grove of the Furnace (Carulkem), the Grove of the Black Star (Termhill), the Grove of the World-Weight (Tiraton), the Grove of the Gilded Solvent (Aurgenas), and so on for all twelve.
+
+**Four Signature Chaos Zones, confirmed with proper regional names:** **The Stillness** (Stagus, the Frozen North — absolute zero, enforced by "the Ice-Bound"), **The Heavy Lands** (Tiraton, the Crushed Coast — gravity flips, floating mountains, 10x compression paste-events), **The Haunting** (Termhill, the Gilded Steppe — travelers encounter their own temporal echoes or dead ancestors, matching the Eastern Hounds' whole culture, Section 4.13), **The Melt** (Aurgenas, the Shifting Delta — high liquidity, the landscape rearranges its material state daily).
+
+**Anatomy of a Grove — the four-tier structure, confirmed:** every prison is built the same way, layer by layer. The **Outer Shell** is the visible Chaos Zone — localized physics failure matching the dragon's own Signature Chaos. The **Boundary** is a Storm Wall of high-friction kinetic resistance (solid lightning, spore fog, whatever fits the dragon's flavor). The **Core** is, beautifully, **a perfectly preserved ancient Fae city held in absolute stasis** — each Grove is, quite literally, one of the original Fae settlements, frozen at the exact moment its people fled. The **Cell** at the very center is the physical containment itself: a building-sized Dragonstone crystal holding the dragon's actual body.
+
+**Two more specialty materials, confirmed:** **Fungal Alloy**, secreted by the Reliance (Mushroom Folk, Section 4.22) during "the Ritual of Sporing" — a chaos-immune material used for Master Ledgers, but creating it requires the complete, systemic erasure of the creator's own memories. One more piece of the Reliance's unsettling nature. **Razor-Cloth**, woven from sharp reeds by the Order of Purifiers (Section 4.9) — a passive-defense fabric that injures anyone who touches the wearer.

@@ -415,6 +415,8 @@ export interface AppState {
 	labels?: any[] | null;
 	zones?: any[] | null;
 	notes?: Note[] | null;
+	markers?: any[] | null; // Procedurally generated or static map markers
+	playerCell?: number | null; // Location of the active SAGA party
 	cellReligions?: Uint8Array | null;
 	militaryUnitTypes?: { type: string; speed: number; combatValue: number }[];
 

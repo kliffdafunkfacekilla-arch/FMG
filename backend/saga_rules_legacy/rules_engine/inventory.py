@@ -1,0 +1,109 @@
+class Item:
+    """Represents a physical item in the BRUTAL engine."""
+    def __init__(self, name: str, item_type: str, stat_type: str, modifier: int, loadout_cost: int, 
+                 quantity: int = 1, consumable_effect: dict = None, tags: list = None, armor_mod: int = 0):
+        self.name = name
+        self.item_type = item_type
+        self.stat_type = stat_type.lower()
+        self.modifier = modifier
+        self.loadout_cost = loadout_cost
+        self.armor_mod = armor_mod
+        
+        # New Phase 2 properties
+        self.quantity = quantity
+        self.consumable_effect = consumable_effect or {}
+        self.tags = tags or []
+        
+    def to_dict(self):
+        return {
+            "name": self.name,
+            "item_type": self.item_type,
+            "stat_type": self.stat_type,
+            "modifier": self.modifier,
+            "loadout_cost": self.loadout_cost,
+            "armor_mod": self.armor_mod,
+            "quantity": self.quantity,
+            "consumable_effect": self.consumable_effect,
+            "tags": self.tags
+        }
+
+class Inventory:
+    """Manages the 13 anatomical slots, a bag, and currency."""
+    def __init__(self):
+        self.gold = 0
+        self.slots = {
+            "head": None,           # hats/helmets
+            "eyewear": None,        # glasses
+            "necklace": None,       # jewelry
+            "brooch": None,         # jewelry
+            "body": None,           # shirts/vests/sweaters
+            "overcoat": None,       # large coat or cloak
+            "legs": None,           # pants or skirts
+            "feet": None,           # boots and shoes
+            "hand": None,           # gloves
+            "weapon": None,         # main weapon
+            "backup_weapon": None,  # secondary weapon
+            "ring_1": None,         # jewelry
+            "ring_2": None          # jewelry
+        }
+        
+        self.physical_slots = {"body", "legs", "feet", "hand", "weapon", "backup_weapon", "overcoat"}
+        self.mental_slots = {"head", "eyewear", "necklace", "brooch", "ring_1", "ring_2"}
+        self.bag = []
+        
+    def equip(self, item: Item, target_slot: str = None):
+        """Equips an item to the specified slot."""
+        slot = target_slot if target_slot else item.item_type
+        if slot in self.slots:
+            self.slots[slot] = item
+            return True
+        return False
+            
+    def get_physical_tax(self) -> int:
+        tax = 0
+        for slot in self.physical_slots:
+            item = self.slots.get(slot)
+            if item: tax += item.loadout_cost
+        return tax
+        
+    def get_mental_tax(self) -> int:
+        tax = 0
+        for slot in self.mental_slots:
+            item = self.slots.get(slot)
+            if item: tax += item.loadout_cost
+        return tax
+
+    def calculate_gear_tax(self) -> int:
+        """Calculates total resource drain from equipped items based on loadout_cost."""
+        tax = 0
+        for slot, item in self.slots.items():
+            if item:
+                tax += item.loadout_cost
+        return abs(tax)
+
+    def get_total_modifier(self, stat_name: str) -> int:
+        """Returns the total stat modifier provided by all equipped gear."""
+        mod = 0
+        for slot, item in self.slots.items():
+            if item and item.stat_type == stat_name.lower():
+                mod += item.modifier
+        return mod
+        
+    def get_equipped_item_modifier(self, stat_type: str) -> int:
+        """Returns the total modifier bonus for a specific stat from all equipped items."""
+        total_mod = 0
+        for slot, item in self.slots.items():
+            if item and item.stat_type == stat_type.lower():
+                total_mod += item.modifier
+        return total_mod
+        
+    def to_dict(self):
+        serialized_slots = {}
+        for slot, item in self.slots.items():
+            serialized_slots[slot] = item.to_dict() if item else None
+            
+        return {
+            "gold": self.gold,
+            "slots": serialized_slots,
+            "bag": [item.to_dict() if hasattr(item, 'to_dict') else item for item in self.bag]
+        }

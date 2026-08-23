@@ -1,0 +1,21 @@
+---
+title: Dragonstone & Aether-Tech
+category: misc
+---
+
+# Dragonstone & Aether-Tech
+Civilization runs on **Dragonstone** — high-capacity chaos-energy batteries, confirmed elsewhere in the source as literal "crystallized moon-fall," matching the corrected origin exactly. *(Several tech-focused documents still describe it as "crystallized fragments of the Celestial Clockwork" instead — that's the old framing; per Section 1, it's meteoric debris from Erranith's 169-year close passes. Purge that phrasing wherever it appears, e.g. the Verdant Tangle's and Closed-Loop Aether-Drive material.)* Also terrestrial, not just cosmic: massive deposits pulse deep underground at the core of each of the 12 Dragon Prisons (consistent with Section 1 — the prisons are literally built from Cruorbus's shards), and the River Folk have long collected polished "river rock" Dragonstone washed down from mountain peaks by waterfalls.
+
+**The tripartite economy — D-Dust, Blackstone, and the Aetherium Coin:** raw Dragonstone is ground into **"Dusted Ink,"** painted as sigils that channel its chaos energy — the actual mechanical basis for all Aether-technology, and its complexity/scale defines the tiers of tech available. Powdered Dragonstone (**D-Dust**) became the common-use currency, but proved fatally easy to counterfeit with **Blackstone** — ordinary rock temporarily charged with Aura to fool merchants and basic detection — which crippled large-scale trade and threatened real geopolitical instability. The **Aetherium Coin** (Section 4.7 — forged specifically during Shadow Week to be uncounterfeitable) was the Avian Empire's solution, and its adoption cemented the Empire's financial dominance: the Fulcrum Bank functions as the de facto central bank for every major power, and between that and majority ownership of the Gilded Compass Cartel, the Avians can economically strangle a rival faction without ever firing a shot — their real "Global Watchmen" leverage.
+
+**Aether-Skiff Technology — why it matters:** before the airship, Ostraka's 12 isolated landmasses were functionally cut off from each other by impassable Chaos Zones, with rare exceptions where ocean travel could route around one. The Avians' natural gift of flight made them the first (and for a long time only) people capable of bypassing Chaos Zones entirely — which is why they became the world's central hub for trade and communication, and why the invention date (1500 A.W., Section 7) marks the start of an entire era ("The Combustion of the Skies").
+
+**Alchemy of Dragonstone:** all Aether-Tech is described as a unifying theory of "tech-magic" best understood as high-stakes alchemy, not simple mechanics — controlling a substance born from the same chaos that shattered the world in the first place is treated as a real, standing paradox at the heart of the setting's technology, not a solved problem.
+
+**The Closed-Loop Aether-Drive ("The Centrifuge of Creation"):** the heart of any airship — raw Dragonstone bleeds unaligned chaos, which the drive filters and aligns into usable Silent Lift/Propulsion, Industrial Heat, and Electricity. This is the actual engineering behind "civilization runs on Dragonstone."
+
+**Blackstone and the Aetherium Coin:** Dragonstone dust ("D-Dust") is used for everything from minor transactions to sigil-fuel, which made it a prime counterfeiting target — "blackstone" is the resulting fake D-Dust that destabilized mercantile trust. This is the direct cause of the Verdant Tangle's **Aetherium Coin** (Section 4.7) being forged specifically during Shadow Week to be uncounterfeitable — two separate pieces of the doc now click together.
+
+**Silk-Steel (Iron-Weave):** Ostraka's highest-tensile-strength material, used for heavy industrial/architectural/naval construction — produced under a **Bradypod monopoly**, tying directly to the Fulcrum Bank/Peculiurus Spire's Bradypods already noted under the Avian Empire (Section 4.4).
+
+**Aether-Clear, confirmed recipe:** fermented and distilled **Ozone-Milk** (the Cloud-Harriers' export, Section 4.4) plus a second stabilizing ingredient — **Ghost Flowers** (Section 6) — treats "Corruption Sickness" from Chaos Zone exposure. The Quill-Kin's cover is perfect: as the world's apothecaries, nobody questions bulk herb shipments, so the Ghost Flowers hide in plain sight among ordinary medical supplies.

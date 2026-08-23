@@ -1,0 +1,8 @@
+{
+  "name": "Oeridia",
+  "seed": 12345,
+  "cells": [],
+  "burgs": [
+    {"id": 1, "name": "Free City of Greyhawk", "population": 50000}
+  ]
+}
