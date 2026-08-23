@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any, Optional
 from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 import json
 from dotenv import load_dotenv
 
@@ -28,7 +29,14 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-)\n# Mount static asset directories\napp.mount("/tokens", StaticFiles(directory="tokens"), name="tokens")\napp.mount("/objects", StaticFiles(directory="objects"), name="objects")\napp.mount("/terrian", StaticFiles(directory="terrian"), name="terrian")
+)
+# Mount static asset directories
+tokens_dir = Path(__file__).resolve().parent.parent / "tokens"
+objects_dir = Path(__file__).resolve().parent.parent / "objects"
+terrian_dir = Path(__file__).resolve().parent.parent / "terrian"
+app.mount("/tokens", StaticFiles(directory=str(tokens_dir)), name="tokens")
+app.mount("/objects", StaticFiles(directory=str(objects_dir)), name="objects")
+app.mount("/terrian", StaticFiles(directory=str(terrian_dir)), name="terrian")
 
 from backend.character_manager import character_manager
 from backend.settings_manager import settings_manager, SettingsModel
@@ -164,11 +172,11 @@ def run_rule(rule_name: str, payload: CombatPayload):
     if not handler:
         raise HTTPException(status_code=404, detail="Rule not found")
     # Assuming each handler accepts attacker and defender named arguments
-+    try:
-+        result = handler(payload.attacker, payload.defender)
-+    except Exception as exc:
-+        raise HTTPException(status_code=500, detail=str(exc))
-+    return result
+    try:
+        result = handler(payload.attacker, payload.defender)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return result
 
 connection_state: Dict[WebSocket, dict] = {}
 
