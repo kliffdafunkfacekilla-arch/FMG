@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any, Optional
+from fastapi.staticfiles import StaticFiles
 import json
 from dotenv import load_dotenv
 
@@ -27,7 +28,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-)
+)\n# Mount static asset directories\napp.mount("/tokens", StaticFiles(directory="tokens"), name="tokens")\napp.mount("/objects", StaticFiles(directory="objects"), name="objects")\napp.mount("/terrian", StaticFiles(directory="terrian"), name="terrian")
 
 from backend.character_manager import character_manager
 from backend.settings_manager import settings_manager, SettingsModel
