@@ -5,9 +5,9 @@ import { BIOME_NAMES, generateBiomes, getBiomeId } from "./biomes-generator";
 describe("Biomes Generator", () => {
 	it("should classify biomes based on Whittaker temperature and moisture rules", () => {
 		// Water biomes
-		expect(getBiomeId(0, 20, 18, false, 15.0)).toBe(13); // Shallow Reef
-		expect(getBiomeId(0, 15, 12, false, 10.0)).toBe(14); // Kelp Forest
-		expect(getBiomeId(0, 5, 4, false)).toBe(16); // Abyssal Plain
+		expect(getBiomeId(0, 20, 18, false, 15.0)).toBe(15); // Open seafloor
+		expect(getBiomeId(0, 15, 12, false, 10.0)).toBe(13); // Brine pools
+		expect(getBiomeId(0, 5, 4, false)).toBe(14); // Still waters
 
 		// Land biomes
 		expect(getBiomeId(2, 28, 25, false)).toBe(1); // Hot Desert (temp >= 25, dry, low moisture)

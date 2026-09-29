@@ -1,5 +1,8 @@
 {
-  "events": [],
-  "storyHooks": [],
-  "paragons": []
+    "events": [],
+    "storyHooks": [],
+    "paragons": [],
+    "locations": {},
+    "npcs": {},
+    "last_simulation_time": "2026-09-16T10:00:51.245018"
 }

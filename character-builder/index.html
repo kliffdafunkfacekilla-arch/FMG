@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>B.R.U.T.A.L Engine Character Builder</title>
+  </head>
+  <body>
+    <div id="app">
+      <h1>B.R.U.T.A.L. Engine</h1>
+      <p class="subtitle">Character Initialization & Campaign Loop</p>
+
+      <div class="step-container">
+        
+        <!-- Step 1: Origin Forge -->
+        <section class="step active" id="step-1">
+          <div class="panel">
+            <h2>Origin Forge</h2>
+            <p style="color: var(--text-muted); margin-bottom: 2rem;">Select the foundational parameters for your biological chassis.</p>
+            <div class="input-group">
+              <label>Kingdom</label>
+              <select id="kingdom-select"></select>
+            </div>
+            <div class="input-group">
+              <label>Lineage (Species)</label>
+              <select id="lineage-select"></select>
+            </div>
+            <div class="input-group">
+              <label>Institution (School)</label>
+              <select id="inst-select"></select>
+            </div>
+          </div>
+        </section>
+
+        <!-- Step 2: Celestial Clockwork -->
+        <section class="step" id="step-2">
+          <div class="panel">
+            <h2>The Celestial Clockwork</h2>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem;">
+              Click (+) to shift +1. Automatically inflicts -1 to the upstream breaker.
+            </p>
+            <div style="display: flex; gap: 2rem; flex-wrap: wrap;">
+              <div id="body-stats" style="flex: 1; min-width: 250px;">
+                <h3 style="color: var(--danger); margin-bottom: 1rem;">The Flesh</h3>
+              </div>
+              <div id="mind-stats" style="flex: 1; min-width: 250px;">
+                <h3 style="color: var(--accent); margin-bottom: 1rem;">The Will</h3>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Step 3: Loadout & Backpack -->
+        <section class="step" id="step-3">
+          <div class="panel">
+            <h2>Loadout & Gear Tax</h2>
+            <div id="tax-banner" style="padding: 0.5rem; border-radius: 4px; margin-bottom: 1rem; text-align: center; font-weight: bold;"></div>
+            
+            <div class="grid" style="margin-bottom: 2rem;">
+              <div>
+                <h3>Physical Armory</h3>
+                <select id="phys-gear-select" style="width: 100%; margin: 0.5rem 0;"></select>
+                <button id="add-phys-btn" style="width: 100%; margin-bottom: 1rem;">Equip Physical</button>
+                <ul id="phys-slots" style="font-size: 0.9rem; padding-left: 1rem;"></ul>
+              </div>
+              <div>
+                <h3>Mental Armory</h3>
+                <select id="ment-gear-select" style="width: 100%; margin: 0.5rem 0;"></select>
+                <button id="add-ment-btn" style="width: 100%; margin-bottom: 1rem;">Equip Mental</button>
+                <ul id="ment-slots" style="font-size: 0.9rem; padding-left: 1rem;"></ul>
+              </div>
+            </div>
+
+            <h2 style="border-top: 1px solid var(--glass-border); padding-top: 1rem;">Backpack (Inventory)</h2>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem;">Unequipped items, wealth, and consumables (0 Tax).</p>
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+              <input type="text" id="bp-item-input" placeholder="Item Name..." style="flex: 1; padding: 0.5rem; background: #020617; color: white; border: 1px solid var(--glass-border); border-radius: 6px;">
+              <button id="add-bp-btn">Store</button>
+            </div>
+            <ul id="bp-list" style="font-size: 0.9rem; padding-left: 1rem;"></ul>
+          </div>
+        </section>
+
+        <!-- Step 4: Skills & Progression -->
+        <section class="step" id="step-4">
+          <div class="panel" style="max-height: 500px; overflow-y: auto;">
+            <h2>Experience & Upgrades</h2>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem;">3 Marks = 1 Token. (CS = Potency Token. QR = Function Token).<br/>Cost to upgrade = Current Level + 1 Token.</p>
+            
+            <h3 style="margin-bottom: 0.5rem;">Progression Tracks</h3>
+            <div id="progression-list" style="margin-bottom: 2rem;"></div>
+
+            <h2 style="margin-top: 1rem; border-top: 1px solid var(--glass-border); padding-top: 1rem;">Compendium (Active Powers)</h2>
+            <select id="skill-select" style="width: 100%; margin-bottom: 1rem;"></select>
+            <button id="add-skill-btn" style="width: 100%; margin-bottom: 1rem;">Learn Power</button>
+            <ul id="skill-list" style="font-size: 0.9rem; padding-left: 1rem;"></ul>
+          </div>
+        </section>
+
+        <!-- Step 5: Trauma & Adrenaline -->
+        <section class="step" id="step-5">
+          <div class="panel">
+            <h2>Trauma Ward</h2>
+            <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 1rem;">Adrenaline cards delay incoming injuries. Flip them at the end of combat to apply the trauma.</p>
+            
+            <div style="padding: 1rem; background: rgba(255,255,255,0.05); border-radius: 8px; margin-bottom: 2rem;">
+              <h3 style="margin-bottom: 0.5rem; color: #fbbf24;">Active Adrenaline (Delayed Trauma)</h3>
+              <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                <button id="draw-minor-btn" class="outline" style="flex: 1;">Draw Minor</button>
+                <button id="draw-major-btn" class="outline" style="flex: 1;">Draw Major</button>
+              </div>
+              <ul id="adren-list" style="font-size: 0.9rem; padding-left: 1rem; margin-bottom: 1rem;"></ul>
+            </div>
+
+            <div class="grid" style="margin-bottom: 2rem;">
+              <div>
+                <h3 style="color: #fbbf24;">Persistent Injuries</h3>
+                <div style="display: flex; gap: 0.5rem; margin: 0.5rem 0;">
+                  <input type="text" id="custom-inj-input" placeholder="Custom Injury..." style="flex: 1; padding: 0.5rem; background: #020617; color: white; border: 1px solid var(--glass-border); border-radius: 6px;">
+                  <button id="add-crit-btn" style="background: var(--danger);">Log Critical</button>
+                </div>
+              </div>
+            </div>
+            
+            <h3 style="margin-top: 1rem;">Injury Log</h3>
+            <ul id="injury-list" style="color: var(--danger); font-size: 0.8rem; margin-left: 1rem;"></ul>
+          </div>
+        </section>
+
+        <!-- Step 6: Export -->
+        <section class="step" id="step-6">
+          <div class="grid">
+            <div class="panel">
+              <h2>Derived Capacities</h2>
+              <div id="derived-stats"></div>
+            </div>
+            <div class="panel">
+              <h2>Perks & Traits</h2>
+              <ul id="mastery-perks" style="color: #fbbf24; font-size: 0.9rem; margin-left: 1rem; margin-bottom: 1rem;"></ul>
+              <ul id="passive-traits" style="color: var(--text-muted); font-size: 0.9rem; margin-left: 1rem;"></ul>
+
+              <button id="export-btn" class="export-btn" style="margin-top: 2rem;">EXPORT BIOLOGICAL CHASSIS</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Step 7: Enter the World -->
+        <section class="step" id="step-7">
+          <div class="panel">
+            <h2>Enter the World</h2>
+            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">Connect to the Simulation Backend and step into the world.</p>
+            
+            <button id="sync-sim-btn" class="outline" style="width: 100%; margin-bottom: 1rem;">Sync Simulation Time</button>
+            <div id="sim-log" style="background: rgba(0,0,0,0.3); padding: 0.5rem; border-radius: 4px; font-size: 0.8rem; color: #fbbf24; margin-bottom: 2rem; min-height: 20px;"></div>
+
+            <div class="grid" style="margin-bottom: 2rem;">
+              <div>
+                <h3 style="color: var(--accent);">The Tavern (Rumors)</h3>
+                <button id="get-rumors-btn" style="width: 100%; margin-bottom: 0.5rem;">Listen for Rumors</button>
+                <div id="rumors-list" style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem;"></div>
+              </div>
+              
+              <div>
+                <h3 style="color: var(--success);">Active Quests</h3>
+                <div id="quests-list" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
+              </div>
+            </div>
+
+            <h3 style="border-top: 1px solid var(--glass-border); padding-top: 1rem;">World Map (Meso-Grid)</h3>
+            <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+              <button id="load-grid-btn">Load Local Region</button>
+              <div id="grid-status" style="color: var(--text-muted); align-self: center; font-size: 0.9rem;"></div>
+            </div>
+            
+            <div id="map-container" style="width: 100%; height: 400px; background: rgba(0,0,0,0.5); border: 1px solid var(--glass-border); border-radius: 4px; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+              <canvas id="world-canvas" width="400" height="400" style="background-color: #1a1a2e;"></canvas>
+            </div>
+            
+            <h3 style="border-top: 1px solid var(--glass-border); padding-top: 1rem; margin-top: 2rem;">Dialogue Interface</h3>
+            <div id="chat-window" style="height: 150px; overflow-y: auto; background: rgba(0,0,0,0.5); border: 1px solid var(--glass-border); border-radius: 4px; padding: 0.5rem; margin-bottom: 0.5rem; font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.4rem;"></div>
+            
+            <div style="display: flex; gap: 0.5rem;">
+              <input type="text" id="chat-npc-id" placeholder="NPC ID..." style="width: 100px; padding: 0.5rem; background: #020617; color: white; border: 1px solid var(--glass-border); border-radius: 6px;">
+              <input type="text" id="chat-input" placeholder="Say something..." style="flex: 1; padding: 0.5rem; background: #020617; color: white; border: 1px solid var(--glass-border); border-radius: 6px;">
+              <button id="chat-send-btn">Speak</button>
+            </div>
+          </div>
+        </section>
+
+      </div>
+
+      <div class="wizard-nav">
+        <button id="prev-btn" class="outline" disabled>Previous</button>
+        <div class="wizard-progress" id="progress-dots">
+          <div class="dot active"></div>
+          <div class="dot"></div>
+          <div class="dot"></div>
+          <div class="dot"></div>
+          <div class="dot"></div>
+          <div class="dot"></div>
+          <div class="dot"></div>
+        </div>
+        <button id="next-btn">Next Step</button>
+      </div>
+
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
