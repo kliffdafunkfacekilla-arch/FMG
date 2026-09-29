@@ -1,5 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { RegionMap } from "./RegionMap";
 
 interface Faction {
   id: number;
@@ -47,6 +48,35 @@ interface ObserverState {
 }
 
 type ViewMode = "Biome" | "Political" | "Ecology" | "Unrest";
+
+
+const BIOME_COLORS: Record<number, string> = {
+  0: "#1e3a8a", // Marine
+  1: "#fde047", // Hot desert
+  2: "#d6d3d1", // Cold desert
+  3: "#fcd34d", // Savanna
+  4: "#a3e635", // Grassland
+  5: "#65a30d", // Tropical seasonal forest
+  6: "#4d7c0f", // Temperate deciduous forest
+  7: "#166534", // Tropical rainforest
+  8: "#0f766e", // Temperate rainforest
+  9: "#334155", // Taiga
+  10: "#94a3b8",// Tundra
+  11: "#f8fafc",// Glacier
+  12: "#3f6212",// Wetland
+  101: "#0f172a", // Marine Dead Zone
+  102: "#1e293b", // Abyssal Cold Desert
+  103: "#0369a1", // Kelp Savanna
+  104: "#0284c7", // Seagrass Meadow
+  105: "#0ea5e9", // Seasonal Algal Forest
+  106: "#38bdf8", // Temperate Coral
+  107: "#06b6d4", // Tropical Coral
+  108: "#0891b2", // Temperate Deep Reef
+  109: "#1e3a8a", // Pelagic Taiga
+  110: "#312e81", // Arctic Ocean
+  111: "#e2e8f0", // Pack Ice
+  112: "#14b8a6", // Estuary
+};
 
 const SEASONS = ['The Thaw', 'The Bloom', 'The Zenith', 'The Wilt', 'The Fall', 'The Chill', 'The Rime', 'Shadow Week'];
 
@@ -188,10 +218,12 @@ function MapCanvas({
     return () => canvas.removeEventListener("click", handleClick);
   }, [cells, factions, viewMode, economy, onCellClick]);
 
-  return <canvas ref={canvasRef} width={800} height={600} style={{ width: "100%", height: "100%", background: "#000" }} />;
+  return <canvas ref={canvasRef} width={800} height={600} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", background: "#000", display: "block" }} />;
 }
 
 // ─── Event Feed ─────────────────────────────────────────────────────────────
+
+
 
 function EventFeed({ events }: { events: SimEvent[] }) {
   const endRef = useRef<HTMLDivElement>(null);
@@ -200,44 +232,33 @@ function EventFeed({ events }: { events: SimEvent[] }) {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [events]);
 
-  if (!events || events.length === 0) return <div style={{ color: "#666" }}>No events yet.</div>;
-  
   const getLayerColor = (type: string) => {
-    switch (type?.toUpperCase()) {
-      case "GEOLOGICAL": return "#8b7355"; // Brown
-      case "METEOROLOGICAL": return "#87ceeb"; // Sky blue
-      case "ECOLOGICAL": return "#4caf50"; // Green
-      case "POLITICAL": return "#9c27b0"; // Purple
-      case "SOCIAL": return "#ff9800"; // Orange
-      case "ECONOMICAL": return "#ffd700"; // Gold
-      case "COSMOLOGICAL": return "#3f51b5"; // Indigo
-      case "MAGICAL": return "#e91e63"; // Pink
-      case "COMBAT": return "#ff4444"; // Red
-      default: return "#79c0ff"; // Default light blue
-    }
+    if (type.startsWith("WEATHER")) return "#4a9eff"; // Blue
+    if (type === "ECONOMIC_CRASH") return "#f87171"; // Red
+    if (type === "TRADE_BOOM") return "#4ade80"; // Green
+    if (type === "ECOLOGY_SHIFT") return "#34d399"; // Emerald
+    if (type === "DIPLOMACY_CHANGE") return "#fbbf24"; // Amber
+    if (type === "WAR_CLASH") return "#ef4444"; // Strong Red
+    if (type === "CHAOS_SURGE") return "#a855f7"; // Purple
+    return "#888";
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "10px", paddingBottom: "20px" }}>
       {events.map((e) => {
-        let borderColor = getLayerColor(e.type);
-        let bg = e.tier === "MAJOR" ? "#302222" : "#21262d";
+        const borderColor = getLayerColor(e.type);
         return (
           <div key={e.id} style={{ 
-            padding: "8px 12px", 
-            background: bg, 
-            borderRadius: "4px", 
-            fontSize: "13px", 
+            background: "#161b22", 
             borderLeft: `4px solid ${borderColor}`,
-            boxShadow: "0 1px 3px rgba(0,0,0,0.5)",
-            display: "flex",
-            flexDirection: "column",
-            gap: "4px"
+            padding: "10px 12px", 
+            borderRadius: "4px",
+            fontSize: "13px",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.5)"
           }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ color: "#aaa", fontSize: "10px", background: "#333", padding: "2px 4px", borderRadius: "3px" }}>Z: {e.z_layer || 0}</span>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px", alignItems: "center" }}>
               <div style={{ color: "#888", fontSize: "11px", fontWeight: "bold" }}>
-                Tick {e.tick} — {e.lore_date}
+                Tick {e.tick} - {e.lore_date}
               </div>
               <div style={{ 
                 background: borderColor + "22", 
@@ -262,6 +283,35 @@ function EventFeed({ events }: { events: SimEvent[] }) {
 }
 
 
+
+function FactionsPanel({ state }: { state: ObserverState | null }) {
+  if (!state) return null;
+
+  return (
+    <div style={{ fontSize: "13px", color: "#ccc" }}>
+      <h3 style={{ margin: "0 0 10px 0", color: "#fff" }}>State Factions</h3>
+      {state.factions.map(f => (
+        <div key={`fac-${f.id}`} style={{ marginBottom: "8px", padding: "8px", background: "#21262d", borderRadius: "4px", borderLeft: `4px solid ${f.color}` }}>
+          <div style={{ fontWeight: "bold", color: "#fff" }}>{f.name}</div>
+        </div>
+      ))}
+
+      <h3 style={{ margin: "20px 0 10px 0", color: "#fff" }}>Fringe Factions</h3>
+      {(state.fringeFactions || []).map(f => (
+        <div key={`fringe-${f.id}`} style={{ marginBottom: "8px", padding: "8px", background: "#21262d", borderRadius: "4px", borderLeft: `4px solid #a855f7` }}>
+          <div style={{ fontWeight: "bold", color: "#fff", display: "flex", justifyContent: "space-between" }}>
+            <span>{f.name}</span>
+            <span style={{ color: "#fbbf24" }}>{f.wealth} W</span>
+          </div>
+          <div style={{ color: "#8b949e", fontSize: "11px", marginTop: "4px" }}>{f.type}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+
 function Navigator({
   state,
   selectedCell,
@@ -276,7 +326,16 @@ function Navigator({
   if (!state) return <div style={{ padding: "12px" }}>Loading...</div>;
 
   const burgs = Object.values(economyMap).sort((a, b) => a.burg_id - b.burg_id);
-  const burg = economyMap[selectedCell || -1];
+  let burg = economyMap[selectedCell || -1];
+  if (burg) {
+    burg = { ...burg };
+    if (typeof burg.military_forces === 'string') {
+      try { burg.military_forces = JSON.parse(burg.military_forces); } catch(e) {}
+    }
+    if (typeof burg.demographics === 'string') {
+      try { burg.demographics = JSON.parse(burg.demographics); } catch(e) {}
+    }
+  }
   const cell = burg ? state.cells.find(c => c.id === burg.cell_id) : null;
   const faction = cell ? state.factions.find(f => f.id === cell.faction_id) : null;
 
@@ -352,9 +411,9 @@ export function Dashboard() {
   const [zLayer, setZLayer] = useState<number>(0);
   const [economyMap, setEconomyMap] = useState<Record<number, any>>({});
   const [factionMap, setFactionMap] = useState<Record<number, Faction>>({});
-  const [viewMode, setViewMode] = useState<ViewMode>("Biome");
   const [selectedCell, setSelectedCell] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [tickSpeed, setTickSpeed] = useState(3000);
   const intervalRef = useRef<any>(null);
 
@@ -415,59 +474,61 @@ export function Dashboard() {
         flexWrap: "wrap",
       }}>
         <span style={{ fontWeight: 700, fontSize: "15px", color: "#58a6ff" }}>World Observer</span>
-          <span style={{ color: "#fff", marginLeft: "10px", paddingLeft: "10px", borderLeft: "1px solid #444" }}>Layer:</span>
-          <button onClick={() => setZLayer(1)} style={{ background: zLayer === 1 ? "#4a9eff" : "#21262d", color: "#fff", border: "none", borderRadius: "4px", padding: "4px 8px", cursor: "pointer", fontSize: "12px" }}>Z: +1 (Aerial)</button>
-          <button onClick={() => setZLayer(0)} style={{ background: zLayer === 0 ? "#4a9eff" : "#21262d", color: "#fff", border: "none", borderRadius: "4px", padding: "4px 8px", cursor: "pointer", fontSize: "12px" }}>Z: 0 (Surface)</button>
-          <button onClick={() => setZLayer(-1)} style={{ background: zLayer === -1 ? "#4a9eff" : "#21262d", color: "#fff", border: "none", borderRadius: "4px", padding: "4px 8px", cursor: "pointer", fontSize: "12px" }}>Z: -1 (Sub-Layer)</button>
-
-        <span style={{ color: "#888", fontSize: "13px" }}>
-          {cal ? `${seasonName}, Year ${cal.year} - Tick ${cal.tick}` : "Awaiting first tick..."}
-        </span>
-        {state?.tickInProgress && <span style={{ color: "#ff6b35", fontSize: "12px", fontStyle: "italic" }}>Tick running...</span>}
-        <div style={{ marginLeft: "auto", display: "flex", gap: "10px", alignItems: "center" }}>
-          <select value={viewMode} onChange={(e) => setViewMode(e.target.value as ViewMode)} style={{ background: "#21262d", color: "#e6edf3", border: "1px solid #30363d", borderRadius: "4px", padding: "4px 8px", fontSize: "12px" }}>
-            <option value="Biome">Biome Map</option>
-            <option value="Political">Political Map</option>
-            <option value="Ecology">Ecology Layer</option>
-            <option value="Unrest">Unrest Heatmap</option>
-          </select>
-          <select value={tickSpeed} onChange={(e) => setTickSpeed(Number(e.target.value))} style={{ background: "#21262d", color: "#e6edf3", border: "1px solid #30363d", borderRadius: "4px", padding: "4px 8px", fontSize: "12px" }}>
-            <option value={1000}>1s / tick</option>
-            <option value={3000}>3s / tick</option>
-            <option value={10000}>10s / tick</option>
-          </select>
-          <button onClick={() => setIsPlaying((p) => !p)} style={{ background: isPlaying ? "#b91c1c" : "#166534", color: "#fff", border: "none", borderRadius: "4px", padding: "5px 16px", cursor: "pointer", fontWeight: 600, fontSize: "13px" }}>
-            {isPlaying ? "Pause" : "Play"}
-          </button>
-          <button onClick={async () => { await fetch("/api/observer/tick", { method: "POST" }); await fetchState(); }} style={{ background: "#1f3a5f", color: "#4a9eff", border: "1px solid #4a9eff44", borderRadius: "4px", padding: "5px 12px", cursor: "pointer", fontSize: "13px" }}>
-            Step
-          </button>
-        </div>
+          <span style={{ color: "#888", fontSize: "13px", marginLeft: "20px" }}>
+            {cal ? `${seasonName}, Year ${cal.year} - Tick ${cal.tick}` : "Awaiting first tick..."}
+          </span>
+          {state?.tickInProgress && <span style={{ color: "#ff6b35", fontSize: "12px", fontStyle: "italic" }}>Tick running...</span>}
+          <div style={{ marginLeft: "auto", display: "flex", gap: "10px", alignItems: "center" }}>
+            <select value={tickSpeed} onChange={(e) => setTickSpeed(Number(e.target.value))} style={{ background: "#21262d", color: "#e6edf3", border: "1px solid #30363d", borderRadius: "4px", padding: "4px 8px", fontSize: "12px" }}>
+              <option value={1000}>1s / tick</option>
+              <option value={3000}>3s / tick</option>
+              <option value={10000}>10s / tick</option>
+            </select>
+            <button onClick={() => setIsPlaying((p) => !p)} style={{ background: isPlaying ? "#b91c1c" : "#166534", color: "#fff", border: "none", borderRadius: "4px", padding: "5px 16px", cursor: "pointer", fontWeight: 600, fontSize: "13px" }}>
+              {isPlaying ? "Pause" : "Play"}
+            </button>
+            <button onClick={async () => { await fetch("/api/observer/tick", { method: "POST" }); await fetchState(); }} style={{ background: "#1f3a5f", color: "#4a9eff", border: "1px solid #4a9eff44", borderRadius: "4px", padding: "5px 12px", cursor: "pointer", fontSize: "13px" }}>
+              Step
+            </button>
+            <button onClick={async () => {
+              if (!confirm("Reset the world to Tick 1? All simulated history will be lost.")) return;
+              setIsPlaying(false);
+              setResetting(true);
+              await fetch("/api/observer/reset", { method: "POST" });
+              setResetting(false);
+              await fetchState();
+            }} disabled={resetting} style={{ background: "#450a0a", color: "#fca5a5", border: "1px solid #7f1d1d", borderRadius: "4px", padding: "5px 12px", cursor: "pointer", fontSize: "13px", opacity: resetting ? 0.5 : 1 }}>
+              {resetting ? "Resetting..." : "Reset World"}
+            </button>
+          </div>
       </div>
 
       <div style={{ display: "flex", flexDirection: "row", flex: 1, overflow: "hidden" }}>
         
-        {/* Left Side: Navigator Panel */}
-        <div style={{ flex: "0 0 320px", borderRight: "1px solid #30363d", overflow: "hidden" }}>
-          <Navigator state={state} selectedCell={selectedCell} economyMap={economyMap} setSelectedCell={setSelectedCell} />
+        {/* Left Panel: Factions */}
+        <div style={{ flex: "0 0 300px", borderRight: "1px solid #30363d", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "8px 12px", background: "#161b22", borderBottom: "1px solid #30363d", fontWeight: "bold", color: "#58a6ff", fontSize: "12px", letterSpacing: "0.05em" }}>FACTIONS OVERVIEW</div>
+          <div style={{ flex: 1, overflowY: "auto", padding: "12px", background: "#0d1117" }}>
+            <FactionsPanel state={state} />
+          </div>
         </div>
 
-        {/* Right Side: Map & Event Log */}
-        <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
-          {/* Map Row */}
-          <div style={{ flex: "1", padding: "12px", display: "flex", flexDirection: "column", minHeight: 0 }}>
-            <div style={{ flex: 1, border: "1px solid #30363d", borderRadius: "6px", overflow: "hidden", background: "#000" }}>
-              <MapCanvas cells={state?.cells || []} factions={factionMap} viewMode={viewMode} economy={economyMap} onCellClick={setSelectedCell} />
-            </div>
+        {/* Middle Panel: Event Log */}
+        <div style={{ flex: "1", borderRight: "1px solid #30363d", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "8px 12px", background: "#161b22", borderBottom: "1px solid #30363d", fontWeight: "bold", color: "#58a6ff", fontSize: "12px", letterSpacing: "0.05em" }}>GLOBAL EVENT LOG</div>
+          <div style={{ flex: 1, padding: "20px", overflowY: "auto", background: "#010409" }}>
+            <EventFeed events={state?.events || []} />
           </div>
+        </div>
 
-          {/* Bottom Panel (Event Log) */}
-          <div style={{ flex: "0 0 30%", borderTop: "1px solid #30363d", background: "#0d1117", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-            <div style={{ padding: "8px 12px", background: "#161b22", borderBottom: "1px solid #30363d", fontWeight: "bold", color: "#58a6ff", fontSize: "12px", letterSpacing: "0.05em" }}>EVENT LOG</div>
-            <div style={{ flex: 1, padding: "10px", overflowY: "auto" }}>
-              <EventFeed events={state?.events || []} />
-            </div>
-          </div>
+        {/* Meso-Map Region Viewer */}
+        <div style={{ flex: "0 0 450px", overflow: "hidden", background: "#161b22", borderRight: "1px solid #30363d" }}>
+          <RegionMap />
+        </div>
+
+        {/* Right Side: Navigator Panel */}
+        <div style={{ flex: "0 0 350px", overflow: "hidden", background: "#161b22" }}>
+          <Navigator state={state} selectedCell={selectedCell} economyMap={economyMap} setSelectedCell={setSelectedCell} />
         </div>
       </div>
     </div>

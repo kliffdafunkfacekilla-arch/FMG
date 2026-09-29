@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>TTRPG Fractal Simulation Dashboard</title>
+    <style>
+        body { font-family: monospace; background: #121212; color: #00ffcc; padding: 20px; }
+        .card { background: #1e1e1e; border: 1px solid #333; padding: 15px; margin-bottom: 15px; border-radius: 5px; }
+        input, button { background: #222; color: #00ffcc; border: 1px solid #00ffcc; padding: 8px; margin: 5px 0; width: 100%; box-sizing: border-box; }
+        button { cursor: pointer; font-weight: bold; }
+        button:hover { background: #00ffcc; color: #121212; }
+        pre { background: #0a0a0a; padding: 10px; border: 1px solid #444; max-height: 300px; overflow-y: auto; color: #ffcc00; }
+    </style>
+</head>
+<body>
+    <h1>TTRPG Fractal Simulation Engine</h1>
+
+    <div class="card">
+        <h3>1. Initialize New World Seed</h3>
+        <input type="text" id="seedInput" value="aetheria-prime-01"><br>
+        <button onclick="initializeWorld()">Initialize World Mesh</button>
+    </div>
+
+    <div class="card">
+        <h3>2. Generate Regional Sub-Grid (Tier 3)</h3>
+        <input type="number" id="globalCellId" value="0" placeholder="Global Cell ID"><br>
+        <button onclick="generateSubGrid()">Generate 10,000 Sub-Cells</button>
+    </div>
+
+    <div class="card">
+        <h3>3. Advance Simulation Tick (Master Loop)</h3>
+        <button onclick="advanceTick()">Run +1 Tick (Climate, Ecology, Economy, Factions)</button>
+    </div>
+
+    <div class="card">
+        <h3>4. Stream Player LOD Window</h3>
+        <button onclick="streamWindow()">Fetch Active 3x3 Window</button>
+    </div>
+
+    <div class="card">
+        <h3>Console Output Log</h3>
+        <pre id="output">System ready...</pre>
+    </div>
+
+    <script>
+        async function logOutput(data) {
+            document.getElementById('output').innerText = JSON.stringify(data, null, 2);
+        }
+
+        async function initializeWorld() {
+            const seed = document.getElementById('seedInput').value;
+            const res = await fetch('/api/world/initialize', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ seed, resolution: 200, axialTilt: 23.5, daysPerYear: 365 })
+            });
+            logOutput(await res.json());
+        }
+
+        async function generateSubGrid() {
+            const seed = document.getElementById('seedInput').value;
+            const globalCellId = parseInt(document.getElementById('globalCellId').value);
+            const res = await fetch('/api/world/generate-subgrid', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ seed, globalCellId })
+            });
+            logOutput(await res.json());
+        }
+
+        async function advanceTick() {
+            const seed = document.getElementById('seedInput').value;
+            const res = await fetch('/api/world/tick', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ seed, ticksToAdvance: 1 })
+            });
+            logOutput(await res.json());
+        }
+
+        async function streamWindow() {
+            const seed = document.getElementById('seedInput').value;
+            const res = await fetch(`/api/world/stream?seed=${seed}&globalId=0&regX=50&regY=50&tick=1`);
+            logOutput(await res.json());
+        }
+    </script>
+</body>
+</html>
+

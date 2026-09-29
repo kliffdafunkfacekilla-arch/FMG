@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>DM Master Campaign Toolkit</title>
+    <style>
+        body { font-family: monospace; background: #0b0b0b; color: #00ffcc; padding: 20px; }
+        .grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .card { background: #161616; border: 1px solid #333; padding: 15px; border-radius: 5px; margin-bottom: 15px; }
+        input, button, select { background: #222; color: #00ffcc; border: 1px solid #00ffcc; padding: 8px; margin: 5px 0; width: 100%; box-sizing: border-box; }
+        button { cursor: pointer; font-weight: bold; background: #00ffcc; color: #0b0b0b; }
+        button:hover { background: #00cc99; }
+        pre { background: #050505; padding: 10px; border: 1px solid #444; max-height: 400px; overflow-y: auto; color: #ffcc00; }
+    </style>
+</head>
+<body>
+    <h1>DM Master Campaign Toolkit & World Simulator</h1>
+
+    <div class="grid-container">
+        <!-- Control Panel -->
+        <div>
+            <div class="card">
+                <h3>1. World Setup & Editor</h3>
+                <label>World Seed:</label>
+                <input type="text" id="seed" value="aetheria-prime-01">
+                <label>Axial Tilt (°):</label>
+                <input type="number" id="axialTilt" value="23.5">
+                <label>Days Per Year:</label>
+                <input type="number" id="daysPerYear" value="365">
+                <button onclick="editWorld()">Update World Parameters</button>
+                <button onclick="initWorld()" style="margin-top: 10px; background: #ff5555; color: white;">Initialize Fresh World Mesh</button>
+            </div>
+
+            <div class="card">
+                <h3>2. Simulation Engine Ticks</h3>
+                <button onclick="runTick()">Advance Master Simulation (+1 Tick)</button>
+            </div>
+
+            <div class="card">
+                <h3>3. DM Deep-Zoom Inspection Tool</h3>
+                <label>Global Cell ID:</label>
+                <input type="number" id="globalId" value="0">
+                <label>Regional X (0-99):</label>
+                <input type="number" id="regX" value="50">
+                <label>Regional Y (0-99):</label>
+                <input type="number" id="regY" value="50">
+                <button onclick="inspectCell()">Generate DM Brief & Story Setup</button>
+            </div>
+        </div>
+
+        <!-- DM Brief Output Panel -->
+        <div>
+            <div class="card">
+                <h3>DM Session Brief & Live Output Feed</h3>
+                <pre id="output">Select an action or inspect a coordinate...</pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showOutput(data) {
+            document.getElementById('output').innerText = JSON.stringify(data, null, 2);
+        }
+
+        async function initWorld() {
+            const seed = document.getElementById('seed').value;
+            const res = await fetch('/api/world/initialize', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ seed, resolution: 200, axialTilt: 23.5, daysPerYear: 365 })
+            });
+            showOutput(await res.json());
+        }
+
+        async function editWorld() {
+            const seed = document.getElementById('seed').value;
+            const axialTilt = parseFloat(document.getElementById('axialTilt').value);
+            const daysPerYear = parseInt(document.getElementById('daysPerYear').value);
+            const res = await fetch('/api/dm/world/edit', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ seed, axialTilt, daysPerYear })
+            });
+            showOutput(await res.json());
+        }
+
+        async function runTick() {
+            const seed = document.getElementById('seed').value;
+            const res = await fetch('/api/world/tick', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ seed, ticksToAdvance: 1 })
+            });
+            showOutput(await res.json());
+        }
+
+        async function inspectCell() {
+            const seed = document.getElementById('seed').value;
+            const globalId = document.getElementById('globalId').value;
+            const regX = document.getElementById('regX').value;
+            const regY = document.getElementById('regY').value;
+            const res = await fetch(`/api/dm/inspect?seed=${seed}&globalId=${globalId}&regX=${regX}&regY=${regY}`);
+            showOutput(await res.json());
+        }
+    </script>
+</body>
+</html>
+
