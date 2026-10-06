@@ -1,4 +1,5 @@
 import express from 'express';
+import cors from 'cors';
 import path from 'path';
 import dotenv from 'dotenv';
 import pool from './db/pool';
@@ -15,12 +16,13 @@ import gameRouter from './api/gameRouter';
 import characterRouter from './api/characterRouter';
 import dmRouter from './api/dmRouter';
 import observerRouter from './api/observerRouter';
-import regionRouter from './api/regionRouter';
+import { regionalRouter } from './api/regionalRouter';
 import tellerRouter from './api/tellerRouter';
 
 dotenv.config();
 
 const app = express();
+app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
 
@@ -28,7 +30,7 @@ app.use('/api/game', gameRouter);
 app.use('/api/character', characterRouter);
 app.use('/api/dm', dmRouter);
 app.use('/api/observer', observerRouter);
-app.use('/api/region', regionRouter);
+app.use('/api/regional', regionalRouter);
 app.use('/teller', tellerRouter);
 
 // 1. Initialize World Seed API

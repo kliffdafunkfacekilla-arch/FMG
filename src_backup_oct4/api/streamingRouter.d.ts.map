@@ -1,0 +1,1 @@
+{"version":3,"file":"streamingRouter.d.ts","sourceRoot":"","sources":["streamingRouter.ts"],"names":[],"mappings":"AAEA,UAAU,mBAAmB;IAC3B,IAAI,EAAE,MAAM,CAAC;IACb,QAAQ,EAAE,MAAM,CAAC;IACjB,SAAS,EAAE,MAAM,CAAC;IAClB,SAAS,EAAE,MAAM,CAAC;IAClB,WAAW,EAAE,MAAM,CAAC;CACrB;AAED;;GAEG;AACH,wBAAsB,qBAAqB,CAAC,MAAM,EAAE,mBAAmB;;;QAyD3C,CAAC;QAAoB,CAAC;;;;GAUjD"}

@@ -16,8 +16,14 @@
     "isolatedModules": true,
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
-    "skipLibCheck": true,
-    
+    "skipLibCheck": true
   },
-  "exclude": ["vite.config.ts", "dist", "dist-client", "_archive", "src/engine/masterOrchestrator.pg.ts"]
+  "exclude": [
+    "vite.config.ts",
+    "dist",
+    "dist-client",
+    "_archive",
+    "src/engine/masterOrchestrator.pg.ts",
+    "engine_backup_pre_9step"
+  ]
 }
