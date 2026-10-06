@@ -25,13 +25,43 @@ CREATE SCHEMA public;
 GRANT ALL ON SCHEMA public TO postgres;
 GRANT ALL ON SCHEMA public TO public;
 
+DROP TABLE IF EXISTS sim_active_projects CASCADE;
+
+CREATE TABLE IF NOT EXISTS sim_active_projects (
+    id SERIAL PRIMARY KEY,
+    burg_id INT,
+    project_type VARCHAR(50),
+    target_tier INT DEFAULT 0,
+    ticks_remaining INT
+);
+
+CREATE TABLE IF NOT EXISTS sim_faction_units (
+    id SERIAL PRIMARY KEY,
+    faction_id INT,
+    unit_type VARCHAR(50),
+    count INT DEFAULT 0,
+    status VARCHAR(20) DEFAULT 'ACTIVE',
+    location_cell_id INT,
+    experience INT DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS sim_faction_borders (
+    id SERIAL PRIMARY KEY,
+    faction_id INT,
+    cell_id INT,
+    is_border BOOLEAN,
+    faction_a INT,
+    faction_b INT
+);
+
 CREATE TABLE sim_factions (
   id   SERIAL PRIMARY KEY,
   name TEXT, color TEXT, lore_text TEXT,
   trait_aggression REAL DEFAULT 0,
   trait_magic      REAL DEFAULT 0,
   trait_economy    REAL DEFAULT 0,
-  wealth INT DEFAULT 1000
+  wealth INT DEFAULT 1000,
+  treasury BIGINT DEFAULT 1000
 );
 
 CREATE TABLE sim_cells (
@@ -51,6 +81,8 @@ CREATE TABLE sim_cells (
     eco_apex      REAL DEFAULT 0,
     eco_blight    REAL DEFAULT 0,
     eco_disease   REAL DEFAULT 0,
+    eco_health  FLOAT DEFAULT 100.0,
+    eco_max     FLOAT DEFAULT 100.0,
     elevation   INT  DEFAULT 0,
     z_layer     INT  DEFAULT 0
   );
@@ -68,7 +100,7 @@ CREATE TABLE sim_cells (
 
 
 
-CREATE TABLE sim_burg_economy (
+CREATE TABLE IF NOT EXISTS sim_burg_economy (
   burg_id          INT  PRIMARY KEY,
   food             INT  DEFAULT 1000,
   raw_materials    INT  DEFAULT 1000,
@@ -86,7 +118,13 @@ CREATE TABLE sim_burg_economy (
   demographics     TEXT DEFAULT '{}',
   ring_level       INT  DEFAULT 0,
   tier             TEXT DEFAULT 'HAMLET',
-  z_layer          INT  DEFAULT 0
+  z_layer          INT  DEFAULT 0,
+  resource_profile TEXT DEFAULT NULL,
+  urban_tier       INT  DEFAULT 1,
+  architecture_type VARCHAR(20) DEFAULT 'MIXED',
+  occupier_faction_id INT,
+  occupation_ticks INT DEFAULT 0,
+  resistance_strength INT DEFAULT 0
 );
 
 CREATE TABLE sim_industrial_stockpiles (
@@ -123,11 +161,15 @@ CREATE TABLE sim_events (
   z_layer    INT  DEFAULT 0
 );
 
-CREATE TABLE sim_fringe_factions (
-  id     SERIAL PRIMARY KEY,
-  name   TEXT,
-  type   TEXT,
-  wealth INT DEFAULT 1000
+CREATE TABLE sim_outlaw_factions (
+  id SERIAL PRIMARY KEY,
+  name TEXT,
+  type TEXT,
+  origin_cell_id INT,
+  manpower INT DEFAULT 100,
+  worker_groups INT DEFAULT 2,
+  wealth INT DEFAULT 1000,
+  heat INT DEFAULT 0
 );
 
 CREATE TABLE sim_trade_routes (
@@ -155,23 +197,15 @@ CREATE TABLE sim_sacred_groves (
   seal_strength INT DEFAULT 100
 );
 
-CREATE TABLE sim_outlaw_factions (
-  id             SERIAL PRIMARY KEY,
-  name           TEXT,
-  type           TEXT,
-  origin_cell_id INT,
-  manpower       INT DEFAULT 0,
-  wealth         INT DEFAULT 0,
-  heat           INT DEFAULT 0
-);
-
-CREATE TABLE sim_outlaw_enterprises (
-  id              SERIAL PRIMARY KEY,
-  faction_id      INT,
-  enterprise_type TEXT,
-  target_id       INT,
-  profitability   INT DEFAULT 0,
-  heat_generated  INT DEFAULT 0
+CREATE TABLE IF NOT EXISTS sim_fringe_lairs (
+    id SERIAL PRIMARY KEY,
+    faction_id INT,
+    cell_id INT,
+    burg_id INT,
+    lair_type VARCHAR(50),
+    manpower INT DEFAULT 0,
+    heat INT DEFAULT 0,
+    inventory JSONB DEFAULT '{}'::jsonb
 );
 
 CREATE TABLE sim_paragons (
@@ -181,15 +215,18 @@ CREATE TABLE sim_paragons (
   title            TEXT,
   name             TEXT,
   traits           TEXT DEFAULT '[]',
-  corruption_score INT  DEFAULT 0
-);
+  corruption_score INT DEFAULT 0,
+    faction_id INT,
+    is_counselor BOOLEAN DEFAULT false
+  );
 
 CREATE TABLE sim_diplomacy (
   id           SERIAL PRIMARY KEY,
   faction_a_id INT,
   faction_b_id INT,
   status       TEXT DEFAULT 'NEUTRAL',
-  tension      INT  DEFAULT 0
+  tension      INT  DEFAULT 0,
+  UNIQUE (faction_a_id, faction_b_id)
 );
 
 CREATE TABLE sim_infrastructure (
@@ -197,7 +234,8 @@ CREATE TABLE sim_infrastructure (
   burg_id INT,
   cell_id INT,
   type    TEXT,
-  status  TEXT DEFAULT 'ACTIVE'
+  status  TEXT DEFAULT 'ACTIVE',
+  level   INT  DEFAULT 1
 );
 
 CREATE TABLE sim_agents (
@@ -208,6 +246,27 @@ CREATE TABLE sim_agents (
   role             TEXT,
   active_plot      TEXT
 );
+
+CREATE TABLE IF NOT EXISTS sim_commodity_prices (
+    id SERIAL PRIMARY KEY,
+    commodity TEXT NOT NULL UNIQUE,
+    base_price FLOAT DEFAULT 1.0,
+    current_price FLOAT DEFAULT 1.0,
+    global_supply INT DEFAULT 0,
+    global_demand INT DEFAULT 0,
+    last_updated_tick INT DEFAULT 0
+);
+
+INSERT INTO sim_commodity_prices (commodity, base_price, current_price)
+VALUES 
+    ('grain', 1.0, 1.0), ('wood', 0.8, 0.8), ('stone', 0.5, 0.5),
+    ('iron', 2.0, 2.0), ('copper', 1.5, 1.5), ('gold', 10.0, 10.0),
+    ('silver', 5.0, 5.0), ('crystals', 8.0, 8.0), ('dragon_stone_shard', 20.0, 20.0),
+    ('exotic', 6.0, 6.0), ('spice', 4.0, 4.0), ('aromatics', 3.0, 3.0),
+    ('medicine', 3.5, 3.5), ('narcotic', 5.0, 5.0), ('pitch', 1.2, 1.2),
+    ('clay', 0.6, 0.6), ('fibre', 0.7, 0.7), ('textile', 1.8, 1.8),
+    ('organs', 7.0, 7.0)
+ON CONFLICT (commodity) DO NOTHING;
 `;
 
 const fi = (v: any, def = 0) => Math.floor(Number(v) || def);
@@ -316,7 +375,7 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
 
     // ── 6. Fringe factions (always fresh lore) ────────────────────────────
     await client.query(`
-      INSERT INTO sim_fringe_factions (name,type,wealth) VALUES
+      INSERT INTO sim_outlaw_factions (name,type,wealth) VALUES
         ('The Gilded Compass','BANK',5000),
         ('The Free Sky-Barons','SMUGGLER',2000),
         ('The Devil''s Choice','MERCENARY',3000),
@@ -325,31 +384,14 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
     `);
 
     // ── 7. Seed event ─────────────────────────────────────────────────────
-    await client.query(
+    await client.query('TRUNCATE TABLE sim_events RESTART IDENTITY CASCADE');
+      await client.query(
       `INSERT INTO sim_events (tick,type,message,tier,lore_date)
        VALUES (1,'WORLD_RESET','A new age dawns. The old world has been reborn from ash. Let the chronicles begin.','MAJOR','The Bloom, Year 1')`
     );
 
-    // ── 8. Outlaw factions ────────────────────────────────────────────────
-    const outlaws = sqlite.prepare("SELECT * FROM sim_outlaw_factions").all() as any[];
-    for (const r of outlaws) {
-      await client.query(
-        `INSERT INTO sim_outlaw_factions (id,name,type,origin_cell_id,manpower,wealth,heat)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [r.id, r.name, r.type, r.origin_cell_id, fi(r.manpower), fi(r.wealth), fi(r.heat)]
-      );
-    }
-    if (outlaws.length) await client.query(`SELECT setval('sim_outlaw_factions_id_seq',(SELECT MAX(id) FROM sim_outlaw_factions))`);
-
-    // ── 9. Outlaw enterprises ─────────────────────────────────────────────
-    const enterprises = sqlite.prepare("SELECT * FROM sim_outlaw_enterprises").all() as any[];
-    for (const r of enterprises) {
-      await client.query(
-        `INSERT INTO sim_outlaw_enterprises (id,faction_id,enterprise_type,target_id,profitability,heat_generated)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
-        [r.id, r.faction_id, r.enterprise_type, r.target_id, fi(r.profitability), fi(r.heat_generated)]
-      );
-    }
+    // ── 8. Outlaw factions removed ────────────────────────────────────────
+    // ── 9. Outlaw enterprises removed ─────────────────────────────────────
 
     // ── 10. Paragons ──────────────────────────────────────────────────────
     const paragons = sqlite.prepare("SELECT * FROM sim_paragons").all() as any[];
@@ -395,15 +437,135 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
       );
     }
 
-    const tablesToResetSeq = ['sim_infrastructure', 'sim_agents', 'sim_sacred_groves', 'sim_outlaw_enterprises', 'sim_events', 'sim_trade_routes', 'sim_chaos_zones', 'sim_fringe_factions', 'sim_calendar', 'sim_diplomacy'];
+    const tablesToResetSeq = ['sim_infrastructure', 'sim_agents', 'sim_sacred_groves', 'sim_fringe_lairs', 'sim_events', 'sim_trade_routes', 'sim_chaos_zones', 'sim_outlaw_factions', 'sim_calendar', 'sim_diplomacy'];
     for (const t of tablesToResetSeq) {
       await client.query(`SELECT setval('${t}_id_seq', (SELECT COALESCE(MAX(id), 1) FROM ${t}))`).catch(() => {});
     }
 
+    
+    // ----------------------------------------------------------------------------------
+    //  LORE BASELINE ENFORCER 
+    // ----------------------------------------------------------------------------------
+    console.log("[resetWorld] Applying Lore Baseline parameters...");
+
+    // 1. Faction Traits & Wealth Overrides
+    const factionProfiles: Record<number, any> = {
+      23: { w: 20000, e: 9, a: 2, m: 5 }, // Avian
+      4:  { w: 8000,  e: 9, a: 4, m: 2 }, // Heartlands
+      10: { w: 8000,  e: 7, a: 4, m: 3 }, // Iron Caldera
+      3:  { w: 6000,  e: 6, a: 4, m: 4 }, // Ursine
+      16: { w: 10000, e: 8, a: 3, m: 5 }, // Canopy Clans
+      26: { w: 15000, e: 10, a: 6, m: 3 }, // Riverfolk
+      25: { w: 6000,  e: 6, a: 5, m: 4 }, // Vaneer
+      12: { w: 4000,  e: 5, a: 7, m: 3 }, // Sumpkin
+      6:  { w: 5000,  e: 5, a: 2, m: 7 }, // Sylvania
+      1:  { w: 1500,  e: 2, a: 9, m: 4 }, // Guerrilla Clans
+      8:  { w: 2000,  e: 3, a: 2, m: 8 }, // Reliance
+      9:  { w: 3000,  e: 4, a: 8, m: 6 }, // Eastern Hounds
+      21: { w: 4000,  e: 5, a: 8, m: 4 }, // Hive
+      22: { w: 1500,  e: 3, a: 3, m: 6 }, // Dusk Husk
+      2:  { w: 12000, e: 8, a: 4, m: 7 }, // Meridian Chain
+      17: { w: 6000,  e: 6, a: 7, m: 3 }  // Scute Confederacy
+    };
+
+    for (const [fid, p] of Object.entries(factionProfiles)) {
+      await client.query(
+        `UPDATE sim_factions SET wealth = $1, trait_economy = $2, trait_aggression = $3, trait_magic = $4 WHERE id = $5`,
+        [p.w, p.e, p.a, p.m, fid]
+      );
+    }
+
+    // 2. Burg & Economy Shaping
+    const burgsRows = (await client.query("SELECT b.burg_id, c.faction_id, b.pop_null, b.wealth, b.food, b.crime_rate FROM sim_burg_economy b JOIN sim_cells c ON b.cell_id = c.id")).rows;
+    for (const b of burgsRows) {
+      const fid = b.faction_id;
+      let pop = b.pop_null || 0;
+      let mil = 50;
+      let crime = 0;
+      let food = Math.max(500, pop * 14);
+      let wealth = Math.max(500, pop * 2);
+      let inv: any = {};
+      let infra: string[] = [];
+
+      switch (fid) {
+        case 23: // Avian
+          wealth = 2000;
+          break;
+        case 4: // Heartlands
+          food = 2000; infra.push('FARM'); inv['grain'] = 500;
+          break;
+        case 10: // Iron Caldera
+          mil = 500; infra.push('WALL', 'MINE'); inv['forged_steel'] = 200; inv['iron'] = 500;
+          break;
+        case 3: // Ursine
+          mil = 300; infra.push('CAMP'); inv['raw_wood'] = 500; inv['grain'] = 200;
+          break;
+        case 16: // Canopy Clans
+          inv['exotic'] = 200; wealth = 1000;
+          break;
+        case 26: // Riverfolk
+          mil = 200; wealth = 1500; inv['fish'] = 500;
+          break;
+        case 25: // Vaneer
+          mil = 250; inv['red_meat'] = 300; inv['alchemical_potions'] = 100;
+          break;
+        case 12: // Sumpkin
+          mil = 100; inv['medicine'] = 100; inv['narcotic'] = 100; crime = 15;
+          break;
+        case 6: // Sylvania
+          mil = 150; infra.push('WALL'); inv['raw_wood'] = 400; inv['textiles'] = 200;
+          break;
+        case 1: // Guerrilla Clans
+          mil = 400; wealth = 100; food = 100;
+          break;
+        case 8: // Reliance
+          // Will consolidate below
+          break;
+        case 9: // Eastern Hounds
+          mil = 300; inv['narcotic'] = 200; inv['medicine'] = 200;
+          break;
+        case 21: // Hive
+          mil = 400; inv['raw_fiber'] = 300; inv['red_meat'] = 300;
+          break;
+        case 22: // Dusk Husk
+          mil = 50;
+          break;
+        case 2: // Meridian Chain
+          wealth = 1200; inv['spice'] = 200;
+          break;
+        case 17: // Scute
+          mil = 400; infra.push('WALL', 'MINE'); inv['stone'] = 500;
+          break;
+      }
+
+      await client.query(
+        `UPDATE sim_burg_economy SET pop_null = $1, pop_attuned = 0, wealth = $2, food = $3, crime_rate = $4, military_forces = $5 WHERE burg_id = $6`,
+        [pop, Math.max(wealth, b.wealth||0), Math.max(food, b.food||0), Math.max(crime, b.crime_rate||0), JSON.stringify({ footmen: mil }), b.burg_id]
+      );
+      
+      await client.query(
+        `UPDATE sim_industrial_stockpiles SET complex_inventory = $1 WHERE burg_id = $2`,
+        [JSON.stringify(inv), b.burg_id]
+      );
+      
+      for (const inf of infra) {
+        await client.query(`INSERT INTO sim_infrastructure (burg_id, type) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [b.burg_id, inf]);
+      }
+    }
+
+    const c1 = (await client.query("SELECT COUNT(*) as c FROM sim_burg_economy")).rows[0].c; console.log("Before Reliance:", c1);
+      // 4. Purge Ghost Burgs (Delete all burgs with 0 population to prevent bloat and UI bugs)
+    await client.query("DELETE FROM sim_burg_economy WHERE pop_null = 0 AND pop_attuned = 0");
+    await client.query("DELETE FROM sim_paragons WHERE burg_id NOT IN (SELECT burg_id FROM sim_burg_economy)");
+    await client.query("DELETE FROM sim_infrastructure WHERE burg_id IS NOT NULL AND burg_id NOT IN (SELECT burg_id FROM sim_burg_economy)");
+    await client.query("DELETE FROM sim_fringe_lairs WHERE burg_id NOT IN (SELECT burg_id FROM sim_burg_economy)");
+
+    const remainingBurgs = (await client.query("SELECT COUNT(*) as c FROM sim_burg_economy")).rows[0].c;
+
     const stats = {
       factions: factions.length,
       cells: cells.length,
-      burgs: burgs.length,
+      burgs: parseInt(remainingBurgs, 10),
       paragons: paragons.length,
       infrastructure: infra.length,
       agents: agents.length,

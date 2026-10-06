@@ -10,7 +10,7 @@ async function patchElevation() {
   console.log("Loading Okasha map...");
   const lines = fs.readFileSync('C:/Users/krazy/Desktop/ttrpgsimulationprojects/DualStateEngine/Okasha/Okasha 2026-06-26-06-43.map', 'utf8').split(/\r?\n/);
   
-  const elevations = lines[153].split(',').map(Number);
+  const elevations = (lines[153] || '').split(',').map(Number);
   console.log(`Extracted ${elevations.length} elevation values.`);
   
   if (elevations.length !== 34431) {
