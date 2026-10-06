@@ -4,47 +4,69 @@ import { executeMasterTick } from "../engine/masterOrchestrator";
 import { resetWorld } from "../engine/resetWorld";
 
 const observerRouter = Router();
+let autoplayTimer: any = null;
+observerRouter.post("/autoplay", (req, res) => {
+    const { enabled } = req.body;
+    if (enabled && !autoplayTimer) {
+        autoplayTimer = setInterval(async () => {
+            if (!tickInProgress && !resetInProgress) {
+                tickInProgress = true;
+                try { await executeMasterTick(); } catch(e) { console.error("Autoplay tick err", e); }
+                tickInProgress = false;
+            }
+        }, 1500);
+    } else if (!enabled && autoplayTimer) {
+        clearInterval(autoplayTimer);
+        autoplayTimer = null;
+    }
+    res.json({ autoplay: !!autoplayTimer });
+});
+observerRouter.get("/autoplay", (req, res) => {
+    res.json({ autoplay: !!autoplayTimer });
+});
 
-// Concurrency guard - prevents tick spam from stacking up
+
 let tickInProgress = false;
 let resetInProgress = false;
 
-// GET /state
+observerRouter.get("/map", async (req, res) => {
+  try {
+    const z = parseInt(req.query.z as string) || 0;
+    const cells = await pool.query(`SELECT id, faction_id, biome, geometry, eco_plants, eco_prey, eco_predators, eco_resources, elevation, z_layer FROM sim_cells WHERE z_layer = $1`, [z]);
+    res.json({ cells: cells.rows.map(c => ({ ...c, geometry: typeof c.geometry === "string" ? (function(){ try { return JSON.parse(c.geometry); } catch(e) { return null; } })() : c.geometry })) });
+  } catch(e: any) {
+    res.status(500).json({error: e.message});
+  }
+});
+
 observerRouter.get("/state", async (req, res) => {
   try {
     const factions = await pool.query("SELECT * FROM sim_factions");
-    const fringeFactions = await pool.query("SELECT * FROM sim_fringe_factions");
-    const cells = await pool.query(
-      `SELECT id, faction_id, biome, geometry, eco_plants, eco_prey, eco_predators, eco_resources, elevation, z_layer FROM sim_cells WHERE z_layer = ${req.query.z || 0}`
-    );
-    const events = await pool.query(
-      "SELECT * FROM sim_events ORDER BY tick DESC, id DESC LIMIT 100"
-    );
+    const events = await pool.query("SELECT * FROM sim_events ORDER BY tick DESC, id DESC LIMIT 100");
     const chaosZones = await pool.query("SELECT * FROM sim_chaos_zones");
-    const economy = await pool.query("SELECT * FROM sim_burg_economy");
+    const economy = await pool.query("SELECT b.burg_id, b.food, b.wealth, b.unrest, b.health, b.pop_null, b.crime_rate, b.military_forces, b.demographics, b.species_demographics, b.cell_id, c.faction_id FROM sim_burg_economy b JOIN sim_cells c ON b.cell_id = c.id");
     const agents = await pool.query("SELECT * FROM sim_agents");
     const sacredGroves = await pool.query("SELECT * FROM sim_sacred_groves");
     const calendar = await pool.query("SELECT * FROM sim_calendar ORDER BY id DESC LIMIT 1");
     const outlaws = await pool.query("SELECT * FROM sim_outlaw_factions");
+    const prices = await pool.query("SELECT * FROM sim_commodity_prices ORDER BY commodity");
 
     res.json({
       factions: factions.rows,
-      fringeFactions: fringeFactions.rows,
-      cells: cells.rows.map((c) => ({
-        ...c,
-        geometry: typeof c.geometry === "string" ? JSON.parse(c.geometry) : c.geometry,
-      })),
+      fringeFactions: outlaws.rows,
+      cells: [],
       events: events.rows,
       chaosZones: chaosZones.rows,
       economy: economy.rows.map((e) => ({
         ...e,
-        demographics: e.demographics ? (typeof e.demographics === "string" ? JSON.parse(e.demographics) : e.demographics) : {},
-        military_forces: e.military_forces ? (typeof e.military_forces === "string" ? JSON.parse(e.military_forces) : e.military_forces) : {},
+        demographics: e.demographics ? (typeof e.demographics === "string" ? (function(){ try { return JSON.parse(e.demographics); } catch(e) { return {}; } })() : e.demographics) : {},
+        military_forces: e.military_forces ? (typeof e.military_forces === "string" ? (function(){ try { return JSON.parse(e.military_forces); } catch(e) { return {}; } })() : e.military_forces) : {},
       })),
       agents: agents.rows,
       sacredGroves: sacredGroves.rows,
       calendar: calendar.rows[0] || null,
       outlaws: outlaws.rows,
+      prices: prices.rows,
       tickInProgress,
       resetInProgress,
     });
@@ -54,7 +76,6 @@ observerRouter.get("/state", async (req, res) => {
   }
 });
 
-// POST /tick - guarded against concurrent requests
 observerRouter.post("/tick", async (req, res) => {
   if (tickInProgress) {
     return res.status(429).json({ error: "Tick already in progress. Please wait." });
@@ -68,14 +89,13 @@ observerRouter.post("/tick", async (req, res) => {
     const result = await executeMasterTick();
     res.json(result);
   } catch (error: any) {
-    console.error("Tick error:", error.message);
+    console.error("Tick error:", error.stack);
     res.status(500).json({ error: error.message || "Tick failed" });
   } finally {
     tickInProgress = false;
   }
 });
 
-// POST /reset - wipe and reseed the entire world from aetheria.sqlite
 observerRouter.post("/reset", async (req, res) => {
   if (tickInProgress) {
     return res.status(429).json({ error: "Cannot reset while a tick is in progress." });

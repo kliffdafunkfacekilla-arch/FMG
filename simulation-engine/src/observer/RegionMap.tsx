@@ -35,17 +35,24 @@ const LEGEND = [
   { label: "Wetland", color: "#2A2A2A" },
 ];
 
-export function RegionMap() {
-  const [cellId, setCellId] = useState<string>("9796");
+export function RegionMap({ cellId: propCellId }: { cellId?: number }) {
+  const [cellIdInput, setCellIdInput] = useState<string>(propCellId ? String(propCellId) : "9796");
   const [regionData, setRegionData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const fetchRegion = async () => {
-    if (!cellId) return;
+  useEffect(() => {
+    if (propCellId) {
+      setCellIdInput(String(propCellId));
+      fetchRegion(String(propCellId));
+    }
+  }, [propCellId]);
+
+  const fetchRegion = async (idToFetch: string) => {
+    if (!idToFetch) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/region/generate/${cellId}`);
+      const res = await fetch(`/api/region/generate/${idToFetch}`);
       if (!res.ok) throw new Error("Failed to generate region");
       const data = await res.json();
       setRegionData(data);
@@ -127,13 +134,13 @@ export function RegionMap() {
       <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
         <input 
           type="text" 
-          value={cellId} 
-          onChange={e => setCellId(e.target.value)} 
+          value={cellIdInput} 
+          onChange={e => setCellIdInput(e.target.value)} 
           placeholder="Enter Cell ID"
           style={{ flex: 1, background: "#0d1117", color: "#e6edf3", border: "1px solid #30363d", borderRadius: "4px", padding: "6px" }}
         />
         <button 
-          onClick={fetchRegion}
+          onClick={() => fetchRegion(cellIdInput)}
           style={{ background: "#238636", color: "white", border: "none", borderRadius: "4px", padding: "6px 12px", cursor: "pointer", fontWeight: "bold" }}
         >
           {loading ? "Generating..." : "Generate Map"}
@@ -152,7 +159,7 @@ export function RegionMap() {
         <div style={{ marginBottom: "12px", fontSize: "12px", color: "#ccc", background: "#0d1117", padding: "8px", borderRadius: "4px", border: "1px solid #30363d" }}>
           <div style={{ marginBottom: "4px" }}><strong>Base Temp:</strong> {regionData.context.base_temp}°C &nbsp; | &nbsp; <strong>Current Temp:</strong> {regionData.context.temperature.toFixed(2)}°C</div>
           {regionData.pois.length > 0 && (
-             <div style={{ color: "#fbbf24", fontWeight: "bold" }}>Local Burg Population: {regionData.pois[0].data.pop_null}</div>
+             <div style={{ color: "#fbbf24", fontWeight: "bold" }}>Local Burg Population: {regionData.pois[0].data?.pop_null || regionData.pois[0].population || 0}</div>
           )}
         </div>
       )}
