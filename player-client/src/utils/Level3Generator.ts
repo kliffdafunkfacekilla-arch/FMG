@@ -22,10 +22,7 @@ function hashString(str: string) {
   return h;
 }
 
-// Simple smooth noise for organic generation
-function smoothNoise(x: number, y: number, rand: () => number) {
-  return rand(); // Placeholder, we will do cellular automata smoothing
-}
+// smoothNoise placeholder removed (unused - cellular automata used instead)
 
 export function generateLevel3Map(manifest: any) {
   const SIZE = 256;
@@ -35,7 +32,7 @@ export function generateLevel3Map(manifest: any) {
   const seed = hashString(manifest.level_3_seed);
   const rand = sfc32(seed, seed ^ 0xDEADBEEF, seed ^ 0xCAFEBABE, seed ^ 0x12345678);
 
-  const { elevation, vegetation_density, base_terrain, infrastructure_mask, chaos_radiation } = manifest.environment;
+  const { elevation, vegetation_density, base_terrain, infrastructure_mask, chaos_radiation: _chaos_radiation } = manifest.environment;
   
   // 1. Base Layer & Organic Clusters (Cellular Automata)
   for (let i = 0; i < SIZE * SIZE; i++) {

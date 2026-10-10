@@ -267,6 +267,62 @@ VALUES
     ('clay', 0.6, 0.6), ('fibre', 0.7, 0.7), ('textile', 1.8, 1.8),
     ('organs', 7.0, 7.0)
 ON CONFLICT (commodity) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS sim_player_character (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(50),
+    kingdom VARCHAR(50) DEFAULT 'Mammal',
+    lineage VARCHAR(50) DEFAULT 'Ursine',
+    institution VARCHAR(50) DEFAULT 'Mass',
+    species VARCHAR(50) DEFAULT 'Bear',
+    might INT DEFAULT 1,
+    endurance INT DEFAULT 1,
+    finesse INT DEFAULT 1,
+    reflex INT DEFAULT 1,
+    vitality INT DEFAULT 1,
+    fortitude INT DEFAULT 1,
+    knowledge INT DEFAULT 1,
+    logic INT DEFAULT 1,
+    awareness INT DEFAULT 1,
+    intuition INT DEFAULT 1,
+    charm INT DEFAULT 1,
+    willpower INT DEFAULT 1,
+    current_hp INT,
+    max_hp INT,
+    composure INT,
+    stamina_max INT DEFAULT 10,
+    focus_max INT DEFAULT 10,
+    phys_defense INT DEFAULT 0,
+    speed INT DEFAULT 0,
+    gear_tax_total INT DEFAULT 0,
+    passive_traits JSONB DEFAULT '[]'::jsonb,
+    skills JSONB DEFAULT '[]'::jsonb,
+    mastery_perks JSONB DEFAULT '[]'::jsonb,
+    main_type VARCHAR(50),
+    sub_type VARCHAR(50),
+    final_type VARCHAR(50),
+    power_null_track VARCHAR(50),
+    offense_skill VARCHAR(50),
+    defense_skill VARCHAR(50),
+    equipped_armor VARCHAR(50),
+    equipped_weapon VARCHAR(50),
+    current_quest_beat INT DEFAULT 0,
+    gold INT DEFAULT 50,
+    inventory JSONB DEFAULT '[]'::jsonb,
+    xp INT DEFAULT 0,
+    level INT DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS sim_game_saves (
+    id SERIAL PRIMARY KEY,
+    slot_name VARCHAR(100) NOT NULL,
+    player_id INT,
+    character_data JSONB NOT NULL,
+    world_pos JSONB NOT NULL,
+    story_state JSONB NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 `;
 
 const fi = (v: any, def = 0) => Math.floor(Number(v) || def);
@@ -579,3 +635,4 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
     sqlite.close();
   }
 }
+
