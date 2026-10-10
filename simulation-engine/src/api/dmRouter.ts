@@ -1,221 +1,492 @@
-import { Router, Request, Response } from 'express';
-import { processPlayerActionWithDM, DMContextPayload } from '../engine/aiGameMaster';
-import pool from '../db/pool';
+import express from 'express';
+import { Pool } from 'pg';
+import dotenv from 'dotenv';
+import { ConcordiaGameMaster } from '../engine/rpg/ConcordiaGM.js';
 
-const router = Router();
+dotenv.config({ override: true });
 
-router.post('/interact', async (req: Request, res: Response) => {
-    try {
-        const { sessionId, characterId, playerInput } = req.body;
-        
-        // 1. Fetch real character state from DB
-        const charRes = await pool.query('SELECT * FROM player_characters WHERE character_id = $1 AND session_id = $2', [characterId, sessionId]);
-        if (charRes.rows.length === 0) {
-            return res.status(404).json({ error: "Character not found in this session" });
-        }
-        const character = charRes.rows[0];
+const router = express.Router();
+const pool = new Pool({ connectionString: 'postgres://postgres:YOUR_PASSWORD@127.0.0.1:5432/postgres' });
 
-        // 2. Fetch session and map context
-        const sessionRes = await pool.query('SELECT * FROM game_sessions WHERE session_id = $1', [sessionId]);
-        const session = sessionRes.rows[0];
+import { getWeapon, getArmor, STAT_WEAPON_GROUPS, STAT_ARMOR_GROUPS } from '../engine/rpg/EquipmentRegistry.js';
+import { generateCharacterFromSpecies, buildOstrakaCustomCharacter } from '../engine/rpg/CharacterGenerator.js';
+import {
+  KINGDOMS,
+  LINEAGES,
+  INSTITUTIONS,
+  MASTERY_PERKS,
+  SKILL_DB,
+  calcDerivedStats,
+  getUnlockedPerks,
+  MAIN_TYPES,
+  SUB_TYPES,
+  FINAL_TYPES,
+  POWER_NULL_TRACKS,
+  OFFENSE_SKILLS,
+  DEFENSE_SKILLS
+} from '../engine/rpg/CharacterData.js';
 
-        const payload: DMContextPayload = {
-            worldName: session.name,
-            biome: 'Crypt / Dungeon',
-            chaosLevel: session.chaos_level,
-            characterName: character.name,
-            creatureType: character.creature_type,
-            currentAttributes: character,
-            playerInput: playerInput
-        };
+// Initialize Singleton Concordia Game Master
+const concordiaGM = new ConcordiaGameMaster(pool, process.env.GEMINI_API_KEY || '');
 
-        // 3. AI parsing
-        const dmResult = await processPlayerActionWithDM(payload);
-        const actionResult = dmResult.parsedCommand;
+function parseJsonField(val: any, fallback: any = []) {
+  if (!val) return fallback;
+  if (typeof val === 'object') return val;
+  try {
+    return JSON.parse(val);
+  } catch {
+    return fallback;
+  }
+}
 
-        let narrativeContext = dmResult.narrativeResponse;
-        
-        // 4. Mutate State in Database
-        if (actionResult.actionType === 'MOVEMENT') {
-            let dx = 0;
-            let dy = 0;
-            
-            switch (actionResult.direction) {
-                case 'N': dy = -1; break;
-                case 'S': dy = 1; break;
-                case 'E': dx = 1; break;
-                case 'W': dx = -1; break;
-                case 'NE': dx = 1; dy = -1; break;
-                case 'NW': dx = -1; dy = -1; break;
-                case 'SE': dx = 1; dy = 1; break;
-                case 'SW': dx = -1; dy = 1; break;
-                default: 
-                    // If no direction inferred, just don't move or pick random? Let's just default to not moving.
-                    break;
-            }
-            
-            let newX = character.grid_x + dx;
-            let newY = character.grid_y + dy;
-            
-            const mapWidth = 20;
-            const mapHeight = 15;
-            let transitioned = false;
-            let collision = false;
-            let collisionMsg = '';
+function enrichCharacter(p: any) {
+  if (!p) return null;
+  const weaponDef = getWeapon(p.equipped_weapon || 'Osmium Greatsword');
+  const armorDef = getArmor(p.equipped_armor || 'Juggernaut Osmium Plate');
 
-            // 4a. Check Local Collision before transitioning
-            if (newX >= 0 && newX < mapWidth && newY >= 0 && newY < mapHeight) {
-                // Check Map Walls
-                const mapRes = await pool.query('SELECT layout_data FROM interior_sub_maps WHERE sub_map_id = $1', [session.current_sub_map_id]);
-                if (mapRes.rows.length > 0) {
-                    const layout = typeof mapRes.rows[0].layout_data === 'string' ? JSON.parse(mapRes.rows[0].layout_data) : mapRes.rows[0].layout_data;
-                    const targetCell = layout.find((c: any) => c.x === newX && c.y === newY);
-                    if (targetCell && targetCell.terrain === 'WALL') {
-                        collision = true;
-                        collisionMsg = 'A solid barrier blocks your path.';
-                    }
-                }
-                
-                // Check NPCs
-                if (!collision) {
-                    const npcRes = await pool.query('SELECT name FROM npc_entities WHERE sub_map_id = $1 AND grid_x = $2 AND grid_y = $3 AND hp_current > 0', [session.current_sub_map_id, newX, newY]);
-                    if (npcRes.rows.length > 0) {
-                        collision = true;
-                        collisionMsg = `You bump into a ${npcRes.rows[0].name}.`;
-                    }
-                }
-            }
-            
-            if (collision) {
-                narrativeContext += `\n[Mechanics: Movement to (${newX}, ${newY}) failed. ${collisionMsg}]`;
-                // Revert to original position
-                newX = character.grid_x;
-                newY = character.grid_y;
-            } else if (newX < 0 || newX >= mapWidth || newY < 0 || newY >= mapHeight) {
-                transitioned = true;
-                
-                // Get current local cell coordinates (default to 50, 50 if missing)
-                let localX = 50, localY = 50;
-                const mapRes = await pool.query('SELECT local_id FROM interior_sub_maps WHERE sub_map_id = $1', [session.current_sub_map_id]);
-                if (mapRes.rows.length > 0 && mapRes.rows[0].local_id) {
-                    const localRes = await pool.query('SELECT local_x, local_y FROM local_cells WHERE local_id = $1', [mapRes.rows[0].local_id]);
-                    if (localRes.rows.length > 0) {
-                        localX = localRes.rows[0].local_x;
-                        localY = localRes.rows[0].local_y;
-                    }
-                }
+  const stats = {
+    might: p.might || 1,
+    endurance: p.endurance || 1,
+    finesse: p.finesse || 1,
+    reflex: p.reflex || 1,
+    vitality: p.vitality || 1,
+    fortitude: p.fortitude || 1,
+    knowledge: p.knowledge || 1,
+    logic: p.logic || 1,
+    awareness: p.awareness || 1,
+    intuition: p.intuition || 1,
+    charm: p.charm || 1,
+    willpower: p.willpower || 1
+  };
 
-                // Adjust Local Grid Coordinates and Wrap Ground Level
-                if (newX < 0) { localX -= 1; newX = mapWidth - 1; }
-                if (newX >= mapWidth) { localX += 1; newX = 0; }
-                if (newY < 0) { localY -= 1; newY = mapHeight - 1; }
-                if (newY >= mapHeight) { localY += 1; newY = 0; }
+  const derived = calcDerivedStats(stats);
+  const unlockedPerks = getUnlockedPerks(stats);
 
-                // Upsert new local cell
-                let newLocalId = null;
-                const existingLocal = await pool.query('SELECT local_id FROM local_cells WHERE local_x = $1 AND local_y = $2', [localX, localY]);
-                
-                if (existingLocal.rows.length > 0) {
-                    newLocalId = existingLocal.rows[0].local_id;
-                } else {
-                    const insertLocal = await pool.query(
-                        "INSERT INTO local_cells (regional_id, local_x, local_y, elevation, ecological_vector) VALUES (1, $1, $2, 0.0, '{}') RETURNING local_id", 
-                        [localX, localY]
-                    );
-                    newLocalId = insertLocal.rows[0].local_id;
-                }
+  return {
+    ...p,
+    passive_traits: parseJsonField(p.passive_traits, []),
+    skills: parseJsonField(p.skills, []),
+    mastery_perks: parseJsonField(p.mastery_perks, unlockedPerks),
+    weapon_stat: weaponDef.stat,
+    weapon_mod: weaponDef.mod,
+    weapon_damage_bonus: weaponDef.damageBonus,
+    weapon_metal: weaponDef.conductorMetal,
+    weapon_tags: weaponDef.tags,
+    weapon_desc: weaponDef.description,
+    armor_stat: armorDef.stat,
+    armor_mod: armorDef.mod,
+    armor_dr: armorDef.damageReduction,
+    armor_metal: armorDef.conductorMetal,
+    armor_tags: armorDef.tags,
+    armor_desc: armorDef.description,
+    derived_stats: derived
+  };
+}
 
-                // Get or Generate Sub Map
-                let newMapId = null;
-                const existingMap = await pool.query('SELECT sub_map_id FROM interior_sub_maps WHERE local_id = $1', [newLocalId]);
-                if (existingMap.rows.length > 0) {
-                    newMapId = existingMap.rows[0].sub_map_id;
-                } else {
-                    const { generateSubMapInterior } = require('../engine/subMapEngine');
-                    newMapId = await generateSubMapInterior({
-                        localId: newLocalId,
-                        width: mapWidth,
-                        height: mapHeight
-                    });
-                }
+/**
+ * GET /character/options - Returns full catalogue of Kingdoms, Species Lineages, Institutions, Weapons, Armors, Skills, and Mastery Perks
+ */
+router.get('/character/options', (req, res) => {
+  try {
+    res.json({
+      kingdoms: KINGDOMS,
+      lineages: LINEAGES,
+      institutions: INSTITUTIONS,
+      mainTypes: MAIN_TYPES,
+      subTypes: SUB_TYPES,
+      finalTypes: FINAL_TYPES,
+      powerNullTracks: POWER_NULL_TRACKS,
+      offenseSkills: OFFENSE_SKILLS,
+      defenseSkills: DEFENSE_SKILLS,
+      weapons: STAT_WEAPON_GROUPS,
+      armors: STAT_ARMOR_GROUPS,
+      skills: SKILL_DB,
+      masteryPerks: MASTERY_PERKS
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
-                // Update session to new map
-                await pool.query('UPDATE game_sessions SET current_sub_map_id = $1 WHERE session_id = $2', [newMapId, sessionId]);
-                narrativeContext += `\n[Simulation: Transitioned to Local Cell (${localX}, ${localY})]`;
-            }
+/**
+ * GET /player - Returns player character sheet with 12-stat equipment enrichment
+ */
+router.get('/player', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM sim_player_character ORDER BY id ASC LIMIT 1');
+    if (result.rows.length === 0) return void res.status(404).json({ error: 'Player not found' });
+    res.json(enrichCharacter(result.rows[0]));
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
-            // Update player coordinates
-            await pool.query(
-                'UPDATE player_characters SET grid_x = $1, grid_y = $2 WHERE character_id = $3',
-                [newX, newY, characterId]
-            );
-            
-            if (!transitioned) {
-                narrativeContext += `\n[Mechanics: Moved to position (${newX}, ${newY})]`;
-            } else {
-                narrativeContext += `\n[Mechanics: You walked off the edge of the current map and entered a new area!]`;
-            }
-        } 
-        else if (actionResult.actionType === 'ATTACK') {
-            const targetName = actionResult.targetName;
-            if (targetName) {
-                const npcRes = await pool.query('SELECT * FROM npc_entities WHERE name = $1 AND sub_map_id = $2', [targetName, session.current_sub_map_id]);
-                if (npcRes.rows.length > 0) {
-                    const npc = npcRes.rows[0];
-                    const might = character.might || 0;
-                    const roll = Math.floor(Math.random() * 20) + 1 + might;
-                    
-                    if (roll > 10) {
-                        const damage = might * 2;
-                        const newHp = npc.hp_current - damage;
-                        
-                        if (newHp <= 0) {
-                            await pool.query('DELETE FROM npc_entities WHERE name = $1 AND sub_map_id = $2', [npc.name, session.current_sub_map_id]);
-                            narrativeContext += `\n[Mechanics: Rolled ${roll}. Hit ${npc.name} for ${damage} damage! ${npc.name} defeated!]`;
-                        } else {
-                            await pool.query('UPDATE npc_entities SET hp_current = $1 WHERE name = $2 AND sub_map_id = $3', [newHp, npc.name, session.current_sub_map_id]);
-                            narrativeContext += `\n[Mechanics: Rolled ${roll}. Hit ${npc.name} for ${damage} damage!]`;
-                        }
-                    } else {
-                        narrativeContext += `\n[Mechanics: Rolled ${roll}. Missed ${npc.name}!]`;
-                    }
-                } else {
-                    narrativeContext += `\n[Mechanics: Target ${targetName} not found.]`;
-                }
-            } else {
-                narrativeContext += `\n[Mechanics: No attack target specified.]`;
-            }
-        }
-        else if (actionResult.actionType === 'SKILL_CHECK' || actionResult.actionType === 'CAST_POWER') {
-            const statUsed = actionResult.targetAttribute?.toLowerCase() || 'might';
-            const statValue = character[statUsed] || 10;
-            const roll = Math.floor(Math.random() * 20) + 1;
-            const success = (roll + statValue) >= 15;
-            
-            // Deduct stamina or focus
-            const resource = character.type === 'Attuned' ? 'focus_current' : 'stamina_current';
-            const cost = 5;
-            const currentRes = character[resource] || 50;
-            const newRes = Math.max(0, currentRes - cost);
-            
-            await pool.query(`UPDATE player_characters SET ${resource} = $1 WHERE character_id = $2`, [newRes, characterId]);
-            narrativeContext += `\n[Mechanics: Rolled a ${roll} + ${statValue} ${statUsed}. ${success ? "Success!" : "Failure."} Cost ${cost} ${resource}]`;
-        }
+/**
+ * POST /character/roll - Generates species-attuned 12-stat attributes & equipment preview
+ */
+router.post('/character/roll', (req, res) => {
+  try {
+    const rolled = buildOstrakaCustomCharacter(req.body || {});
+    const weaponDef = getWeapon(rolled.equippedWeapon);
+    const armorDef = getArmor(rolled.equippedArmor);
+    res.json({
+      ...rolled,
+      weapon_stat: weaponDef.stat,
+      weapon_mod: weaponDef.mod,
+      weapon_damage_bonus: weaponDef.damageBonus,
+      weapon_metal: weaponDef.conductorMetal,
+      weapon_tags: weaponDef.tags,
+      weapon_desc: weaponDef.description,
+      armor_stat: armorDef.stat,
+      armor_mod: armorDef.mod,
+      armor_dr: armorDef.damageReduction,
+      armor_metal: armorDef.conductorMetal,
+      armor_tags: armorDef.tags,
+      armor_desc: armorDef.description
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
-        // 5. Return response
-        res.json({
-            success: true,
-            message: "Action processed successfully",
-            response: {
-                parsedAction: actionResult,
-                narrativeResponse: narrativeContext,
-                mechanicalContext: narrativeContext
-            }
-        });
-    } catch (error: any) {
-        console.error("AI DM Interaction Error:", error);
-        res.status(500).json({ error: error.message });
+/**
+ * POST /character/create - Creates and stores a new character
+ */
+router.post('/character/create', async (req, res) => {
+  try {
+    const {
+      name, kingdom, lineage, species, institution,
+      mainType, subType, finalType,
+      powerNullTrack, offenseSkill, defenseSkill,
+      might, endurance, finesse, reflex, vitality, fortitude,
+      knowledge, logic, awareness, intuition, charm, willpower,
+      equippedWeapon, equippedArmor,
+      passiveTraits, skills, masteryPerks
+    } = req.body;
+
+    const charName = (name && name.trim()) || 'Ostraka Wanderer';
+    const charKingdom = kingdom || 'Mammal';
+    const charLineage = lineage || 'Ursine';
+    const charSpecies = species || 'Bear-Folk';
+    const charInstitution = institution || 'Mass';
+    const charMainType = mainType || 'Titan';
+    const charSubType = subType || 'Arcanist';
+    const charFinalType = finalType || 'Vanguard';
+    const charTrack = powerNullTrack || 'Mass Track';
+    const charOffense = offenseSkill || 'Shatter Impact';
+    const charDefense = defenseSkill || 'Brace Impact';
+
+    const m = Number(might) || 1;
+    const e = Number(endurance) || 1;
+    const f = Number(finesse) || 1;
+    const r = Number(reflex) || 1;
+    const v = Number(vitality) || 1;
+    const fort = Number(fortitude) || 1;
+    const k = Number(knowledge) || 1;
+    const l = Number(logic) || 1;
+    const aw = Number(awareness) || 1;
+    const it = Number(intuition) || 1;
+    const ch = Number(charm) || 1;
+    const w = Number(willpower) || 1;
+
+    const stats = { might: m, endurance: e, finesse: f, reflex: r, vitality: v, fortitude: fort, knowledge: k, logic: l, awareness: aw, intuition: it, charm: ch, willpower: w };
+    const derived = calcDerivedStats(stats);
+
+    const wpn = (equippedWeapon && equippedWeapon.trim()) || 'Osmium Greatsword';
+    const arm = (equippedArmor && equippedArmor.trim()) || 'Juggernaut Osmium Plate';
+
+    const traitsJson = JSON.stringify(passiveTraits || []);
+    const skillsJson = JSON.stringify(skills || []);
+    const perksJson = JSON.stringify(masteryPerks || getUnlockedPerks(stats));
+
+    const checkRes = await pool.query('SELECT id FROM sim_player_character ORDER BY id ASC LIMIT 1');
+    let charRow;
+    if (checkRes.rows.length > 0) {
+      const updateRes = await pool.query(`
+        UPDATE sim_player_character SET
+          name = $1, kingdom = $2, lineage = $3, species = $4, institution = $5,
+          might = $6, endurance = $7, finesse = $8, reflex = $9, vitality = $10, fortitude = $11,
+          knowledge = $12, logic = $13, awareness = $14, intuition = $15, charm = $16, willpower = $17,
+          current_hp = $18, max_hp = $18, composure = $19, stamina_max = $20, focus_max = $21,
+          phys_defense = $22, speed = $23,
+          passive_traits = $24, skills = $25, mastery_perks = $26,
+          equipped_weapon = $27, equipped_armor = $28,
+          main_type = $29, sub_type = $30, final_type = $31,
+          power_null_track = $32, offense_skill = $33, defense_skill = $34,
+          gold = 50, inventory = '[]'::jsonb, xp = 0, level = 1, current_quest_beat = 0
+        WHERE id = $35
+        RETURNING *
+      `, [
+        charName, charKingdom, charLineage, charSpecies, charInstitution,
+        m, e, f, r, v, fort, k, l, aw, it, ch, w,
+        derived.maxHp, derived.maxComposure, derived.maxStamina, derived.maxFocus,
+        derived.physDefense, derived.speed,
+        traitsJson, skillsJson, perksJson,
+        wpn, arm,
+        charMainType, charSubType, charFinalType,
+        charTrack, charOffense, charDefense,
+        checkRes.rows[0].id
+      ]);
+      charRow = updateRes.rows[0];
+    } else {
+      const insertRes = await pool.query(`
+        INSERT INTO sim_player_character (
+          name, kingdom, lineage, species, institution,
+          might, endurance, finesse, reflex, vitality, fortitude,
+          knowledge, logic, awareness, intuition, charm, willpower,
+          current_hp, max_hp, composure, stamina_max, focus_max,
+          phys_defense, speed,
+          passive_traits, skills, mastery_perks,
+          equipped_weapon, equipped_armor,
+          main_type, sub_type, final_type,
+          power_null_track, offense_skill, defense_skill,
+          gold, inventory, xp, level, current_quest_beat
+        ) VALUES (
+          $1, $2, $3, $4, $5,
+          $6, $7, $8, $9, $10, $11,
+          $12, $13, $14, $15, $16, $17,
+          $18, $18, $19, $20, $21,
+          $22, $23,
+          $24, $25, $26,
+          $27, $28,
+          $29, $30, $31,
+          $32, $33, $34,
+          50, '[]'::jsonb, 0, 1, 0
+        )
+        RETURNING *
+      `, [
+        charName, charKingdom, charLineage, charSpecies, charInstitution,
+        m, e, f, r, v, fort, k, l, aw, it, ch, w,
+        derived.maxHp, derived.maxComposure, derived.maxStamina, derived.maxFocus,
+        derived.physDefense, derived.speed,
+        traitsJson, skillsJson, perksJson,
+        wpn, arm,
+        charMainType, charSubType, charFinalType,
+        charTrack, charOffense, charDefense
+      ]);
+      charRow = insertRes.rows[0];
     }
+
+    res.json({ success: true, character: enrichCharacter(charRow) });
+  } catch (err: any) {
+    console.error('Character creation error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /save - Saves full game state to PostgreSQL slot
+ */
+router.post('/save', async (req, res) => {
+  try {
+    const { slotName, characterData, worldPos, storyState } = req.body;
+    const now = new Date();
+    const defaultName = `Save - ${now.toLocaleDateString()} ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    const sName = (slotName && slotName.trim()) || defaultName;
+    const playerId = characterData?.id || 1;
+
+    const saveRes = await pool.query(`
+      INSERT INTO sim_game_saves (slot_name, player_id, character_data, world_pos, story_state, updated_at)
+      VALUES ($1, $2, $3, $4, $5, NOW())
+      RETURNING id, slot_name, created_at, updated_at
+    `, [sName, playerId, JSON.stringify(characterData || {}), JSON.stringify(worldPos || {}), JSON.stringify(storyState || {})]);
+
+    res.json({ success: true, save: saveRes.rows[0] });
+  } catch (err: any) {
+    console.error('Save error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /saves - Retrieves all saved game slots
+ */
+router.get('/saves', async (req, res) => {
+  try {
+    const savesRes = await pool.query(`
+      SELECT id, slot_name, player_id,
+             character_data->>'name' as player_name,
+             character_data->>'level' as player_level,
+             character_data->>'current_hp' as player_hp,
+             character_data->>'max_hp' as player_max_hp,
+             character_data->>'gold' as player_gold,
+             character_data->>'equipped_weapon' as equipped_weapon,
+             character_data->>'equipped_armor' as equipped_armor,
+             world_pos, story_state->'activeBeat'->>'title' as quest_title,
+             created_at, updated_at
+      FROM sim_game_saves
+      ORDER BY updated_at DESC
+    `);
+    res.json({ success: true, saves: savesRes.rows });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /load/:id - Loads a game save and restores player & story state
+ */
+router.post('/load/:id', async (req, res) => {
+  try {
+    const saveId = req.params.id;
+    const saveRes = await pool.query('SELECT * FROM sim_game_saves WHERE id = $1', [saveId]);
+    if (saveRes.rows.length === 0) return void res.status(404).json({ error: 'Save slot not found' });
+
+    const save = saveRes.rows[0];
+    const charData = typeof save.character_data === 'string' ? JSON.parse(save.character_data) : save.character_data;
+    const worldPos = typeof save.world_pos === 'string' ? JSON.parse(save.world_pos) : save.world_pos;
+    const storyState = typeof save.story_state === 'string' ? JSON.parse(save.story_state) : save.story_state;
+
+    if (charData) {
+      await pool.query(`
+        UPDATE sim_player_character SET
+          name = COALESCE($1, name),
+          might = COALESCE($2, might), endurance = COALESCE($3, endurance),
+          finesse = COALESCE($4, finesse), reflex = COALESCE($5, reflex),
+          vitality = COALESCE($6, vitality), fortitude = COALESCE($7, fortitude),
+          knowledge = COALESCE($8, knowledge), logic = COALESCE($9, logic),
+          awareness = COALESCE($10, awareness), intuition = COALESCE($11, intuition),
+          charm = COALESCE($12, charm), willpower = COALESCE($13, willpower),
+          current_hp = COALESCE($14, current_hp), max_hp = COALESCE($15, max_hp),
+          equipped_weapon = COALESCE($16, equipped_weapon), equipped_armor = COALESCE($17, equipped_armor),
+          gold = COALESCE($18, gold), inventory = $19::jsonb, xp = COALESCE($20, xp), level = COALESCE($21, level)
+        WHERE id = 1
+      `, [
+        charData.name, charData.might, charData.endurance, charData.finesse, charData.reflex,
+        charData.vitality, charData.fortitude, charData.knowledge, charData.logic, charData.awareness,
+        charData.intuition, charData.charm, charData.willpower, charData.current_hp, charData.max_hp,
+        charData.equipped_weapon, charData.equipped_armor, charData.gold,
+        JSON.stringify(charData.inventory || []), charData.xp, charData.level
+      ]);
+    }
+
+    if (storyState) {
+      concordiaGM.restoreState(storyState);
+    }
+
+    const playerRes = await pool.query('SELECT * FROM sim_player_character ORDER BY id ASC LIMIT 1');
+    const enriched = enrichCharacter(playerRes.rows[0]);
+
+    res.json({
+      success: true,
+      character: enriched,
+      worldPos,
+      storyState
+    });
+  } catch (err: any) {
+    console.error('Load error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * DELETE /saves/:id - Deletes a game save slot
+ */
+router.delete('/saves/:id', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM sim_game_saves WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /state - Returns active grounded entities, props, and WhatELSE campaign state
+ */
+router.get('/state', (req, res) => {
+  try {
+    const entities = concordiaGM.getActiveEntities();
+    res.json(entities);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /sector_load - Initializes WhatELSE story beat and Concordia world injection for sector
+ */
+router.post('/sector_load', async (req, res) => {
+  try {
+    const { context } = req.body;
+    const injected = concordiaGM.loadSector(context || {
+      cellId: 13408,
+      biomeName: 'Wetland Swamp',
+      isWarzone: false,
+      isFamine: true,
+      chaosRadiation: 0.2,
+      infrastructureMask: 8
+    });
+
+    res.json({
+      success: true,
+      beat: injected.activeBeat,
+      props: injected.props.map(p => ({
+        id: p.id,
+        name: p.name,
+        pos: p.pos,
+        tags: Array.from(p.tags),
+        hp: p.hp,
+        maxHp: p.maxHp,
+        isDestroyed: p.isDestroyed
+      })),
+      npcs: injected.npcs,
+      campaignState: concordiaGM.getStoryEngine().getCampaignState()
+    });
+  } catch (e: any) {
+    console.error('Sector load error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /scene - Generates opening sensory arrival narration
+ */
+router.post('/scene', async (req, res) => {
+  try {
+    const { context } = req.body;
+    const beat = concordiaGM.getStoryEngine().getCampaignState().activeBeat;
+
+    const arrivalPrompt = `Sector: ${context?.sector || 'Unknown'}. Biome: ${context?.biome || 'Wilderness'}. Active Crisis: ${beat?.title || 'Unknown Quest'} - ${beat?.hook || ''}. Props in sight: ${(context?.props || []).join(', ')}. Entities: ${(context?.entities || []).join(', ')}.`;
+
+    const sceneText = await (concordiaGM as any).callGeminiWithFallback(
+      [{ role: 'user', parts: [{ text: arrivalPrompt }] }],
+      'You are the Concordia Game Master for a dark, atmospheric TTRPG. Describe the arrival into this tactical sector in 2-3 punchy, evocative sentences. Mention sensory details (weather, stench, sound) and visible landmarks or threats. End with an urgent prompt.',
+      250,
+      0.7
+    );
+
+    res.json({
+      success: true,
+      scene: sceneText || 'You arrive at the edge of the sector. The wind howls across the uneven ground. What do you do?'
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /action - The Full Concordia GM Execution Loop
+ */
+router.post('/action', async (req, res) => {
+  try {
+    const { actionText, playerId, playerPos } = req.body as {
+      actionText: string;
+      playerId?: number;
+      playerPos?: [number, number];
+    };
+
+    const result = await concordiaGM.executeTurn({
+      actionText,
+      playerId: playerId || 1,
+      playerPos: playerPos || [128, 128]
+    });
+
+    res.json(result);
+  } catch (e: any) {
+    console.error('Action turn error:', e);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 export default router;
