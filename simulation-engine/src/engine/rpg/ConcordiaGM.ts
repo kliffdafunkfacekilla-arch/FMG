@@ -469,14 +469,26 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
         const defMod: number = defArmor.mod;
 
         let advantageMod = 0;
+        if (player.difficulty === "casual") advantageMod += 3;
         if (targetNPC.tags?.includes("vulnerable") || targetNPC.tags?.includes("burning")) advantageMod += 2;
         if (targetNPC.tags?.includes("cover_heavy") || targetNPC.tags?.includes("unyielding")) advantageMod -= 2;
+
+        const playerSkillRanks: Record<string, number> = (typeof player.skill_ranks === 'object' && player.skill_ranks)
+          ? player.skill_ranks
+          : (typeof player.skill_ranks === 'string' ? JSON.parse(player.skill_ranks || '{}') : {});
+
+        const playerWeaponSpecRank = playerSkillRanks[`spec_weapon_${attackStatKey}`] || 0;
+        const playerArmorSpecRank = playerSkillRanks[`spec_armor_${playerArmor.stat}`] || 0;
 
         const combatRes = resolveOpposedCombat(
           playerAttackStatVal + advantageMod,
           attackMod,
           defStatVal,
-          defMod
+          defMod,
+          {
+            attackerWeaponSpecRank: playerWeaponSpecRank,
+            defenderArmorSpecRank: 0
+          }
         );
 
         hit = combatRes.hit;
@@ -505,7 +517,7 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
           Array.from(this.activeProps.values())
         );
 
-        systemLog = `[ATTACK (${attackStatKey.toUpperCase()} - ${playerWeapon.name}): ${combatRes.attackerTotal} vs DEFENSE (${defStatKey.toUpperCase()} - ${defArmor.name}): ${combatRes.defenderTotal} | ${hit ? "HIT" : "DEFLECTED"} | ${netInjury} Injury Points dealt] ${tagResult?.logs?.slice(1).join(" ") || ""}`.trim();
+        systemLog = `[ATTACK (${attackStatKey.toUpperCase()} - ${playerWeapon.name}${playerWeaponSpecRank > 0 ? ` [Spec R${playerWeaponSpecRank}]` : ''}): ${combatRes.attackerTotal} vs DEFENSE (${defStatKey.toUpperCase()} - ${defArmor.name}): ${combatRes.defenderTotal} | ${hit ? "HIT" : "DEFLECTED"} | ${netInjury} Injury Points dealt] ${tagResult?.logs?.slice(1).join(" ") || ""}`.trim();
 
         // NPC retaliation if still alive and hostile
         if (targetNPC.alive && targetNPC.disposition <= -1) {
@@ -515,10 +527,18 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
             npcAtkStatVal,
             defWeapon.mod,
             playerDefStatVal,
-            playerArmor.mod
+            playerArmor.mod,
+            {
+              attackerWeaponSpecRank: 0,
+              defenderArmorSpecRank: playerArmorSpecRank
+            }
           );
+
           if (retaliationRes.hit) {
-            const retaliationDmg = Math.max(1, retaliationRes.injuryPoints + defWeapon.damageBonus - playerArmor.damageReduction);
+            let retaliationDmg = Math.max(1, retaliationRes.injuryPoints + defWeapon.damageBonus - playerArmor.damageReduction);
+            if (player.difficulty === "casual") {
+              retaliationDmg = Math.max(1, Math.floor(retaliationDmg / 2));
+            }
             player.current_hp = Math.max(0, (player.current_hp || 14) - retaliationDmg);
             systemLog += ` | [RETALIATION (${defWeapon.stat.toUpperCase()} - ${defWeapon.name}): ${retaliationRes.attackerTotal} vs ${playerArmor.name} (${playerArmor.stat.toUpperCase()}): ${retaliationRes.defenderTotal} -> -${retaliationDmg} HP (${player.current_hp}/${player.max_hp})]`;
           } else {

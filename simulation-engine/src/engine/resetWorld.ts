@@ -310,7 +310,10 @@ CREATE TABLE IF NOT EXISTS sim_player_character (
     gold INT DEFAULT 50,
     inventory JSONB DEFAULT '[]'::jsonb,
     xp INT DEFAULT 0,
-    level INT DEFAULT 1
+    level INT DEFAULT 1,
+    skill_points INT DEFAULT 0,
+    skill_ranks JSONB DEFAULT '{}'::jsonb,
+    difficulty VARCHAR(20) DEFAULT 'survivor'
 );
 
 CREATE TABLE IF NOT EXISTS sim_game_saves (
@@ -320,8 +323,26 @@ CREATE TABLE IF NOT EXISTS sim_game_saves (
     character_data JSONB NOT NULL,
     world_pos JSONB NOT NULL,
     story_state JSONB NOT NULL,
+    difficulty VARCHAR(20) DEFAULT 'survivor',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sim_character_memorials (
+    id SERIAL PRIMARY KEY,
+    player_name VARCHAR(100) NOT NULL,
+    kingdom VARCHAR(50),
+    species VARCHAR(50),
+    lineage VARCHAR(50),
+    level INT DEFAULT 1,
+    gold INT DEFAULT 0,
+    equipped_weapon VARCHAR(100),
+    equipped_armor VARCHAR(100),
+    sector_x INT DEFAULT 0,
+    sector_y INT DEFAULT 0,
+    difficulty VARCHAR(20) DEFAULT 'hardcore',
+    cause_of_death TEXT DEFAULT 'Fell in combat',
+    fallen_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 `;
 

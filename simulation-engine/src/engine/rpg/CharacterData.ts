@@ -34,6 +34,150 @@ export const KINGDOMS: Record<string, V12Matrix> = {
   Plant:   { might: 4, endurance: 4, fortitude: 6, vitality: 3, reflex: 2, finesse: 5, intuition: 4, awareness: 2, willpower: 6, charm: 4, knowledge: 5, logic: 3 }
 };
 
+export const BODY_STAT_TO_KINGDOM: Record<string, string> = {
+  vitality: "Mammal",
+  endurance: "Reptile",
+  reflex: "Avian",
+  finesse: "Aquatic",
+  might: "Insect",
+  fortitude: "Plant"
+};
+
+export const KINGDOM_TO_BODY_STAT: Record<string, StatKey> = {
+  Mammal: "vitality",
+  Reptile: "endurance",
+  Avian: "reflex",
+  Aquatic: "finesse",
+  Insect: "might",
+  Plant: "fortitude"
+};
+
+export interface KingdomLore {
+  name: string;
+  stat: StatKey;
+  icon: string;
+  tagline: string;
+  desc: string;
+  statShiftHint: string;
+}
+
+export const KINGDOM_LORE: Record<string, KingdomLore> = {
+  Mammal: {
+    name: "Mammal",
+    stat: "vitality",
+    icon: "🐺",
+    tagline: "Warm-Blooded Endurance & Cellular Vigor",
+    desc: "Warm-blooded creatures with dense cellular recovery, visceral stamina, and deep social bonds. Masters of temperate forests, tundra, and open plains.",
+    statShiftHint: "+7 VITALITY boosts maximum HP recovery, organ resilience, and life force."
+  },
+  Reptile: {
+    name: "Reptile",
+    stat: "endurance",
+    icon: "🦎",
+    tagline: "Cold-Blooded Tenacity & Slow Metabolism",
+    desc: "Cold-blooded survivors with dermal heat storage, metabolic efficiency, and ancient patience. Impervious to starvation, fatigue, and environmental exhaustion.",
+    statShiftHint: "+7 ENDURANCE boosts prolonged stamina, siege grit, and physical marching reserves."
+  },
+  Avian: {
+    name: "Avian",
+    stat: "reflex",
+    icon: "🦅",
+    tagline: "Hollow-Boned Velocity & Supersonic Speed",
+    desc: "Aerodynamic masters with hollow bone lattice, 360-degree optic focus, and supersonic kinetic reaction time. Lords of heights, spires, and gale-force currents.",
+    statShiftHint: "+7 REFLEX boosts combat reaction beats, evasion velocity, and initiative."
+  },
+  Aquatic: {
+    name: "Aquatic",
+    stat: "finesse",
+    icon: "🐙",
+    tagline: "Hydrodynamic Fluidity & Precision Edge",
+    desc: "Fluid dwellers of abyssal trenches, reefs, and tidal rivers. Exceptional edge dexterity, mucosal slip, and baric equilibrium under crushing depths.",
+    statShiftHint: "+7 FINESSE boosts surgical edge precision, weapon balance, and weakpoint targeting."
+  },
+  Insect: {
+    name: "Insect",
+    stat: "might",
+    icon: "🦂",
+    tagline: "Chitinous Leverage & Hydraulic Power",
+    desc: "Hardened chitinous exoskeletons with hydraulic musculature capable of lifting ten times their body weight. Crushing power and subterranean hive discipline.",
+    statShiftHint: "+7 MIGHT boosts raw crushing impact, armor-breaking blows, and carry capacity."
+  },
+  Plant: {
+    name: "Plant",
+    stat: "fortitude",
+    icon: "🌲",
+    tagline: "Rooted Hardwood & Unshakable Bedrock",
+    desc: "Photosynthetic ancients anchored deep in bedrock. Ironwood dermal bark and fibrous sinew granting immunity to forced displacement, panic, and concussive shock.",
+    statShiftHint: "+7 FORTITUDE boosts structural bone density, trauma mitigation, and wound resistance."
+  }
+};
+
+export interface SubTypeLore {
+  name: string;
+  stat: StatKey;
+  icon: string;
+  tagline: string;
+  desc: string;
+  statShiftHint: string;
+}
+
+export const SUB_TYPE_LORE: Record<StatKey, SubTypeLore> = {
+  knowledge: {
+    name: "Arcanist",
+    stat: "knowledge",
+    icon: "📜",
+    tagline: "Scholar of Forgotten Runes & Antimagic Wards",
+    desc: "Deciphers ancient cosmic manuscripts, star-charts, and null glyphs to dismantle occult sorcery.",
+    statShiftHint: "+7 KNOWLEDGE boosts arcane spell defense, artifact activation, and lore deciphering."
+  },
+  logic: {
+    name: "Tactician",
+    stat: "logic",
+    icon: "📐",
+    tagline: "Cold Calculator of Trajectory & Geometry",
+    desc: "Analyzes battlefield geometry, ricochet vectors, and supply logistics with mathematical precision.",
+    statShiftHint: "+7 LOGIC boosts ranged trajectory precision, trap calculation, and critical angles."
+  },
+  awareness: {
+    name: "Watcher",
+    stat: "awareness",
+    icon: "👁️",
+    tagline: "Vigilant Sentry & Micro-Ambush Scout",
+    desc: "Never sleeps unprepared. Detects camouflaged stalkers, micro-ambushes, and concealed passages.",
+    statShiftHint: "+7 AWARENESS boosts danger detection range, ambush negation, and vision clarity."
+  },
+  intuition: {
+    name: "Seer",
+    stat: "intuition",
+    icon: "🔮",
+    tagline: "Premonitory Mystic & Danger Whisperer",
+    desc: "Attuned to temporal ripples, hair-trigger gut instincts, and omens of impending doom.",
+    statShiftHint: "+7 INTUITION boosts initiative rolls, premonitory reaction, and trap foresight."
+  },
+  charm: {
+    name: "Emissary",
+    stat: "charm",
+    icon: "👑",
+    tagline: "Magnetic Orator & Psychological Commander",
+    desc: "Bends enemy resolve through presence, commands squad morale, and navigates high-stakes intrigue.",
+    statShiftHint: "+7 CHARM boosts morale inspiration, intimidation checks, and barter margins."
+  },
+  willpower: {
+    name: "Zealot",
+    stat: "willpower",
+    icon: "🔥",
+    tagline: "Indomitable Soul & Sanity Bastion",
+    desc: "An unyielding mental fortress immune to psychological terror, madness, and psionic rupture.",
+    statShiftHint: "+7 WILLPOWER boosts composure defense, death saving throws, and psychic resistance."
+  },
+  might: { name: "Bruiser", stat: "might", icon: "⚔️", tagline: "Raw Power", desc: "Direct forceful intellect.", statShiftHint: "+7 Might." },
+  endurance: { name: "Drudge", stat: "endurance", icon: "🛡️", tagline: "Mental Fortitude", desc: "Patience and endurance.", statShiftHint: "+7 Endurance." },
+  finesse: { name: "Trickster", stat: "finesse", icon: "🗡️", tagline: "Deft Thoughts", desc: "Fast cunning thought.", statShiftHint: "+7 Finesse." },
+  reflex: { name: "Scout", stat: "reflex", icon: "⚡", tagline: "Rapid Mind", desc: "Speedy reflexes.", statShiftHint: "+7 Reflex." },
+  vitality: { name: "Survivor", stat: "vitality", icon: "❤️", tagline: "Tenacious Spirit", desc: "Will to survive.", statShiftHint: "+7 Vitality." },
+  fortitude: { name: "Ironbound", stat: "fortitude", icon: "🧱", tagline: "Solid Resolve", desc: "Solid resolve.", statShiftHint: "+7 Fortitude." }
+};
+
 export interface LineageDef {
   kingdom: string;
   name: string;
