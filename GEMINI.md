@@ -81,3 +81,30 @@ The project is split into a PostgreSQL-backed Node.js backend (`simulation-engin
 ### Frontend (`simulation-engine/src/observer/`)
 *   **`main.tsx`**: React DOM entry.
 *   **`Dashboard.tsx`**: The main live observer dashboard. Handles live polling, the MapCanvas WebGL/2D renderer, and the Event Stream.
+
+### Player Tactical Client (`player-client/src/`)
+*   **`App.tsx`**: Tactical 256x256 battlegrid, overworld border crossing, Character HUD, and Sector Survey & Telemetry HUD.
+*   **`audio/AudioManager.ts`**: Web Audio API synthesizer for ambient exploration, battle tracks, footsteps, and tactical SFX.
+
+---
+
+# TTRPG & TACTICAL RPG RULES: CONCORDIA & EMERGENCE
+
+## 1. Anti-Railroading & Simulation-Driven Encounters
+* **Never Hardcode Canned Quests or Encounters:** Encounters MUST NEVER be built using rigid switch-case quest chains (e.g., forcing a player to smash a blood altar, kill a specific cultist, or follow a 5-step checklist).
+* **Pure Simulation Emergence:** All tactical entities (wildlife, wayfarers, patrols, outlaws) and landmarks MUST be synthesized directly from live simulation variables:
+  * **Real Agents from `RegionalInstance`:** Roaming `Predator`, `Prey`, `Merchant`, `Patrol`, `Smuggler`, `Bandit`, and `Cannibal` agents dynamically instantiate into biome-specific fauna and NPCs with realistic 12-stat affinities and equipment.
+  * **Trophic Ecology:** Each of the 13 biomes dictates native predators (e.g. Bog Stalker, Briar Bear, Dune Scythe-Beetle), grazing wild game (e.g. Marsh Elk, Tundra Caribou), and forageable flora.
+  * **Real Infrastructure Masks:** Highways (`mask & 2`), Smuggler Routes (`mask & 4`), Ruins/Temples (`mask & 8/16`), Battlefields (`mask & 128`), and Refugee Camps (`mask & 32/64`) determine the presence of milestones, caches, sarcophagi, and barricades.
+  * **Living World Modifiers:** Burg famine spawns starving raiders; active faction war manifests vanguard skirmishers; chaos radiation creates eldritch anomalies.
+
+## 2. Sandbox Player Agency
+* The player is an explorer in an open-world simulation, never constrained by mandatory chore checklists.
+* Players are free to explore anywhere on the 256x256 grid, cross boundaries into adjacent sectors (Zelda-style regional border transitions), hunt wildlife, forage, trade with caravans, study ancient megaliths, or avoid combat completely.
+* The sidebar is a **Sector Survey & Telemetry HUD** displaying coordinates, biome, sovereignty, detected roaming life (click to target), and discovered landmarks—NEVER a restrictive quest gate.
+
+## 3. Concordia GM & 12-Stat Tag Matrix Engine
+* **12 Attributes:** Might, Endurance, Finesse, Reflex, Vitality, Fortitude, Knowledge, Logic, Awareness, Intuition, Charm, Willpower.
+* **Opposed 1d20 Resolution:** Rolls compare Attacker 1d20 + Stat + Mod vs. Defender 1d20 + Stat + Mod. Injury points scale dynamically based on the margin of success.
+* **Tag Matrix:** Environmental and physical interactions are governed by physical tags (`stone`, `wood`, `metal`, `fire`, `flammable`, `container`, `locked`, `beast`, `organic`). Actions cascade naturally through the tag system without hallucinations.
+

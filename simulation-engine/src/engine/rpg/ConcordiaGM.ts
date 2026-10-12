@@ -602,6 +602,18 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
       this.activeNPCs.delete(targetNPC.id);
     }
 
+    // If story beat completed, inject fresh props & NPCs for the newly activated quest beat
+    if (objectiveUpdate.beatCompleted) {
+      const newBeat = this.storyEngine.getCampaignState().activeBeat;
+      if (newBeat) {
+        const injected = this.storyEngine.injectWorldStateForBeat(newBeat);
+        this.activeProps.clear();
+        this.activeNPCs.clear();
+        injected.props.forEach(p => this.activeProps.set(p.id, p));
+        injected.npcs.forEach(n => this.activeNPCs.set(n.id, n));
+      }
+    }
+
     // Persist player stat mutations (HP, Gold, Inventory)
     if (lootAwarded?.item) {
       player.inventory = Array.isArray(player.inventory) ? player.inventory : [];
