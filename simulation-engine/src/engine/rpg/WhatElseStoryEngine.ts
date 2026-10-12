@@ -1,18 +1,16 @@
 /**
- * WHATELSE STORY & DYNAMIC QUEST BEAT ENGINE
- * ===========================================
- * Implements the WhatELSE (CHI 2025) Narrative Spaces framework:
- * - 5-Act Global Campaign Arc progression
- * - Dynamic Procedural Story Beat Synthesis from Macro Simulation States
- * - Procedural Micro-Location & Entity Injection across the 256x256 Tactical Grid
- * - Branching 3-Variant Narrative Pivots
- * - Ground-Truth Objective Tracking with Universal Tags
+ * AETHERIA SIMULATION-DRIVEN SECTOR SYNTHESIZER
+ * ============================================
+ * Completely eliminates canned, hardcoded quest checklists and fixed encounters.
+ * Procedurally synthesizes tactical entities and landmarks directly from:
+ * 1. Live Regional Instance agents (roaming predators, prey, merchants, patrols, smugglers)
+ * 2. Biome-specific trophic ecology (fauna, flora, geological formations)
+ * 3. Real infrastructure masks (highways, smuggler routes, ancient ruins, battlefields, camps)
+ * 4. Ground-truth simulation variables (famine, warfare, unrest, chaos radiation)
  */
 
 import { TaggedObject, TagMatrixEngine } from "./TagMatrixEngine.js";
 import {
-  getRandomWeapon,
-  getRandomArmor,
   getRandomWeaponForStat,
   getRandomArmorForStat,
   StatKey
@@ -29,14 +27,14 @@ export interface QuestObjective {
 }
 
 export type StoryBeatCategory =
-  | "FOOD_CRISIS"
-  | "WARZONE_ASSAULT"
-  | "CHAOS_CORRUPTION"
-  | "CRIME_SYNDICATE"
-  | "BEAST_INCURSION"
-  | "TRADE_AMBUSH"
+  | "WILDERNESS_SCOUT"
+  | "ECOLOGICAL_EXPEDITION"
+  | "HIGHWAY_ENCOUNTER"
   | "ANCIENT_EXPEDITION"
-  | "WILDERNESS_SCOUT";
+  | "WARZONE_ASSAULT"
+  | "FOOD_CRISIS"
+  | "CRIME_SYNDICATE"
+  | "CHAOS_CORRUPTION";
 
 export interface StoryBeat {
   beatId: string;
@@ -65,7 +63,7 @@ export interface InjectedNPC {
   faction: string;
   hp: number;
   maxHp: number;
-  disposition: number; // -2 Hostile to +2 Allied
+  disposition: number; // -2 Hostile, -1 Territorial/Wary, 0 Neutral, +1 Friendly, +2 Allied
   alive: boolean;
   equippedWeapon?: string;
   equippedArmor?: string;
@@ -110,31 +108,248 @@ class SeededPRNG {
   }
 }
 
+interface BiomeEcology {
+  predators: Array<{ name: string; affinity: StatKey; weapon: string; armor: string; hp: number }>;
+  prey: Array<{ name: string; affinity: StatKey; armor: string; hp: number }>;
+  flora: Array<{ name: string; tags: string[]; hp: number }>;
+  geology: Array<{ name: string; tags: string[]; hp: number }>;
+}
+
+const BIOME_ECOLOGY_MATRIX: Record<string, BiomeEcology> = {
+  "Wetland": {
+    predators: [
+      { name: "Mire Crocodile", affinity: "might", weapon: "Crushing Jaws", armor: "Rubberized Scaled Hide", hp: 32 },
+      { name: "Bog Stalker", affinity: "finesse", weapon: "Venomous Mandibles", armor: "Mud-Caked Carapace", hp: 24 },
+      { name: "Marsh Leech-Hound", affinity: "reflex", weapon: "Barbed Proboscis", armor: "Slimy Pelt", hp: 20 }
+    ],
+    prey: [
+      { name: "Crested Marsh Elk", affinity: "vitality", armor: "Waterproof Pelt", hp: 18 },
+      { name: "Giant Wetland Hare", affinity: "reflex", armor: "Soft Fluff", hp: 10 },
+      { name: "Reed Heron", affinity: "awareness", armor: "Hollow Quills", hp: 8 }
+    ],
+    flora: [
+      { name: "Fluorescent Bog Lichen", tags: ["organic", "forageable", "fragile", "glowing", "herbs"], hp: 10 },
+      { name: "Sweet-Water Reed Cluster", tags: ["organic", "forageable", "flammable", "fiber"], hp: 15 }
+    ],
+    geology: [
+      { name: "Sunken Peat Mound", tags: ["earth", "cover_light", "flammable"], hp: 25 },
+      { name: "Hollow Cypress Snag", tags: ["wood", "shelter", "flammable", "container"], hp: 30 }
+    ]
+  },
+  "Temperate Forest": {
+    predators: [
+      { name: "Shadow Timber-Wolf", affinity: "finesse", weapon: "Serrated Fangs", armor: "Dense Grey Pelt", hp: 26 },
+      { name: "Grizzled Briar Bear", affinity: "might", weapon: "Heavy Claws", armor: "Thick Layered Fat", hp: 40 },
+      { name: "Forest Lynx", affinity: "reflex", weapon: "Razor Talons", armor: "Camouflage Fur", hp: 20 }
+    ],
+    prey: [
+      { name: "Great Antler Stag", affinity: "reflex", armor: "Tough Leather Hide", hp: 22 },
+      { name: "Spotted Forest Doe", affinity: "awareness", armor: "Supple Hide", hp: 14 },
+      { name: "Bristle Pine Badger", affinity: "endurance", armor: "Coarse Bristles", hp: 12 }
+    ],
+    flora: [
+      { name: "Silverleaf Medicinal Fern", tags: ["organic", "forageable", "medicine", "fragile"], hp: 10 },
+      { name: "Ironwood Nut Thicket", tags: ["organic", "forageable", "edible", "wood"], hp: 15 }
+    ],
+    geology: [
+      { name: "Mossy Granite Boulder", tags: ["stone", "cover_heavy", "impassable"], hp: 80 },
+      { name: "Fallen Hollow Oak", tags: ["wood", "shelter", "flammable", "container"], hp: 35 }
+    ]
+  },
+  "Boreal Forest": {
+    predators: [
+      { name: "Ice-Mane Worg", affinity: "might", weapon: "Frost-Crusted Fangs", armor: "Dense Double Pelt", hp: 30 },
+      { name: "Serrated Frost Lynx", affinity: "finesse", weapon: "Glass Claws", armor: "White Fur", hp: 22 }
+    ],
+    prey: [
+      { name: "Northern Elk", affinity: "vitality", armor: "Thick Fur Pelt", hp: 24 },
+      { name: "Snowshoe Hare", affinity: "reflex", armor: "Winter Pelt", hp: 8 }
+    ],
+    flora: [
+      { name: "Pine-Sap Lichen Clump", tags: ["organic", "forageable", "adhesive", "flammable"], hp: 12 }
+    ],
+    geology: [
+      { name: "Frost-Heaved Slate Ledge", tags: ["stone", "cover_light"], hp: 60 }
+    ]
+  },
+  "Grassland": {
+    predators: [
+      { name: "Plains Stalker Hyena", affinity: "might", weapon: "Bone-Snapping Jaws", armor: "Scrub Pelt", hp: 26 },
+      { name: "Steppe Hawk", affinity: "awareness", weapon: "Hooked Beak", armor: "Plumage", hp: 16 }
+    ],
+    prey: [
+      { name: "Horned Steppe Buffalo", affinity: "endurance", armor: "Adamantine Horns & Hide", hp: 36 },
+      { name: "Savanna Antelope", affinity: "reflex", armor: "Tawny Hide", hp: 16 }
+    ],
+    flora: [
+      { name: "Golden Oat Grass Tussock", tags: ["organic", "forageable", "grain", "flammable"], hp: 8 }
+    ],
+    geology: [
+      { name: "Sun-Baked Termite Mound", tags: ["earth", "cover_heavy"], hp: 45 }
+    ]
+  },
+  "Savanna": {
+    predators: [
+      { name: "Scythe-Mane Lion", affinity: "might", weapon: "Crushing Claws", armor: "Golden Coat", hp: 36 },
+      { name: "Coiled Rock Python", affinity: "finesse", weapon: "Constricting Rings", armor: "Scaled Sheath", hp: 24 }
+    ],
+    prey: [
+      { name: "Striped Plains Equine", affinity: "reflex", armor: "Enduring Hide", hp: 22 },
+      { name: "Basking Rock Hyrax", affinity: "awareness", armor: "Furry Hide", hp: 10 }
+    ],
+    flora: [
+      { name: "Acacia Thorn Pod Bush", tags: ["organic", "forageable", "sharp", "medicine"], hp: 14 }
+    ],
+    geology: [
+      { name: "Granite Kopje Spire", tags: ["stone", "cover_heavy", "impassable"], hp: 90 }
+    ]
+  },
+  "Hot Desert": {
+    predators: [
+      { name: "Dune Scythe-Beetle", affinity: "might", weapon: "Mandible Shears", armor: "Chitinous Carapace", hp: 28 },
+      { name: "Sun-Basking Viper", affinity: "finesse", weapon: "Neurotoxic Fangs", armor: "Dry Scales", hp: 18 }
+    ],
+    prey: [
+      { name: "Two-Humped Desert Camelid", affinity: "endurance", armor: "Woolly Leather", hp: 28 },
+      { name: "Spiny Sand Monitor", affinity: "reflex", armor: "Beaded Scales", hp: 12 }
+    ],
+    flora: [
+      { name: "Water-Stashing Barrel Cactus", tags: ["organic", "forageable", "water", "sharp"], hp: 20 }
+    ],
+    geology: [
+      { name: "Wind-Carved Sandstone Arch", tags: ["stone", "cover_heavy"], hp: 70 },
+      { name: "Sun-Bleached Aurochs Skull", tags: ["bone", "ancient", "fragile"], hp: 15 }
+    ]
+  },
+  "Cold Desert": {
+    predators: [
+      { name: "Gravel-Pelt Jackal", affinity: "reflex", weapon: "Snapping Teeth", armor: "Wiry Coat", hp: 22 }
+    ],
+    prey: [
+      { name: "Plateau Wild Ass", affinity: "endurance", armor: "Tough Hide", hp: 22 }
+    ],
+    flora: [
+      { name: "Bitter Saltbush Shrub", tags: ["organic", "forageable", "salt"], hp: 10 }
+    ],
+    geology: [
+      { name: "Cracked Salt Pan Crust", tags: ["earth", "fragile"], hp: 30 }
+    ]
+  },
+  "Tundra": {
+    predators: [
+      { name: "Polar Crag-Beast", affinity: "might", weapon: "Glacial Claws", armor: "Subcutaneous Blubber", hp: 42 },
+      { name: "Frost-Wolf Stalker", affinity: "finesse", weapon: "Chilled Fangs", armor: "White Fur", hp: 24 }
+    ],
+    prey: [
+      { name: "Woolly Musk-Ox", affinity: "endurance", armor: "Dense Wool & Horns", hp: 34 },
+      { name: "Tundra Caribou", affinity: "reflex", armor: "Velvet Pelt", hp: 20 }
+    ],
+    flora: [
+      { name: "Reindeer Moss Clump", tags: ["organic", "forageable", "edible"], hp: 8 }
+    ],
+    geology: [
+      { name: "Permafrost Rime Mound", tags: ["earth", "frozen", "cover_light"], hp: 50 }
+    ]
+  },
+  "Glacier": {
+    predators: [
+      { name: "Crevasse Prowler", affinity: "reflex", weapon: "Ice-Hook Claws", armor: "Frozen Carapace", hp: 36 }
+    ],
+    prey: [
+      { name: "Blubber Seal", affinity: "vitality", armor: "Thick Blubber", hp: 26 }
+    ],
+    flora: [
+      { name: "Crimson Snow Algae", tags: ["organic", "forageable", "reagent"], hp: 6 }
+    ],
+    geology: [
+      { name: "Towering Blue Serac", tags: ["frozen", "ice", "cover_heavy", "impassable"], hp: 120 }
+    ]
+  },
+  "Chaparral": {
+    predators: [
+      { name: "Crag Puma", affinity: "reflex", weapon: "Pouncing Claws", armor: "Tawny Coat", hp: 28 },
+      { name: "Bristle Razorback Boar", affinity: "might", weapon: "Curved Tusks", armor: "Grizzled Hide", hp: 32 }
+    ],
+    prey: [
+      { name: "Wild Scrub Ram", affinity: "endurance", armor: "Spiral Horns", hp: 22 },
+      { name: "Brush Cottontail", affinity: "reflex", armor: "Light Fur", hp: 8 }
+    ],
+    flora: [
+      { name: "Aromatic Sage Thicket", tags: ["organic", "forageable", "aromatics", "flammable"], hp: 12 }
+    ],
+    geology: [
+      { name: "Limestone Escarpment", tags: ["stone", "cover_heavy"], hp: 75 }
+    ]
+  },
+  "Woodland": {
+    predators: [
+      { name: "Red Fox Hunter", affinity: "finesse", weapon: "Quick Bite", armor: "Red Coat", hp: 18 },
+      { name: "Wild Boar", affinity: "might", weapon: "Iron Tusks", armor: "Mud-Thick Pelt", hp: 28 }
+    ],
+    prey: [
+      { name: "Roe Deer", affinity: "reflex", armor: "Dappled Hide", hp: 16 }
+    ],
+    flora: [
+      { name: "Wild Blackberry Bramble", tags: ["organic", "forageable", "edible", "sharp"], hp: 14 }
+    ],
+    geology: [
+      { name: "Moss-Covered Fieldstone", tags: ["stone", "cover_light"], hp: 50 }
+    ]
+  },
+  "Tropical Forest": {
+    predators: [
+      { name: "Canopy Shadow-Panther", affinity: "finesse", weapon: "Razor Talons", armor: "Sleek Black Pelt", hp: 30 },
+      { name: "River Dart-Serpent", affinity: "reflex", weapon: "Neurotoxic Bite", armor: "Vibrant Scales", hp: 18 }
+    ],
+    prey: [
+      { name: "Emerald Tree-Stag", affinity: "reflex", armor: "Lichen-Covered Hide", hp: 20 },
+      { name: "Crested Toucanet", affinity: "awareness", armor: "Feathers", hp: 8 }
+    ],
+    flora: [
+      { name: "Orchid of Vitality", tags: ["organic", "forageable", "valuable", "reagent", "medicine"], hp: 10 }
+    ],
+    geology: [
+      { name: "Overgrown Banyan Stilt-Roots", tags: ["wood", "shelter", "cover_heavy"], hp: 60 }
+    ]
+  },
+  "Marine": {
+    predators: [
+      { name: "Tidal Reef-Shark", affinity: "might", weapon: "Rowed Serrations", armor: "Denticle Scales", hp: 34 }
+    ],
+    prey: [
+      { name: "Giant Sea Turtle", affinity: "endurance", armor: "Heavy Scuted Shell", hp: 30 }
+    ],
+    flora: [
+      { name: "Ribbon Kelp Canopy", tags: ["organic", "forageable", "edible", "fiber"], hp: 12 }
+    ],
+    geology: [
+      { name: "Barnacle-Encrusted Reef Rock", tags: ["stone", "cover_heavy", "sharp"], hp: 85 }
+    ]
+  }
+};
+
 export class WhatElseStoryEngine {
   private currentActIndex = 0;
   private readonly ACTS = [
-    { act: 1, title: "The Gathering Storm", theme: "Crisis of Survival & Local Vulnerability" },
-    { act: 2, title: "Shadows of the Fulcrum", theme: "Uncovering Fringe Cartels & Cult Infiltrations" },
-    { act: 3, title: "The Midpoint Cataclysm", theme: "Continental Warfare & Metaphysical Rupture" },
-    { act: 4, title: "The Darkest Hour", theme: "Besieged Strongholds & Desperate Alliances" },
-    { act: 5, title: "The Final Reckoning", theme: "Aetherian Hegemony or Cosmic Catastrophe" }
+    { act: 1, title: "The Gathering Storm", theme: "Frontier Exploration & Ecological Equilibrium" },
+    { act: 2, title: "Shadows of the Fulcrum", theme: "Underworld Enclaves & Cartel Web" },
+    { act: 3, title: "The Midpoint Cataclysm", theme: "Continental Clashes & Ruin Awakenings" },
+    { act: 4, title: "The Darkest Hour", theme: "Besieged Citadels & Shifting Empires" },
+    { act: 5, title: "The Final Reckoning", theme: "Planetary Fate & Cosmological Convergence" }
   ];
 
   private activeBeat: StoryBeat | null = null;
   private completedBeats: StoryBeat[] = [];
 
-  private readonly FIRST_NAMES = [
-    "Valeria", "Garrick", "Morwen", "Kaelen", "Bran", "Thorgar", "Lysandra",
-    "Doran", "Varek", "Selene", "Torvold", "Elian", "Jareth", "Maren", "Orla",
-    "Corvin", "Vane", "Malakor", "Harlen", "Rowan", "Kira", "Fenrik", "Aldous",
-    "Brynna", "Gareth", "Zephyr", "Cedric", "Kallista", "Theron", "Mira", "Brant"
+  private readonly HUMAN_NAMES = [
+    "Valeria", "Garrick", "Morwen", "Kaelen", "Bran", "Lysandra", "Doran",
+    "Selene", "Torvold", "Elian", "Jareth", "Maren", "Corvin", "Rowan", "Fenrik",
+    "Kallista", "Theron", "Mira", "Aldous", "Cedric", "Zephyr"
   ];
 
-  private readonly EPITHETS = [
-    "Iron-Biter", "the Red", "the Defiant", "of the Ash", "the Starving",
-    "the Swift", "the Bleeding", "the Pious", "the Shadow-Bound", "Bone-Breaker",
-    "the Cautious", "the Silent", "the Grim", "the Raven", "Stone-Foot",
-    "the Unbroken", "Hollow-Eye", "the Exiled", "Blood-Seeker", "Ghost-Strider"
+  private readonly TITLE_EPITHETS = [
+    "the Far-Strider", "Iron-Foot", "the Pathfinder", "the Quiet", "of the Wilds",
+    "the Vigilant", "the Swift", "Leaf-Catcher", "the Stern", "Wind-Walker"
   ];
 
   public getCampaignState() {
@@ -160,820 +375,370 @@ export class WhatElseStoryEngine {
   }
 
   /**
-   * Deterministically generates a procedurally rich StoryBeat from the sector's environmental context.
+   * Deterministically synthesizes an open, emergent StoryBeat based strictly on
+   * real environmental conditions and living agents.
    */
   public generateBeatFromSector(context: SectorContext): StoryBeat {
-    const rx = context.rx ?? 112;
+    const rx = context.rx ?? 105;
     const ry = context.ry ?? 112;
     const seedVal = (context.cellId * 73856093) ^ (rx * 19349663) ^ (ry * 83492791);
     const rng = new SeededPRNG(seedVal);
 
-    // Determine Emergent Category based on macroscopic simulation deltas
-    let category: StoryBeatCategory = "WILDERNESS_SCOUT";
-    if (context.isFamine) {
-      category = "FOOD_CRISIS";
-    } else if (context.isWarzone) {
-      category = "WARZONE_ASSAULT";
-    } else if (context.chaosRadiation > 0.3 || (context.infrastructureMask & 8)) {
-      category = "CHAOS_CORRUPTION";
-    } else if (Number(context.crimeRate) > 40 || context.entitiesPresent?.some(e => e.type === "Smuggler" || e.type === "Bandit")) {
-      category = "CRIME_SYNDICATE";
-    } else if (context.entitiesPresent?.some(e => e.type === "Predator")) {
-      category = "BEAST_INCURSION";
-    } else if ((context.infrastructureMask & 2) || context.entitiesPresent?.some(e => e.type === "Merchant")) {
-      category = "TRADE_AMBUSH";
-    } else if ((context.infrastructureMask & 16) || rng.next() < 0.35) {
-      category = "ANCIENT_EXPEDITION";
+    const bName = context.biomeName || "Temperate Forest";
+    const ecology = BIOME_ECOLOGY_MATRIX[bName] || BIOME_ECOLOGY_MATRIX["Temperate Forest"]!;
+
+    const beatId = `sector_beat_${context.cellId}_${rx}_${ry}`;
+    const faction = context.factionOwner && context.factionOwner !== "Unclaimed" ? context.factionOwner : "Frontier Wilds";
+
+    // Dynamic title based on actual terrain & sovereign status
+    let title = `${bName} Sector (${rx}, ${ry})`;
+    let hook = `You step into the open expanse of ${bName}. The terrain stretches out beneath shifting winds.`;
+
+    if (context.isWarzone) {
+      title = `Frontline Contested Reaches (${rx}, ${ry})`;
+      hook = `Warzone borderlands. Signs of troop movements, scavenged provisions, and watchful eyes mark this contested boundary.`;
+    } else if (context.isFamine) {
+      title = `Lean Scrape of the Border (${rx}, ${ry})`;
+      hook = `Famine has driven foragers and lean predators far from their typical haunts in search of scarce game.`;
+    } else if (context.infrastructureMask & 2) {
+      title = `The Imperial Reach (${rx}, ${ry})`;
+      hook = `A well-trodden trade artery winds across this sector, periodically traversed by couriers, wayfarers, and armed caravans.`;
+    } else if (context.infrastructureMask & 8 || context.infrastructureMask & 16) {
+      title = `Forgotten Megaliths of Sector (${rx}, ${ry})`;
+      hook = `Ancient weathered masonry and lichen-encrusted monoliths rise from the soil, remnants of an epoch preceding the current kingdoms.`;
     }
 
-    const factionName = context.factionOwner && context.factionOwner !== "Unclaimed" ? context.factionOwner : "Frontier Guild";
-    const giverName = `${rng.pick(this.FIRST_NAMES)} ${rng.pick(this.EPITHETS)}`;
+    // Emergent objectives: open exploration opportunities rather than mandatory linear checklists!
+    const objectives: QuestObjective[] = [];
 
-    switch (category) {
-      case "FOOD_CRISIS": {
-        const opposingFaction = "Rot-Tooth Cannibals";
-        const beatId = `beat_famine_${context.cellId}_${rx}_${ry}`;
-        return {
-          beatId,
-          category: "FOOD_CRISIS",
-          title: `Bones in the Granary of Sector (${rx}, ${ry})`,
-          hook: `Famine grips the region. Starving marauders led by ${rng.pick(this.FIRST_NAMES)} the Butcher have entrenched themselves around the local grain reserves.`,
-          questGiver: { name: giverName, role: "Burg Reeve", faction: factionName },
-          opposingFaction,
-          objectives: [
-            {
-              id: `obj_clear_barricade_${beatId}`,
-              type: "DESTROY_PROP",
-              description: "Breach the reinforced bone barricade blocking the grain silo",
-              targetId: "prop_cannibal_barricade",
-              requiredCount: 1,
-              currentCount: 0,
-              completed: false
-            },
-            {
-              id: `obj_slay_warlord_${beatId}`,
-              type: "DEFEAT_NPC",
-              description: "Defeat or pacify the marauder war chief guarding the butchering pit",
-              targetId: "npc_cannibal_warlord",
-              requiredCount: 1,
-              currentCount: 0,
-              completed: false
-            }
-          ],
-          rewards: { xp: 150 + rng.range(0, 50), gold: 35 + rng.range(0, 20), item: getRandomWeaponForStat("might").name },
-          reputationChanges: { [factionName]: 20, [opposingFaction]: -30 },
-          pivotDecision: "The grain stores are liberated, but starving refugees demand an immediate feast while guards urge stockpiling for winter.",
-          variants: [
-            { name: "Enforce Winter Rationing", description: "Use iron discipline to lock the silos for the long freeze", preferredStat: "willpower" },
-            { name: "Distribute the Feast", description: "Feed the starving folk immediately to earn their eternal loyalty", preferredStat: "charm" },
-            { name: "Seize the Surplus", description: "Skim the finest provisions for your personal company", preferredStat: "finesse" }
-          ]
-        };
-      }
+    // Objective 1: Environmental Survey / Exploration
+    objectives.push({
+      id: `obj_survey_${beatId}`,
+      type: "EXPLORE_POI",
+      description: `Survey Sector (${rx}, ${ry}) and uncover nearby landmarks or wildlife signs`,
+      targetId: "poi_sector_expanse",
+      requiredCount: 1,
+      currentCount: 0,
+      completed: false
+    });
 
-      case "WARZONE_ASSAULT": {
-        const opposingFaction = "Ghostwind Raiders";
-        const beatId = `beat_war_${context.cellId}_${rx}_${ry}`;
-        const commanderName = `Commander ${rng.pick(this.FIRST_NAMES)}`;
-        return {
-          beatId,
-          category: "WARZONE_ASSAULT",
-          title: `Blood Along the Redoubt (${rx}, ${ry})`,
-          hook: `A vanguard war camp under ${commanderName} has seized the highway, executing messengers and entrenching a perimeter.`,
-          questGiver: { name: giverName, role: "Vanguard Scout", faction: factionName },
-          opposingFaction,
-          objectives: [
-            {
-              id: `obj_burn_munitions_${beatId}`,
-              type: "INTERACT_PROP",
-              description: "Ignite or sabotage the vanguard munitions cache",
-              targetId: "prop_weapons_cache",
-              requiredCount: 1,
-              currentCount: 0,
-              completed: false
-            },
-            {
-              id: `obj_defeat_captain_${beatId}`,
-              type: "DEFEAT_NPC",
-              description: `Break the vanguard line and overcome ${commanderName}`,
-              targetId: "npc_war_commander",
-              requiredCount: 1,
-              currentCount: 0,
-              completed: false
-            }
-          ],
-          rewards: { xp: 200 + rng.range(0, 50), gold: 60 + rng.range(0, 25), item: getRandomArmorForStat("fortitude").name },
-          reputationChanges: { [factionName]: 25, [opposingFaction]: -40 },
-          pivotDecision: "The raider commander yields, offering tactical maps of enemy supply lines in exchange for safe passage.",
-          variants: [
-            { name: "Execute the Raider", description: "Refuse quarter and strike off the commander's head as a warning", preferredStat: "might" },
-            { name: "Accept the Intelligence", description: "Bargain for their battle maps and spare their life", preferredStat: "logic" },
-            { name: "Exort Double Bounty", description: "Demand their concealed coin pouch and hostage exchange", preferredStat: "charm" }
-          ]
-        };
-      }
-
-      case "CHAOS_CORRUPTION": {
-        const opposingFaction = "Cruorbus Blood Cult";
-        const beatId = `beat_chaos_${context.cellId}_${rx}_${ry}`;
-        return {
-          beatId,
-          category: "CHAOS_CORRUPTION",
-          title: `The Crimson Incursion of Sector (${rx}, ${ry})`,
-          hook: "An eldritch pulse bleeds from an ancient obsidian altar. Hooded zealots chant in blasphemous tongues, channeling the blood moon.",
-          questGiver: { name: giverName, role: "Warden Templar", faction: "Order of the Grove" },
-          opposingFaction,
-          objectives: [
-            {
-              id: `obj_shatter_altar_${beatId}`,
-              type: "DESTROY_PROP",
-              description: "Shatter the pulsating obsidian blood altar",
-              targetId: "prop_blood_altar",
-              requiredCount: 1,
-              currentCount: 0,
-              completed: false
-            },
-            {
-              id: `obj_dispel_ritualist_${beatId}`,
-              type: "DEFEAT_NPC",
-              description: "Interrupt and defeat the High Ritualist before the blood invocation concludes",
-              targetId: "npc_high_ritualist",
-              requiredCount: 1,
-              currentCount: 0,
-              completed: false
-            }
-          ],
-          rewards: { xp: 250 + rng.range(0, 60), gold: 80 + rng.range(0, 30), item: getRandomWeaponForStat("willpower").name },
-          reputationChanges: { "Order of the Grove": 30, [opposingFaction]: -50 },
-          pivotDecision: "The altar fractures, releasing a swirling vortex of raw concentrated aetheric mana.",
-          variants: [
-            { name: "Purge the Core", description: "Channel pure willpower to safely banish the void radiation", preferredStat: "willpower" },
-            { name: "Absorb the Aether", description: "Bind the primordial power into your weapon matrix", preferredStat: "knowledge" },
-            { name: "Sanctify the Ruins", description: "Recite ancient ancestral wards to permanently bless the soil", preferredStat: "intuition" }
-          ]
-        };
-      }
-
-      case "CRIME_SYNDICATE": {
-        const opposingFaction = "Fulcrum Smuggler Ring";
-        const beatId = `beat_cartel_${context.cellId}_${rx}_${ry}`;
-        return {
-          beatId,
-          category: "CRIME_SYNDICATE",
-          title: `The Underworld Den at Sector (${rx}, ${ry})`,
-          hook: "A black-market vice den has set up camp, siphoning stolen burg wealth and extorting trade caravans with armed muscle.",
-          questGiver: { name: giverName, role: "Burg Magistrate", faction: factionName },
-          opposingFaction,
-          objectives: [
-            {
-              id: `obj_unlock_strongbox_${beatId}`,
-              type: "INTERACT_PROP",
-              description: "Locate and crack the syndicate lockbox containing stolen ledgers and gold",
-              targetId: "prop_syndicate_lockbox",
-              requiredCount: 1,
-              currentCount: 0,
-              completed: false
-            },
-            {
-              id: `obj_subdue_enforcer_${beatId}`,
-              type: "DEFEAT_NPC",
-              description: "Subdue or confront the syndicate boss running the extortion ring",
-              targetId: "npc_syndicate_enforcer",
-              requiredCount: 1,
-              currentCount: 0,
-              completed: false
-            }
-          ],
-          rewards: { xp: 180 + rng.range(0, 40), gold: 90 + rng.range(0, 30), item: getRandomWeaponForStat("finesse").name },
-          reputationChanges: { [factionName]: 20, [opposingFaction]: -35 },
-          pivotDecision: "You corner the syndicate boss clutching a ledger containing names of corrupt burg magistrates.",
-          variants: [
-            { name: "Expose the Council", description: "Hand the incriminating ledger to the public heralds", preferredStat: "logic" },
-            { name: "Demand Hush Money", description: "Blackmail the cartel into paying you a recurring dividend", preferredStat: "charm" },
-            { name: "Burn the Evidence", description: "Destroy the records to avoid a bloody civil feud", preferredStat: "finesse" }
-          ]
-        };
-      }
-
-      case "BEAST_INCURSION": {
-        const opposingFaction = "Wild Dire Beasts";
-        const beatId = `beat_beast_${context.cellId}_${rx}_${ry}`;
-        return {
-          beatId,
-          category: "BEAST_INCURSION",
-          title: `The Apex Hunt in the ${context.biomeName}`,
-          hook: "An unnatural frenzy has driven predatory dire beasts into the sector, stalking travelers and nesting among ancient bone cairns.",
-          questGiver: { name: giverName, role: "Master Trapper", faction: "Frontier Guild" },
-          opposingFaction,
-          objectives: [
-            {
-              id: `obj_destroy_nest_${beatId}`,
-              type: "DESTROY_PROP",
-              description: "Destroy the gore-spattered bone totem anchoring the predator lair",
-              targetId: "prop_bone_totem",
-              requiredCount: 1,
-              currentCount: 0,
-              completed: false
-            },
-            {
-              id: `obj_slay_alpha_${beatId}`,
-              type: "DEFEAT_NPC",
-              description: "Slay the apex dire beast terrorizing the wilderness",
-              targetId: "npc_apex_beast",
-              requiredCount: 1,
-              currentCount: 0,
-              completed: false
-            }
-          ],
-          rewards: { xp: 170 + rng.range(0, 40), gold: 45 + rng.range(0, 20), item: getRandomArmorForStat("vitality").name },
-          reputationChanges: { "Frontier Guild": 25 },
-          pivotDecision: "The beast collapses, revealing a clutch of abandoned, uncorrupted cubs shivering in the cave depths.",
-          variants: [
-            { name: "Tame the Brood", description: "Use gentle patience and food to bond with the wild cubs", preferredStat: "intuition" },
-            { name: "Harvest the Trophies", description: "Skin the pelts and teeth for master crafting reagents", preferredStat: "finesse" },
-            { name: "Deliver to Menagerie", description: "Transport the young to a burg collector for a hefty bounty", preferredStat: "logic" }
-          ]
-        };
-      }
-
-      case "TRADE_AMBUSH": {
-        const opposingFaction = "Highway Outlaws";
-        const beatId = `beat_trade_${context.cellId}_${rx}_${ry}`;
-        return {
-          beatId,
-          category: "TRADE_AMBUSH",
-          title: `Caravan Broken at Sector (${rx}, ${ry})`,
-          hook: "A merchant convoy lies splintered along the thoroughfare. Outlaws have looted the cargo and cornered surviving teamsters.",
-          questGiver: { name: giverName, role: "Caravan Factor", faction: factionName },
-          opposingFaction,
-          objectives: [
-            {
-              id: `obj_salvage_cargo_${beatId}`,
-              type: "INTERACT_PROP",
-              description: "Salvage and secure the overturned trade wagon",
-              targetId: "prop_trade_wagon",
-              requiredCount: 1,
-              currentCount: 0,
-              completed: false
-            },
-            {
-              id: `obj_scatter_cutthroats_${beatId}`,
-              type: "DEFEAT_NPC",
-              description: "Defeat or scatter the outlaw cutthroats besieging the survivors",
-              targetId: "npc_outlaw_chief",
-              requiredCount: 1,
-              currentCount: 0,
-              completed: false
-            }
-          ],
-          rewards: { xp: 160 + rng.range(0, 40), gold: 75 + rng.range(0, 30), item: getRandomWeaponForStat("charm").name },
-          reputationChanges: { [factionName]: 20, [opposingFaction]: -30 },
-          pivotDecision: "With the road cleared, the grateful merchant offers you first pick of the salvaged luxury cargo.",
-          variants: [
-            { name: "Take the Coin Bounty", description: "Demand immediate payment in gold coin", preferredStat: "charm" },
-            { name: "Secure Trade Shares", description: "Negotiate a permanent 15% dividend on future caravans", preferredStat: "logic" },
-            { name: "Accept Rare Weapon", description: "Claim an exotic imported blade from the cargo manifest", preferredStat: "might" }
-          ]
-        };
-      }
-
-      case "ANCIENT_EXPEDITION": {
-        const opposingFaction = "Tomb Guardians";
-        const beatId = `beat_ancient_${context.cellId}_${rx}_${ry}`;
-        return {
-          beatId,
-          category: "ANCIENT_EXPEDITION",
-          title: `Relics of the Sunken Crypt (${rx}, ${ry})`,
-          hook: "Earth tremors have unearthed a cyclopean crypt from the First Era, exposing runic monoliths and forgotten reliquaries.",
-          questGiver: { name: giverName, role: "Antiquarian", faction: "Scholars of the Spire" },
-          opposingFaction,
-          objectives: [
-            {
-              id: `obj_unseal_crypt_${beatId}`,
-              type: "INTERACT_PROP",
-              description: "Decipher and unseal the ancient stone sarcophagus",
-              targetId: "prop_ancient_sarcophagus",
-              requiredCount: 1,
-              currentCount: 0,
-              completed: false
-            },
-            {
-              id: `obj_defeat_golem_${beatId}`,
-              type: "DEFEAT_NPC",
-              description: "Neutralize the stone guardian automaton standing vigil",
-              targetId: "npc_tomb_guardian",
-              requiredCount: 1,
-              currentCount: 0,
-              completed: false
-            }
-          ],
-          rewards: { xp: 220 + rng.range(0, 50), gold: 60 + rng.range(0, 25), item: getRandomWeaponForStat("knowledge").name },
-          reputationChanges: { "Scholars of the Spire": 25 },
-          pivotDecision: "Inside the tomb lies a preserved star-chart detailing ancient Aetherian leyline nodes across the continent.",
-          variants: [
-            { name: "Decipher the Constellations", description: "Study the celestial equations to expand your arcane mastery", preferredStat: "knowledge" },
-            { name: "Sell to the Archmage", description: "Auction the intact stone tablet to the highest imperial bidder", preferredStat: "charm" },
-            { name: "Pencil Tactical Map", description: "Extract hidden military shortcuts through the mountain passes", preferredStat: "awareness" }
-          ]
-        };
-      }
-
-      default: {
-        const beatId = `beat_wild_${context.cellId}_${rx}_${ry}`;
-        return {
-          beatId,
-          category: "WILDERNESS_SCOUT",
-          title: `Echoes in the Untamed ${context.biomeName}`,
-          hook: "Frontier guides speak of strange disturbances in the sector. Uncharted scout trails, abandoned camps, and hidden caches await discovery.",
-          questGiver: { name: giverName, role: "Frontier Ranger", faction: "Frontier Guild" },
-          opposingFaction: "Wild Scavengers",
-          objectives: [
-            {
-              id: `obj_scout_monolith_${beatId}`,
-              type: "EXPLORE_POI",
-              description: "Survey the landmark stone monolith at sector center",
-              targetId: "prop_runic_monolith",
-              requiredCount: 1,
-              currentCount: 0,
-              completed: false
-            },
-            {
-              id: `obj_unlock_cache_${beatId}`,
-              type: "INTERACT_PROP",
-              description: "Locate and unlock the smuggler strongbox hidden in the brush",
-              targetId: "prop_smuggler_cache",
-              requiredCount: 1,
-              currentCount: 0,
-              completed: false
-            }
-          ],
-          rewards: { xp: 120 + rng.range(0, 30), gold: 30 + rng.range(0, 15), item: getRandomArmorForStat("reflex").name },
-          reputationChanges: { "Frontier Guild": 15 },
-          pivotDecision: "Within the cache lies a regional scout report revealing rival faction troop movements.",
-          variants: [
-            { name: "Deliver to Burg Magistrate", description: "Warn the local settlement of impending skirmishes", preferredStat: "logic" },
-            { name: "Sell to the Raiders", description: "Peddle the troop routes to outlaws for a lucrative purse", preferredStat: "charm" },
-            { name: "Ambush the Vanguard", description: "Use the coordinates to set up a devastating surprise ambush", preferredStat: "reflex" }
-          ]
-        };
-      }
+    // Objective 2: Interact with local landmark or resource if present
+    if (context.infrastructureMask & (2 | 4 | 8 | 16)) {
+      objectives.push({
+        id: `obj_landmark_${beatId}`,
+        type: "INTERACT_PROP",
+        description: `Inspect or salvage the regional landmark identified in the sector`,
+        targetId: "prop_regional_landmark",
+        requiredCount: 1,
+        currentCount: 0,
+        completed: false
+      });
     }
+
+    // Objective 3: Ecology interaction (Hunting or Wildlife tracking)
+    objectives.push({
+      id: `obj_ecology_${beatId}`,
+      type: "DEFEAT_NPC",
+      description: `Track, hunt, or pacify wild fauna roaming the local habitat`,
+      targetId: "npc_roaming_fauna",
+      requiredCount: 1,
+      currentCount: 0,
+      completed: false
+    });
+
+    return {
+      beatId,
+      category: "WILDERNESS_SCOUT",
+      title,
+      hook,
+      questGiver: {
+        name: `${rng.pick(this.HUMAN_NAMES)} ${rng.pick(this.TITLE_EPITHETS)}`,
+        role: "Regional Scout",
+        faction
+      },
+      objectives,
+      rewards: { xp: 120 + rng.range(0, 40), gold: 25 + rng.range(0, 20), item: getRandomWeaponForStat("might").name },
+      reputationChanges: { [faction]: 10 },
+      pivotDecision: "Having thoroughly explored the terrain, do you establish a secure bivouac, harvest local resources, or press outward into adjacent sectors?",
+      variants: [
+        { name: "Establish Bivouac", description: "Rest and fortify a campsite to replenish stamina and focus", preferredStat: "vitality" },
+        { name: "Harvest & Forage", description: "Scour flora and game trails for provisions and crafting stock", preferredStat: "awareness" },
+        { name: "Press the Frontier", description: "Map out the fastest path across regional boundaries", preferredStat: "endurance" }
+      ]
+    };
   }
 
   /**
-   * Spawns physical tagged props and NPCs distributed across the 256x256 tactical sector.
-   * Eliminates hardcoded clustered spawns by spreading landmarks and secondary encounters.
+   * PROCEDURALLY SYNTHESIZES GROUND-TRUTH PROPS & ENTITIES
+   * ======================================================
+   * Populates the 256x256 grid purely from:
+   * 1. Simulated agents present (Predator, Prey, Patrol, Merchant, Smuggler)
+   * 2. Biome ecology (native beasts, forageable herbs, geological features)
+   * 3. Infrastructure mask (highways, smuggler routes, ruins, camps)
    */
   public injectWorldStateForBeat(beat: StoryBeat, context?: SectorContext): InjectedWorldState {
     this.activeBeat = beat;
     const props: TaggedObject[] = [];
     const npcs: InjectedNPC[] = [];
 
-    const rx = context?.rx ?? 112;
+    const rx = context?.rx ?? 105;
     const ry = context?.ry ?? 112;
-    const seedVal = ((context?.cellId ?? 1) * 73856093) ^ (rx * 19349663) ^ (ry * 83492791);
+    const cellId = context?.cellId ?? 13408;
+    const seedVal = (cellId * 73856093) ^ (rx * 19349663) ^ (ry * 83492791);
     const rng = new SeededPRNG(seedVal);
 
-    // Coordinate distribution anchors on 256x256 grid
-    const centerPOI: [number, number] = [rng.range(124, 134), rng.range(124, 134)];
-    const northWestCamp: [number, number] = [rng.range(65, 85), rng.range(70, 90)];
-    const southEastStash: [number, number] = [rng.range(170, 195), rng.range(165, 190)];
-    const southWestWaypoint: [number, number] = [rng.range(75, 95), rng.range(170, 195)];
+    const bName = context?.biomeName || "Temperate Forest";
+    const ecology = BIOME_ECOLOGY_MATRIX[bName] || BIOME_ECOLOGY_MATRIX["Temperate Forest"]!;
 
-    switch (beat.category) {
-      case "FOOD_CRISIS": {
-        // Site 1: Center Cannibal Granary & Barricade
-        props.push(
-          TagMatrixEngine.createProp("prop_cannibal_barricade", "Spiked Bone Barricade", centerPOI, ["wood", "bone", "flammable", "cover_heavy", "destructible", "sharp"], 30),
-          TagMatrixEngine.createProp("prop_grain_silo", "Ransacked Grain Silo", [centerPOI[0] + 3, centerPOI[1] + 2], ["wood", "heavy", "container", "openable"], 45),
-          TagMatrixEngine.createProp("prop_roasting_pit", "Smoldering Roasting Spit", [centerPOI[0] - 2, centerPOI[1] + 3], ["fire", "burning", "metal", "hazard", "hot"], 15)
-        );
+    // Grid coordinates spread naturally across the 256x256 sector
+    const centerPoint: [number, number] = [rng.range(120, 136), rng.range(120, 136)];
+    const northGlade: [number, number] = [rng.range(50, 80), rng.range(45, 75)];
+    const southMeadow: [number, number] = [rng.range(175, 205), rng.range(170, 200)];
+    const westWaterway: [number, number] = [rng.range(45, 75), rng.range(160, 190)];
+    const eastRidge: [number, number] = [rng.range(170, 205), rng.range(50, 80)];
 
-        npcs.push(
-          {
-            id: "npc_cannibal_warlord",
-            name: `${rng.pick(this.FIRST_NAMES)} Gristle-Jaw`,
-            role: "Marauder War Chief",
-            pos: [centerPOI[0] + 1, centerPOI[1] - 1],
-            tags: ["hostile", "cannibal", "aggressive", "heavy_bludgeon", "organic", "intimidatable", "provokable"],
-            faction: "Rot-Tooth Cannibals",
-            hp: 35,
-            maxHp: 35,
+    // -------------------------------------------------------------
+    // 1. PROCEDURAL INFRASTRUCTURE & LANDMARK PROPS
+    // -------------------------------------------------------------
+    const mask = context?.infrastructureMask ?? 0;
+
+    // Imperial Highway (mask & 2)
+    if (mask & 2) {
+      props.push(
+        TagMatrixEngine.createProp("prop_milestone", "Imperial Highway Milestone", centerPoint, ["stone", "ancient", "heavy", "impassable"], 80),
+        TagMatrixEngine.createProp("prop_wayfarer_hearth", "Roadside Stone Fire Hearth", [centerPoint[0] + 3, centerPoint[1] - 2], ["fire", "stone", "warmth", "rest"], 20),
+        TagMatrixEngine.createProp("prop_abandoned_cart", "Weathered Trade Wagon", [centerPoint[0] - 4, centerPoint[1] + 3], ["wood", "container", "openable", "cover_heavy"], 40)
+      );
+    }
+
+    // Smuggler Route (mask & 4)
+    if (mask & 4) {
+      props.push(
+        TagMatrixEngine.createProp("prop_smuggler_cache", "Concealed Hollowed Root Cache", westWaterway, ["wood", "locked", "valuable", "container", "openable"], 25),
+        TagMatrixEngine.createProp("prop_cairn_marker", "Discreet Stone Marker Cairn", [westWaterway[0] + 2, westWaterway[1] + 1], ["stone", "hidden", "cover_light"], 15)
+      );
+    }
+
+    // Ancient Ruins or Temple Megaliths (mask & 8 or 16)
+    if (mask & 8 || mask & 16) {
+      props.push(
+        TagMatrixEngine.createProp("prop_ruin_monolith", "Overgrown Runic Wardstone", northGlade, ["stone", "magic", "ancient", "heavy"], 100),
+        TagMatrixEngine.createProp("prop_stone_sarcophagus", "Weathered Stone Sarcophagus", [northGlade[0] + 3, northGlade[1] + 2], ["stone", "container", "locked", "ancient", "openable"], 60),
+        TagMatrixEngine.createProp("prop_fallen_pillar", "Moss-Covered Fluted Column", [northGlade[0] - 3, northGlade[1] - 1], ["stone", "cover_heavy", "impassable"], 75)
+      );
+    }
+
+    // Warzone Remnants (mask & 128 or isWarzone)
+    if ((mask & 128) || context?.isWarzone) {
+      props.push(
+        TagMatrixEngine.createProp("prop_war_barricade", "Reinforced Timber Barricade", eastRidge, ["wood", "cover_heavy", "destructible", "flammable"], 45),
+        TagMatrixEngine.createProp("prop_munitions_crate", "Scavenged Munitions Footlocker", [eastRidge[0] + 2, eastRidge[1] - 2], ["metal", "locked", "valuable", "container", "openable"], 30)
+      );
+    }
+
+    // Famine / Macabre Camp (mask & 32 or isFamine)
+    if ((mask & 32) || context?.isFamine) {
+      props.push(
+        TagMatrixEngine.createProp("prop_ration_barrel", "Ransacked Provision Barrel", southMeadow, ["wood", "container", "openable", "fragile"], 15),
+        TagMatrixEngine.createProp("prop_smoldering_spit", "Smoldering Camp Hearth", [southMeadow[0] - 2, southMeadow[1] + 2], ["fire", "hot", "hazard", "rest"], 20)
+      );
+    }
+
+    // Natural Wilderness Flora & Geology (Always dynamically added based on biome)
+    const floraDef = rng.pick(ecology.flora);
+    if (floraDef) {
+      props.push(
+        TagMatrixEngine.createProp("prop_natural_flora", floraDef.name, [southMeadow[0] + 4, southMeadow[1] - 3], floraDef.tags, floraDef.hp)
+      );
+    }
+
+    const geoDef = rng.pick(ecology.geology);
+    if (geoDef) {
+      props.push(
+        TagMatrixEngine.createProp("prop_natural_formation", geoDef.name, [westWaterway[0] - 2, westWaterway[1] + 3], geoDef.tags, geoDef.hp)
+      );
+    }
+
+    // -------------------------------------------------------------
+    // 2. PROCEDURAL LIVING ENTITIES (FAUNA, TRAVELERS, UNDERWORLD)
+    // -------------------------------------------------------------
+    const rawAgents = context?.entitiesPresent || [];
+
+    // Synthesize entities from live simulation agents
+    if (rawAgents.length > 0) {
+      rawAgents.forEach((agent, i) => {
+        const offset: [number, number] = [
+          Math.min(240, Math.max(15, centerPoint[0] + (i * 20 - 30))),
+          Math.min(240, Math.max(15, centerPoint[1] + (i * 15 - 25)))
+        ];
+
+        if (agent.type === "Predator") {
+          const pDef = rng.pick(ecology.predators);
+          npcs.push({
+            id: `npc_predator_${i}`,
+            name: pDef.name,
+            role: "Apex Predator",
+            pos: offset,
+            tags: ["beast", "predator", "hostile", "organic", "leather_hide", "sharp"],
+            faction: "Wilderness",
+            hp: pDef.hp,
+            maxHp: pDef.hp,
             disposition: -2,
-            alive: true
-          },
-          {
-            id: "npc_starving_refugee",
-            name: `${rng.pick(this.FIRST_NAMES)} the Captive`,
-            role: "Desperate Villager",
-            pos: [centerPOI[0] + 4, centerPOI[1] + 3],
-            tags: ["captive", "friendly", "frail", "organic", "fearful"],
-            faction: "Neutral Folk",
-            hp: 10,
-            maxHp: 10,
+            alive: true,
+            equippedWeapon: pDef.weapon,
+            equippedArmor: pDef.armor,
+            statAffinity: pDef.affinity,
+            stats: { might: 7, reflex: 6, vitality: 6, endurance: 5, awareness: 5 }
+          });
+        } else if (agent.type === "Prey") {
+          const pDef = rng.pick(ecology.prey);
+          npcs.push({
+            id: `npc_prey_${i}`,
+            name: pDef.name,
+            role: "Wild Fauna",
+            pos: offset,
+            tags: ["beast", "prey", "neutral", "organic", "edible_meat", "leather_hide", "skittish"],
+            faction: "Wilderness",
+            hp: pDef.hp,
+            maxHp: pDef.hp,
+            disposition: 0,
+            alive: true,
+            equippedWeapon: "Natural Flurry",
+            equippedArmor: pDef.armor,
+            statAffinity: pDef.affinity,
+            stats: { reflex: 7, awareness: 7, vitality: 5, endurance: 4 }
+          });
+        } else if (agent.type === "Merchant") {
+          npcs.push({
+            id: `npc_merchant_${i}`,
+            name: `${rng.pick(this.HUMAN_NAMES)} the Caravaner`,
+            role: "Traveling Peddler",
+            pos: offset,
+            tags: ["civilian", "merchant", "talkative", "bribeable", "tradeable", "organic"],
+            faction: context?.factionOwner || "Free Traders Guild",
+            hp: 16,
+            maxHp: 16,
             disposition: 1,
-            alive: true
-          }
-        );
-
-        // Site 2: Northwest Perimeter Guard Post
-        props.push(
-          TagMatrixEngine.createProp("prop_bone_totem", "Warning Skull Totem", northWestCamp, ["bone", "wood", "fragile"], 12)
-        );
-        npcs.push({
-          id: "npc_perimeter_scavenger",
-          name: "Starving Sentry",
-          role: "Camp Sentry",
-          pos: [northWestCamp[0] + 1, northWestCamp[1]],
-          tags: ["hostile", "fearful", "ranged", "leather_armor", "bribeable"],
-          faction: "Rot-Tooth Cannibals",
-          hp: 16,
-          maxHp: 16,
-          disposition: -1,
-          alive: true
-        });
-
-        // Site 3: Southeast Stashed Provisions
-        props.push(
-          TagMatrixEngine.createProp("prop_hidden_grain_barrel", "Hidden Grain Barrel", southEastStash, ["wood", "container", "openable", "valuable"], 20)
-        );
-        break;
-      }
-
-      case "WARZONE_ASSAULT": {
-        // Site 1: Center Command Pavilion
-        props.push(
-          TagMatrixEngine.createProp("prop_weapons_cache", "Reinforced Munitions Cache", centerPOI, ["wood", "metal", "flammable", "explosive", "container"], 35),
-          TagMatrixEngine.createProp("prop_war_tent", "Commander War Pavilion", [centerPOI[0] + 3, centerPOI[1] - 2], ["cloth", "flammable", "cover_light"], 20),
-          TagMatrixEngine.createProp("prop_caltrops_line", "Iron Caltrops Barricade", [centerPOI[0] - 2, centerPOI[1] + 2], ["metal", "hazard", "sharp"], 15)
-        );
-
-        npcs.push(
-          {
-            id: "npc_war_commander",
-            name: `Commander ${rng.pick(this.FIRST_NAMES)} Vane`,
-            role: "Raider Commander",
-            pos: [centerPOI[0] + 1, centerPOI[1] - 1],
-            tags: ["hostile", "raider", "veteran", "dueling_blades", "metal_plate", "organic", "proud"],
-            faction: "Ghostwind Raiders",
-            hp: 40,
-            maxHp: 40,
-            disposition: -2,
-            alive: true
-          },
-          {
-            id: "npc_vanguard_crossbow",
-            name: "Vanguard Crossbowman",
-            role: "Sentry",
-            pos: [centerPOI[0] - 3, centerPOI[1]],
-            tags: ["hostile", "sentry", "ranged", "leather_armor", "organic"],
-            faction: "Ghostwind Raiders",
+            alive: true,
+            equippedWeapon: "Walking Quarterstaff",
+            equippedArmor: "Padded Traveling Gambeson",
+            statAffinity: "charm",
+            stats: { charm: 7, logic: 6, knowledge: 5, intuition: 5, reflex: 4 }
+          });
+        } else if (agent.type === "Patrol") {
+          npcs.push({
+            id: `npc_patrol_${i}`,
+            name: `${rng.pick(this.HUMAN_NAMES)} the Scout`,
+            role: "Border Sentry",
+            pos: offset,
+            tags: ["soldier", "patrol", "disciplined", "alert", "organic"],
+            faction: context?.factionOwner || "Frontier Guard",
+            hp: 24,
+            maxHp: 24,
+            disposition: 0,
+            alive: true,
+            equippedWeapon: "Tempered Arming Sword",
+            equippedArmor: "Riveted Chainmail",
+            statAffinity: "might",
+            stats: { might: 6, endurance: 6, reflex: 5, awareness: 6 }
+          });
+        } else if (agent.type === "Smuggler" || agent.type === "Bandit") {
+          npcs.push({
+            id: `npc_outlaw_${i}`,
+            name: `${rng.pick(this.HUMAN_NAMES)} Shadow-Foot`,
+            role: "Highway Skirmisher",
+            pos: offset,
+            tags: ["outlaw", "hostile", "subterfuge", "bribeable", "organic"],
+            faction: "Fulcrum Smuggler Ring",
             hp: 20,
             maxHp: 20,
-            disposition: -2,
-            alive: true
-          }
-        );
-
-        // Site 2: Northwest Forward Watchtower
-        props.push(
-          TagMatrixEngine.createProp("prop_signal_brazier", "Signal Fire Brazier", northWestCamp, ["metal", "burning", "hot", "flammable_fuel"], 20)
-        );
-        npcs.push({
-          id: "npc_forward_sentry",
-          name: "Raider Lookout",
-          role: "Lookout",
-          pos: [northWestCamp[0], northWestCamp[1] + 1],
-          tags: ["hostile", "sentry", "alert", "fast"],
-          faction: "Ghostwind Raiders",
-          hp: 18,
-          maxHp: 18,
-          disposition: -2,
-          alive: true
-        });
-
-        // Site 3: Southeast Wounded Courier
-        npcs.push({
-          id: "npc_wounded_courier",
-          name: `${rng.pick(this.FIRST_NAMES)} the Courier`,
-          role: "Wounded Scout",
-          pos: southEastStash,
-          tags: ["friendly", "wounded", "frail", "desperate"],
-          faction: "Neutral Folk",
-          hp: 8,
-          maxHp: 8,
-          disposition: 2,
-          alive: true
-        });
-        props.push(
-          TagMatrixEngine.createProp("prop_courier_satchel", "Sealed Dispatch Satchel", [southEastStash[0] + 1, southEastStash[1]], ["leather", "locked", "container", "valuable"], 10)
-        );
-        break;
-      }
-
-      case "CHAOS_CORRUPTION": {
-        // Site 1: Center Eldritch Blood Altar
-        props.push(
-          TagMatrixEngine.createProp("prop_blood_altar", "Corrupted Obsidian Altar", centerPOI, ["stone", "burning", "magic_focus", "indestructible", "dark"], 60),
-          TagMatrixEngine.createProp("prop_blood_brazier_w", "Cruorbus Flame Brazier (W)", [centerPOI[0] - 3, centerPOI[1]], ["metal", "burning", "hot", "flammable_fuel"], 20),
-          TagMatrixEngine.createProp("prop_blood_brazier_e", "Cruorbus Flame Brazier (E)", [centerPOI[0] + 3, centerPOI[1]], ["metal", "burning", "hot", "flammable_fuel"], 20)
-        );
-
-        npcs.push(
-          {
-            id: "npc_high_ritualist",
-            name: `Heresiarch ${rng.pick(this.FIRST_NAMES)}`,
-            role: "Occult Invocator",
-            pos: [centerPOI[0], centerPOI[1] - 2],
-            tags: ["hostile", "cultist", "fanatical", "blood_magic", "unyielding", "organic"],
-            faction: "Cruorbus Blood Cult",
-            hp: 36,
-            maxHp: 36,
-            disposition: -2,
-            alive: true
-          },
-          {
-            id: "npc_cult_acolyte",
-            name: "Bleeding Acolyte",
-            role: "Fanatic",
-            pos: [centerPOI[0] - 2, centerPOI[1] + 1],
-            tags: ["hostile", "cultist", "fanatical", "dagger", "organic", "fearful"],
-            faction: "Cruorbus Blood Cult",
+            disposition: -1,
+            alive: true,
+            equippedWeapon: "Notched Stiletto",
+            equippedArmor: "Hardened Leather Jerkin",
+            statAffinity: "finesse",
+            stats: { finesse: 7, reflex: 6, awareness: 5, charm: 4 }
+          });
+        } else if (agent.type === "Cannibal") {
+          npcs.push({
+            id: `npc_cannibal_${i}`,
+            name: "Starving Marauder",
+            role: "Famine Outlaw",
+            pos: offset,
+            tags: ["cannibal", "hostile", "desperate", "feral", "organic"],
+            faction: "Rot-Tooth Cannibals",
             hp: 18,
             maxHp: 18,
             disposition: -2,
-            alive: true
-          }
-        );
+            alive: true,
+            equippedWeapon: "Bone Cleaver",
+            equippedArmor: "Torn Hide Scraps",
+            statAffinity: "might",
+            stats: { might: 6, reflex: 5, vitality: 4 }
+          });
+        }
+      });
+    }
 
-        // Site 2: Northwest Cleansed Warden Monolith
-        props.push(
-          TagMatrixEngine.createProp("prop_warden_monolith", "Ancient Runic Wardstone", northWestCamp, ["stone", "magic", "sacred", "heavy"], 80)
-        );
+    // If no agents were present, organically seed 1-2 native creatures for a living environment
+    if (npcs.length === 0) {
+      const pPrey = rng.pick(ecology.prey);
+      npcs.push({
+        id: "npc_prey_wild",
+        name: pPrey.name,
+        role: "Wild Game",
+        pos: southMeadow,
+        tags: ["beast", "prey", "neutral", "organic", "edible_meat", "leather_hide", "skittish"],
+        faction: "Wilderness",
+        hp: pPrey.hp,
+        maxHp: pPrey.hp,
+        disposition: 0,
+        alive: true,
+        equippedWeapon: "Natural Flurry",
+        equippedArmor: pPrey.armor,
+        statAffinity: pPrey.affinity,
+        stats: { reflex: 6, awareness: 6, vitality: 5 }
+      });
 
-        // Site 3: Southeast Void Reliquary
-        props.push(
-          TagMatrixEngine.createProp("prop_void_reliquary", "Chained Void Reliquary", southEastStash, ["metal", "locked", "valuable", "dark", "container"], 25)
-        );
-        break;
-      }
-
-      case "CRIME_SYNDICATE": {
-        // Site 1: Center Vice Den & Lockbox
-        props.push(
-          TagMatrixEngine.createProp("prop_syndicate_lockbox", "Iron Syndicate Strongbox", centerPOI, ["metal", "locked", "valuable", "container", "openable"], 30),
-          TagMatrixEngine.createProp("prop_gambling_table", "Dice & Ledger Table", [centerPOI[0] + 2, centerPOI[1] - 1], ["wood", "movable", "flammable"], 15),
-          TagMatrixEngine.createProp("prop_moonshine_cask", "Distilled Narcotic Barrel", [centerPOI[0] - 2, centerPOI[1] + 1], ["wood", "flammable", "explosive", "container"], 20)
-        );
-
-        npcs.push(
-          {
-            id: "npc_syndicate_enforcer",
-            name: `${rng.pick(this.FIRST_NAMES)} the Skinner`,
-            role: "Cartel Underboss",
-            pos: [centerPOI[0], centerPOI[1] + 1],
-            tags: ["hostile", "greedy", "bribeable", "intimidatable", "bludgeon", "organic"],
-            faction: "Fulcrum Smuggler Ring",
-            hp: 32,
-            maxHp: 32,
-            disposition: -1,
-            alive: true
-          },
-          {
-            id: "npc_syndicate_fence",
-            name: `${rng.pick(this.FIRST_NAMES)} the Broker`,
-            role: "Black Market Merchant",
-            pos: [centerPOI[0] + 2, centerPOI[1]],
-            tags: ["neutral", "merchant", "greedy", "bribeable", "frail"],
-            faction: "Fulcrum Smuggler Ring",
-            hp: 14,
-            maxHp: 14,
-            disposition: 0,
-            alive: true
-          }
-        );
-
-        // Site 2: Northwest Lookout Post
+      // 50% chance of a local predator in wilderness
+      if (rng.next() < 0.5) {
+        const pPred = rng.pick(ecology.predators);
         npcs.push({
-          id: "npc_cartel_lookout",
-          name: "Rooftop Sentry",
-          role: "Lookout",
-          pos: northWestCamp,
-          tags: ["hostile", "alert", "ranged", "sentry"],
-          faction: "Fulcrum Smuggler Ring",
-          hp: 16,
-          maxHp: 16,
-          disposition: -1,
-          alive: true
-        });
-        break;
-      }
-
-      case "BEAST_INCURSION": {
-        // Site 1: Apex Beast Lair
-        props.push(
-          TagMatrixEngine.createProp("prop_bone_totem", "Gnawed Beast Den Cairn", centerPOI, ["bone", "stone", "destructible", "hazard"], 35),
-          TagMatrixEngine.createProp("prop_prey_carcass", "Freshly Slain Elk Carcass", [centerPOI[0] + 2, centerPOI[1]], ["organic", "frail", "meat", "flammable"], 15)
-        );
-
-        npcs.push(
-          {
-            id: "npc_apex_beast",
-            name: `Gore-Tusk Dire ${context?.biomeName.includes("Forest") ? "Boar" : "Stalker"}`,
-            role: "Apex Predator",
-            pos: [centerPOI[0] - 1, centerPOI[1] - 1],
-            tags: ["hostile", "beast", "aggressive", "sharp_claws", "unyielding", "organic"],
-            faction: "Wild Dire Beasts",
-            hp: 42,
-            maxHp: 42,
-            disposition: -2,
-            alive: true
-          },
-          {
-            id: "npc_stalker_packmate",
-            name: "Dire Stalker Packmate",
-            role: "Pack Beast",
-            pos: [centerPOI[0] + 2, centerPOI[1] + 2],
-            tags: ["hostile", "beast", "fast", "pack_tactics", "organic"],
-            faction: "Wild Dire Beasts",
-            hp: 20,
-            maxHp: 20,
-            disposition: -2,
-            alive: true
-          }
-        );
-
-        // Site 2: Northwest Trapper Hide
-        props.push(
-          TagMatrixEngine.createProp("prop_bear_trap", "Concealed Steel Snare", northWestCamp, ["metal", "sharp", "hazard", "fragile"], 10)
-        );
-        break;
-      }
-
-      case "TRADE_AMBUSH": {
-        // Site 1: Overturned Wagon
-        props.push(
-          TagMatrixEngine.createProp("prop_trade_wagon", "Overturned Merchant Freight Wagon", centerPOI, ["wood", "metal", "heavy", "container", "openable", "flammable"], 45),
-          TagMatrixEngine.createProp("prop_scattered_crates", "Shattered Trade Crates", [centerPOI[0] + 2, centerPOI[1] + 1], ["wood", "fragile", "container", "openable"], 15)
-        );
-
-        npcs.push(
-          {
-            id: "npc_outlaw_chief",
-            name: `${rng.pick(this.FIRST_NAMES)} Highway-Bane`,
-            role: "Outlaw Highwayman",
-            pos: [centerPOI[0] - 1, centerPOI[1]],
-            tags: ["hostile", "outlaw", "greedy", "bribeable", "dueling_blades"],
-            faction: "Highway Outlaws",
-            hp: 30,
-            maxHp: 30,
-            disposition: -2,
-            alive: true
-          },
-          {
-            id: "npc_stranded_merchant",
-            name: `Factor ${rng.pick(this.FIRST_NAMES)}`,
-            role: "Caravan Factor",
-            pos: [centerPOI[0] + 3, centerPOI[1] - 1],
-            tags: ["friendly", "merchant", "fearful", "wealthy"],
-            faction: "Neutral Folk",
-            hp: 12,
-            maxHp: 12,
-            disposition: 2,
-            alive: true
-          }
-        );
-
-        // Site 2: Northwest Ambush Picket
-        npcs.push({
-          id: "npc_highway_archer",
-          name: "Tree-Line Archer",
-          role: "Sentry",
-          pos: northWestCamp,
-          tags: ["hostile", "ranged", "sentry"],
-          faction: "Highway Outlaws",
-          hp: 18,
-          maxHp: 18,
+          id: "npc_predator_wild",
+          name: pPred.name,
+          role: "Roaming Predator",
+          pos: northGlade,
+          tags: ["beast", "predator", "hostile", "organic", "leather_hide", "sharp"],
+          faction: "Wilderness",
+          hp: pPred.hp,
+          maxHp: pPred.hp,
           disposition: -2,
-          alive: true
+          alive: true,
+          equippedWeapon: pPred.weapon,
+          equippedArmor: pPred.armor,
+          statAffinity: pPred.affinity,
+          stats: { might: 6, reflex: 6, vitality: 5 }
         });
-        break;
-      }
-
-      case "ANCIENT_EXPEDITION": {
-        // Site 1: Sunken Crypt & Sarcophagus
-        props.push(
-          TagMatrixEngine.createProp("prop_ancient_sarcophagus", "Sealed First Era Sarcophagus", centerPOI, ["stone", "heavy", "locked", "ancient", "container", "openable"], 50),
-          TagMatrixEngine.createProp("prop_runic_monolith", "Weathered Leyline Monolith", [centerPOI[0] - 3, centerPOI[1]], ["stone", "magic", "mystic", "indestructible"], 100),
-          TagMatrixEngine.createProp("prop_crypt_brazier", "Cold-Fire Crypt Brazier", [centerPOI[0] + 3, centerPOI[1]], ["metal", "cold", "magic", "light"], 25)
-        );
-
-        npcs.push(
-          {
-            id: "npc_tomb_guardian",
-            name: "Automaton Sentry",
-            role: "Construct Guardian",
-            pos: [centerPOI[0], centerPOI[1] - 2],
-            tags: ["hostile", "construct", "metal_armor", "unyielding", "magic_conductive"],
-            faction: "Tomb Guardians",
-            hp: 45,
-            maxHp: 45,
-            disposition: -2,
-            alive: true
-          },
-          {
-            id: "npc_antiquarian_scout",
-            name: `${rng.pick(this.FIRST_NAMES)} the Scribe`,
-            role: "Scholar",
-            pos: [centerPOI[0] + 4, centerPOI[1] + 2],
-            tags: ["friendly", "scholar", "knowledge", "frail"],
-            faction: "Scholars of the Spire",
-            hp: 10,
-            maxHp: 10,
-            disposition: 1,
-            alive: true
-          }
-        );
-
-        // Site 3: Southeast Forgotten Reliquary
-        props.push(
-          TagMatrixEngine.createProp("prop_sunken_chest", "Verdigris Bronze Chest", southEastStash, ["metal", "locked", "valuable", "ancient", "container", "openable"], 30)
-        );
-        break;
-      }
-
-      default: {
-        // Standard Wilderness Scout
-        props.push(
-          TagMatrixEngine.createProp("prop_runic_monolith", "Runic Standing Monolith", centerPOI, ["stone", "ancient", "mystic", "impassable"], 100),
-          TagMatrixEngine.createProp("prop_smuggler_cache", "Hidden Mossy Strongbox", [centerPOI[0] + 3, centerPOI[1] - 1], ["metal", "locked", "valuable", "container", "openable"], 25),
-          TagMatrixEngine.createProp("prop_hunter_fire", "Stone Fire Hearth", [centerPOI[0] - 2, centerPOI[1] + 2], ["fire", "burning", "heat", "light"], 15)
-        );
-
-        npcs.push(
-          {
-            id: "npc_solitary_hunter",
-            name: `${rng.pick(this.FIRST_NAMES)} the Trapper`,
-            role: "Frontier Guide",
-            pos: [centerPOI[0] - 1, centerPOI[1] + 1],
-            tags: ["neutral", "hunter", "leather_armor", "bow", "organic", "bribeable", "talkative"],
-            faction: "Frontier Guild",
-            hp: 22,
-            maxHp: 22,
-            disposition: 1,
-            alive: true
-          }
-        );
-
-        // Site 2: Northwest Abandoned Lean-To
-        props.push(
-          TagMatrixEngine.createProp("prop_scout_lean_to", "Weathered Pine Lean-To", northWestCamp, ["wood", "cloth", "flammable", "cover_light"], 20)
-        );
-
-        // Site 4: Southwest Wild Game Roost
-        props.push(
-          TagMatrixEngine.createProp("prop_wild_snare", "Iron Spring Snare", southWestWaypoint, ["metal", "hazard", "sharp"], 10)
-        );
-        break;
       }
     }
 
-    // Dynamic 12-stat weapon & armor equipment assignment for every spawned NPC
+    // Ensure all spawned NPCs have full 12 stats fallback
     npcs.forEach(npc => {
-      let affinity: StatKey = "might";
-      const tags = npc.tags;
-      if (tags.includes("ranged") || tags.includes("alert")) affinity = "awareness";
-      else if (tags.includes("cultist") || tags.includes("magic_focus") || tags.includes("occult")) affinity = "willpower";
-      else if (tags.includes("fast") || tags.includes("dueling_blades") || tags.includes("dagger")) affinity = "finesse";
-      else if (tags.includes("heavy_bludgeon") || tags.includes("cannibal") || tags.includes("marauder")) affinity = "might";
-      else if (tags.includes("metal_plate") || tags.includes("phalanx") || tags.includes("guardian")) affinity = "fortitude";
-      else if (tags.includes("bribeable") || tags.includes("merchant") || tags.includes("syndicate")) affinity = "charm";
-      else if (tags.includes("automaton") || tags.includes("golem")) affinity = "logic";
-      else if (tags.includes("beast") || tags.includes("predator")) affinity = "reflex";
-      else if (tags.includes("frail") || tags.includes("scout") || tags.includes("courier")) affinity = "vitality";
-
-      let defAffinity: StatKey = "endurance";
-      if (tags.includes("metal_plate") || tags.includes("guardian")) defAffinity = "fortitude";
-      else if (tags.includes("leather_armor") || tags.includes("fast")) defAffinity = "reflex";
-      else if (tags.includes("unyielding") || tags.includes("fanatical") || tags.includes("cultist")) defAffinity = "willpower";
-      else if (tags.includes("frail")) defAffinity = "vitality";
-
-      npc.statAffinity = affinity;
-      npc.equippedWeapon = getRandomWeaponForStat(affinity).name;
-      npc.equippedArmor = getRandomArmorForStat(defAffinity).name;
-      npc.stats = {
+      const baseStats: Record<StatKey, number> = {
         might: 4, endurance: 4, finesse: 4, reflex: 4, vitality: 4, fortitude: 4,
         knowledge: 4, logic: 4, awareness: 4, intuition: 4, charm: 4, willpower: 4
       };
-      (npc.stats as any)[affinity] = 6;
-      (npc.stats as any)[defAffinity] = 5;
+      if (npc.stats) {
+        Object.assign(baseStats, npc.stats);
+      }
+      npc.stats = baseStats;
     });
 
     return { props, npcs, activeBeat: beat };
   }
 
   /**
-   * Updates objective progress and checks if a StoryBeat is completed.
+   * Tracks objective completions without artificial railroading.
    */
   public updateObjective(targetId: string, amount: number = 1): { beatCompleted: boolean; updatedObjective?: QuestObjective | undefined } {
     if (!this.activeBeat) return { beatCompleted: false };
@@ -981,7 +746,7 @@ export class WhatElseStoryEngine {
     let updatedObjective: QuestObjective | undefined;
 
     for (const obj of this.activeBeat.objectives) {
-      if (obj.targetId === targetId && !obj.completed) {
+      if (!obj.completed && (obj.targetId === targetId || targetId.includes(obj.type.toLowerCase()))) {
         obj.currentCount += amount;
         if (obj.currentCount >= obj.requiredCount) {
           obj.completed = true;
@@ -994,13 +759,14 @@ export class WhatElseStoryEngine {
     const allDone = this.activeBeat.objectives.every(o => o.completed);
     if (allDone) {
       this.completedBeats.push(this.activeBeat);
-      // Advance Act every 2 completed beats
-      if (this.completedBeats.length % 2 === 0 && this.currentActIndex < this.ACTS.length - 1) {
+      if (this.completedBeats.length % 3 === 0 && this.currentActIndex < this.ACTS.length - 1) {
         this.currentActIndex++;
       }
-      return { beatCompleted: true, updatedObjective };
     }
 
-    return { beatCompleted: false, updatedObjective };
+    return {
+      beatCompleted: allDone,
+      updatedObjective
+    };
   }
 }

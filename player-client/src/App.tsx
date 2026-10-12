@@ -117,20 +117,36 @@ export function getAnimalSpriteCoords(kingdom?: string, speciesName?: string, wa
 
 export function getNPCSpriteCoords(npc: InjectedNPC): { col: number; row: number } {
   const role = (npc.role || '').toLowerCase();
+  const name = (npc.name || '').toLowerCase();
 
-  if (role.includes('guard') || role.includes('soldier') || role.includes('knight')) {
+  // Apex Predators and dangerous beasts
+  if (role.includes('predator') || name.includes('croc') || name.includes('wolf') || name.includes('bear') || name.includes('panther') || name.includes('lion') || name.includes('worg') || name.includes('lynx')) {
+    if (name.includes('bear')) return { col: 4, row: 0 }; // Bear
+    if (name.includes('wolf') || name.includes('worg')) return { col: 0, row: 0 }; // Wolf
+    if (name.includes('cat') || name.includes('lion') || name.includes('panther') || name.includes('lynx') || name.includes('puma')) return { col: 12, row: 0 }; // Feline
+    return { col: 10, row: 10 }; // Croc / Reptile
+  }
+
+  // Grazing prey and wild fauna
+  if (role.includes('fauna') || role.includes('prey') || role.includes('game') || name.includes('elk') || name.includes('stag') || name.includes('deer') || name.includes('hare') || name.includes('rabbit') || name.includes('buffalo')) {
+    if (name.includes('hare') || name.includes('rabbit')) return { col: 8, row: 0 }; // Rabbit
+    if (name.includes('stag') || name.includes('elk') || name.includes('deer') || name.includes('buffalo')) return { col: 18, row: 0 }; // Stag
+    return { col: 0, row: 8 }; // Forest herbivore
+  }
+
+  if (role.includes('guard') || role.includes('soldier') || role.includes('knight') || role.includes('sentry') || role.includes('patrol')) {
     return { col: 4, row: 0 }; // Bear Knight
-  } else if (role.includes('bandit') || role.includes('thief') || role.includes('raider')) {
+  } else if (role.includes('bandit') || role.includes('thief') || role.includes('raider') || role.includes('outlaw') || role.includes('skirmisher') || role.includes('cannibal')) {
     return { col: 0, row: 0 }; // Wolf Brigand
   } else if (role.includes('cultist') || role.includes('priest') || role.includes('warlock')) {
     return { col: 14, row: 6 }; // Octopus Occultist
-  } else if (role.includes('merchant') || role.includes('trader')) {
+  } else if (role.includes('merchant') || role.includes('trader') || role.includes('peddler') || role.includes('caravan')) {
     return { col: 4, row: 4 }; // Owl Merchant
   } else if (role.includes('druid') || role.includes('herbalist')) {
     return { col: 0, row: 8 }; // Tree-Kin Druid
   } else if (role.includes('scholar') || role.includes('scribe')) {
     return { col: 0, row: 2 }; // Ant-Kin Scholar
-  } else if (role.includes('hunter') || role.includes('scout')) {
+  } else if (role.includes('hunter') || role.includes('scout') || role.includes('trapper')) {
     return { col: 8, row: 0 }; // Rabbit Scout
   } else if (npc.disposition < 0) {
     return { col: 10, row: 10 }; // Croc Barbarian
@@ -250,7 +266,6 @@ function App() {
 
   // View Tab: Tactical Battlegrid vs. World Map Reference
   const [activeCenterTab, setActiveCenterTab] = useState<'battlegrid' | 'worldMap'>('battlegrid');
-  const [worldRefData, setWorldRefData] = useState<any>(null);
 
   // Game Save & Character Creation Modals
   const [inStartMenu, setInStartMenu] = useState(true);
@@ -1262,11 +1277,6 @@ function App() {
       .then(r => r.json())
       .then(data => setOptionsData(data))
       .catch(() => {});
-
-    fetch('/world_reference.json')
-      .then(r => r.json())
-      .then(data => setWorldRefData(data))
-      .catch(() => {});
   }, []);
 
   // Initialize Backend & WhatELSE Sector
@@ -1599,11 +1609,23 @@ function App() {
     // 1. Render Injected Props with Pixel Art Sprites
     const getPropCoords = (name: string, tags: string[]): [number, number] => {
       const lower = name.toLowerCase();
-      if (tags.includes('fire') || tags.includes('burning') || lower.includes('fire') || lower.includes('torch') || lower.includes('campfire')) {
+      if (tags.includes('fire') || tags.includes('burning') || lower.includes('fire') || lower.includes('torch') || lower.includes('hearth') || lower.includes('spit') || lower.includes('campfire')) {
         return [4, 3]; // Campfire flame
       }
-      if (tags.includes('chest') || lower.includes('chest') || lower.includes('box')) {
+      if (tags.includes('chest') || lower.includes('chest') || lower.includes('box') || lower.includes('footlocker') || lower.includes('cache')) {
         return [0, 0]; // Wooden treasure chest
+      }
+      if (tags.includes('barrel') || lower.includes('barrel') || lower.includes('keg') || lower.includes('cask')) {
+        return [1, 0]; // Wooden barrel
+      }
+      if (tags.includes('flora') || tags.includes('herbs') || lower.includes('lichen') || lower.includes('flower') || lower.includes('fern') || lower.includes('plant') || lower.includes('reed')) {
+        return [3, 4]; // Wild flora / herbs
+      }
+      if (tags.includes('stone') || lower.includes('pillar') || lower.includes('monolith') || lower.includes('sarcophagus') || lower.includes('milestone') || lower.includes('cairn') || lower.includes('rock') || lower.includes('boulder')) {
+        return [8, 4]; // Ancient stone monument / megalith
+      }
+      if (tags.includes('wood') || lower.includes('wagon') || lower.includes('cart') || lower.includes('barricade') || lower.includes('trunk') || lower.includes('snag')) {
+        return [6, 2]; // Wooden wagon / barricade
       }
       if (tags.includes('altar') || lower.includes('altar') || lower.includes('shrine')) {
         return [10, 4]; // Sacred stone altar
@@ -1611,10 +1633,7 @@ function App() {
       if (tags.includes('door') || lower.includes('door') || lower.includes('gate')) {
         return [10, 0]; // Door
       }
-      if (lower.includes('barrel') || lower.includes('keg') || lower.includes('crate')) {
-        return [1, 0]; // Wooden barrel
-      }
-      if (tags.includes('magic') || lower.includes('crystal') || lower.includes('potion')) {
+      if (tags.includes('magic') || lower.includes('crystal') || lower.includes('wardstone')) {
         return [2, 5]; // Magic crystal
       }
       return [0, 0];
@@ -2157,62 +2176,154 @@ function App() {
               <div className="text-xs text-gray-400 italic animate-pulse">Loading hero profile...</div>
             )}
 
-            {/* WHATELSE CAMPAIGN OUTLINE & QUEST TRACKER */}
-            <div className="bg-gradient-to-b from-amber-950/50 to-gray-900 border border-amber-600/50 rounded-lg p-3 space-y-2 shadow">
-              <div className="flex justify-between items-center text-[10px] uppercase font-bold tracking-wider text-amber-400">
-                <span>{campaignState?.currentAct?.title || 'ACT 1: THE GATHERING STORM'}</span>
-                <span className="font-mono text-amber-300 bg-amber-900/60 px-1.5 py-0.5 rounded">
-                  ACT {campaignState?.actIndex || 1}/5
+            {/* SIMULATION SECTOR SURVEY & ENVIRONMENT TELEMETRY HUD */}
+            <div className="bg-gradient-to-b from-gray-900 via-gray-900 to-gray-950 border border-gray-700/80 rounded-xl p-3 space-y-2.5 shadow-lg">
+              {/* Header: Sector Coordinates, Biome & Sovereignty */}
+              <div className="flex justify-between items-center text-[10.5px] uppercase font-bold tracking-wider">
+                <span className="text-amber-400 flex items-center gap-1">
+                  <span>🌍</span> Sector ({regionalPos.rx}, {regionalPos.ry})
+                </span>
+                <span className="font-mono text-cyan-300 bg-cyan-950/80 border border-cyan-800 px-2 py-0.5 rounded text-[9.5px]">
+                  {getBiomeName(manifest?.global_context?.biome_id)}
                 </span>
               </div>
 
-              {activeBeat ? (
-                <>
-                  <div className="border-t border-amber-800/40 pt-1.5">
-                    <h4 className="text-xs font-bold text-white mb-0.5">{activeBeat.title}</h4>
-                    <p className="text-[11px] text-gray-300 italic mb-2 leading-tight">{activeBeat.hook}</p>
+              {/* Faction Sovereign & Environmental Status Badges */}
+              <div className="flex items-center gap-1.5 flex-wrap text-[9.5px] font-mono">
+                <span className="text-gray-300 bg-gray-800 px-1.5 py-0.5 rounded border border-gray-700">
+                  👑 {manifest?.global_context?.faction_owner && manifest?.global_context?.faction_owner !== 'Unclaimed' ? manifest.global_context.faction_owner : 'Wild Frontier'}
+                </span>
+                {manifest?.global_context?.isWarzone && (
+                  <span className="text-red-300 bg-red-950/80 border border-red-800 px-1.5 py-0.5 rounded font-bold">
+                    ⚔️ Warzone
+                  </span>
+                )}
+                {manifest?.global_context?.isFamine && (
+                  <span className="text-amber-300 bg-amber-950/80 border border-amber-800 px-1.5 py-0.5 rounded font-bold">
+                    🌾 Famine
+                  </span>
+                )}
+                {manifest?.environment?.chaos_radiation > 0.1 && (
+                  <span className="text-purple-300 bg-purple-950/80 border border-purple-800 px-1.5 py-0.5 rounded">
+                    🔮 Chaos: {Math.round(manifest.environment.chaos_radiation * 100)}%
+                  </span>
+                )}
+              </div>
 
-                    <div className="space-y-1.5">
-                      <div className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">Objectives:</div>
-                      {(activeBeat.objectives || []).map(obj => (
-                        <div key={obj.id} className="text-xs flex items-start gap-1.5 bg-black/40 p-1.5 rounded border border-gray-750">
-                          <span className={obj.completed ? 'text-emerald-400 font-bold' : 'text-gray-500'}>
-                            {obj.completed ? '✓' : '○'}
+              {/* Ambient Environmental Lore */}
+              {activeBeat?.hook && (
+                <div className="text-[11px] text-gray-300 italic border-l-2 border-amber-500/60 pl-2 py-0.5 bg-black/30 rounded-r">
+                  {activeBeat.hook}
+                </div>
+              )}
+
+              {/* Interactive Roaming Fauna & Wayfarers */}
+              <div className="space-y-1 pt-1 border-t border-gray-800">
+                <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-amber-400">
+                  <span>🐾 Roaming Fauna & Wayfarers</span>
+                  <span className="font-mono text-[9px] text-gray-400">{injectedNPCs.filter(n => n.alive).length} Detected</span>
+                </div>
+                <div className="space-y-1 max-h-32 overflow-y-auto pr-0.5">
+                  {injectedNPCs.filter(n => n.alive).map(npc => {
+                    const dist = Math.round(Math.hypot(npc.pos[0] - localPos.lx, npc.pos[1] - localPos.ly));
+                    const isTargeted = encounterTarget?.id === npc.id;
+                    const ringColor = npc.disposition < 0 ? 'text-red-400 border-red-800 bg-red-950/40' : npc.disposition > 0 ? 'text-emerald-400 border-emerald-800 bg-emerald-950/40' : 'text-sky-400 border-sky-800 bg-sky-950/40';
+                    return (
+                      <button
+                        type="button"
+                        key={npc.id}
+                        onClick={() => {
+                          setEncounterTarget(npc);
+                          setMessages(prev => [
+                            ...prev,
+                            { sender: 'Tactical Grid', text: `🎯 TARGET LOCKED: ${npc.name} (${npc.role}) [${dist} tiles away]. Readying actions!`, type: 'info' }
+                          ]);
+                        }}
+                        className={`w-full text-left p-1.5 rounded border transition flex items-center justify-between text-xs font-mono ${
+                          isTargeted ? 'bg-amber-950/60 border-amber-500 text-amber-200' : 'bg-black/40 border-gray-800 hover:border-gray-600 text-gray-200'
+                        }`}
+                        title="Click to target on battlegrid"
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className={`text-[10px] px-1 rounded border font-bold ${ringColor}`}>
+                            {npc.disposition < 0 ? 'Hostile' : npc.disposition > 0 ? 'Ally' : 'Neutral'}
                           </span>
-                          <span className={obj.completed ? 'line-through text-gray-500' : 'text-gray-200'}>
-                            {obj.description}
-                          </span>
+                          <span className="truncate font-semibold text-[11px]">{npc.name}</span>
                         </div>
-                      ))}
-                    </div>
+                        <div className="text-[10px] text-gray-400 shrink-0 font-mono">
+                          {dist}t • HP {npc.hp}/{npc.maxHp}
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {injectedNPCs.filter(n => n.alive).length === 0 && (
+                    <div className="text-[10.5px] text-gray-500 italic py-0.5">No active creatures roaming in immediate sight.</div>
+                  )}
+                </div>
+              </div>
 
-                    {/* WhatELSE Pivot Decision & Variants */}
-                    <div className="mt-2.5 pt-2 border-t border-amber-800/30">
-                      <div className="text-[10px] font-bold text-blue-300 uppercase tracking-wider mb-1">
-                        Path Decision:
-                      </div>
-                      <p className="text-[10px] text-gray-300 mb-2">{activeBeat.pivotDecision}</p>
+              {/* Interactive Detected Landmarks & Props */}
+              <div className="space-y-1 pt-1 border-t border-gray-800">
+                <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-amber-400">
+                  <span>📍 Discovered Landmarks & Props</span>
+                  <span className="font-mono text-[9px] text-gray-400">{injectedProps.filter(p => !p.isDestroyed).length} Present</span>
+                </div>
+                <div className="space-y-1 max-h-32 overflow-y-auto pr-0.5">
+                  {injectedProps.filter(p => !p.isDestroyed).map(prop => {
+                    const dist = Math.round(Math.hypot(prop.pos[0] - localPos.lx, prop.pos[1] - localPos.ly));
+                    const isTargeted = encounterTarget?.id === prop.id;
+                    const tags = Array.isArray(prop.tags) ? prop.tags : [];
+                    return (
+                      <button
+                        type="button"
+                        key={prop.id}
+                        onClick={() => {
+                          setEncounterTarget(prop);
+                          setMessages(prev => [
+                            ...prev,
+                            { sender: 'Tactical Grid', text: `🎯 TARGET LOCKED: ${prop.name} [${dist} tiles away]. Contextual actions ready!`, type: 'info' }
+                          ]);
+                        }}
+                        className={`w-full text-left p-1.5 rounded border transition flex items-center justify-between text-xs font-mono ${
+                          isTargeted ? 'bg-amber-950/60 border-amber-500 text-amber-200' : 'bg-black/40 border-gray-800 hover:border-gray-600 text-gray-200'
+                        }`}
+                        title="Click to target on battlegrid"
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-[10px] text-amber-400">🏛️</span>
+                          <span className="truncate font-semibold text-[11px]">{prop.name}</span>
+                        </div>
+                        <div className="text-[10px] text-gray-400 shrink-0 font-mono">
+                          {dist}t • [{tags.slice(0, 2).join(', ')}]
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {injectedProps.filter(p => !p.isDestroyed).length === 0 && (
+                    <div className="text-[10.5px] text-gray-500 italic py-0.5">No artificial landmarks nearby.</div>
+                  )}
+                </div>
+              </div>
 
-                      <div className="space-y-1">
-                        {(activeBeat.variants || []).map((v, idx) => (
-                          <button
-                            key={idx}
-                            onClick={() => triggerAction(`I choose to ${v.name}: ${v.description}`)}
-                            disabled={isActing}
-                            className="w-full text-left text-[11px] bg-gray-800/90 hover:bg-amber-950/80 text-amber-200 hover:text-white p-1.5 rounded border border-gray-700 hover:border-amber-500 transition flex justify-between items-center"
-                          >
-                            <span className="font-semibold">{v.name}</span>
-                            <span className="font-mono text-[9px] uppercase bg-gray-900 px-1 py-0.5 rounded text-amber-400">
-                              {v.preferredStat}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+              {/* Exploration Leads & Opportunities (Open, voluntary) */}
+              {activeBeat?.objectives && activeBeat.objectives.length > 0 && (
+                <div className="space-y-1 pt-1 border-t border-gray-800">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
+                    📜 Regional Leads & Discoveries
                   </div>
-                </>
-              ) : (
-                <div className="text-xs text-gray-400 italic">No active story beat in sector.</div>
+                  <div className="space-y-1">
+                    {activeBeat.objectives.map(obj => (
+                      <div key={obj.id} className="text-[11px] flex items-start gap-1.5 bg-black/30 p-1.5 rounded border border-gray-800">
+                        <span className={obj.completed ? 'text-emerald-400 font-bold' : 'text-amber-400'}>
+                          {obj.completed ? '✓' : '✦'}
+                        </span>
+                        <span className={obj.completed ? 'line-through text-gray-500' : 'text-gray-300'}>
+                          {obj.description}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
 
@@ -2563,19 +2674,17 @@ function App() {
                   })()}
                 </div>
 
-                {/* Footer Reference Legend */}
+                {/* Footer Legend */}
                 <div className="w-full bg-slate-900/95 border-t border-sky-950 px-4 py-2 flex items-center justify-between text-xs font-mono text-gray-400">
                   <div className="flex items-center gap-3">
                     <span className="text-gray-300 font-bold">LEGEND:</span>
-                    <span className="flex items-center gap-1 text-[11px]"><span className="w-2.5 h-2.5 rounded-sm bg-[#101828] border border-gray-700" /> Deep Ocean</span>
-                    <span className="flex items-center gap-1 text-[11px]"><span className="w-2.5 h-2.5 rounded-sm bg-[#46a758]" /> Deciduous / Wilds</span>
-                    <span className="flex items-center gap-1 text-[11px]"><span className="w-2.5 h-2.5 rounded-sm bg-[#fde047]" /> Arid Plains</span>
-                    <span className="flex items-center gap-1 text-[11px]"><span className="w-2.5 h-2.5 rounded-sm bg-[#0f766e]" /> Temperate Forest</span>
+                    <span className="flex items-center gap-1 text-[11px]"><span className="w-2.5 h-2.5 rounded-sm bg-[#101828] border border-gray-700" /> Ocean</span>
+                    <span className="flex items-center gap-1 text-[11px]"><span className="w-2.5 h-2.5 rounded-sm bg-[#46a758]" /> Wilds</span>
+                    <span className="flex items-center gap-1 text-[11px]"><span className="w-2.5 h-2.5 rounded-sm bg-[#fde047]" /> Plains</span>
+                    <span className="flex items-center gap-1 text-[11px]"><span className="w-2.5 h-2.5 rounded-sm bg-[#0f766e]" /> Forest</span>
                     <span className="flex items-center gap-1 text-[11px]"><span className="w-2.5 h-2.5 rounded-sm bg-[#f8fafc]" /> Glaciers</span>
                   </div>
-                  <div className="text-[11px] text-gray-400 italic">
-                    Static macro chart for navigational reference • Sub-scale detail unrendered
-                  </div>
+                  <span className="text-gray-400 font-semibold">Realm Map</span>
                 </div>
               </div>
             </div>
