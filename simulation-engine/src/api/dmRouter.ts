@@ -23,13 +23,24 @@ import {
   FINAL_TYPES,
   POWER_NULL_TRACKS,
   OFFENSE_SKILLS,
-  DEFENSE_SKILLS
+  DEFENSE_SKILLS,
+  BODY_STAT_TO_KINGDOM,
+  KINGDOM_TO_BODY_STAT,
+  KINGDOM_LORE,
+  SUB_TYPE_LORE
 } from '../engine/rpg/CharacterData.js';
+
+import {
+  OFFENSIVE_SKILL_TRACKS,
+  DEFENSIVE_SKILL_TRACKS,
+  REALITY_POWER_TREES,
+  REALITY_NULL_TREES
+} from '../engine/rpg/MasterSkillProgression.js';
 
 // Initialize Singleton Concordia Game Master
 const concordiaGM = new ConcordiaGameMaster(pool, process.env.GEMINI_API_KEY || '');
 
-function parseJsonField(val: any, fallback: any = []) {
+function parseJsonField(val: any, fallback: any = {}) {
   if (!val) return fallback;
   if (typeof val === 'object') return val;
   try {
@@ -67,6 +78,8 @@ function enrichCharacter(p: any) {
     passive_traits: parseJsonField(p.passive_traits, []),
     skills: parseJsonField(p.skills, []),
     mastery_perks: parseJsonField(p.mastery_perks, unlockedPerks),
+    skill_ranks: parseJsonField(p.skill_ranks, {}),
+    skill_points: p.skill_points || 0,
     weapon_stat: weaponDef.stat,
     weapon_mod: weaponDef.mod,
     weapon_damage_bonus: weaponDef.damageBonus,
@@ -82,6 +95,22 @@ function enrichCharacter(p: any) {
     derived_stats: derived
   };
 }
+
+/**
+ * GET /rules/skills - Returns the canonical 3-Branch x 4-Rank Skill & Power Progression Trees
+ */
+router.get('/rules/skills', (req, res) => {
+  try {
+    res.json({
+      offensiveSkillTracks: OFFENSIVE_SKILL_TRACKS,
+      defensiveSkillTracks: DEFENSIVE_SKILL_TRACKS,
+      realityPowerTrees: REALITY_POWER_TREES,
+      realityNullTrees: REALITY_NULL_TREES
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 /**
  * GET /character/options - Returns full catalogue of Kingdoms, Species Lineages, Institutions, Weapons, Armors, Skills, and Mastery Perks
@@ -101,7 +130,15 @@ router.get('/character/options', (req, res) => {
       weapons: STAT_WEAPON_GROUPS,
       armors: STAT_ARMOR_GROUPS,
       skills: SKILL_DB,
-      masteryPerks: MASTERY_PERKS
+      masteryPerks: MASTERY_PERKS,
+      kingdomLore: KINGDOM_LORE,
+      subTypeLore: SUB_TYPE_LORE,
+      bodyStatToKingdom: BODY_STAT_TO_KINGDOM,
+      kingdomToBodyStat: KINGDOM_TO_BODY_STAT,
+      offensiveSkillTracks: OFFENSIVE_SKILL_TRACKS,
+      defensiveSkillTracks: DEFENSIVE_SKILL_TRACKS,
+      realityPowerTrees: REALITY_POWER_TREES,
+      realityNullTrees: REALITY_NULL_TREES
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -161,7 +198,9 @@ router.post('/character/create', async (req, res) => {
       might, endurance, finesse, reflex, vitality, fortitude,
       knowledge, logic, awareness, intuition, charm, willpower,
       equippedWeapon, equippedArmor,
-      passiveTraits, skills, masteryPerks
+      passiveTraits, skills, masteryPerks,
+      skillRanks, skillPoints,
+      difficulty
     } = req.body;
 
     const charName = (name && name.trim()) || 'Ostraka Wanderer';
@@ -175,6 +214,9 @@ router.post('/character/create', async (req, res) => {
     const charTrack = powerNullTrack || 'Mass Track';
     const charOffense = offenseSkill || 'Shatter Impact';
     const charDefense = defenseSkill || 'Brace Impact';
+    const charDifficulty = (difficulty && ['casual', 'survivor', 'hardcore'].includes(String(difficulty).toLowerCase()))
+      ? String(difficulty).toLowerCase()
+      : 'survivor';
 
     const m = Number(might) || 1;
     const e = Number(endurance) || 1;
@@ -198,6 +240,8 @@ router.post('/character/create', async (req, res) => {
     const traitsJson = JSON.stringify(passiveTraits || []);
     const skillsJson = JSON.stringify(skills || []);
     const perksJson = JSON.stringify(masteryPerks || getUnlockedPerks(stats));
+    const skillRanksJson = JSON.stringify(skillRanks || {});
+    const sPoints = Number(skillPoints) || 0;
 
     const checkRes = await pool.query('SELECT id FROM sim_player_character ORDER BY id ASC LIMIT 1');
     let charRow;
@@ -213,8 +257,10 @@ router.post('/character/create', async (req, res) => {
           equipped_weapon = $27, equipped_armor = $28,
           main_type = $29, sub_type = $30, final_type = $31,
           power_null_track = $32, offense_skill = $33, defense_skill = $34,
+          difficulty = $35,
+          skill_ranks = $36, skill_points = $37,
           gold = 50, inventory = '[]'::jsonb, xp = 0, level = 1, current_quest_beat = 0
-        WHERE id = $35
+        WHERE id = $38
         RETURNING *
       `, [
         charName, charKingdom, charLineage, charSpecies, charInstitution,
@@ -225,6 +271,8 @@ router.post('/character/create', async (req, res) => {
         wpn, arm,
         charMainType, charSubType, charFinalType,
         charTrack, charOffense, charDefense,
+        charDifficulty,
+        skillRanksJson, sPoints,
         checkRes.rows[0].id
       ]);
       charRow = updateRes.rows[0];
@@ -240,6 +288,8 @@ router.post('/character/create', async (req, res) => {
           equipped_weapon, equipped_armor,
           main_type, sub_type, final_type,
           power_null_track, offense_skill, defense_skill,
+          difficulty,
+          skill_ranks, skill_points,
           gold, inventory, xp, level, current_quest_beat
         ) VALUES (
           $1, $2, $3, $4, $5,
@@ -251,6 +301,8 @@ router.post('/character/create', async (req, res) => {
           $27, $28,
           $29, $30, $31,
           $32, $33, $34,
+          $35,
+          $36, $37,
           50, '[]'::jsonb, 0, 1, 0
         )
         RETURNING *
@@ -262,7 +314,9 @@ router.post('/character/create', async (req, res) => {
         traitsJson, skillsJson, perksJson,
         wpn, arm,
         charMainType, charSubType, charFinalType,
-        charTrack, charOffense, charDefense
+        charTrack, charOffense, charDefense,
+        charDifficulty,
+        skillRanksJson, sPoints
       ]);
       charRow = insertRes.rows[0];
     }
@@ -270,6 +324,67 @@ router.post('/character/create', async (req, res) => {
     res.json({ success: true, character: enrichCharacter(charRow) });
   } catch (err: any) {
     console.error('Character creation error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /player/levelup - Invest skill point into a canonical branch (Rank 1 to 4)
+ */
+router.post('/player/levelup', async (req, res) => {
+  try {
+    const { branchId, grantFreeLevel } = req.body;
+    const playerRes = await pool.query('SELECT * FROM sim_player_character ORDER BY id ASC LIMIT 1');
+    if (playerRes.rows.length === 0) return void res.status(404).json({ error: 'Player not found' });
+    const p = playerRes.rows[0];
+
+    let currentLevel = Number(p.level) || 1;
+    let currentSkillPoints = Number(p.skill_points) || 0;
+
+    if (grantFreeLevel) {
+      currentLevel += 1;
+      currentSkillPoints += 1;
+    }
+
+    if (!branchId) {
+      // Just applying a level up or checking status
+      const updateRes = await pool.query(
+        'UPDATE sim_player_character SET level = $1, skill_points = $2 WHERE id = $3 RETURNING *',
+        [currentLevel, currentSkillPoints, p.id]
+      );
+      return void res.json({ success: true, character: enrichCharacter(updateRes.rows[0]) });
+    }
+
+    if (currentSkillPoints <= 0) {
+      return void res.status(400).json({ error: 'No skill points available to spend.' });
+    }
+
+    const currentRanks: Record<string, number> = parseJsonField(p.skill_ranks, {});
+    const existingRank = currentRanks[branchId] || 0;
+
+    if (existingRank >= 4) {
+      return void res.status(400).json({ error: 'Branch is already at maximum Rank 4.' });
+    }
+
+    currentRanks[branchId] = existingRank + 1;
+    currentSkillPoints -= 1;
+
+    const updateRes = await pool.query(`
+      UPDATE sim_player_character
+      SET level = $1, skill_points = $2, skill_ranks = $3
+      WHERE id = $4
+      RETURNING *
+    `, [currentLevel, currentSkillPoints, JSON.stringify(currentRanks), p.id]);
+
+    res.json({
+      success: true,
+      branchId,
+      newRank: currentRanks[branchId],
+      remainingSkillPoints: currentSkillPoints,
+      character: enrichCharacter(updateRes.rows[0])
+    });
+  } catch (err: any) {
+    console.error('Level up error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -284,12 +399,15 @@ router.post('/save', async (req, res) => {
     const defaultName = `Save - ${now.toLocaleDateString()} ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
     const sName = (slotName && slotName.trim()) || defaultName;
     const playerId = characterData?.id || 1;
+    const sDifficulty = (characterData?.difficulty && ['casual', 'survivor', 'hardcore'].includes(String(characterData.difficulty).toLowerCase()))
+      ? String(characterData.difficulty).toLowerCase()
+      : 'survivor';
 
     const saveRes = await pool.query(`
-      INSERT INTO sim_game_saves (slot_name, player_id, character_data, world_pos, story_state, updated_at)
-      VALUES ($1, $2, $3, $4, $5, NOW())
-      RETURNING id, slot_name, created_at, updated_at
-    `, [sName, playerId, JSON.stringify(characterData || {}), JSON.stringify(worldPos || {}), JSON.stringify(storyState || {})]);
+      INSERT INTO sim_game_saves (slot_name, player_id, character_data, world_pos, story_state, difficulty, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      RETURNING id, slot_name, difficulty, created_at, updated_at
+    `, [sName, playerId, JSON.stringify(characterData || {}), JSON.stringify(worldPos || {}), JSON.stringify(storyState || {}), sDifficulty]);
 
     res.json({ success: true, save: saveRes.rows[0] });
   } catch (err: any) {
@@ -304,7 +422,7 @@ router.post('/save', async (req, res) => {
 router.get('/saves', async (req, res) => {
   try {
     const savesRes = await pool.query(`
-      SELECT id, slot_name, player_id,
+      SELECT id, slot_name, player_id, difficulty,
              character_data->>'name' as player_name,
              character_data->>'level' as player_level,
              character_data->>'current_hp' as player_hp,
@@ -336,6 +454,7 @@ router.post('/load/:id', async (req, res) => {
     const charData = typeof save.character_data === 'string' ? JSON.parse(save.character_data) : save.character_data;
     const worldPos = typeof save.world_pos === 'string' ? JSON.parse(save.world_pos) : save.world_pos;
     const storyState = typeof save.story_state === 'string' ? JSON.parse(save.story_state) : save.story_state;
+    const restoredDiff = charData?.difficulty || save.difficulty || 'survivor';
 
     if (charData) {
       await pool.query(`
@@ -349,14 +468,16 @@ router.post('/load/:id', async (req, res) => {
           charm = COALESCE($12, charm), willpower = COALESCE($13, willpower),
           current_hp = COALESCE($14, current_hp), max_hp = COALESCE($15, max_hp),
           equipped_weapon = COALESCE($16, equipped_weapon), equipped_armor = COALESCE($17, equipped_armor),
-          gold = COALESCE($18, gold), inventory = $19::jsonb, xp = COALESCE($20, xp), level = COALESCE($21, level)
+          gold = COALESCE($18, gold), inventory = $19::jsonb, xp = COALESCE($20, xp), level = COALESCE($21, level),
+          difficulty = COALESCE($22, difficulty)
         WHERE id = 1
       `, [
         charData.name, charData.might, charData.endurance, charData.finesse, charData.reflex,
         charData.vitality, charData.fortitude, charData.knowledge, charData.logic, charData.awareness,
         charData.intuition, charData.charm, charData.willpower, charData.current_hp, charData.max_hp,
         charData.equipped_weapon, charData.equipped_armor, charData.gold,
-        JSON.stringify(charData.inventory || []), charData.xp, charData.level
+        JSON.stringify(charData.inventory || []), charData.xp, charData.level,
+        restoredDiff
       ]);
     }
 
@@ -388,6 +509,104 @@ router.delete('/saves/:id', async (req, res) => {
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /player/revive - Restores a fallen hero with partial HP and small gold penalty
+ */
+router.post('/player/revive', async (req, res) => {
+  try {
+    const playerRes = await pool.query('SELECT * FROM sim_player_character ORDER BY id ASC LIMIT 1');
+    if (playerRes.rows.length === 0) return void res.status(404).json({ error: 'Player not found' });
+    const p = playerRes.rows[0];
+
+    const restoredHp = Math.max(10, Math.floor((Number(p.max_hp) || 20) * 0.5));
+    const goldCost = Math.min(Number(p.gold) || 0, 25);
+    const newGold = Math.max(0, (Number(p.gold) || 0) - goldCost);
+
+    const updateRes = await pool.query(`
+      UPDATE sim_player_character
+      SET current_hp = $1, gold = $2
+      WHERE id = $3
+      RETURNING *
+    `, [restoredHp, newGold, p.id]);
+
+    const enriched = enrichCharacter(updateRes.rows[0]);
+    res.json({
+      success: true,
+      character: enriched,
+      restoredHp,
+      goldLost: goldCost,
+      respawnPos: { lx: 128, ly: 128 }
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /player/permadeath - Records fallen hardcore hero to Hall of the Fallen and wipes saves
+ */
+router.post('/player/permadeath', async (req, res) => {
+  try {
+    const { causeOfDeath, sectorX, sectorY } = req.body;
+    const playerRes = await pool.query('SELECT * FROM sim_player_character ORDER BY id ASC LIMIT 1');
+    if (playerRes.rows.length === 0) return void res.status(404).json({ error: 'Player not found' });
+    const p = playerRes.rows[0];
+
+    // Insert into memorials archive
+    const memorialRes = await pool.query(`
+      INSERT INTO sim_character_memorials (
+        player_name, kingdom, species, lineage, level, gold,
+        equipped_weapon, equipped_armor, sector_x, sector_y,
+        difficulty, cause_of_death, fallen_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+      RETURNING *
+    `, [
+      p.name || 'Unknown Hero',
+      p.kingdom || 'Mammal',
+      p.species || 'Unknown',
+      p.lineage || 'None',
+      p.level || 1,
+      p.gold || 0,
+      p.equipped_weapon || 'Bare Hands',
+      p.equipped_armor || 'Rags',
+      sectorX ?? 105,
+      sectorY ?? 112,
+      p.difficulty || 'hardcore',
+      causeOfDeath || 'Fell in mortal combat'
+    ]);
+
+    // Hardcore wipe: delete all saves for this character
+    await pool.query('DELETE FROM sim_game_saves WHERE player_id = $1 OR player_id = 1', [p.id]);
+
+    // Wipe active character record
+    await pool.query('DELETE FROM sim_player_character WHERE id = $1', [p.id]);
+
+    res.json({
+      success: true,
+      memorial: memorialRes.rows[0]
+    });
+  } catch (err: any) {
+    console.error('Permadeath error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /memorials - Retrieves the Hall of the Fallen memorial archive
+ */
+router.get('/memorials', async (req, res) => {
+  try {
+    const memorialsRes = await pool.query(`
+      SELECT * FROM sim_character_memorials
+      ORDER BY fallen_at DESC
+      LIMIT 100
+    `);
+    res.json({ success: true, memorials: memorialsRes.rows });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
   }
 });
 
