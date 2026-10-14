@@ -282,7 +282,16 @@ export class RegionalInstance {
         crime_rate: this.globalData.burg ? this.globalData.burg.crime_rate : "Wilderness",
         faction_owner: this.globalData.burg ? (this.globalData.burg.occupier_faction_id || this.globalData.burg.faction_id) : "Unclaimed",
         isWarzone: this.globalData.isWarzone || false,
-        isFamine: this.globalData.isFamine || false
+        isFamine: this.globalData.isFamine || false,
+        burg: this.globalData.burg ? {
+          burg_id: this.globalData.burg.burg_id,
+          name: this.globalData.burg.name || `Burg #${this.globalData.burg.burg_id}`,
+          urban_tier: this.globalData.burg.urban_tier || 1,
+          food: this.globalData.burg.food,
+          wealth: this.globalData.burg.wealth,
+          unrest: this.globalData.burg.unrest,
+          crime_rate: this.globalData.burg.crime_rate
+        } : null
       },
       environment: {
         base_terrain: this.mapData[idx] || 0,

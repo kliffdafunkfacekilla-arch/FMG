@@ -333,7 +333,7 @@ router.post('/character/create', async (req, res) => {
  */
 router.post('/player/levelup', async (req, res) => {
   try {
-    const { branchId, grantFreeLevel } = req.body;
+    const { branchId, grantFreeLevel, statBonus } = req.body;
     const playerRes = await pool.query('SELECT * FROM sim_player_character ORDER BY id ASC LIMIT 1');
     if (playerRes.rows.length === 0) return void res.status(404).json({ error: 'Player not found' });
     const p = playerRes.rows[0];
@@ -346,7 +346,7 @@ router.post('/player/levelup', async (req, res) => {
       currentSkillPoints += 1;
     }
 
-    if (!branchId) {
+    if (!branchId && !statBonus) {
       // Just applying a level up or checking status
       const updateRes = await pool.query(
         'UPDATE sim_player_character SET level = $1, skill_points = $2 WHERE id = $3 RETURNING *',
@@ -355,31 +355,45 @@ router.post('/player/levelup', async (req, res) => {
       return void res.json({ success: true, character: enrichCharacter(updateRes.rows[0]) });
     }
 
-    if (currentSkillPoints <= 0) {
+    if (currentSkillPoints <= 0 && !grantFreeLevel) {
       return void res.status(400).json({ error: 'No skill points available to spend.' });
     }
 
     const currentRanks: Record<string, number> = parseJsonField(p.skill_ranks, {});
-    const existingRank = currentRanks[branchId] || 0;
-
-    if (existingRank >= 4) {
-      return void res.status(400).json({ error: 'Branch is already at maximum Rank 4.' });
+    if (branchId) {
+      const existingRank = currentRanks[branchId] || 0;
+      if (existingRank >= 4) {
+        return void res.status(400).json({ error: 'Branch is already at maximum Rank 4.' });
+      }
+      currentRanks[branchId] = existingRank + 1;
+      currentSkillPoints -= 1;
     }
 
-    currentRanks[branchId] = existingRank + 1;
-    currentSkillPoints -= 1;
+    const VALID_STATS = ['might', 'endurance', 'reflex', 'finesse', 'vitality', 'fortitude', 'knowledge', 'logic', 'awareness', 'intuition', 'charm', 'willpower'];
+    let statClause = '';
+    const updateParams: any[] = [currentLevel, currentSkillPoints, JSON.stringify(currentRanks)];
+    let paramIdx = 4;
+    if (statBonus && VALID_STATS.includes(statBonus)) {
+      if (!branchId) currentSkillPoints -= 1;
+      const newStatVal = (Number(p[statBonus]) || 1) + 1;
+      updateParams.push(newStatVal);
+      statClause = `, ${statBonus} = $${paramIdx}`;
+      paramIdx++;
+    }
+    updateParams.push(p.id);
 
     const updateRes = await pool.query(`
       UPDATE sim_player_character
-      SET level = $1, skill_points = $2, skill_ranks = $3
-      WHERE id = $4
+      SET level = $1, skill_points = $2, skill_ranks = $3${statClause}
+      WHERE id = $${paramIdx}
       RETURNING *
-    `, [currentLevel, currentSkillPoints, JSON.stringify(currentRanks), p.id]);
+    `, updateParams);
 
     res.json({
       success: true,
-      branchId,
-      newRank: currentRanks[branchId],
+      branchId: branchId || undefined,
+      newRank: branchId ? currentRanks[branchId] : undefined,
+      statUpgraded: statBonus || undefined,
       remainingSkillPoints: currentSkillPoints,
       character: enrichCharacter(updateRes.rows[0])
     });
@@ -627,8 +641,8 @@ router.get('/state', (req, res) => {
  */
 router.post('/sector_load', async (req, res) => {
   try {
-    const { context } = req.body;
-    const injected = concordiaGM.loadSector(context || {
+    const context = req.body.context || (req.body.cellId ? req.body : null);
+    const injected = await concordiaGM.loadSector(context || {
       cellId: 13408,
       biomeName: 'Wetland Swamp',
       isWarzone: false,
@@ -636,6 +650,17 @@ router.post('/sector_load', async (req, res) => {
       chaosRadiation: 0.2,
       infrastructureMask: 8
     });
+
+    const calRes = await pool.query('SELECT tick, year, month, season, moon_phase, active_flow, dragon_domain FROM sim_calendar ORDER BY id DESC LIMIT 1');
+    const calendar = calRes.rows[0] || {
+      tick: 1,
+      year: 1,
+      month: 1,
+      season: 'The Bloom',
+      moon_phase: 'The Waxing Blood',
+      active_flow: 'Mass',
+      dragon_domain: 'Tiraton'
+    };
 
     res.json({
       success: true,
@@ -650,7 +675,8 @@ router.post('/sector_load', async (req, res) => {
         isDestroyed: p.isDestroyed
       })),
       npcs: injected.npcs,
-      campaignState: concordiaGM.getStoryEngine().getCampaignState()
+      campaignState: concordiaGM.getStoryEngine().getCampaignState(),
+      calendar
     });
   } catch (e: any) {
     console.error('Sector load error:', e);
@@ -666,18 +692,46 @@ router.post('/scene', async (req, res) => {
     const { context } = req.body;
     const beat = concordiaGM.getStoryEngine().getCampaignState().activeBeat;
 
-    const arrivalPrompt = `Sector: ${context?.sector || 'Unknown'}. Biome: ${context?.biome || 'Wilderness'}. Active Crisis: ${beat?.title || 'Unknown Quest'} - ${beat?.hook || ''}. Props in sight: ${(context?.props || []).join(', ')}. Entities: ${(context?.entities || []).join(', ')}.`;
+    const calRes = await pool.query('SELECT moon_phase, season, active_flow, dragon_domain FROM sim_calendar ORDER BY id DESC LIMIT 1');
+    const cal = calRes.rows[0] || {
+      moon_phase: 'The Waxing Blood',
+      season: 'The Bloom',
+      active_flow: 'Motus',
+      dragon_domain: 'Vecelo'
+    };
+
+    const arrivalPrompt = `
+LUNAR & COSMIC OMENS:
+- Moon Phase: Cruorbus (${cal.moon_phase}) radiating the Flow of ${cal.active_flow} (Dragon Domain: ${cal.dragon_domain})
+- Season: ${cal.season}
+
+SECTOR & TERRAIN:
+- Sector Coordinates: ${context?.sector || 'Wilderness'}
+- Biome: ${context?.biome || 'Wilderness'}
+- Sovereign Faction: ${context?.factionOwner || 'Wild Frontier'}
+- Situation / Landmarks: ${beat?.title || 'Wild Exploration'} - ${beat?.hook || ''}
+
+SURROUNDING ENVIRONMENT:
+- Visible Landmarks & Relics: ${(context?.props || []).join(', ')}
+- Present Entities & Roaming Life: ${(context?.entities || []).join(', ')}
+`;
+
+    const systemInstruction = `You are the Concordia Game Master for a post-apocalyptic dark-fantasy sandbox TTRPG set beneath the blood moon Cruorbus.
+The 12 Flows of Chaos radiate from the blood moon into the 12 ancient Dragon Prisons guarded by secretive Grey Wardens and besieged by crazed Cultists.
+In 2-3 punchy, evocative, sensory sentences, narrate what the wandering adventurer immediately perceives upon stepping into this sector.
+Highlight tangible atmosphere: sounds on the wind, the eerie glow of the blood moon radiating the active Flow of Chaos, the smell of damp earth or ancient ozone, and visible relics or tense standoff of living entities.
+Do not list numbers or mechanics. End with an urgent question of what they do.`;
 
     const sceneText = await (concordiaGM as any).callGeminiWithFallback(
       [{ role: 'user', parts: [{ text: arrivalPrompt }] }],
-      'You are the Concordia Game Master for a dark, atmospheric TTRPG. Describe the arrival into this tactical sector in 2-3 punchy, evocative sentences. Mention sensory details (weather, stench, sound) and visible landmarks or threats. End with an urgent prompt.',
+      systemInstruction,
       250,
       0.7
     );
 
     res.json({
       success: true,
-      scene: sceneText || 'You arrive at the edge of the sector. The wind howls across the uneven ground. What do you do?'
+      scene: sceneText || 'You step into the sector beneath the cold red light of Cruorbus. Shifting winds carry the sound of distant movement across the terrain. What do you do?'
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -704,6 +758,486 @@ router.post('/action', async (req, res) => {
     res.json(result);
   } catch (e: any) {
     console.error('Action turn error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * GET /trade/catalog - Dynamically synthesizes available merchant wares from regional stockpiles,
+ * live market commodity prices, and cosmological Chaos Flow alignments.
+ */
+router.get('/trade/catalog', async (req, res) => {
+  try {
+    const cellId = parseInt(req.query.cellId as string) || 13408;
+
+    // 1. Fetch nearest burg economy & stockpiles
+    const burgRes = await pool.query(
+      `SELECT * FROM sim_burg_economy ORDER BY ABS(cell_id - $1) ASC LIMIT 1`,
+      [cellId]
+    );
+    const burg = burgRes.rows[0] || { burg_id: 1, food: 200, wealth: 500, unrest: 15, health: 80, crime_rate: 10 };
+
+    const stockRes = await pool.query(
+      `SELECT * FROM sim_industrial_stockpiles WHERE burg_id = $1`,
+      [burg.burg_id]
+    );
+    const stockpile = stockRes.rows[0] || {
+      raw_wood: 10, raw_ore: 10, raw_herbs: 10, raw_fiber: 10,
+      refined_lumber: 5, forged_steel: 5, alchemical_potions: 2, textiles: 5
+    };
+
+    // 2. Fetch live calendar cosmology
+    const calRes = await pool.query(
+      `SELECT active_flow, dragon_domain, moon_phase FROM sim_calendar ORDER BY id DESC LIMIT 1`
+    );
+    const calendar = calRes.rows[0] || { active_flow: 'Ordo', dragon_domain: 'Stagus', moon_phase: 'Gibbous' };
+    const flow = calendar.active_flow || 'Ordo';
+
+    // 3. Fetch live commodity prices
+    const pricesRes = await pool.query('SELECT * FROM sim_commodity_prices ORDER BY commodity ASC');
+    const commodities = pricesRes.rows.map(c => ({
+      name: c.commodity.charAt(0).toUpperCase() + c.commodity.slice(1),
+      type: 'commodity',
+      price: Math.max(2, Math.round(c.current_price * 4)),
+      sellPrice: Math.max(1, Math.round(c.current_price * 3)),
+      desc: `Raw simulated commodity (Supply: ${c.global_supply}, Demand: ${c.global_demand})`,
+      icon: '📦'
+    }));
+
+    const dynamicWares: any[] = [];
+
+    // Food & Provisions: price & flavor scale with burg food reserves
+    if (burg.food < 100) {
+      dynamicWares.push({
+        name: 'Rationed Hardtack',
+        type: 'consumable',
+        price: 12,
+        sellPrice: 7,
+        desc: 'Coarse dried bread. Scarce and dear due to provincial famine (+5 HP)',
+        icon: '🍞'
+      });
+    } else if (burg.food > 300) {
+      dynamicWares.push({
+        name: 'Hearty Field Provisions',
+        type: 'consumable',
+        price: 4,
+        sellPrice: 2,
+        desc: 'Abundant smoked meats and barley bread from full municipal granaries (+8 HP)',
+        icon: '🍖'
+      });
+    } else {
+      dynamicWares.push({
+        name: 'Trail Provisions',
+        type: 'consumable',
+        price: 6,
+        sellPrice: 3,
+        desc: 'Standard dried field provisions (+7 HP)',
+        icon: '🍞'
+      });
+    }
+
+    // Apothecary & Medicinal: scales with herbs and potions stockpiles
+    if ((stockpile.alchemical_potions || 0) > 0 || (stockpile.raw_herbs || 0) > 15) {
+      dynamicWares.push(
+        {
+          name: 'Distilled Alchemical Panacea',
+          type: 'consumable',
+          price: 20,
+          sellPrice: 10,
+          desc: 'Potent restorative brewed in municipal town alembics (+15 HP)',
+          icon: '🧪'
+        },
+        {
+          name: 'Concentrated Healing Salve',
+          type: 'consumable',
+          price: 10,
+          sellPrice: 5,
+          desc: 'Refined local botanical poultice (+10 HP)',
+          icon: '🌿'
+        }
+      );
+    } else {
+      dynamicWares.push({
+        name: 'Crude Herbal Poultice',
+        type: 'consumable',
+        price: 14,
+        sellPrice: 6,
+        desc: 'Basic wild herb dressing, in short supply (+7 HP)',
+        icon: '🌿'
+      });
+    }
+
+    // Metalworks, Arms & Tools: scales with ore and steel stockpiles
+    if ((stockpile.forged_steel || 0) > 0 || (stockpile.raw_ore || 0) > 15) {
+      dynamicWares.push(
+        {
+          name: 'Burg-Forged Steel Dagger',
+          type: 'weapon',
+          price: 18,
+          sellPrice: 9,
+          desc: 'Freshly quenched in the municipal forge (+1 Finesse)',
+          icon: '🗡️'
+        },
+        {
+          name: 'Precision Lockpick Set',
+          type: 'tool',
+          price: 12,
+          sellPrice: 6,
+          desc: 'Tempered steel picks (+3 Tool bonus to Lockpicking)',
+          icon: '🗝️'
+        },
+        {
+          name: 'Steel-Rimmed Heater Shield',
+          type: 'armor',
+          price: 24,
+          sellPrice: 12,
+          desc: 'Forged plate reinforcement (+2 DR)',
+          icon: '🛡️'
+        }
+      );
+    } else {
+      dynamicWares.push(
+        {
+          name: 'Iron-Banded Hunting Knife',
+          type: 'weapon',
+          price: 22,
+          sellPrice: 8,
+          desc: 'Workday iron blade (+1 Finesse)',
+          icon: '🗡️'
+        },
+        {
+          name: 'Improvised Wire Picks',
+          type: 'tool',
+          price: 16,
+          sellPrice: 5,
+          desc: 'Rough wire tools (+2 Tool bonus to Lockpicking)',
+          icon: '🗝️'
+        }
+      );
+    }
+
+    // Textiles & Camping Gear: scales with lumber and textiles stockpiles
+    if ((stockpile.textiles || 0) > 0 || (stockpile.raw_fiber || 0) > 15) {
+      dynamicWares.push(
+        {
+          name: 'Fine Woven Traveler Cloak',
+          type: 'armor',
+          price: 15,
+          sellPrice: 8,
+          desc: 'Weatherproof wool and flax weave (+1 DR)',
+          icon: '🧥'
+        },
+        {
+          name: 'Braided Climber Rope & Pitons',
+          type: 'tool',
+          price: 10,
+          sellPrice: 5,
+          desc: 'Tough flax cord (+3 Tool bonus to Climbing)',
+          icon: '🪢'
+        }
+      );
+    } else {
+      dynamicWares.push({
+        name: 'Rough Burlap Gambeson',
+        type: 'armor',
+        price: 18,
+        sellPrice: 7,
+        desc: 'Padded linen and scrap (+1 DR)',
+        icon: '🥋'
+      });
+    }
+
+    // Universal basic camp gear
+    dynamicWares.push({
+      name: 'Campfire Firestarter',
+      type: 'tool',
+      price: 8,
+      sellPrice: 4,
+      desc: 'Flint and tinderbox. Kindles campfires without fail',
+      icon: '🔥'
+    });
+
+    // Underworld Black Market Wares (if crime rate elevated or high unrest)
+    if (burg.crime_rate > 20 || burg.unrest > 35) {
+      dynamicWares.push(
+        {
+          name: 'Smuggled Aetheric Draught',
+          type: 'consumable',
+          price: 28,
+          sellPrice: 14,
+          desc: 'Illicit contraband distillate. Clears exhaustion (+20 HP)',
+          icon: '✨'
+        },
+        {
+          name: 'Cartel Skeleton Key',
+          type: 'tool',
+          price: 32,
+          sellPrice: 16,
+          desc: 'Black-market master key (+4 Tool bonus to picking locks)',
+          icon: '🗝️'
+        }
+      );
+    }
+
+    // Cosmological Chaos Flow Affliction Charm
+    const COSMIC_CHARMS: Record<string, any> = {
+      Ordo: { name: 'Stasis-Frost Ward Charm', price: 35, sellPrice: 18, desc: 'Humming with the Flow of Ordo. Dampens kinetic friction and cold trauma', icon: '❄️' },
+      Mass: { name: 'Tectonic Basalt Weight', price: 35, sellPrice: 18, desc: 'Humming with the Flow of Mass. Resists knockback and gravity distortion', icon: '🪨' },
+      Nexus: { name: 'Spatial Phase Mirror', price: 40, sellPrice: 20, desc: 'Humming with the Flow of Nexus. Grants subtle footfalls across reality rifts', icon: '🪞' },
+      Flux: { name: 'Alchemical Mutagen Flask', price: 30, sellPrice: 15, desc: 'Humming with the Flow of Flux. Volatile reaction accelerates healing', icon: '⚗️' },
+      Vita: { name: 'Primeval Blood-Root Tonic', price: 30, sellPrice: 15, desc: 'Humming with the Flow of Vita. Accelerates biological cellular regeneration', icon: '🌱' },
+      Lux: { name: 'Phosphor Sun-Charm', price: 35, sellPrice: 18, desc: 'Humming with the Flow of Lux. Burns away creeping void shadows', icon: '☀️' },
+      Ratio: { name: 'Brass Chronometer Spring', price: 35, sellPrice: 18, desc: 'Humming with the Flow of Ratio. Sharpens mechanical deductions', icon: '⚙️' },
+      Lex: { name: 'Blood-Bound Iron Seal', price: 35, sellPrice: 18, desc: 'Humming with the Flow of Lex. Hardens willpower against mental intrusion', icon: '📜' },
+      Motus: { name: 'Gale-Wing Feather Charm', price: 35, sellPrice: 18, desc: 'Humming with the Flow of Motus. Enhances sprint reflexes and wind dodge', icon: '🪶' },
+      Omen: { name: 'Eclipse-Veil Pendant', price: 35, sellPrice: 18, desc: 'Humming with the Flow of Omen. Conceals vitality from dark divination', icon: '🌑' },
+      Aura: { name: 'Mirage Lavender Extract', price: 30, sellPrice: 15, desc: 'Humming with the Flow of Aura. Soothes psychic sensory overload', icon: '💜' },
+      Anumis: { name: 'Cold Soul-Ash Pouch', price: 35, sellPrice: 18, desc: 'Humming with the Flow of Anumis. Quiets echoes of the restless dead', icon: '🏺' }
+    };
+    const charm = COSMIC_CHARMS[flow] || COSMIC_CHARMS['Ordo'];
+    dynamicWares.push({ ...charm, type: 'tool' });
+
+    res.json({
+      success: true,
+      burgId: burg.burg_id,
+      burgName: burg.name || `Burg #${burg.burg_id}`,
+      activeFlow: flow,
+      wares: [...dynamicWares, ...commodities]
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /trade/buy - Purchases an item from merchant wares
+ */
+router.post('/trade/buy', async (req, res) => {
+  try {
+    const { playerId, itemName, price } = req.body;
+    const pId = playerId || 1;
+
+    if (!itemName || typeof itemName !== 'string' || itemName.trim().length === 0) {
+      return void res.status(400).json({ error: 'Invalid or missing item name' });
+    }
+
+    const itemCost = Math.floor(Number(price));
+    if (isNaN(itemCost) || itemCost <= 0) {
+      return void res.status(400).json({ error: 'Item price must be a positive number' });
+    }
+
+    const playerRes = await pool.query('SELECT * FROM sim_player_character WHERE id = $1', [pId]);
+    if (playerRes.rows.length === 0) return void res.status(404).json({ error: 'Player not found' });
+    const player = playerRes.rows[0];
+
+    const currentGold = Math.max(0, Number(player.gold) || 0);
+    if (currentGold < itemCost) {
+      return void res.status(400).json({ error: `Insufficient gold (${currentGold}g available, costs ${itemCost}g)` });
+    }
+
+    const inventory: string[] = parseJsonField(player.inventory, []);
+    inventory.push(itemName.trim());
+
+    const updateRes = await pool.query(
+      `UPDATE sim_player_character
+       SET gold = GREATEST(0, COALESCE(gold, 0) - $1), inventory = $2
+       WHERE id = $3
+       RETURNING *`,
+      [itemCost, JSON.stringify(inventory), pId]
+    );
+
+    res.json({
+      success: true,
+      character: enrichCharacter(updateRes.rows[0]),
+      message: `Purchased ${itemName} for ${itemCost} gold.`
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /trade/sell - Sells an item from player inventory for gold
+ */
+router.post('/trade/sell', async (req, res) => {
+  try {
+    const { playerId, itemIndex, itemName, salePrice } = req.body;
+    const pId = playerId || 1;
+
+    const playerRes = await pool.query('SELECT * FROM sim_player_character WHERE id = $1', [pId]);
+    if (playerRes.rows.length === 0) return void res.status(404).json({ error: 'Player not found' });
+    const player = playerRes.rows[0];
+
+    const inventory: string[] = parseJsonField(player.inventory, []);
+    let removedIndex = itemIndex;
+    if (removedIndex === undefined || removedIndex < 0 || removedIndex >= inventory.length) {
+      removedIndex = inventory.findIndex(it => it === itemName);
+    }
+
+    if (removedIndex === -1) {
+      return void res.status(400).json({ error: `Item ${itemName} not in inventory` });
+    }
+
+    inventory.splice(removedIndex, 1);
+    const goldGain = Math.max(1, Number(salePrice) || 5);
+
+    const updateRes = await pool.query(
+      `UPDATE sim_player_character
+       SET gold = COALESCE(gold, 0) + $1, inventory = $2
+       WHERE id = $3
+       RETURNING *`,
+      [goldGain, JSON.stringify(inventory), pId]
+    );
+
+    res.json({
+      success: true,
+      character: enrichCharacter(updateRes.rows[0]),
+      message: `Sold ${itemName} for ${goldGain} gold.`
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * GET /bounties - Emergent municipal bounties derived from regional simulation state
+ */
+router.get('/bounties', async (req, res) => {
+  try {
+    const cellId = parseInt(req.query.cellId as string) || 13408;
+
+    // 1. Fetch nearest burg economy
+    const burgRes = await pool.query(
+      `SELECT * FROM sim_burg_economy ORDER BY ABS(cell_id - $1) ASC LIMIT 1`,
+      [cellId]
+    );
+    const burg = burgRes.rows[0] || { burg_id: 1, name: 'Regional Citadel', food: 100, unrest: 20, crime_rate: 15, cell_id: cellId };
+
+    // 2. Fetch diplomacy (is faction at war?)
+    let isWar = false;
+    try {
+      const diploRes = await pool.query(
+        `SELECT * FROM sim_diplomacy WHERE status = 'WAR' LIMIT 1`
+      );
+      if (diploRes.rows.length > 0) {
+        isWar = true;
+      }
+    } catch {}
+
+    // 3. Fetch calendar cosmology
+    const calRes = await pool.query(
+      `SELECT active_flow, dragon_domain, moon_phase FROM sim_calendar ORDER BY id DESC LIMIT 1`
+    );
+    const calendar = calRes.rows[0] || { active_flow: 'Ordo', dragon_domain: 'Stagus', moon_phase: 'Gibbous' };
+    const flow = calendar.active_flow || 'Ordo';
+    const dragon = calendar.dragon_domain || 'Stagus';
+
+    const burgName = burg.name || `Province #${burg.burg_id}`;
+
+    // 4. Algorithmic multi-vector contracts
+    const contracts: any[] = [];
+
+    // Vector 1: Famine / Food crisis
+    if (burg.food < 120) {
+      contracts.push({
+        id: `bounty_famine_${burg.burg_id}`,
+        title: `Emergency Requisition: Granary Relief`,
+        giver: `Granary Steward of ${burgName}`,
+        desc: `Grain stockpiles are critically depleted (${burg.food} units) beneath the Cruorbus moon. Deliver 4 bundles of foraged game meat, edible roots, or dried provisions to replenish the famine reserves.`,
+        reward: `45 Gold & ${burgName} Favor`,
+        targetType: 'SURVIVAL_SUPPLY',
+        status: 'OPEN'
+      });
+    }
+
+    // Vector 2: Warzone Vanguard
+    if (isWar) {
+      contracts.push({
+        id: `bounty_warzone_${burg.burg_id}`,
+        title: `Vanguard Suppression: Skirmisher Intercept`,
+        giver: `Garrison Marshal of ${burgName}`,
+        desc: `Active faction conflict has pushed vanguard raiders across the provincial frontier. Locate and neutralize enemy vanguard patrols or scout forward trench fortifications.`,
+        reward: `65 Gold & Military Commendation`,
+        targetType: 'WARZONE_PATROL',
+        status: 'OPEN'
+      });
+    }
+
+    // Vector 3: Crime / Syndicate Cartel
+    if (burg.crime_rate > 15 || burg.unrest > 25) {
+      contracts.push({
+        id: `bounty_cartel_${burg.burg_id}`,
+        title: `Warrant: Dismantle Syndicate Smuggling Run`,
+        giver: `The High Bailiff of ${burgName}`,
+        desc: `Crime rate stands at ${burg.crime_rate}%. Cartel runners have cached contraband along wild thoroughfares. Eliminate highway outlaws or uncover hidden dead-drop lockboxes.`,
+        reward: `55 Gold & Safe Conduct Writ`,
+        targetType: 'OUTLAW_CULL',
+        status: 'OPEN'
+      });
+    }
+
+    // Vector 4: Cosmological Dragon Barrow Vigil
+    contracts.push({
+      id: `bounty_cosmic_${burg.burg_id}`,
+      title: `Vigilance Decree: Dampen ${flow} Void Resonance`,
+      giver: `Grey Warden Hermit & Astral Council`,
+      desc: `The Blood Moon radiated intense ${flow} currents, destabilizing ancient wards near the barrow of ${dragon}. Drive an iron ward stake into anomalous rifts or disperse fanatical blood-cultists.`,
+      reward: `70 Gold & Astral Ward Shard`,
+      targetType: 'CHAOS_SEAL',
+      status: 'OPEN'
+    });
+
+    // Vector 5: Ecological Apex Beast Cull
+    contracts.push({
+      id: `bounty_apex_${burg.burg_id}`,
+      title: `Bounty: Slay Borderland Apex Hunter`,
+      giver: `Frontier Rangers Guild`,
+      desc: `A feral apex predator stalks the regional game trails, harrying trade caravans and livestock. Track, slay, and field-dress the beast to secure regional transit.`,
+      reward: `60 Gold & Ranger Insignia`,
+      targetType: 'BEAST_CULL',
+      status: 'OPEN'
+    });
+
+    // Try Gemini enrichment if AI is available
+    try {
+      const prompt = `Live Simulation Context for ${burgName}:
+Famine Status: ${burg.food < 120 ? 'Critical Shortage (' + burg.food + ' food)' : 'Stable'}
+Crime Rate: ${burg.crime_rate}%, Unrest: ${burg.unrest}
+Warfare: ${isWar ? 'Active Faction Warzone' : 'Peacetime'}
+Cosmic Flow: Flow of ${flow}, Dragon Domain: ${dragon}
+Base Contracts: ${JSON.stringify(contracts.slice(0, 3))}
+
+As the Municipal Reeve of ${burgName}, write 3 punchy, flavorful bulletin board postings for adventurers.
+Output ONLY a single valid JSON array of objects with keys: id, title, giver, desc, reward, targetType, status.`;
+
+      const aiText = await concordiaGM.callGeminiWithFallback(
+        [{ role: 'user', parts: [{ text: prompt }] }],
+        'You are the Reeve of a gritty dark fantasy city. Output only valid JSON array.',
+        400,
+        0.7
+      );
+
+      if (aiText) {
+        const clean = aiText.replace(/```json|```/g, '').trim();
+        const parsed = JSON.parse(clean);
+        if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].title) {
+          return void res.json({
+            success: true,
+            burgId: burg.burg_id,
+            burgName,
+            bounties: parsed
+          });
+        }
+      }
+    } catch {}
+
+    res.json({
+      success: true,
+      burgId: burg.burg_id,
+      burgName,
+      bounties: contracts.slice(0, 4)
+    });
+  } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
 });

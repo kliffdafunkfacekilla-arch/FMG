@@ -141,12 +141,18 @@ CREATE TABLE sim_industrial_stockpiles (
 );
 
 CREATE TABLE sim_calendar (
-  id         SERIAL PRIMARY KEY,
-  tick       INT,
-  year       INT,
-  month      INT,
-  moon_phase TEXT,
-  season     TEXT
+  id            SERIAL PRIMARY KEY,
+  tick          INT,
+  year          INT,
+  month         INT,
+  month_name    TEXT,
+  day_of_month  INT,
+  day_of_year   INT,
+  moon_phase    TEXT,
+  season        TEXT,
+  active_flow   TEXT,
+  dragon_domain TEXT,
+  is_shadow_week BOOLEAN DEFAULT false
 );
 
 CREATE TABLE sim_events (
@@ -344,6 +350,48 @@ CREATE TABLE IF NOT EXISTS sim_character_memorials (
     cause_of_death TEXT DEFAULT 'Fell in combat',
     fallen_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS sim_npc_instances (
+    id VARCHAR(100) PRIMARY KEY,
+    cell_id INT NOT NULL,
+    current_rx INT NOT NULL,
+    current_ry INT NOT NULL,
+    local_pos INT[] NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    role VARCHAR(50) NOT NULL,
+    kingdom VARCHAR(50),
+    species VARCHAR(50),
+    lineage VARCHAR(50),
+    tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+    faction VARCHAR(100),
+    hp INT NOT NULL,
+    max_hp INT NOT NULL,
+    disposition INT NOT NULL DEFAULT 0,
+    alive BOOLEAN NOT NULL DEFAULT true,
+    equipped_weapon VARCHAR(100),
+    equipped_armor VARCHAR(100),
+    stat_affinity VARCHAR(20),
+    stats JSONB NOT NULL DEFAULT '{}'::jsonb,
+    inventory JSONB DEFAULT '[]'::jsonb,
+    memory_notes JSONB DEFAULT '[]'::jsonb,
+    wander_anchor INT[] DEFAULT ARRAY[128, 128],
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_sim_npc_instances_loc ON sim_npc_instances(cell_id, current_rx, current_ry);
+
+CREATE TABLE IF NOT EXISTS sim_global_events (
+    id SERIAL PRIMARY KEY,
+    layer VARCHAR(50),
+    type VARCHAR(50),
+    message TEXT,
+    regional_x INT,
+    regional_y INT,
+    radius INT,
+    intensity FLOAT,
+    velocity_x INT,
+    velocity_y INT,
+    duration INT
+);
 `;
 
 const fi = (v: any, def = 0) => Math.floor(Number(v) || def);
@@ -446,9 +494,15 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
     }
 
     // ── 5. Calendar ───────────────────────────────────────────────────────
-    await client.query(
-      `INSERT INTO sim_calendar (tick,year,month,moon_phase,season) VALUES (1,1,1,'The Mercy Alignment','The Bloom')`
-    );
+    await client.query(`
+      INSERT INTO sim_calendar (
+        tick, year, month, month_name, day_of_month, day_of_year,
+        moon_phase, season, active_flow, dragon_domain, is_shadow_week
+      ) VALUES (
+        1, 1, 1, 'Tiraton', 1, 1,
+        'The Empty Eye', 'The Bloom', 'Mass', 'Tiraton', false
+      )
+    `);
 
     // ── 6. Fringe factions (always fresh lore) ────────────────────────────
     await client.query(`
@@ -492,6 +546,32 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
          VALUES ($1,$2,$3,$4,$5)`,
         [r.id, r.cell_id, r.dragon_name, r.power_domain, fi(r.seal_strength, 100)]
       );
+    }
+    if (groves.length === 0) {
+      const dragons = [
+        { name: "Tiraton", domain: "Mass" },
+        { name: "Carulkem", domain: "Nexus" },
+        { name: "Stagus", domain: "Ordo" },
+        { name: "Tyrustis", domain: "Lex" },
+        { name: "Vecelo", domain: "Motus" },
+        { name: "Aurgenas", domain: "Flux" },
+        { name: "Gavusrix", domain: "Vita" },
+        { name: "Metrion", domain: "Ratio" },
+        { name: "Opecten", domain: "Lux" },
+        { name: "Termhill", domain: "Omen" },
+        { name: "Virantor", domain: "Aura" },
+        { name: "Lophex", domain: "Anumis" }
+      ];
+      const validArr = Array.from(validCellIds);
+      for (let i = 0; i < dragons.length; i++) {
+        const d = dragons[i]!;
+        const cellId = validArr[Math.floor((validArr.length / 12) * i + (validArr.length / 24))];
+        await client.query(
+          `INSERT INTO sim_sacred_groves (cell_id, dragon_name, power_domain, seal_strength)
+           VALUES ($1, $2, $3, 100)`,
+          [cellId, d.name, d.domain]
+        );
+      }
     }
 
     // ── 12. Infrastructure ────────────────────────────────────────────────
@@ -636,6 +716,34 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
     await client.query("DELETE FROM sim_paragons WHERE burg_id NOT IN (SELECT burg_id FROM sim_burg_economy)");
     await client.query("DELETE FROM sim_infrastructure WHERE burg_id IS NOT NULL AND burg_id NOT IN (SELECT burg_id FROM sim_burg_economy)");
     await client.query("DELETE FROM sim_fringe_lairs WHERE burg_id NOT IN (SELECT burg_id FROM sim_burg_economy)");
+
+    // 5. Populate Faction Borders (Proximity-based neighbors for Geopolitical AI)
+    await client.query("DELETE FROM sim_faction_borders");
+    const factionCenters = await client.query(`
+      SELECT c.faction_id, AVG(c.center_x) as x, AVG(c.center_y) as y
+      FROM sim_cells c
+      WHERE c.faction_id IS NOT NULL AND c.center_x IS NOT NULL
+      GROUP BY c.faction_id
+    `);
+    const fList = factionCenters.rows;
+    for (const fA of fList) {
+      const neighbors = fList
+        .filter(fB => fB.faction_id !== fA.faction_id)
+        .map(fB => ({
+          faction_id: fB.faction_id,
+          dist: Math.hypot(fB.x - fA.x, fB.y - fA.y)
+        }))
+        .sort((a, b) => a.dist - b.dist)
+        .slice(0, 4);
+
+      for (const n of neighbors) {
+        await client.query(
+          `INSERT INTO sim_faction_borders (faction_id, faction_a, faction_b, is_border)
+           VALUES ($1, $1, $2, true)`,
+          [fA.faction_id, n.faction_id]
+        );
+      }
+    }
 
     const remainingBurgs = (await client.query("SELECT COUNT(*) as c FROM sim_burg_economy")).rows[0].c;
 

@@ -80,5 +80,47 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
                     [tick, `The ${cartel.paragon.name} successfully deployed workers to recruit ${successfulRecruits * 12} new thugs from unresting populations!`, cartel.id, loreDate]);
             }
         }
+
+        // --- LAIR ESTABLISHMENT & TURF WARS ---
+        if (Number(cartel.wealth || 0) >= 500 && (Number(cartel.manpower || 0) >= 100 || Number(cartel.worker_groups || 0) >= 2)) {
+            const lairBurg = burgs.find((b: any) => (b.wealth || 0) >= 200);
+            if (lairBurg && Math.random() < 0.2) {
+                const lairType = cartel.type === "SMUGGLER" ? "BLACK_MARKET" : "VICE_DEN";
+                const existingLair = await client.query(
+                    `SELECT id, faction_id, manpower FROM sim_fringe_lairs WHERE burg_id = $1 AND lair_type = $2`,
+                    [lairBurg.burg_id, lairType]
+                );
+                
+                if (existingLair.rows.length === 0) {
+                    await client.query(
+                        `INSERT INTO sim_fringe_lairs (faction_id, cell_id, burg_id, lair_type, manpower, heat)
+                         VALUES ($1, $2, $3, $4, $5, 10)`,
+                        [cartel.id, lairBurg.cell_id, lairBurg.burg_id, lairType, 50]
+                    );
+                    await client.query(
+                        `INSERT INTO sim_events (tick, type, message, tier, faction_id, lore_date)
+                         VALUES ($1, 'LAIR_ESTABLISHED', $2, 'MINOR', $3, $4)`,
+                        [tick, `${cartel.name} established a hidden ${lairType} in Burg ${lairBurg.burg_id} to extract illicit wealth!`, cartel.id, loreDate]
+                    );
+                } else if (existingLair.rows[0].faction_id !== cartel.id) {
+                    const defender = existingLair.rows[0];
+                    const attackerPower = Number(cartel.manpower || 100);
+                    const defenderPower = Number(defender.manpower || 50);
+                    if (attackerPower >= defenderPower) {
+                        await client.query(`DELETE FROM sim_fringe_lairs WHERE id = $1`, [defender.id]);
+                        await client.query(
+                            `INSERT INTO sim_fringe_lairs (faction_id, cell_id, burg_id, lair_type, manpower, heat)
+                             VALUES ($1, $2, $3, $4, $5, 30)`,
+                            [cartel.id, lairBurg.cell_id, lairBurg.burg_id, lairType, Math.floor(attackerPower * 0.7)]
+                        );
+                        await client.query(
+                            `INSERT INTO sim_events (tick, type, message, tier, faction_id, lore_date)
+                             VALUES ($1, 'TURF_WAR', $2, 'MAJOR', $3, $4)`,
+                            [tick, `Turf War erupted in Burg ${lairBurg.burg_id}! ${cartel.name} violently seized the ${lairType} from a rival syndicate!`, cartel.id, loreDate]
+                        );
+                    }
+                }
+            }
+        }
     }
 }
