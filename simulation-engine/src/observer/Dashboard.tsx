@@ -422,7 +422,11 @@ export function Dashboard() {
 
 
   const cal = state?.calendar;
-  const seasonName = cal ? SEASONS[(cal.month - 1) % 8] : "-";
+  const dateDisplay = cal
+    ? (cal.is_shadow_week
+        ? `Year ${cal.year}, Shadow Week (Day ${cal.day_of_month || (cal.tick % 13) + 1}/13) • ${cal.moon_phase || 'The Grand Eclipse'} • Flow: Chaos (The Void)`
+        : `Year ${cal.year}, Month ${cal.month} (${cal.month_name || 'Dragon'}), Day ${cal.day_of_month || ((cal.tick - 1) % 44) + 1}/44 (Day ${cal.day_of_year || ((cal.tick - 1) % 541) + 1}/541) • ${cal.season} • Cruorbus: ${cal.moon_phase} • Flow: ${cal.active_flow} (${cal.dragon_domain})`)
+    : "Awaiting first tick...";
 
   if (!state) return <div style={{ color: 'white', padding: 20 }}>Loading Simulation...</div>;
 
@@ -431,8 +435,8 @@ export function Dashboard() {
       {/* TOP BAR */}
       <div style={{ display: "flex", alignItems: "center", gap: "16px", padding: "10px 20px", background: "#010409", borderBottom: "1px solid #30363d", flexWrap: "wrap" }}>
         <span style={{ fontWeight: 700, fontSize: "15px", color: "#58a6ff" }}>World Observer</span>
-        <span style={{ color: "#888", fontSize: "13px", marginLeft: "20px" }}>
-            {cal ? `${seasonName}, Year ${cal.year} - Tick ${cal.tick}` : "Awaiting first tick..."}
+        <span style={{ color: cal?.is_shadow_week ? "#ff7b72" : "#7ee787", fontSize: "13px", marginLeft: "20px", fontWeight: 600 }}>
+            {cal ? `${dateDisplay} [Day/Tick ${cal.tick}]` : "Awaiting first tick..."}
         </span>
         {state?.tickInProgress && <span style={{ color: "#ff6b35", fontSize: "12px", fontStyle: "italic" }}>Tick running...</span>}
         

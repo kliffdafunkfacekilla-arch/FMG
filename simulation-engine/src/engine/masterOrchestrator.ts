@@ -17,15 +17,17 @@ export async function executeMasterTick(): Promise<{status: string, currentTick:
         await client.query('BEGIN');
         
         // Fetch current tick
-        const tickRes = await client.query('SELECT MAX(tick) as t FROM sim_events');
-        const tick = (tickRes.rows[0].t || 0) + 1;
+        const calTickRes = await client.query('SELECT COALESCE(MAX(tick), 0) as t FROM sim_calendar');
+        const eventTickRes = await client.query('SELECT COALESCE(MAX(tick), 0) as t FROM sim_events');
+        const maxTick = Math.max(Number(calTickRes.rows[0]?.t || 0), Number(eventTickRes.rows[0]?.t || 0));
+        const tick = maxTick + 1;
 
         // 1. Calendar
         const cal = await runCalendarAgent(client, tick);
-        const loreDate = `Year ${cal.year}, Month ${cal.month}, Day ${cal.dayOfMonth} (${cal.cruorbusPhase})`;
+        const loreDate = cal.loreDate;
 
         // 2. Weather
-        await runWeatherAgent(client, tick, cal.season, cal.dayOfMonth, loreDate);
+        await runWeatherAgent(client, tick, cal.season, cal.dayOfMonth, loreDate, cal.isShadowWeek);
 
         // 3. Burg Operations
         await runBurgOperationsAgent(client, tick);

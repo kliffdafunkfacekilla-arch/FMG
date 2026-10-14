@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import './index.css';
 import { generateLevel3Map } from './utils/Level3Generator';
 import { audioManager } from './utils/AudioManager';
+import { getActionsForTarget } from './utils/TagRegistry';
 
 const CELL_ID = 13408;
 const VIEWPORT_SIZE = 21; // 21x21 tiles visible at a time
@@ -181,6 +182,7 @@ function App() {
   const [injectedNPCs, setInjectedNPCs] = useState<InjectedNPC[]>([]);
   const [activeBeat, setActiveBeat] = useState<StoryBeat | null>(null);
   const [campaignState, setCampaignState] = useState<any>(null);
+  const [calendarState, setCalendarState] = useState<any>(null);
 
   const [encounterTarget, setEncounterTarget] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
@@ -273,6 +275,11 @@ function App() {
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [showLoadModal, setShowLoadModal] = useState(false);
   const [showDeathModal, setShowDeathModal] = useState(false);
+  const [showBarterModal, setShowBarterModal] = useState(false);
+  const [tradeCatalog, setTradeCatalog] = useState<any[]>([]);
+  const [tradeStatus, setTradeStatus] = useState<string | null>(null);
+  const [showNoticeModal, setShowNoticeModal] = useState(false);
+  const [bountyList, setBountyList] = useState<any[]>([]);
   const [autoSaveToast, setAutoSaveToast] = useState<string | null>(null);
 
   const [creationTab, setCreationTab] = useState<'bodyHeritage' | 'mindDoctrine' | 'tracks' | 'review'>('bodyHeritage');
@@ -1137,6 +1144,82 @@ function App() {
     }
   };
 
+  const openBarterModal = async () => {
+    setShowBarterModal(true);
+    setTradeStatus(null);
+    try {
+      const res = await fetch(`http://localhost:3000/api/dm/trade/catalog?cellId=${CELL_ID}`);
+      if (res.ok) {
+        const data = await res.json();
+        setTradeCatalog(data.wares || []);
+      }
+    } catch (e) {
+      console.error('Barter fetch error:', e);
+    }
+  };
+
+  const handleBuyItem = async (ware: any) => {
+    try {
+      const res = await fetch('http://localhost:3000/api/dm/trade/buy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playerId: character?.id || 1,
+          itemName: ware.name,
+          price: ware.price
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.character) {
+        setCharacter(data.character);
+        setTradeStatus(`Purchased ${ware.name}! (-${ware.price}g)`);
+      } else {
+        setTradeStatus(`Failed: ${data.error || 'Could not purchase'}`);
+      }
+    } catch (e: any) {
+      setTradeStatus(`Error: ${e.message}`);
+    }
+  };
+
+  const handleSellItem = async (itemName: string, idx: number) => {
+    try {
+      const matchingWare = tradeCatalog.find(w => w.name.toLowerCase() === itemName.toLowerCase());
+      const salePrice = matchingWare ? matchingWare.sellPrice : 6;
+      const res = await fetch('http://localhost:3000/api/dm/trade/sell', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playerId: character?.id || 1,
+          itemIndex: idx,
+          itemName,
+          salePrice
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.character) {
+        setCharacter(data.character);
+        setTradeStatus(`Sold ${itemName}! (+${salePrice}g)`);
+      } else {
+        setTradeStatus(`Failed: ${data.error || 'Could not sell'}`);
+      }
+    } catch (e: any) {
+      setTradeStatus(`Error: ${e.message}`);
+    }
+  };
+
+  const openNoticeModal = async () => {
+    setShowNoticeModal(true);
+    try {
+      const res = await fetch(`http://localhost:3000/api/dm/bounties?cellId=${CELL_ID}`);
+      if (res.ok) {
+        const data = await res.json();
+        setBountyList(data.bounties || []);
+      }
+    } catch (e) {
+      console.error('Bounty fetch error:', e);
+    }
+  };
+
   const handleContinue = async () => {
     if (!audioManager.isMusicPlaying()) {
       audioManager.playMusic();
@@ -1328,6 +1411,8 @@ function App() {
               isFamine: data.global_context.isFamine,
               chaosRadiation: data.environment.chaos_radiation,
               infrastructureMask: data.environment.infrastructure_mask,
+              elevation: data.environment.elevation,
+              vegetationDensity: data.environment.vegetation_density,
               factionOwner: data.global_context.faction_owner,
               crimeRate: data.global_context.crime_rate,
               entitiesPresent: data.entities_present
@@ -1341,6 +1426,7 @@ function App() {
           setInjectedNPCs(sectorData.npcs || []);
           setActiveBeat(sectorData.beat || null);
           setCampaignState(sectorData.campaignState || null);
+          if (sectorData.calendar) setCalendarState(sectorData.calendar);
           lastEncounterId.current = null;
           setEncounterTarget(null);
 
@@ -1352,6 +1438,7 @@ function App() {
               context: {
                 sector: `Region (${rx}, ${ry})`,
                 biome: getBiomeName(data.global_context.biome_id),
+                factionOwner: data.global_context.faction_owner,
                 props: (sectorData.props || []).map((p: any) => p.name),
                 entities: (sectorData.npcs || []).map((n: any) => n.name)
               }
@@ -1612,29 +1699,47 @@ function App() {
       if (tags.includes('fire') || tags.includes('burning') || lower.includes('fire') || lower.includes('torch') || lower.includes('hearth') || lower.includes('spit') || lower.includes('campfire')) {
         return [4, 3]; // Campfire flame
       }
-      if (tags.includes('chest') || lower.includes('chest') || lower.includes('box') || lower.includes('footlocker') || lower.includes('cache')) {
+      if (tags.includes('water') || tags.includes('water_source') || tags.includes('drinkable') || lower.includes('fountain') || lower.includes('well') || lower.includes('spring') || lower.includes('basin') || lower.includes('trough')) {
+        return [16, 0]; // Water fountain / spring
+      }
+      if (tags.includes('crafting') || tags.includes('forge') || lower.includes('anvil') || lower.includes('forge') || lower.includes('blacksmith') || lower.includes('ore') || lower.includes('grindstone')) {
+        return [13, 2]; // Anvil / forge / metal crafting
+      }
+      if (tags.includes('notice_board') || tags.includes('board') || lower.includes('notice') || lower.includes('board') || lower.includes('sign') || lower.includes('post') || lower.includes('signpost')) {
+        return [5, 0]; // Signpost / bulletin board
+      }
+      if (tags.includes('bone') || tags.includes('remains') || lower.includes('skull') || lower.includes('skeleton') || lower.includes('remains') || lower.includes('ribs') || lower.includes('bones')) {
+        return [14, 0]; // Bones / skull / remains
+      }
+      if (tags.includes('climbable') || tags.includes('cliff') || tags.includes('elevation') || lower.includes('cliff') || lower.includes('precipice') || lower.includes('ridge') || lower.includes('bluff') || lower.includes('crag')) {
+        return [12, 0]; // Cliff / precipice / high ledge
+      }
+      if (tags.includes('trap') || tags.includes('mechanism') || lower.includes('trap') || lower.includes('tripwire') || lower.includes('rig') || lower.includes('snare')) {
+        return [15, 0]; // Trap / mechanism
+      }
+      if (tags.includes('altar') || tags.includes('sacred') || lower.includes('altar') || lower.includes('shrine') || lower.includes('relic')) {
+        return [10, 4]; // Sacred stone altar
+      }
+      if (tags.includes('door') || tags.includes('gate') || lower.includes('door') || lower.includes('gate') || lower.includes('portcullis') || lower.includes('hatch')) {
+        return [10, 0]; // Door / gate / portcullis
+      }
+      if (tags.includes('magic') || tags.includes('runes') || lower.includes('crystal') || lower.includes('wardstone') || lower.includes('monolith')) {
+        return [2, 5]; // Magic crystal / rune
+      }
+      if (tags.includes('chest') || lower.includes('chest') || lower.includes('box') || lower.includes('footlocker') || lower.includes('cache') || lower.includes('sarcophagus')) {
         return [0, 0]; // Wooden treasure chest
       }
       if (tags.includes('barrel') || lower.includes('barrel') || lower.includes('keg') || lower.includes('cask')) {
         return [1, 0]; // Wooden barrel
       }
-      if (tags.includes('flora') || tags.includes('herbs') || lower.includes('lichen') || lower.includes('flower') || lower.includes('fern') || lower.includes('plant') || lower.includes('reed')) {
+      if (tags.includes('flora') || tags.includes('herbs') || tags.includes('forageable') || lower.includes('lichen') || lower.includes('flower') || lower.includes('fern') || lower.includes('plant') || lower.includes('reed') || lower.includes('bramble') || lower.includes('roots')) {
         return [3, 4]; // Wild flora / herbs
       }
-      if (tags.includes('stone') || lower.includes('pillar') || lower.includes('monolith') || lower.includes('sarcophagus') || lower.includes('milestone') || lower.includes('cairn') || lower.includes('rock') || lower.includes('boulder')) {
+      if (tags.includes('stone') || lower.includes('pillar') || lower.includes('monolith') || lower.includes('milestone') || lower.includes('cairn') || lower.includes('rock') || lower.includes('boulder')) {
         return [8, 4]; // Ancient stone monument / megalith
       }
-      if (tags.includes('wood') || lower.includes('wagon') || lower.includes('cart') || lower.includes('barricade') || lower.includes('trunk') || lower.includes('snag')) {
-        return [6, 2]; // Wooden wagon / barricade
-      }
-      if (tags.includes('altar') || lower.includes('altar') || lower.includes('shrine')) {
-        return [10, 4]; // Sacred stone altar
-      }
-      if (tags.includes('door') || lower.includes('door') || lower.includes('gate')) {
-        return [10, 0]; // Door
-      }
-      if (tags.includes('magic') || lower.includes('crystal') || lower.includes('wardstone')) {
-        return [2, 5]; // Magic crystal
+      if (tags.includes('wood') || lower.includes('wagon') || lower.includes('cart') || lower.includes('barricade') || lower.includes('trunk') || lower.includes('snag') || lower.includes('stall') || lower.includes('rack')) {
+        return [6, 2]; // Wooden wagon / barricade / stall
       }
       return [0, 0];
     };
@@ -1815,7 +1920,108 @@ function App() {
     ctx.fillRect(px + TILE_SIZE / 2 - youWidth / 2 - 3, py - 12, youWidth + 6, 10);
     ctx.fillStyle = '#fef08a';
     ctx.fillText('YOU', px + TILE_SIZE / 2, py - 4);
-  }, [localPos, tilemap, manifest, injectedProps, injectedNPCs, gfxLoaded, character]);
+
+    // 4. Target Lock Bracket (if an entity or prop is currently targeted)
+    if (encounterTarget && canvasRef.current) {
+      const targetScreenX = (encounterTarget.pos[0] - localPos.lx + half) * TILE_SIZE;
+      const targetScreenY = (encounterTarget.pos[1] - localPos.ly + half) * TILE_SIZE;
+      if (targetScreenX >= 0 && targetScreenX < canvasRef.current.width && targetScreenY >= 0 && targetScreenY < canvasRef.current.height) {
+        ctx.save();
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 2;
+        const pad = 2;
+        const corner = 6;
+        // Top-left corner
+        ctx.beginPath();
+        ctx.moveTo(targetScreenX - pad, targetScreenY - pad + corner);
+        ctx.lineTo(targetScreenX - pad, targetScreenY - pad);
+        ctx.lineTo(targetScreenX - pad + corner, targetScreenY - pad);
+        // Top-right corner
+        ctx.moveTo(targetScreenX + TILE_SIZE + pad - corner, targetScreenY - pad);
+        ctx.lineTo(targetScreenX + TILE_SIZE + pad, targetScreenY - pad);
+        ctx.lineTo(targetScreenX + TILE_SIZE + pad, targetScreenY - pad + corner);
+        // Bottom-left corner
+        ctx.moveTo(targetScreenX - pad, targetScreenY + TILE_SIZE + pad - corner);
+        ctx.lineTo(targetScreenX - pad, targetScreenY + TILE_SIZE + pad);
+        ctx.lineTo(targetScreenX - pad + corner, targetScreenY + TILE_SIZE + pad);
+        // Bottom-right corner
+        ctx.moveTo(targetScreenX + TILE_SIZE + pad - corner, targetScreenY + TILE_SIZE + pad);
+        ctx.lineTo(targetScreenX + TILE_SIZE + pad, targetScreenY + TILE_SIZE + pad);
+        ctx.lineTo(targetScreenX + TILE_SIZE + pad, targetScreenY + TILE_SIZE + pad - corner);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    // 5. Tactical Radial Darkness Vignette (Lighting & Field of View)
+    if (canvasRef.current) {
+      const centerX = px + TILE_SIZE / 2;
+      const centerY = py + TILE_SIZE / 2;
+      const grad = ctx.createRadialGradient(
+        centerX, centerY, 3.5 * TILE_SIZE,
+        centerX, centerY, 8.5 * TILE_SIZE
+      );
+      grad.addColorStop(0, 'rgba(5, 8, 17, 0)');
+      grad.addColorStop(0.45, 'rgba(5, 8, 17, 0.18)');
+      grad.addColorStop(0.75, 'rgba(5, 8, 17, 0.6)');
+      grad.addColorStop(1, 'rgba(5, 8, 17, 0.93)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    }
+
+    // 6. Dynamic Biome Weather Particles
+    if (canvasRef.current && manifest?.global_context) {
+      const biomeId = manifest.global_context.biome_id;
+      // Rain / Mist: Biomes 6 (Woodland), 7 (Boreal Forest), 12 (Wetland Swamp)
+      if (biomeId === 6 || biomeId === 7 || biomeId === 12) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(186, 230, 253, 0.35)';
+        ctx.lineWidth = 1.2;
+        const numDrops = 35;
+        for (let i = 0; i < numDrops; i++) {
+          const seed = (i * 997 + localPos.lx * 13 + localPos.ly * 37) % 10000;
+          const rx = (seed * 47) % canvasRef.current.width;
+          const ry = (seed * 89) % canvasRef.current.height;
+          ctx.beginPath();
+          ctx.moveTo(rx, ry);
+          ctx.lineTo(rx - 3, ry + 10);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+      // Snow / Frost: Biomes 10 (Tundra), 11 (Glacier)
+      else if (biomeId === 10 || biomeId === 11) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(248, 250, 252, 0.65)';
+        const numFlakes = 30;
+        for (let i = 0; i < numFlakes; i++) {
+          const seed = (i * 883 + localPos.lx * 19 + localPos.ly * 43) % 10000;
+          const rx = (seed * 53) % canvasRef.current.width;
+          const ry = (seed * 71) % canvasRef.current.height;
+          const size = (seed % 3) + 1.5;
+          ctx.beginPath();
+          ctx.arc(rx, ry, size, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+      // Desert Dust / Sand Motes: Biomes 1 (Hot Desert), 2 (Cold Desert), 3 (Savanna)
+      else if (biomeId === 1 || biomeId === 2 || biomeId === 3) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(252, 211, 77, 0.28)';
+        const numDust = 25;
+        for (let i = 0; i < numDust; i++) {
+          const seed = (i * 769 + localPos.lx * 29 + localPos.ly * 53) % 10000;
+          const rx = (seed * 61) % canvasRef.current.width;
+          const ry = (seed * 79) % canvasRef.current.height;
+          ctx.beginPath();
+          ctx.arc(rx, ry, 1.8, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+    }
+  }, [localPos, tilemap, manifest, injectedProps, injectedNPCs, gfxLoaded, character, encounterTarget]);
 
   // Execute Action through Concordia Game Master loop
   const triggerAction = async (actionText: string) => {
@@ -2176,12 +2382,12 @@ function App() {
               <div className="text-xs text-gray-400 italic animate-pulse">Loading hero profile...</div>
             )}
 
-            {/* SIMULATION SECTOR SURVEY & ENVIRONMENT TELEMETRY HUD */}
-            <div className="bg-gradient-to-b from-gray-900 via-gray-900 to-gray-950 border border-gray-700/80 rounded-xl p-3 space-y-2.5 shadow-lg">
+            {/* ADVENTURER'S ASTROLOGICAL & SENSORY ALMANAC */}
+            <div className="bg-gradient-to-b from-gray-900 via-gray-900 to-gray-950 border border-amber-900/40 rounded-xl p-3 space-y-2.5 shadow-lg">
               {/* Header: Sector Coordinates, Biome & Sovereignty */}
               <div className="flex justify-between items-center text-[10.5px] uppercase font-bold tracking-wider">
                 <span className="text-amber-400 flex items-center gap-1">
-                  <span>🌍</span> Sector ({regionalPos.rx}, {regionalPos.ry})
+                  <span>🧭</span> Sector ({regionalPos.rx}, {regionalPos.ry})
                 </span>
                 <span className="font-mono text-cyan-300 bg-cyan-950/80 border border-cyan-800 px-2 py-0.5 rounded text-[9.5px]">
                   {getBiomeName(manifest?.global_context?.biome_id)}
@@ -2203,17 +2409,55 @@ function App() {
                     🌾 Famine
                   </span>
                 )}
-                {manifest?.environment?.chaos_radiation > 0.1 && (
-                  <span className="text-purple-300 bg-purple-950/80 border border-purple-800 px-1.5 py-0.5 rounded">
-                    🔮 Chaos: {Math.round(manifest.environment.chaos_radiation * 100)}%
-                  </span>
-                )}
               </div>
 
-              {/* Ambient Environmental Lore */}
-              {activeBeat?.hook && (
-                <div className="text-[11px] text-gray-300 italic border-l-2 border-amber-500/60 pl-2 py-0.5 bg-black/30 rounded-r">
-                  {activeBeat.hook}
+              {/* Lunar Cruorbus & 12 Flows of Chaos Almanac */}
+              <div className="p-2 rounded-lg bg-gradient-to-r from-red-950/50 via-purple-950/40 to-slate-900 border border-red-900/40 text-[10px] space-y-1">
+                <div className="flex justify-between items-center font-bold">
+                  <span className="text-red-300 flex items-center gap-1">
+                    <span>🌕</span> Cruorbus: {calendarState?.moon_phase || 'The Waxing Blood'}
+                  </span>
+                  <span className="text-purple-300 font-mono text-[9px] bg-purple-950/80 border border-purple-800/60 px-1.5 py-0.5 rounded">
+                    Flow of {calendarState?.active_flow || 'Mass'}
+                  </span>
+                </div>
+                <div className="text-gray-300 text-[9.5px] italic">
+                  {calendarState?.dragon_domain 
+                    ? `Celestial energy absorbed by the prison of ${calendarState.dragon_domain}` 
+                    : 'Radiating primordial chaos into ancient dragon barrows'}
+                </div>
+              </div>
+
+              {/* Surroundings & Sensory Atmosphere */}
+              <div className="bg-black/40 border border-gray-800/90 rounded-lg p-2 text-[10px] space-y-1">
+                <div className="text-[9px] font-bold uppercase tracking-wider text-amber-400/90 flex items-center gap-1">
+                  <span>🌿</span> Field Surroundings
+                </div>
+                <div className="text-gray-300 text-[10px] leading-relaxed">
+                  {(() => {
+                    const elev = manifest?.environment?.elevation ?? 0.5;
+                    const veg = manifest?.environment?.vegetation_density ?? 0.5;
+                    const chaos = manifest?.environment?.chaos_radiation ?? 0;
+                    const terrainDesc = elev > 0.65 ? 'High alpine crags with biting gale-winds' : elev < 0.28 ? 'Sunken silt basin and heavy damp mist' : 'Rolling frontier wilds';
+                    const canopyDesc = veg > 0.65 ? 'under vaulted elderwood canopy' : veg < 0.25 ? 'across barren, wind-scoured scree' : 'flanked by sparse scrub and game trails';
+                    const auraDesc = chaos > 0.35 ? 'An eerie violet static hum tingles against your skin.' : 'The air smells of crushed pine and damp earth.';
+                    return `${terrainDesc} ${canopyDesc}. ${auraDesc}`;
+                  })()}
+                </div>
+              </div>
+
+              {/* Dynamic Sector Title & Situation */}
+              {activeBeat?.title && (
+                <div className="space-y-1 pt-0.5 border-t border-gray-800/80">
+                  <div className="text-[11px] font-bold text-amber-300 tracking-wide flex items-center gap-1.5">
+                    <span>📍</span>
+                    <span className="truncate">{activeBeat.title}</span>
+                  </div>
+                  {activeBeat.hook && (
+                    <div className="text-[10.5px] text-gray-300 italic border-l-2 border-amber-500/60 pl-2 py-0.5 bg-black/30 rounded-r">
+                      {activeBeat.hook}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -2737,114 +2981,57 @@ function App() {
 
           {/* Action Chips & Input Section */}
           <div className="p-3 border-t border-gray-700 bg-gray-900 space-y-2">
-            {/* Quick Action Suggestion Chips based on target */}
+            {/* Quick Action Suggestion Chips based on universal Tag-to-Stat Action Matrix */}
             <div className="flex flex-wrap gap-1.5">
-              {encounterTarget && 'role' in encounterTarget ? (
-                <>
-                  <button
-                    type="button"
-                    disabled={isActing}
-                    onClick={() => triggerAction(`I speak with ${encounterTarget.name} to demand what they are doing here and who sent them`)}
-                    className="text-xs bg-amber-950/70 hover:bg-amber-800 text-amber-200 border border-amber-700/60 px-2.5 py-1 rounded transition flex items-center gap-1"
-                  >
-                    <span>🗣️</span> Talk
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isActing}
-                    onClick={() => triggerAction(`I strike ${encounterTarget.name} with my ${character?.equipped_weapon || 'blade'} (${character?.weapon_stat ? character.weapon_stat.toUpperCase() : 'MIGHT'})`)}
-                    className="text-xs bg-red-950/70 hover:bg-red-800 text-red-300 border border-red-700/60 px-2.5 py-1 rounded transition flex items-center gap-1"
-                  >
-                    <span>⚔️</span> Attack ({character?.weapon_stat ? character.weapon_stat.toUpperCase() : 'MIGHT'})
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isActing}
-                    onClick={() => triggerAction(`I offer 10 gold coins to ${encounterTarget.name} to secure their aid and information`)}
-                    className="text-xs bg-yellow-950/70 hover:bg-yellow-800 text-yellow-300 border border-yellow-700/60 px-2.5 py-1 rounded transition flex items-center gap-1"
-                  >
-                    <span>🪙</span> Bribe (10g)
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isActing}
-                    onClick={() => triggerAction(`I draw steel and threaten ${encounterTarget.name} to yield or suffer the consequences`)}
-                    className="text-xs bg-purple-950/70 hover:bg-purple-800 text-purple-300 border border-purple-700/60 px-2.5 py-1 rounded transition flex items-center gap-1"
-                  >
-                    <span>💀</span> Intimidate
-                  </button>
-                </>
-              ) : encounterTarget ? (
-                <>
-                  <button
-                    type="button"
-                    disabled={isActing}
-                    onClick={() => triggerAction(`I attempt to pick the lock on ${encounterTarget.name} using my finesse`)}
-                    className="text-xs bg-sky-950/70 hover:bg-sky-800 text-sky-300 border border-sky-700/60 px-2.5 py-1 rounded transition flex items-center gap-1"
-                  >
-                    <span>🗝️</span> Unlock
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isActing}
-                    onClick={() => triggerAction(`I search and inspect ${encounterTarget.name} closely for hidden catches or loot`)}
-                    className="text-xs bg-emerald-950/70 hover:bg-emerald-800 text-emerald-300 border border-emerald-700/60 px-2.5 py-1 rounded transition flex items-center gap-1"
-                  >
-                    <span>🔍</span> Inspect
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isActing}
-                    onClick={() => triggerAction(`I smash ${encounterTarget.name} with brute force`)}
-                    className="text-xs bg-red-950/70 hover:bg-red-800 text-red-300 border border-red-700/60 px-2.5 py-1 rounded transition flex items-center gap-1"
-                  >
-                    <span>🔨</span> Smash
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isActing}
-                    onClick={() => triggerAction(`I ignite ${encounterTarget.name} with a burning torch`)}
-                    className="text-xs bg-orange-950/70 hover:bg-orange-800 text-orange-300 border border-orange-700/60 px-2.5 py-1 rounded transition flex items-center gap-1"
-                  >
-                    <span>🔥</span> Ignite
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    disabled={isActing}
-                    onClick={() => triggerAction('I scout and search the surroundings for tracks, hidden caches, and threats')}
-                    className="text-xs bg-emerald-950/70 hover:bg-emerald-800 text-emerald-300 border border-emerald-700/60 px-2.5 py-1 rounded transition flex items-center gap-1"
-                  >
-                    <span>🔍</span> Search Area
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isActing}
-                    onClick={() => triggerAction('I move stealthily from cover to cover without alerting enemies')}
-                    className="text-xs bg-indigo-950/70 hover:bg-indigo-800 text-indigo-300 border border-indigo-700/60 px-2.5 py-1 rounded transition flex items-center gap-1"
-                  >
-                    <span>👤</span> Sneak
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isActing}
-                    onClick={() => triggerAction('I take a tactical pause to bandage wounds, catch my breath, and rest')}
-                    className="text-xs bg-teal-950/70 hover:bg-teal-800 text-teal-300 border border-teal-700/60 px-2.5 py-1 rounded transition flex items-center gap-1"
-                  >
-                    <span>🏕️</span> Rest & Heal
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isActing}
-                    onClick={() => triggerAction('I open my senses to detect aetheric currents and hidden arcane hazards')}
-                    className="text-xs bg-purple-950/70 hover:bg-purple-800 text-purple-300 border border-purple-700/60 px-2.5 py-1 rounded transition flex items-center gap-1"
-                  >
-                    <span>🔮</span> Sense Magic
-                  </button>
-                </>
+              {/* Primary combat strike if target is an alive NPC */}
+              {encounterTarget && 'role' in encounterTarget && encounterTarget.alive && (
+                <button
+                  type="button"
+                  disabled={isActing}
+                  onClick={() => triggerAction(`I strike ${encounterTarget.name} with my ${character?.equipped_weapon || 'blade'} (${character?.weapon_stat ? character.weapon_stat.toUpperCase() : 'MIGHT'})`)}
+                  className="text-xs bg-red-950/70 hover:bg-red-800 text-red-300 border border-red-700/60 px-2.5 py-1 rounded transition flex items-center gap-1 font-semibold"
+                >
+                  <span>⚔️</span> Attack ({character?.weapon_stat ? character.weapon_stat.toUpperCase() : 'MIGHT'})
+                </button>
               )}
+
+              {/* Dynamic Tag-to-Stat Actions from Universal Matrix */}
+              {getActionsForTarget(encounterTarget, Array.isArray(character?.inventory) ? character.inventory : []).map((action) => {
+                const isSpecialMerchant = action.verb === 'BARTER';
+                const isSpecialNotice = action.verb === 'READ_NOTICES';
+                const statVal = character ? Number(character[action.stat]) || 5 : 5;
+                const isHighStat = statVal >= 7;
+
+                let badgeStyle = "bg-gray-800 text-gray-200 border-gray-700 hover:bg-gray-750";
+                if (action.category === 'SURVIVAL') badgeStyle = "bg-emerald-950/70 hover:bg-emerald-800 text-emerald-200 border-emerald-700/60";
+                else if (action.category === 'SUBTERFUGE') badgeStyle = "bg-sky-950/70 hover:bg-sky-800 text-sky-200 border-sky-700/60";
+                else if (action.category === 'SOCIAL') badgeStyle = "bg-amber-950/70 hover:bg-amber-800 text-amber-200 border-amber-700/60";
+                else if (action.category === 'MAGIC') badgeStyle = "bg-purple-950/70 hover:bg-purple-800 text-purple-200 border-purple-700/60";
+                else if (action.category === 'EXPLORATION') badgeStyle = "bg-teal-950/70 hover:bg-teal-800 text-teal-200 border-teal-700/60";
+
+                return (
+                  <button
+                    key={action.id}
+                    type="button"
+                    disabled={isActing}
+                    onClick={() => {
+                      if (isSpecialMerchant) {
+                        openBarterModal();
+                      } else if (isSpecialNotice) {
+                        openNoticeModal();
+                      }
+                      triggerAction(action.formulatedPrompt);
+                    }}
+                    title={`${action.description} (${action.stat.toUpperCase()} vs DC ${action.finalDC}${action.toolBonus > 0 ? `, +${action.toolBonus} Tool Bonus` : ''})`}
+                    className={`text-xs px-2.5 py-1 rounded transition flex items-center gap-1.5 border ${badgeStyle} ${isHighStat ? 'ring-1 ring-amber-400/50 font-bold' : ''}`}
+                  >
+                    <span>{action.actionTitle}</span>
+                    <span className="text-[9px] px-1 rounded bg-black/60 text-gray-300 font-mono">
+                      {action.stat.slice(0, 3).toUpperCase()} {action.finalDC}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
             {/* Action Resolving Banner */}
@@ -5582,6 +5769,269 @@ function App() {
                 className="px-4 py-1.5 bg-gray-800 hover:bg-gray-700 text-white rounded-lg font-bold transition"
               >
                 Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 7. MERCANTILE BARTER & PROVISIONS MODAL */}
+      {showBarterModal && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5">
+          <div className="bg-gray-900 border border-amber-600/70 w-full max-w-4xl max-h-[90vh] rounded-2xl flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="p-4 border-b border-gray-800 bg-gray-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-black text-amber-400 tracking-wide flex items-center gap-2">
+                    <span>⚖️</span> MERCANTILE BARTER & PROVISIONS
+                  </h3>
+                  <span className="font-mono text-xs px-2.5 py-0.5 rounded bg-amber-950 border border-amber-700 text-amber-300 font-bold">
+                    💰 {character?.gold ?? 0} Gold in Purse
+                  </span>
+                </div>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Exchange coin for adventuring gear and commodities. Liquidate field salvage and foraged goods.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowBarterModal(false);
+                  setTradeStatus(null);
+                }}
+                className="p-1.5 text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-750 rounded-lg transition self-end sm:self-center"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Trade Status Feedback Toast */}
+            {tradeStatus && (
+              <div className="px-4 py-2 bg-amber-950/80 border-b border-amber-700/60 text-xs font-mono text-amber-300 flex items-center gap-2">
+                <span>🔔</span> {tradeStatus}
+              </div>
+            )}
+
+            {/* Modal Body: 2 Columns (Merchant Wares vs Player Pack) */}
+            <div className="flex-1 overflow-y-auto p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Left Column: Merchant Wares */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between border-b border-gray-800 pb-2">
+                  <span className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>🛒</span> Merchant Inventory ({tradeCatalog.length} Items)
+                  </span>
+                  <span className="text-[10px] font-mono text-gray-500">Live Simulation Index</span>
+                </div>
+
+                <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
+                  {tradeCatalog.length === 0 ? (
+                    <div className="p-6 text-center text-xs text-gray-500 italic">
+                      Fetching wares from merchant caravan...
+                    </div>
+                  ) : (
+                    tradeCatalog.map((ware, idx) => {
+                      const canAfford = (character?.gold ?? 0) >= ware.price;
+                      return (
+                        <div
+                          key={`${ware.name}-${idx}`}
+                          className="bg-gray-850 hover:bg-gray-800 p-2.5 rounded-xl border border-gray-750 flex items-center justify-between gap-3 transition"
+                        >
+                          <div className="flex items-start gap-2.5 flex-1 min-w-0">
+                            <span className="text-xl shrink-0 mt-0.5">{ware.icon || '📦'}</span>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold text-white truncate">{ware.name}</span>
+                                <span className="text-[9px] font-mono uppercase px-1 rounded bg-gray-900 border border-gray-700 text-gray-400">
+                                  {ware.type}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-gray-400 truncate mt-0.5" title={ware.desc}>
+                                {ware.desc}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="font-mono text-xs font-bold text-amber-400">
+                              {ware.price}g
+                            </span>
+                            <button
+                              type="button"
+                              disabled={!canAfford}
+                              onClick={() => handleBuyItem(ware)}
+                              className={`px-3 py-1 rounded-lg text-xs font-mono font-bold transition shadow-sm ${
+                                canAfford
+                                  ? 'bg-amber-600 hover:bg-amber-500 text-black'
+                                  : 'bg-gray-800 text-gray-500 cursor-not-allowed border border-gray-750'
+                              }`}
+                            >
+                              Buy
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Right Column: Player's Pack */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between border-b border-gray-800 pb-2">
+                  <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>🎒</span> Your Pack ({Array.isArray(character?.inventory) ? character.inventory.length : 0} Items)
+                  </span>
+                  <span className="text-[10px] font-mono text-gray-400">
+                    Purse: <strong className="text-amber-300">{character?.gold ?? 0}g</strong>
+                  </span>
+                </div>
+
+                <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
+                  {!Array.isArray(character?.inventory) || character.inventory.length === 0 ? (
+                    <div className="p-8 text-center text-xs text-gray-500 border border-dashed border-gray-800 rounded-xl space-y-1">
+                      <p>Your pack is currently empty.</p>
+                      <p className="text-[10px] text-gray-600">Forage flora, butcher wild game, or loot field caches to gather tradeable items.</p>
+                    </div>
+                  ) : (
+                    character.inventory.map((item: string, idx: number) => {
+                      const matchingWare = tradeCatalog.find(w => w.name.toLowerCase() === item.toLowerCase());
+                      const salePrice = matchingWare ? matchingWare.sellPrice : 6;
+                      return (
+                        <div
+                          key={`${item}-${idx}`}
+                          className="bg-gray-850 hover:bg-gray-800 p-2.5 rounded-xl border border-gray-750 flex items-center justify-between gap-3 transition"
+                        >
+                          <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                            <span className="text-lg shrink-0">{matchingWare?.icon || '🎒'}</span>
+                            <div className="min-w-0 flex-1">
+                              <span className="text-xs font-bold text-emerald-200 truncate block">{item}</span>
+                              <span className="text-[10px] text-gray-500 font-mono">Pack Slot #{idx + 1}</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="font-mono text-xs font-bold text-emerald-400">
+                              +{salePrice}g
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleSellItem(item, idx)}
+                              className="px-3 py-1 bg-emerald-950 hover:bg-emerald-800 text-emerald-300 border border-emerald-700/70 rounded-lg text-xs font-mono font-bold transition shadow-sm"
+                            >
+                              Sell
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-3 border-t border-gray-800 bg-gray-950 flex justify-between items-center text-xs font-mono text-gray-400">
+              <span>Prices fluctuate with municipal supply and demand loops.</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowBarterModal(false);
+                  setTradeStatus(null);
+                }}
+                className="px-4 py-1.5 bg-gray-800 hover:bg-gray-700 text-white rounded-lg font-bold transition"
+              >
+                Close Barter
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 8. MUNICIPAL NOTICE BOARD & REEVE BOUNTIES MODAL */}
+      {showNoticeModal && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5">
+          <div className="bg-gray-900 border border-amber-500/70 w-full max-w-2xl max-h-[88vh] rounded-2xl flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="p-4 border-b border-gray-800 bg-gray-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-black text-amber-300 tracking-wide flex items-center gap-2">
+                  <span>📜</span> MUNICIPAL NOTICE BOARD & CIVIC BOUNTIES
+                </h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Emergency requisitions and civil warrants derived from nearest Burg economy telemetry.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowNoticeModal(false)}
+                className="p-1.5 text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-750 rounded-lg transition self-end sm:self-center"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Bounties List */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {bountyList.length === 0 ? (
+                <div className="p-8 text-center text-xs text-gray-400 italic bg-gray-950/60 rounded-xl border border-gray-800">
+                  No active emergency decrees posted. The nearest settlement is currently stable.
+                </div>
+              ) : (
+                bountyList.map((bounty: any) => (
+                  <div
+                    key={bounty.id}
+                    className="bg-gray-850 p-4 rounded-xl border border-gray-750 hover:border-amber-600/70 transition space-y-2.5 shadow-md"
+                  >
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1.5 border-b border-gray-800 pb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">📌</span>
+                        <h4 className="font-bold text-sm text-amber-200">{bounty.title}</h4>
+                      </div>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 border border-emerald-700 text-emerald-300 font-bold uppercase">
+                        {bounty.status || 'OPEN'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs font-mono text-gray-400">
+                      <span>Posted by: <strong className="text-gray-200">{bounty.giver}</strong></span>
+                      <span className="text-amber-400 font-bold">Reward: {bounty.reward}</span>
+                    </div>
+
+                    <p className="text-xs text-gray-300 leading-relaxed">
+                      {bounty.desc}
+                    </p>
+
+                    <div className="pt-1.5 border-t border-gray-800/80 flex justify-between items-center">
+                      <span className="text-[10px] font-mono text-gray-500 uppercase">
+                        Category: {bounty.targetType || 'CIVIC'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowNoticeModal(false);
+                          triggerAction(`I accept the civic bounty: "${bounty.title}" from ${bounty.giver}`);
+                        }}
+                        className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-black text-xs font-bold rounded-lg transition flex items-center gap-1.5 shadow"
+                      >
+                        <span>✍️</span> Accept Decree
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-3 border-t border-gray-800 bg-gray-950 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowNoticeModal(false)}
+                className="px-4 py-1.5 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-xs font-bold transition"
+              >
+                Close Notice Board
               </button>
             </div>
           </div>

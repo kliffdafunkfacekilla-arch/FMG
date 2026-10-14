@@ -82,8 +82,10 @@ export async function runBurgOperationsAgent(client: any, tick: number) {
         const rSoc = Math.min(r, 1); wSoc += rSoc; r -= rSoc;
         
         // Generic Simulation Math
-        let foodProduced = wFood * gatherRate;
-        let luxProduced = wLux * gatherRate;
+        // Each food worker feeds their unit block of 10-12 plus municipal surplus
+        const foodYieldPerWorker = 22 + (urbanTier * 4);
+        let foodProduced = Math.floor(wFood * foodYieldPerWorker);
+        let luxProduced = Math.floor(wLux * (3 + urbanTier * 2));
         
         let foodDelta = foodProduced - pop; 
 
@@ -131,9 +133,9 @@ export async function runBurgOperationsAgent(client: any, tick: number) {
                 }
             }
             
-            // Then civilians die
+            // Then civilians suffer realistic famine attrition (5% of shortfall per tick)
             if (shortfall > 0) {
-                starvationDeaths = Math.min(burg.pop_null || 0, shortfall);
+                starvationDeaths = Math.min(burg.pop_null || 0, Math.max(1, Math.ceil(shortfall * 0.05)));
             }
         }
 
@@ -323,7 +325,15 @@ export async function runBurgOperationsAgent(client: any, tick: number) {
         const newHealth = Math.floor(Math.min(100, Math.max(0, (burg.health || 100) + healthDelta)));
         const newUnrest = Math.floor(Math.min(100, Math.max(0, (burg.unrest || 0) + unrestDelta)));
         const newCrime = Math.floor(Math.min(100, Math.max(0, (burg.crime_rate || 0) + crimeDelta)));
-        const newPopNull = Math.floor(Math.max(0, (burg.pop_null || 0) - (starvationDeaths || 0)));
+        let births = 0;
+        if (newFood > 0 && newHealth >= 40 && newUnrest < 70) {
+            const birthRate = 0.003 * (newHealth / 100) * (1 - newUnrest / 150);
+            births = Math.floor(pop * birthRate);
+            if (pop < 100 && newFood > pop * 2 && Math.random() < 0.6) {
+                births = Math.max(1, births);
+            }
+        }
+        const newPopNull = Math.floor(Math.max(1, (burg.pop_null || 0) - (starvationDeaths || 0) + births));
 
         for (const key in inventory) {
             if (inventory[key] > 100000) inventory[key] = 100000;

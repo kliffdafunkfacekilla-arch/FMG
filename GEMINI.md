@@ -26,10 +26,14 @@ Welcome! You are working on the high-performance full-stack rebuild of the Fanta
 
 # AETHERIA SIMULATION MECHANICS & DESIGN
 
-The backend simulation is driven by an 8-Layer Agentic architecture executed sequentially by `masterOrchestrator.ts`. The simulation runs on a master "Tick" equivalent to roughly one in-game week.
+The backend simulation is driven by an 8-Layer Agentic architecture executed sequentially by `masterOrchestrator.ts`. The simulation runs on a master "Tick" equivalent to **exactly one in-game day (1 Tick = 1 Day)**.
 
 ## 1. Cosmology & Weather (The Base Layer)
-*   **Calendar Agent**: Tracks Years, Months, Days, Seasons, and the Lunar/Cosmic cycle (e.g., the phases of the blood moon Cruorbus).
+*   **Calendar Agent**: Tracks Years, Months, Days, Seasons, and the Lunar/Cosmic cycle across Ostraka's **541-Day Year**:
+    *   **12 Dragon Months (44 Days each = 528 Days)**: Each month is aligned with one of the 12 Chaos Dragons and Elemental Powers: Tiraton (Mass), Carulkem (Nexus), Stagus (Ordo), Tyrustis (Lex), Vecelo (Motus), Aurgenas (Flux), Gavusrix (Vita), Metrion (Ratio), Opecten (Lux), Termhill (Omen), Virantor (Aura), and Lophex (Anumis).
+    *   **Month 13: "Shadow Week" (13-Day Intercalary Eclipse, Days 529–541)**: Cruorbus passes into perfect alignment with the sun, causing a total solar eclipse for thirteen days. Ambient chaos calms while the 12 Dragon Seals weaken, spiking cult activity.
+    *   **8 Seasons (66 Days each)**: The Bloom, The High Sun, The Harvest, The Withering, The Deep Cold, The Thaw, The Awakening, The Roaring.
+    *   **5 Lunar Phases of Cruorbus (44-day cycle)**: The Empty Eye (Days 1–9), The Waxing Blood (Days 10–18), The Full Blood (Days 19–27), The Mercy Alignment (Days 28–36), and The Nightmare Alignment (Days 37–44).
 *   **Weather Agent**: Processes planetary temperature and precipitation mapped across a hexagonal coordinate grid. This influences biome growth and ecological health.
 
 ## 2. Burg Operations (Economy, Logistics, & Population)

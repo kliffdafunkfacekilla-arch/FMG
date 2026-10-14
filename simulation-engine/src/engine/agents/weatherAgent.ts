@@ -4,24 +4,24 @@
 //  the lunar cycle of Cruorbus (48-day month).
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Cruorbus lunar phase from dayOfMonth (1–48)
-function getCruorbusPhase(dayOfMonth: number): string {
-    if (dayOfMonth <= 8)  return "WAXING";         // chaos building
-    if (dayOfMonth <= 16) return "FULL_BLOOD";      // peak chaos – storms, raids, madness
-    if (dayOfMonth <= 24) return "CHAOS_FLOW";      // chaos rivers drain toward the Void
-    if (dayOfMonth <= 32) return "MERCY";           // calm eye, healing
-    if (dayOfMonth <= 40) return "WANING";          // slow dread
-    return "NIGHTMARE";                             // day 41-48: the Nightmare Alignment
+// Cruorbus lunar phase from dayOfMonth (1–44) & Shadow Week
+function getCruorbusPhase(dayOfMonth: number, isShadowWeek?: boolean): string {
+    if (isShadowWeek)     return "SHADOW_WEEK";
+    if (dayOfMonth <= 9)  return "WAXING";         // chaos building
+    if (dayOfMonth <= 18) return "FULL_BLOOD";     // peak chaos – storms, raids, madness
+    if (dayOfMonth <= 27) return "CHAOS_FLOW";     // chaos rivers drain toward the Void
+    if (dayOfMonth <= 36) return "MERCY";          // calm eye, healing
+    return "NIGHTMARE";                            // day 37-44: the Nightmare Alignment
 }
 
-export async function runWeatherAgent(client: any, tick: number, season: string, dayOfMonth: number, loreDate: string) {
+export async function runWeatherAgent(client: any, tick: number, season: string, dayOfMonth: number, loreDate: string, isShadowWeek?: boolean) {
 
     // ── 1. MOVE & AGE existing weather fronts ────────────────────────────────
     await client.query("UPDATE sim_weather_fronts SET x = x + dx, y = y + dy, lifetime = lifetime - 1");
     await client.query("DELETE FROM sim_weather_fronts WHERE lifetime <= 0");
 
     // ── 2. SPAWN new weather fronts based on season + lunar phase ─────────────
-    const phase = getCruorbusPhase(dayOfMonth);
+    const phase = getCruorbusPhase(dayOfMonth, isShadowWeek);
     const SPAWN_CHANCE: Record<string, number> = {
         "The Deep Cold": 0.12,
         "The Withering": 0.08,
@@ -127,8 +127,23 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
         }
     }
 
-    // ── 4. CHAOS FLOW — Lunar cycle of Cruorbus ───────────────────────────────
-    if (phase === "FULL_BLOOD") {
+    // ── 4. CHAOS FLOW — Lunar cycle of Cruorbus & Shadow Week ─────────────────
+    if (phase === "SHADOW_WEEK") {
+        // Shadow Week: 13-day solar eclipse by Cruorbus.
+        // Ambient chaos flow calms, but starves the 12 Sacred Groves, causing seals to decay.
+        const groveRes = await client.query("SELECT id, cell_id, seal_strength FROM sim_sacred_groves LIMIT 12");
+        for (const grove of groveRes.rows) {
+            const decay = Math.floor(2 + Math.random() * 4); // 2-5% decay per day of eclipse
+            const newStr = Math.max(0, (grove.seal_strength || 100) - decay);
+            await client.query("UPDATE sim_sacred_groves SET seal_strength = $1 WHERE id = $2", [newStr, grove.id]);
+        }
+        if (tick % 3 === 0) {
+            await client.query(
+                `INSERT INTO sim_events (tick, type, message, tier, lore_date) VALUES ($1, 'SHADOW_WEEK_ECLIPSE', $2, 'MAJOR', $3)`,
+                [tick, `Shadow Week Day ${dayOfMonth}: Total darkness blankets Ostraka as Cruorbus blots out the sun. The Dragon Seals weaken and cultist chants ring in the void.`, loreDate]
+            );
+        }
+    } else if (phase === "FULL_BLOOD") {
         // Peak chaos: spawn chaos zones, damage seals, trigger chaos storms
         const groveRes = await client.query("SELECT id, cell_id, seal_strength FROM sim_sacred_groves LIMIT 12");
         for (const grove of groveRes.rows) {
