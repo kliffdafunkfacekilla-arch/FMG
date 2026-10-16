@@ -1291,28 +1291,99 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
       }
     }
 
-    // C. Apex Beast Vanquished -> Improve Ecological Health & Chronicle Major Event
+    // C. Apex Beast / Predator Vanquished -> Decrement Eco-Predators, Improve Ecological Health
     if (targetNPC && !targetNPC.alive && (targetNPC.role.includes("Apex Predator") || targetNPC.tags.includes("predator"))) {
       try {
         await this.pool.query(
           `UPDATE sim_cells
-           SET eco_health = LEAST(100.0, COALESCE(eco_health, 100.0) + 3.0)
+           SET eco_health = LEAST(100.0, COALESCE(eco_health, 100.0) + 3.0),
+               eco_predators = GREATEST(0.0, COALESCE(eco_predators, 5.0) - 1.0),
+               eco_apex = GREATEST(0.0, COALESCE(eco_apex, 1.0) - 1.0)
            WHERE id = $1`,
           [cellId]
         );
         await this.pool.query(
           `INSERT INTO sim_events (tick, tier, lore_date, burg_id, faction_id, type, message)
            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [1, "MAJOR", "Cruorbus 1st Era", 1, 1, "APEX_BEAST_SLAIN", `The legendary beast ${targetNPC.name} was vanquished by ${player.name} in Sector (${rx}, ${ry}). The wild balance shifts.`]
+          [1, "MAJOR", "Cruorbus 1st Era", 1, 1, "APEX_BEAST_SLAIN", `The predator ${targetNPC.name} was vanquished by ${player.name} in Sector (${rx}, ${ry}). The wild balance shifts.`]
         );
         await this.pool.query(
           `INSERT INTO sim_global_events (layer, type, message, regional_x, regional_y, radius, intensity, velocity_x, velocity_y, duration)
            VALUES ('ECOLOGICAL', 'APEX_BEAST_SLAIN', $1, $2, $3, 10, 0.8, 0, 0, 5)`,
           [`Apex predator ${targetNPC.name} vanquished by ${player.name}`, rx, ry]
         );
-        simDeltaNotice += " | 🦁 SIMULATION: Ecological Health Restored, Chronicle Major Event Recorded";
+        simDeltaNotice += " | 🦁 SIMULATION: Eco-Predators -1.0, Eco-Health +3.0";
       } catch (err) {
-        console.error("Backfeed eco error:", err);
+        console.error("Backfeed eco predator error:", err);
+      }
+    }
+
+    // C2. Prey / Wild Game Slain or Butchered -> Decrement Eco-Prey & Replenish Provincial Food Reserves
+    if ((targetNPC && !targetNPC.alive && (targetNPC.tags.includes("prey") || targetNPC.tags.includes("game"))) || (hit && (intent.verb === "FIELD_DRESS" || intent.verb === "BUTCHER"))) {
+      try {
+        await this.pool.query(
+          `UPDATE sim_cells
+           SET eco_prey = GREATEST(0.0, COALESCE(eco_prey, 10.0) - 1.0)
+           WHERE id = $1`,
+          [cellId]
+        );
+        await this.pool.query(
+          `UPDATE sim_burg_economy
+           SET food = COALESCE(food, 0) + 2
+           WHERE cell_id = $1 OR burg_id = (SELECT burg_id FROM sim_burg_economy ORDER BY ABS(cell_id - $1) ASC LIMIT 1)`,
+          [cellId]
+        );
+        simDeltaNotice += " | 🦌 SIMULATION: Eco-Prey -1.0, Granary Reserves +2";
+      } catch (err) {
+        console.error("Backfeed eco prey error:", err);
+      }
+    }
+
+    // C3. Botanical Flora Foraged / Harvested -> Decrement Eco-Plants, Stockpile Herbs & Adjust Commodity Supply
+    if (hit && (intent.verb === "FORAGE" || intent.verb === "HARVEST" || intent.verb === "EXAMINE_BOTANY")) {
+      try {
+        await this.pool.query(
+          `UPDATE sim_cells
+           SET eco_plants = GREATEST(0.0, COALESCE(eco_plants, 10.0) - 1.0)
+           WHERE id = $1`,
+          [cellId]
+        );
+        await this.pool.query(
+          `UPDATE sim_industrial_stockpiles
+           SET raw_herbs = COALESCE(raw_herbs, 0) + 1
+           WHERE burg_id = (SELECT burg_id FROM sim_burg_economy ORDER BY ABS(cell_id - $1) ASC LIMIT 1)`,
+          [cellId]
+        );
+        await this.pool.query(
+          `UPDATE sim_commodity_prices
+           SET global_supply = global_supply + 1,
+               current_price = GREATEST(0.4, current_price * 0.99)
+           WHERE commodity = 'medicine'`
+        );
+        simDeltaNotice += " | 🌿 SIMULATION: Eco-Flora -1.0, Apothecary Stock +1, Medicine Supply +1";
+      } catch (err) {
+        console.error("Backfeed flora error:", err);
+      }
+    }
+
+    // C4. Cultist Threat Purged -> Restore Sacred Grove Dragon Seal & Cleanse Eco-Blight
+    if (targetNPC && !targetNPC.alive && (targetNPC.tags.includes("cultist") || targetNPC.role.toLowerCase().includes("cultist") || targetNPC.faction.toLowerCase().includes("cult"))) {
+      try {
+        await this.pool.query(
+          `UPDATE sim_sacred_groves
+           SET seal_strength = LEAST(100, seal_strength + 4)
+           WHERE cell_id = $1 OR cell_id = (SELECT cell_id FROM sim_sacred_groves ORDER BY ABS(cell_id - $1) ASC LIMIT 1)`,
+          [cellId]
+        );
+        await this.pool.query(
+          `UPDATE sim_cells
+           SET eco_blight = GREATEST(0.0, COALESCE(eco_blight, 0.0) - 0.5)
+           WHERE id = $1`,
+          [cellId]
+        );
+        simDeltaNotice += " | 🕊️ SIMULATION: Cultist Threat Purged! Dragon Seal Restored +4, Eco-Blight -0.5";
+      } catch (err) {
+        console.error("Backfeed cultist error:", err);
       }
     }
 

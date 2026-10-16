@@ -4,7 +4,7 @@ import { generateLevel3Map } from './utils/Level3Generator';
 import { audioManager } from './utils/AudioManager';
 import { getActionsForTarget } from './utils/TagRegistry';
 
-const CELL_ID = 13408;
+const DEFAULT_START_CELL = 13408;
 const VIEWPORT_SIZE = 21; // 21x21 tiles visible at a time
 const TILE_SIZE = 24; // pixels per tile
 
@@ -171,6 +171,8 @@ function App() {
   const [chatInput, setChatInput] = useState('');
   const [character, setCharacter] = useState<any>(null);
 
+  const [currentCellId, setCurrentCellId] = useState<number>(DEFAULT_START_CELL);
+  const [cellTelemetry, setCellTelemetry] = useState<any>(null);
   const [regionalPos, setRegionalPos] = useState({ rx: 105, ry: 112 });
   const [localPos, setLocalPos] = useState({ lx: 128, ly: 128 });
 
@@ -1076,7 +1078,7 @@ function App() {
         body: JSON.stringify({
           slotName: `${slotLabel} - (${regionalPos.rx}, ${regionalPos.ry})`,
           characterData: character,
-          worldPos: { cellId: CELL_ID, rx: regionalPos.rx, ry: regionalPos.ry, lx: localPos.lx, ly: localPos.ly },
+          worldPos: { cellId: currentCellId, rx: regionalPos.rx, ry: regionalPos.ry, lx: localPos.lx, ly: localPos.ly },
           storyState: { campaignState, activeBeat }
         })
       });
@@ -1148,7 +1150,7 @@ function App() {
     setShowBarterModal(true);
     setTradeStatus(null);
     try {
-      const res = await fetch(`http://localhost:3000/api/dm/trade/catalog?cellId=${CELL_ID}`);
+      const res = await fetch(`http://localhost:3000/api/dm/trade/catalog?cellId=${currentCellId}`);
       if (res.ok) {
         const data = await res.json();
         setTradeCatalog(data.wares || []);
@@ -1210,7 +1212,7 @@ function App() {
   const openNoticeModal = async () => {
     setShowNoticeModal(true);
     try {
-      const res = await fetch(`http://localhost:3000/api/dm/bounties?cellId=${CELL_ID}`);
+      const res = await fetch(`http://localhost:3000/api/dm/bounties?cellId=${currentCellId}`);
       if (res.ok) {
         const data = await res.json();
         setBountyList(data.bounties || []);
@@ -1285,7 +1287,7 @@ function App() {
         body: JSON.stringify({
           slotName: saveSlotName,
           characterData: character,
-          worldPos: { cellId: CELL_ID, rx: regionalPos.rx, ry: regionalPos.ry, lx: localPos.lx, ly: localPos.ly },
+          worldPos: { cellId: currentCellId, rx: regionalPos.rx, ry: regionalPos.ry, lx: localPos.lx, ly: localPos.ly },
           storyState: { campaignState, activeBeat }
         })
       });
@@ -1366,9 +1368,9 @@ function App() {
   useEffect(() => {
     async function init() {
       try {
-        setMessages([{ sender: 'System', text: `Booting Concordia ECGM Engine on Global Cell ${CELL_ID}...`, type: 'info' }]);
-        await fetch(`http://localhost:3000/api/regional/start/${CELL_ID}`, { method: 'POST' });
-        await fetchSectorState(regionalPos.rx, regionalPos.ry);
+        setMessages([{ sender: 'System', text: `Booting Concordia ECGM Engine on Global Cell ${currentCellId}...`, type: 'info' }]);
+        await fetch(`http://localhost:3000/api/regional/start/${currentCellId}`, { method: 'POST' });
+        await fetchSectorState(regionalPos.rx, regionalPos.ry, currentCellId);
         setLoading(false);
       } catch (err: any) {
         setMessages(prev => [...prev, { sender: 'System', text: `Initialization failed: ${err.message}`, type: 'error' }]);
@@ -1386,9 +1388,15 @@ function App() {
   };
 
   // Loads WhatELSE StoryBeat, injected props, and Concordia Game Master loop
-  const fetchSectorState = async (rx: number, ry: number) => {
+  const fetchSectorState = async (rx: number, ry: number, targetCellId?: number) => {
+    const activeCellId = targetCellId ?? currentCellId;
     try {
-      const res = await fetch(`http://localhost:3000/api/regional/manifest/${CELL_ID}?x=${rx}&y=${ry}`);
+      fetch(`http://localhost:3000/api/regional/cell/${activeCellId}`)
+        .then(r => r.json())
+        .then(d => { if (d.cell) setCellTelemetry(d); })
+        .catch(() => {});
+
+      const res = await fetch(`http://localhost:3000/api/regional/manifest/${activeCellId}?x=${rx}&y=${ry}`);
       if (res.ok) {
         const data = await res.json();
         setManifest(data);
@@ -1403,7 +1411,7 @@ function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             context: {
-              cellId: CELL_ID,
+              cellId: activeCellId,
               rx,
               ry,
               biomeName: getBiomeName(data.global_context.biome_id),
@@ -1498,6 +1506,8 @@ function App() {
       if (e.key === '5') { triggerAction('I take a tactical pause to assess my wounds and environment'); return; }
 
       let changedRegion = false;
+      let crossedCellBoundary = false;
+      let cellDir = '';
 
       // Screen transition (Zelda style border crossing)
       if (nx < 0) { nx = 255; nr_x -= 1; changedRegion = true; }
@@ -1505,10 +1515,44 @@ function App() {
       if (ny < 0) { ny = 255; nr_y -= 1; changedRegion = true; }
       if (ny > 255) { ny = 0; nr_y += 1; changedRegion = true; }
 
+      // Check if regional sector crossed global cell boundaries (0 to 224)
+      if (nr_x < 0) { cellDir = 'W'; crossedCellBoundary = true; }
+      else if (nr_x >= 225) { cellDir = 'E'; crossedCellBoundary = true; }
+      else if (nr_y < 0) { cellDir = 'N'; crossedCellBoundary = true; }
+      else if (nr_y >= 225) { cellDir = 'S'; crossedCellBoundary = true; }
+
       // Collision check
       if (!changedRegion) {
         const tileType = tilemap.grid[ny * tilemap.size + nx];
         if (tileType === 1 || tileType === 2) return; // Tree or deep water
+      }
+
+      if (crossedCellBoundary) {
+        audioManager.playStep();
+        fetch(`http://localhost:3000/api/regional/neighbor?cellId=${currentCellId}&dir=${cellDir}`)
+          .then(r => r.json())
+          .then(async data => {
+            if (data.neighbor) {
+              const nextCellId = data.neighbor.id;
+              const nextRx = cellDir === 'W' ? 224 : cellDir === 'E' ? 0 : nr_x;
+              const nextRy = cellDir === 'N' ? 224 : cellDir === 'S' ? 0 : nr_y;
+              setCurrentCellId(nextCellId);
+              setRegionalPos({ rx: nextRx, ry: nextRy });
+              setLocalPos({ lx: nx, ly: ny });
+              await fetch(`http://localhost:3000/api/regional/start/${nextCellId}`, { method: 'POST' });
+              await fetchSectorState(nextRx, nextRy, nextCellId);
+              setMessages(prev => [
+                ...prev,
+                {
+                  sender: 'The Chronicler',
+                  text: `🧭 BORDER CROSSED: Entered Global Cell ${nextCellId} (${data.neighbor.faction_name || 'Wild Frontier'})! Elevation: ${data.neighbor.elevation}m.`,
+                  type: 'narrative'
+                }
+              ]);
+            }
+          })
+          .catch(console.error);
+        return;
       }
 
       if (changedRegion) {
@@ -2859,7 +2903,19 @@ function App() {
                   <span>📍 Global Sector:</span>
                   <strong className="text-white font-mono">X:{regionalPos.rx} Y:{regionalPos.ry}</strong>
                   <span className="text-gray-500">•</span>
-                  <span className="text-amber-400 font-mono">Cell {CELL_ID}</span>
+                  <span className="text-amber-400 font-mono">Cell {currentCellId}</span>
+                  {cellTelemetry?.cell?.current_temp !== undefined && (
+                    <>
+                      <span className="text-gray-500">•</span>
+                      <span className="text-cyan-300 font-mono">🌡️ {cellTelemetry.cell.current_temp}°C</span>
+                    </>
+                  )}
+                  {cellTelemetry?.cell?.elevation !== undefined && (
+                    <>
+                      <span className="text-gray-500">•</span>
+                      <span className="text-emerald-300 font-mono">⛰️ {cellTelemetry.cell.elevation}m</span>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -2881,7 +2937,7 @@ function App() {
               </div>
             )
           ) : (
-            /* World Map Reference Tab: Static Representation with Player Coordinates */
+            /* World Map Reference Tab: Interactive Navigation with Player Coordinates */
             <div className="flex flex-col items-center justify-center w-full h-full p-8 pt-16">
               <div className="relative bg-slate-950 border-2 border-sky-900/80 rounded-xl overflow-hidden shadow-2xl max-w-4xl max-h-[75vh] flex flex-col items-center">
                 {/* Reference Map Image (Rendered from Okasha planetary geometry) */}
@@ -2889,16 +2945,51 @@ function App() {
                   <img
                     src="/world_reference.svg"
                     alt="World Map Reference"
-                    className="max-h-[64vh] w-auto object-contain block opacity-90 select-none pointer-events-none"
+                    onClick={async (e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const clickPercentX = (e.clientX - rect.left) / rect.width;
+                      const clickPercentY = (e.clientY - rect.top) / rect.height;
+                      const worldX = clickPercentX * 2819;
+                      const worldY = clickPercentY * 1481;
+                      try {
+                        const res = await fetch(`http://localhost:3000/api/regional/nearest?x=${worldX}&y=${worldY}`);
+                        const data = await res.json();
+                        if (data.cell) {
+                          const targetCell = data.cell;
+                          if (window.confirm(`Fast-travel across the realm to Global Cell ${targetCell.id} (${targetCell.faction_name || 'Wild Frontier'})?`)) {
+                            setCurrentCellId(targetCell.id);
+                            setRegionalPos({ rx: 112, ry: 112 });
+                            setLocalPos({ lx: 128, ly: 128 });
+                            await fetch(`http://localhost:3000/api/regional/start/${targetCell.id}`, { method: 'POST' });
+                            await fetchSectorState(112, 112, targetCell.id);
+                            setActiveCenterTab('battlegrid');
+                            setMessages(prev => [
+                              ...prev,
+                              {
+                                sender: 'World',
+                                text: `🦅 Traveled across the frontier to Global Cell ${targetCell.id} (${targetCell.faction_name || 'Wild Frontier'}). Elevation: ${targetCell.elevation}m.`,
+                                type: 'narrative'
+                              }
+                            ]);
+                          }
+                        }
+                      } catch (err) {
+                        console.error('World map travel error:', err);
+                      }
+                    }}
+                    className="max-h-[64vh] w-auto object-contain block opacity-90 cursor-crosshair hover:opacity-100 transition"
+                    title="Click any territory on Ostraka to fast travel"
                     style={{ imageRendering: 'pixelated' }}
                   />
 
                   {/* Player Location Marker Pin */}
                   {(() => {
-                    // Map coordinate normalization: Okasha world reference is 280 x 148
-                    // regionalPos.rx is typically around 0-225, CELL_ID 13408 center is at [1278, 574] -> x ~ 128, y ~ 57
-                    const pinPercentX = Math.max(2, Math.min(98, (1278.22 / 2819) * 100 + ((regionalPos.rx - 105) * 0.1)));
-                    const pinPercentY = Math.max(2, Math.min(98, (574.00 / 1481) * 100 + ((regionalPos.ry - 112) * 0.1)));
+                    const pinPercentX = cellTelemetry?.cell
+                      ? Math.max(2, Math.min(98, (cellTelemetry.cell.center_x / 2819) * 100 + ((regionalPos.rx - 112) * 0.05)))
+                      : Math.max(2, Math.min(98, (1278.22 / 2819) * 100 + ((regionalPos.rx - 105) * 0.1)));
+                    const pinPercentY = cellTelemetry?.cell
+                      ? Math.max(2, Math.min(98, (cellTelemetry.cell.center_y / 1481) * 100 + ((regionalPos.ry - 112) * 0.05)))
+                      : Math.max(2, Math.min(98, (574.00 / 1481) * 100 + ((regionalPos.ry - 112) * 0.1)));
 
                     return (
                       <div

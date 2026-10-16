@@ -1046,6 +1046,24 @@ router.post('/trade/buy', async (req, res) => {
       [itemCost, JSON.stringify(inventory), pId]
     );
 
+    // Macroeconomic Backfeed: Commerce increases burg municipal tax wealth and stimulates commodity demand
+    const cellId = req.body.cellId ? parseInt(req.body.cellId) : 13408;
+    try {
+      await pool.query(
+        `UPDATE sim_burg_economy
+         SET wealth = COALESCE(wealth, 0) + GREATEST(1, FLOOR($1 * 0.2))
+         WHERE cell_id = $2 OR burg_id = (SELECT burg_id FROM sim_burg_economy ORDER BY ABS(cell_id - $2) ASC LIMIT 1)`,
+        [itemCost, cellId]
+      );
+      await pool.query(
+        `UPDATE sim_commodity_prices
+         SET global_demand = global_demand + 1,
+             current_price = LEAST(base_price * 2.5, current_price * 1.01)
+         WHERE LOWER(commodity) = LOWER($1)`,
+        [itemName.trim()]
+      );
+    } catch {}
+
     res.json({
       success: true,
       character: enrichCharacter(updateRes.rows[0]),
@@ -1088,6 +1106,26 @@ router.post('/trade/sell', async (req, res) => {
        RETURNING *`,
       [goldGain, JSON.stringify(inventory), pId]
     );
+
+    // Macroeconomic Backfeed: Selling goods adds supply to local stockpiles & global commodity index
+    const cellId = req.body.cellId ? parseInt(req.body.cellId) : 13408;
+    try {
+      await pool.query(
+        `UPDATE sim_commodity_prices
+         SET global_supply = global_supply + 1,
+             current_price = GREATEST(base_price * 0.4, current_price * 0.99)
+         WHERE LOWER(commodity) = LOWER($1)`,
+        [itemName.trim()]
+      );
+      if (itemName.toLowerCase().includes('herb') || itemName.toLowerCase().includes('flora')) {
+        await pool.query(
+          `UPDATE sim_industrial_stockpiles
+           SET raw_herbs = COALESCE(raw_herbs, 0) + 1
+           WHERE burg_id = (SELECT burg_id FROM sim_burg_economy ORDER BY ABS(cell_id - $1) ASC LIMIT 1)`,
+          [cellId]
+        );
+      }
+    } catch {}
 
     res.json({
       success: true,
