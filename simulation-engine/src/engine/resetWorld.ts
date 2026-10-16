@@ -312,6 +312,9 @@ CREATE TABLE IF NOT EXISTS sim_player_character (
     defense_skill VARCHAR(50),
     equipped_armor VARCHAR(50),
     equipped_weapon VARCHAR(50),
+    equipped_social_weapon VARCHAR(50) DEFAULT 'Iron Warmaster Baton',
+    equipped_social_armor VARCHAR(50) DEFAULT 'Keepsake Locket of the Hearth',
+    max_composure INT DEFAULT 20,
     current_quest_beat INT DEFAULT 0,
     gold INT DEFAULT 50,
     inventory JSONB DEFAULT '[]'::jsonb,
@@ -319,7 +322,8 @@ CREATE TABLE IF NOT EXISTS sim_player_character (
     level INT DEFAULT 1,
     skill_points INT DEFAULT 0,
     skill_ranks JSONB DEFAULT '{}'::jsonb,
-    difficulty VARCHAR(20) DEFAULT 'survivor'
+    difficulty VARCHAR(20) DEFAULT 'survivor',
+    faction_reputations JSONB DEFAULT '{}'::jsonb
 );
 
 CREATE TABLE IF NOT EXISTS sim_game_saves (

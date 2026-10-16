@@ -37,6 +37,18 @@ import {
   REALITY_NULL_TREES
 } from '../engine/rpg/MasterSkillProgression.js';
 
+import {
+  getSocialWeapon,
+  getSocialArmor,
+  STAT_SOCIAL_WEAPON_GROUPS,
+  STAT_SOCIAL_ARMOR_GROUPS
+} from '../engine/rpg/SocialEquipmentRegistry.js';
+
+import {
+  SOCIAL_OFFENSIVE_SKILL_TRACKS,
+  SANITY_DEFENSIVE_SKILL_TRACKS
+} from '../engine/rpg/SocialSkillProgression.js';
+
 // Initialize Singleton Concordia Game Master
 const concordiaGM = new ConcordiaGameMaster(pool, process.env.GEMINI_API_KEY || '');
 
@@ -54,6 +66,8 @@ function enrichCharacter(p: any) {
   if (!p) return null;
   const weaponDef = getWeapon(p.equipped_weapon || 'Osmium Greatsword');
   const armorDef = getArmor(p.equipped_armor || 'Juggernaut Osmium Plate');
+  const socWeaponDef = getSocialWeapon(p.equipped_social_weapon || 'Iron Warmaster Baton');
+  const socArmorDef = getSocialArmor(p.equipped_social_armor || 'Keepsake Locket of the Hearth');
 
   const stats = {
     might: p.might || 1,
@@ -79,7 +93,10 @@ function enrichCharacter(p: any) {
     skills: parseJsonField(p.skills, []),
     mastery_perks: parseJsonField(p.mastery_perks, unlockedPerks),
     skill_ranks: parseJsonField(p.skill_ranks, {}),
+    faction_reputations: parseJsonField(p.faction_reputations, {}),
     skill_points: p.skill_points || 0,
+    composure: p.composure ?? derived.maxComposure,
+    max_composure: p.max_composure ?? derived.maxComposure,
     weapon_stat: weaponDef.stat,
     weapon_mod: weaponDef.mod,
     weapon_damage_bonus: weaponDef.damageBonus,
@@ -92,6 +109,18 @@ function enrichCharacter(p: any) {
     armor_metal: armorDef.conductorMetal,
     armor_tags: armorDef.tags,
     armor_desc: armorDef.description,
+    equipped_social_weapon: socWeaponDef.name,
+    social_weapon_stat: socWeaponDef.stat,
+    social_weapon_mod: socWeaponDef.mod,
+    social_weapon_damage_bonus: socWeaponDef.composureDamageBonus,
+    social_weapon_tags: socWeaponDef.tags,
+    social_weapon_desc: socWeaponDef.description,
+    equipped_social_armor: socArmorDef.name,
+    social_armor_stat: socArmorDef.stat,
+    social_armor_mod: socArmorDef.mod,
+    social_armor_cdr: socArmorDef.composureReduction,
+    social_armor_tags: socArmorDef.tags,
+    social_armor_desc: socArmorDef.description,
     derived_stats: derived
   };
 }
@@ -104,6 +133,8 @@ router.get('/rules/skills', (req, res) => {
     res.json({
       offensiveSkillTracks: OFFENSIVE_SKILL_TRACKS,
       defensiveSkillTracks: DEFENSIVE_SKILL_TRACKS,
+      socialOffensiveSkillTracks: SOCIAL_OFFENSIVE_SKILL_TRACKS,
+      sanityDefensiveSkillTracks: SANITY_DEFENSIVE_SKILL_TRACKS,
       realityPowerTrees: REALITY_POWER_TREES,
       realityNullTrees: REALITY_NULL_TREES
     });
@@ -129,6 +160,8 @@ router.get('/character/options', (req, res) => {
       defenseSkills: DEFENSE_SKILLS,
       weapons: STAT_WEAPON_GROUPS,
       armors: STAT_ARMOR_GROUPS,
+      socialWeapons: STAT_SOCIAL_WEAPON_GROUPS,
+      socialArmors: STAT_SOCIAL_ARMOR_GROUPS,
       skills: SKILL_DB,
       masteryPerks: MASTERY_PERKS,
       kingdomLore: KINGDOM_LORE,
@@ -137,6 +170,8 @@ router.get('/character/options', (req, res) => {
       kingdomToBodyStat: KINGDOM_TO_BODY_STAT,
       offensiveSkillTracks: OFFENSIVE_SKILL_TRACKS,
       defensiveSkillTracks: DEFENSIVE_SKILL_TRACKS,
+      socialOffensiveSkillTracks: SOCIAL_OFFENSIVE_SKILL_TRACKS,
+      sanityDefensiveSkillTracks: SANITY_DEFENSIVE_SKILL_TRACKS,
       realityPowerTrees: REALITY_POWER_TREES,
       realityNullTrees: REALITY_NULL_TREES
     });
