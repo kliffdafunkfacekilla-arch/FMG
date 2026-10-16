@@ -187,39 +187,82 @@ export class RegionalInstance {
     }
   }
 
+  public getBiomeLabel(): string {
+    const bId = String(this.globalData.terrain?.biome || 6);
+    const names: Record<string, string> = {
+      "1": "Hot Desert", "2": "Cold Desert", "3": "Savanna", "4": "Grassland",
+      "5": "Tropical Rainforest", "6": "Temperate Forest", "7": "Boreal Forest",
+      "8": "Tundra", "9": "Glacier", "10": "Wetland", "11": "Scrubland", "12": "Wetland Swamp"
+    };
+    return names[bId] || "Wilderness";
+  }
+
   private spawnAgents() {
-    const spawn = (type: string, color: string, speed: number, count: number) => {
+    const bId = String(this.globalData.terrain?.biome || 6);
+    const ecologyTable: Record<string, { predators: string[]; prey: string[]; flora: string[] }> = {
+      "1": { predators: ["Dune Scythe-Beetle", "Sun-Stalker Vulture"], prey: ["Sand Gazelle", "Spiny Horn-Lizard"], flora: ["Spire Cactus", "Sun-Root"] },
+      "2": { predators: ["Grave Skink", "Frost-Fang Jackal"], prey: ["Scree Marmot", "Barren Hare"], flora: ["Brittle Scrub", "Salt Lichen"] },
+      "3": { predators: ["Plains Hyena", "Prideland Lion"], prey: ["Savanna Zebra", "Steppe Antelope"], flora: ["Golden Baobab", "Tuft Grass"] },
+      "4": { predators: ["Steppe Wolf", "Prairie Falcon"], prey: ["Great Prairie Elk", "Field Hare"], flora: ["Sweet Clover", "Wild Rye"] },
+      "5": { predators: ["Emerald Stalker", "Venom Adder"], prey: ["Canopy Macaw", "Tree Glider"], flora: ["Orchid Pod", "Liana Vine"] },
+      "6": { predators: ["Shadow Timber-Wolf", "Grizzled Briar Bear"], prey: ["Great Antler Stag", "Spotted Doe"], flora: ["Silverleaf Fern", "Ironwood Nut"] },
+      "7": { predators: ["Ice-Mane Worg", "Frost Lynx"], prey: ["Northern Caribou", "Snowshoe Hare"], flora: ["Pine-Sap Lichen", "Bog Cranberry"] },
+      "8": { predators: ["Glacial Bear", "White-Fang Fox"], prey: ["Tundra Reindeer", "Lichen Grouse"], flora: ["Cotton Grass", "Frost Moss"] },
+      "9": { predators: ["Frost Wyrmling", "Crag Stalker"], prey: ["Snow Beaver", "Ice Gull"], flora: ["Cryo-Spore", "Deep Ice Fern"] },
+      "10": { predators: ["Bog Stalker", "Mire Crocodile"], prey: ["Crested Marsh Elk", "Reed Heron"], flora: ["Fluorescent Bog Lichen", "Sweet-Water Reed"] },
+      "11": { predators: ["Scrub Coyote", "Ridge Vulture"], prey: ["Brush Rabbit", "Rock Partridge"], flora: ["Sage Thicket", "Bitter Berry"] },
+      "12": { predators: ["Marsh Leech-Hound", "Bog Stalker"], prey: ["Mud Tortoise", "Swamp Deer"], flora: ["Willow Bark", "Fever Moss"] }
+    };
+    const eco = ecologyTable[bId] || ecologyTable["6"] || {
+      predators: ["Shadow Timber-Wolf", "Grizzled Briar Bear"],
+      prey: ["Great Antler Stag", "Spotted Doe"],
+      flora: ["Silverleaf Fern", "Ironwood Nut"]
+    };
+
+    const spawn = (type: string, speciesName: string, category: string, color: string, speed: number, count: number, disposition: number) => {
       for (let i = 0; i < count; i++) {
         this.agents.push({
-          id: ++this.agentIdCounter, type, color, speed,
-          x: Math.random() * this.w, y: Math.random() * this.h,
-          tx: Math.random() * this.w, ty: Math.random() * this.h
+          id: ++this.agentIdCounter,
+          type,
+          speciesName,
+          category,
+          color,
+          speed,
+          disposition,
+          x: Math.random() * this.w,
+          y: Math.random() * this.h,
+          tx: Math.random() * this.w,
+          ty: Math.random() * this.h
         });
       }
     };
 
-    spawn("Prey", "#a3e635", 0.5, 5); 
-    spawn("Predator", "#dc2626", 0.7, 2); 
+    // Trophic Fauna: Biome-specific grazing wild game and apex predators
+    for (const preyName of eco.prey) {
+      spawn("Prey", preyName, "Wild Fauna", "#a3e635", 0.45, 3, 0);
+    }
+    for (const predName of eco.predators) {
+      spawn("Predator", predName, "Apex Predator", "#dc2626", 0.65, 2, -2);
+    }
     
     const burg = this.globalData.burg;
     if (!burg || burg.pop_null === 0) {
-      if (Math.random() < 0.3) spawn("Refugees", "#9ca3af", 0.3, 3);
-      if (Math.random() < 0.2) spawn("Hermit", "#d97706", 0.2, 1);
+      if (Math.random() < 0.3) spawn("Refugees", "Displaced Wanderers", "Wayfarer", "#9ca3af", 0.3, 3, 1);
+      if (Math.random() < 0.2) spawn("Hermit", "Frontier Hermit", "Wayfarer", "#d97706", 0.2, 1, 0);
     }
 
     const features = this.globalData.features || {};
     const routes = features.routes || [];
-    if (routes.includes("Smuggler Route")) spawn("Smuggler", "#000000", 0.6, 2);
+    if (routes.includes("Smuggler Route")) spawn("Smuggler", "Shadow Courier", "Outlaw", "#000000", 0.6, 2, -1);
     if (routes.includes("Imperial Highway")) {
-      spawn("Merchant", "#fbbf24", 0.4, 1);
-      spawn("Patrol", "#1d4ed8", 0.5, 2);
+      spawn("Merchant", "Caravan Master", "Trader", "#fbbf24", 0.4, 1, 1);
+      spawn("Patrol", "Imperial Outrider", "Garrison", "#1d4ed8", 0.5, 2, 0);
     }
-    if (Math.random() < 0.15) spawn("Anomaly", "#c026d3", 0.1, 1);
+    if (Math.random() < 0.15) spawn("Anomaly", "Eldritch Rift-Entity", "Anomaly", "#c026d3", 0.1, 1, -2);
     
     // Cultists guard the POI temple
     if (features.poi) {
-      spawn("Cultist", "#7e22ce", 0.3, 4);
-      // Ensure they spawn right near the temple (the center)
+      spawn("Cultist", "Dragon-Seal Zealot", "Cultist", "#7e22ce", 0.35, 4, -2);
       const cx = Math.floor(this.w / 2), cy = Math.floor(this.h / 2);
       this.agents.forEach(a => {
         if (a.type === 'Cultist') {
@@ -230,10 +273,9 @@ export class RegionalInstance {
     }
 
     if (this.globalData.isWarzone) {
-      spawn("Refugee", "#d1d5db", 0.3, 8); // Lots of slow moving refugees
-      spawn("Bandit", "#1f2937", 0.7, 4);  // Fast bandits hunting them
+      spawn("Refugee", "War Refugee", "Refugee", "#d1d5db", 0.3, 6, 1);
+      spawn("Bandit", "Desperate Raider", "Outlaw", "#1f2937", 0.7, 4, -2);
       
-      // Cluster refugees near the south edge (fleeing)
       this.agents.forEach(a => {
         if (a.type === 'Refugee') {
           a.y = this.h - Math.floor(Math.random() * 20);
@@ -242,7 +284,7 @@ export class RegionalInstance {
     }
 
     if (this.globalData.isFamine) {
-      spawn("Cannibal", "#991b1b", 0.8, 5); // Aggressive fast cannibals
+      spawn("Cannibal", "Famine Marauder", "Outlaw", "#991b1b", 0.75, 4, -2);
     }
   }
 
@@ -258,7 +300,7 @@ export class RegionalInstance {
           a.x += (dx / dist) * a.speed; a.y += (dy / dist) * a.speed;
         }
         if (a.type === "Predator") {
-          let nearestPrey = null, pDist = 15;
+          let nearestPrey = null, pDist = 20;
           for (let p of this.agents) {
             if (p.type === "Prey") {
               const d = Math.sqrt(Math.pow(p.x - a.x, 2) + Math.pow(p.y - a.y, 2));
@@ -273,12 +315,19 @@ export class RegionalInstance {
 
   public getManifest(rx: number, ry: number) {
     const idx = ry * this.w + rx;
-    const cellAgents = this.agents.filter(a => Math.abs(a.x - rx) < 2 && Math.abs(a.y - ry) < 2);
+    
+    // Sort all agents by distance to current sector coordinate, take top 8 closest
+    const nearbyAgents = this.agents
+      .map(a => ({ agent: a, dist: Math.hypot(a.x - rx, a.y - ry) }))
+      .sort((a, b) => a.dist - b.dist)
+      .slice(0, 8)
+      .map(item => item.agent);
     
     return {
       level_3_seed: `${this.cellId}-${rx}-${ry}`,
       global_context: {
         biome_id: this.globalData.terrain?.biome || 0,
+        biome_name: this.getBiomeLabel(),
         crime_rate: this.globalData.burg ? this.globalData.burg.crime_rate : "Wilderness",
         faction_owner: this.globalData.burg ? (this.globalData.burg.occupier_faction_id || this.globalData.burg.faction_id) : "Unclaimed",
         isWarzone: this.globalData.isWarzone || false,
@@ -300,10 +349,13 @@ export class RegionalInstance {
         chaos_radiation: parseFloat((this.chaosMap[idx] || 0).toFixed(3)),
         infrastructure_mask: this.infraMap[idx] || 0
       },
-      entities_present: cellAgents.map(a => ({
-        type: a.type,
+      entities_present: nearbyAgents.map(a => ({
+        id: a.id,
+        type: a.speciesName || a.type,
+        category: a.category || a.type,
         state: "ROAMING",
-        story_hook: `A ${a.type} navigating the local terrain.`
+        disposition: a.disposition,
+        story_hook: `A ${a.speciesName || a.type} roaming the ${this.getBiomeLabel()} wilds.`
       }))
     };
   }
