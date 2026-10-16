@@ -18,6 +18,8 @@ import { TagMatrixEngine, TaggedObject, TagInteractionResult } from "./TagMatrix
 import { WhatElseStoryEngine, StoryBeat, SectorContext, InjectedNPC, InjectedWorldState } from "./WhatElseStoryEngine.js";
 import { resolveMeleeAttack, resolveOpposedCombat } from "./RulesEngine.js";
 import { getWeapon, getArmor, StatKey, WeaponDef, ArmorDef } from "./EquipmentRegistry.js";
+import { getSocialWeapon, getSocialArmor, SocialWeaponDef, SocialArmorDef } from "./SocialEquipmentRegistry.js";
+import { resolveOpposedSocialContest, resolveCosmicDreadCheck, SocialCombatant } from "../socialCombat.js";
 import { computeActionDC, ATOMIC_TAG_ACTIONS } from "./TagRegistry.js";
 import { ProceduralNPCGenerator, SeededPRNG } from "./ProceduralNPCGenerator.js";
 
@@ -623,6 +625,11 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
     };
 
     const playerStatVal: number = Number(player[intent.statUsed]) || 5;
+    let playerComposure = Number(player.composure) || Number(player.max_composure) || 20;
+    const playerMaxComposure = Number(player.max_composure) || 20;
+    const playerReputations: Record<string, number> = typeof player.faction_reputations === "object" && player.faction_reputations
+      ? { ...player.faction_reputations }
+      : (typeof player.faction_reputations === "string" ? JSON.parse(player.faction_reputations || "{}") : {});
 
     if (player.current_hp !== undefined && Number(player.current_hp) <= 0) {
       return {
@@ -687,43 +694,81 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
     const dynamicToolBonus = calculatedDCInfo.breakdown.toolBonus;
     const toolBonusNotice = dynamicToolBonus > 0 ? ` (+${dynamicToolBonus} Tool)` : "";
 
-    if (intent.category === "SOCIAL" && targetNPC) {
-      // --- SOCIAL RESOLUTION (Does not deal physical weapon damage) ---
-      let socialDC = dynamicDC;
-      if (targetNPC.disposition > 0) socialDC -= 2;
-      if (targetNPC.disposition < -1) socialDC += 2;
+    if (intent.category === "SOCIAL") {
+      // --- SOCIAL RESOLUTION (Composure & Mental Contest) ---
+      const npcName = targetNPC?.name || intent.targetName || "The Guard";
+      const npcRole = targetNPC?.role || (npcName.toLowerCase().includes("guard") ? "Guard" : "Wayfarer");
+      const npcFaction = targetNPC?.faction || "Local Province";
+      const targetFactionRep = playerReputations[npcFaction] || 0;
+      let advantageMod = 0;
+      if (targetNPC) {
+        if (targetNPC.disposition > 0) advantageMod += 2;
+        if (targetNPC.disposition < -1) advantageMod -= 2;
+      }
+      if (targetFactionRep >= 25) advantageMod += 2;
+      else if (targetFactionRep <= -25) advantageMod -= 2;
 
       if (intent.verb === "BRIBE") {
-        if (targetNPC.tags.includes("bribeable") || targetNPC.tags.includes("greedy")) {
-          socialDC -= 4; // Advantage
-        }
-        if (player.gold >= 10) {
-          player.gold -= 10;
-        } else {
-          socialDC += 5; // Insufficient coin
-        }
+        if (targetNPC?.tags?.includes("bribeable") || targetNPC?.tags?.includes("greedy")) advantageMod += 3;
+        if (player.gold >= 10) player.gold -= 10;
+        else advantageMod -= 4;
       } else if (intent.verb === "INTIMIDATE") {
-        if (targetNPC.tags.includes("fearful") || targetNPC.tags.includes("intimidatable")) {
-          socialDC -= 4;
-        }
-        if (targetNPC.tags.includes("unyielding") || targetNPC.tags.includes("fanatical")) {
-          socialDC += 5;
-        }
-      } else if (intent.verb === "PERSUADE") {
-        if (targetNPC.tags.includes("fanatical")) socialDC += 5;
-        if (targetNPC.tags.includes("talkative")) socialDC -= 3;
+        if (targetNPC?.tags?.includes("fearful") || targetNPC?.tags?.includes("intimidatable")) advantageMod += 3;
+        if (targetNPC?.tags?.includes("unyielding") || targetNPC?.tags?.includes("fanatical")) advantageMod -= 3;
       }
 
-      dcOrDefenderRoll = socialDC;
-      const totalSocialRoll = playerRoll + playerStatVal + dynamicToolBonus;
-      difference = totalSocialRoll - socialDC;
-      hit = difference >= 0;
+      const playerSocialCombatant: SocialCombatant = {
+        id: player.id,
+        name: player.name || "Hero",
+        stats: player,
+        equippedSocialWeapon: player.equipped_social_weapon || "Iron Warmaster Baton",
+        equippedSocialArmor: player.equipped_social_armor || "Keepsake Locket of the Hearth",
+        composure: playerComposure,
+        maxComposure: playerMaxComposure,
+        skillRanks: player.skill_ranks || {},
+        difficulty: player.difficulty
+      };
 
-      // Adjust disposition on success
-      if (hit) {
-        targetNPC.disposition = Math.min(2, targetNPC.disposition + 1);
-      } else if (intent.verb === "INTIMIDATE") {
-        targetNPC.disposition = Math.max(-2, targetNPC.disposition - 1);
+      const npcSocialCombatant: SocialCombatant = {
+        id: targetNPC?.id || 999,
+        name: npcName,
+        stats: targetNPC?.stats || { might: 5, endurance: 5, finesse: 5, reflex: 5, vitality: 5, fortitude: 5, knowledge: 5, logic: 5, awareness: 5, intuition: 5, charm: 5, willpower: 5 },
+        equippedSocialWeapon: npcRole.includes("Guard") ? "Iron Warmaster Baton" : "Gilded Courtier's Fan",
+        equippedSocialArmor: npcRole.includes("Guard") ? "Champion's Lion Pauldrons" : "Keepsake Locket of the Hearth",
+        composure: targetNPC ? ((targetNPC as any).composure ?? 12) : 12,
+        maxComposure: targetNPC ? ((targetNPC as any).maxComposure ?? 12) : 12
+      };
+
+      const contestRes = resolveOpposedSocialContest(
+        playerSocialCombatant,
+        npcSocialCombatant,
+        intent.statUsed as StatKey,
+        { advantageMod }
+      );
+
+      hit = contestRes.hit;
+      difference = contestRes.difference;
+      dcOrDefenderRoll = contestRes.defenderTotal;
+      injuryPoints = contestRes.composureDamage;
+      if (targetNPC) {
+        (targetNPC as any).composure = contestRes.defenderComposureRemaining;
+
+        // Adjust disposition on success or failure
+        if (hit) {
+          targetNPC.disposition = Math.min(2, targetNPC.disposition + 1);
+          xpGained += 25;
+        } else if (intent.verb === "INTIMIDATE") {
+          targetNPC.disposition = Math.max(-2, targetNPC.disposition - 1);
+        }
+
+        // If Composure reaches 0: Morale Breakdown!
+        if (contestRes.isBroken) {
+          targetNPC.disposition = Math.max(1, targetNPC.disposition);
+          xpGained += 50;
+        }
+      } else {
+        if (hit) xpGained += 25;
+        if (contestRes.isBroken) xpGained += 50;
       }
 
       // Query real simulation rumors from PostgreSQL
@@ -738,9 +783,19 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
       } catch (err) {}
 
       // Generate In-Character Dialogue via Gemini GABM
-      const dialoguePrompt = `You are ${targetNPC.name}, a ${targetNPC.role} aligned with '${targetNPC.faction}'. Your traits are: [${targetNPC.tags.join(", ")}].
+      const repNote = targetFactionRep !== 0
+        ? `The player has an underlying reputation of ${targetFactionRep} with your faction ('${npcFaction}'). Reflect this subtly in your tone, respect, suspicion, or hostility without mentioning numbers.`
+        : "";
+      const breakdownNote = contestRes.isBroken
+        ? `Your Composure has been completely shattered! You are demoralized, conceding, surrendering, or breaking into a nervous confession.`
+        : "";
+
+      const npcTagsStr = targetNPC ? targetNPC.tags.join(", ") : "disciplined, armed, watchful";
+      const dialoguePrompt = `You are ${npcName}, a ${npcRole} aligned with '${npcFaction}'. Your traits are: [${npcTagsStr}].
 The player spoke: "${actionText}".
-Social check result: ${hit ? "SUCCESS" : "FAILURE"} (Roll: ${totalSocialRoll} vs DC ${socialDC}). Current disposition: ${targetNPC.disposition}.
+Social contest result: ${hit ? "SUCCESS" : "FAILURE"} (${contestRes.composureDamage} Composure trauma dealt. Remaining Composure: ${contestRes.defenderComposureRemaining}/${npcSocialCombatant.maxComposure}). Current disposition: ${targetNPC ? targetNPC.disposition : (hit ? 1 : -1)}.
+${breakdownNote}
+${repNote}
 ${recentRumors ? `Recent genuine rumors & occurrences across the realm:\n${recentRumors}\nIf appropriate to the player's query or disposition, weave one of these rumors into your dialogue.` : ""}
 Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks responding to the player. Mention your faction or secret motives.`;
 
@@ -752,11 +807,11 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
       );
 
       inCharacterDialogue = dialogueRes || (hit
-        ? `"${targetNPC.name} relaxes their guard. 'Very well, traveler. If you seek what was taken, look to the old ruins.'"`
-        : `"${targetNPC.name} sneers with contempt. 'Your hollow words carry no weight here. Begone or draw steel!'"`
+        ? `"${npcName} relaxes their guard. 'Very well, traveler. If you seek what was taken, look to the old ruins.'"`
+        : `"${npcName} sneers with contempt. 'Your hollow words carry no weight here. Begone or draw steel!'"`
       );
 
-      systemLog = `[${intent.statUsed.toUpperCase()} CHECK${toolBonusNotice}: ${totalSocialRoll} vs DC ${socialDC} | SOCIAL ${hit ? "SUCCESS" : "FAILURE"}]`;
+      systemLog = contestRes.log;
 
     } else if (intent.category === "SUBTERFUGE") {
       // --- SUBTERFUGE & THIEVERY ---
@@ -907,7 +962,8 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
         difference = totalRoll - dcOrDefenderRoll;
         hit = difference >= 0;
         player.current_hp = Number(player.max_hp) || 22;
-        systemLog = `[${intent.statUsed.toUpperCase()} REST: ${totalRoll} vs DC ${dynamicDC} | RECOVERED: Camped and restored full HP (${player.current_hp}/${player.max_hp})!]`;
+        playerComposure = playerMaxComposure;
+        systemLog = `[${intent.statUsed.toUpperCase()} REST: ${totalRoll} vs DC ${dynamicDC} | RECOVERED: Camped by fire; restored full HP (${player.current_hp}/${player.max_hp}) and anchored mental Composure (${playerComposure}/${playerMaxComposure})!]`;
 
       } else {
         // Default exploration hunting/tracking
@@ -1236,11 +1292,34 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
       }
     }
 
+    // Environmental Horror & Cosmic Dread check (if in high chaos radiation or dragon seal)
+    if (this.activeContext?.chaosRadiation && this.activeContext.chaosRadiation > 0.35 && playerComposure > 0) {
+      const dreadDC = Math.round(11 + this.activeContext.chaosRadiation * 10);
+      const dreadRes = resolveCosmicDreadCheck(
+        {
+          id: playerId,
+          name: player.name || "Hero",
+          stats: player,
+          equippedSocialWeapon: player.equipped_social_weapon || "Iron Warmaster Baton",
+          equippedSocialArmor: player.equipped_social_armor || "Keepsake Locket of the Hearth",
+          composure: playerComposure,
+          maxComposure: playerMaxComposure,
+          skillRanks: player.skill_ranks || {}
+        },
+        dreadDC,
+        "willpower"
+      );
+      playerComposure = dreadRes.remainingComposure;
+      if (!dreadRes.passed) {
+        systemLog += ` | ${dreadRes.log}`;
+      }
+    }
+
     await this.pool.query(
       `UPDATE sim_player_character
-       SET current_hp = $1, gold = $2, inventory = $3, xp = $4, level = $5, skill_points = $6
-       WHERE id = $7`,
-      [player.current_hp, player.gold, JSON.stringify(player.inventory || []), player.xp || 0, player.level || 1, player.skill_points || 0, playerId]
+       SET current_hp = $1, gold = $2, inventory = $3, xp = $4, level = $5, skill_points = $6, composure = $7, faction_reputations = $8
+       WHERE id = $9`,
+      [player.current_hp, player.gold, JSON.stringify(player.inventory || []), player.xp || 0, player.level || 1, player.skill_points || 0, playerComposure, JSON.stringify(playerReputations), playerId]
     ).catch(() => {});
 
     // Two-Way PostgreSQL Simulation Backfeed (Phase 1)
@@ -1249,9 +1328,12 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
     const ry = this.activeContext?.ry ?? 112;
     let simDeltaNotice = "";
 
-    // A. Outlaw / Raider Defeated -> Decrease Crime Rate & Unrest in Province
+    // A. Outlaw / Raider Defeated -> Decrease Crime Rate & Unrest in Province + Sovereign Rep
     if (targetNPC && !targetNPC.alive && (targetNPC.tags.includes("outlaw") || targetNPC.tags.includes("bandit") || targetNPC.tags.includes("cannibal") || targetNPC.role.toLowerCase().includes("outlaw") || targetNPC.role.toLowerCase().includes("marauder"))) {
       try {
+        if (this.activeContext?.factionOwner) {
+          playerReputations[this.activeContext.factionOwner] = (playerReputations[this.activeContext.factionOwner] || 0) + 3;
+        }
         await this.pool.query(
           `UPDATE sim_burg_economy
            SET crime_rate = GREATEST(0, COALESCE(crime_rate, 20) - 3),
@@ -1273,6 +1355,10 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
     // B. Underworld Cartel Enforcer Defeated or Cache Plundered -> Increase Cartel Heat & Drain Manpower
     if ((targetNPC && !targetNPC.alive && targetNPC.faction.includes("Smuggler")) || (targetProp && targetProp.tags.has("valuable") && hit && intent.category === "SUBTERFUGE")) {
       try {
+        playerReputations["Smugglers Syndicate"] = (playerReputations["Smugglers Syndicate"] || 0) - 8;
+        if (this.activeContext?.factionOwner) {
+          playerReputations[this.activeContext.factionOwner] = (playerReputations[this.activeContext.factionOwner] || 0) + 4;
+        }
         await this.pool.query(
           `UPDATE sim_fringe_lairs
            SET manpower = GREATEST(0, manpower - 4),
@@ -1366,9 +1452,11 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
       }
     }
 
-    // C4. Cultist Threat Purged -> Restore Sacred Grove Dragon Seal & Cleanse Eco-Blight
+    // C4. Cultist Threat Purged -> Restore Sacred Grove Dragon Seal & Cleanse Eco-Blight + Faction Rep
     if (targetNPC && !targetNPC.alive && (targetNPC.tags.includes("cultist") || targetNPC.role.toLowerCase().includes("cultist") || targetNPC.faction.toLowerCase().includes("cult"))) {
       try {
+        playerReputations["Grey Wardens"] = (playerReputations["Grey Wardens"] || 0) + 5;
+        playerReputations["Blood Cult"] = (playerReputations["Blood Cult"] || 0) - 10;
         await this.pool.query(
           `UPDATE sim_sacred_groves
            SET seal_strength = LEAST(100, seal_strength + 4)
