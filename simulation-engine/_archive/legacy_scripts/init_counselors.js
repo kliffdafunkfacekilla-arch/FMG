@@ -1,7 +1,7 @@
 const { Client } = require('pg');
 
 async function run() {
-    const c = new Client('postgres://postgres:YOUR_PASSWORD@127.0.0.1:5432/postgres');
+    const c = new Client(process.env.DATABASE_URL);
     await c.connect();
     
     const burgs = await c.query("SELECT b.burg_id, b.pop_null, c.faction_id FROM sim_burg_economy b JOIN sim_cells c ON b.cell_id = c.id WHERE c.faction_id IS NOT NULL");

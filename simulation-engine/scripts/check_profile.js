@@ -1,5 +1,6 @@
+require("dotenv").config({ path: require("path").join(__dirname, "../.env") });
 const { Client } = require("pg");
-const c = new Client("postgres://postgres:YOUR_PASSWORD@127.0.0.1:5432/postgres");
+const c = new Client(process.env.DATABASE_URL);
 
 c.connect().then(async () => {
     // Find a biome-5 burg and check its profile

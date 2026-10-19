@@ -1,5 +1,6 @@
+require("dotenv").config({ path: require("path").join(__dirname, "../.env") });
 const { Client } = require('pg');
-const c = new Client('postgres://postgres:YOUR_PASSWORD@127.0.0.1:5432/postgres');
+const c = new Client(process.env.DATABASE_URL);
 c.connect().then(async () => {
     // 1. Get Population Stats
     const popStats = await c.query('SELECT MIN(pop_null) as min_pop, MAX(pop_null) as max_pop, AVG(pop_null) as avg_pop FROM sim_burg_economy');

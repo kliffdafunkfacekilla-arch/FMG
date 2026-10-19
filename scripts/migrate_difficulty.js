@@ -1,5 +1,6 @@
 const { Pool } = require('../simulation-engine/node_modules/pg');
-const pool = new Pool({ connectionString: 'postgres://postgres:YOUR_PASSWORD@127.0.0.1:5432/postgres' });
+require('../simulation-engine/node_modules/dotenv').config({ path: require('path').join(__dirname, '../simulation-engine/.env') });
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 async function migrate() {
   await pool.query("ALTER TABLE sim_player_character ADD COLUMN IF NOT EXISTS difficulty VARCHAR(20) DEFAULT 'survivor';");

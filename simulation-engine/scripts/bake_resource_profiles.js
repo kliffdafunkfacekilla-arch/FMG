@@ -1,3 +1,4 @@
+require("dotenv").config({ path: require("path").join(__dirname, "../.env") });
 /**
  * ONE-TIME BAKE: Calculates and stores the resource_profile for every burg.
  * Run once. The orchestrator reads it every tick instead of re-computing.
@@ -26,7 +27,7 @@ const MINE_RESOURCES = new Set(["iron", "stone", "copper", "gold", "silver", "cr
 const CAMP_RESOURCES = new Set(["wood", "pitch", "fibre"]);
 
 async function bake() {
-    const c = new Client("postgres://postgres:YOUR_PASSWORD@127.0.0.1:5432/postgres");
+    const c = new Client(process.env.DATABASE_URL);
     await c.connect();
 
     // Fetch every burg with its cell's biome and coordinates

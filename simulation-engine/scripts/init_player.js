@@ -1,6 +1,7 @@
+require("dotenv").config({ path: require("path").join(__dirname, "../.env") });
 const { generateCharacter } = require('../dist/engine/rpg/CharacterGenerator.js');
 const { Pool } = require('pg');
-const pool = new Pool({ connectionString: 'postgres://postgres:YOUR_PASSWORD@127.0.0.1:5432/postgres' });
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 async function initPlayer() {
     const stats = generateCharacter();

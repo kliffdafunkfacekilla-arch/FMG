@@ -138,7 +138,7 @@ async function runSimulationStrain() {
   console.log("================================================================================");
 
   const { Pool } = await import('pg');
-  const pool = new Pool({ connectionString: 'postgres://postgres:YOUR_PASSWORD@127.0.0.1:5432/postgres' });
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
   // 1. Check sim_sacred_groves
   const groves = await pool.query('SELECT * FROM sim_sacred_groves WHERE cell_id = 15220 OR cell_id = 2813 ORDER BY id ASC');

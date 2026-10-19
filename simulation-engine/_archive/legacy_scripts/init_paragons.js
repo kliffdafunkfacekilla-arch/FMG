@@ -49,7 +49,7 @@ function generateParagon(burgId, domain, tierIndex) {
 }
 
 async function run() {
-    const c = new Client('postgres://postgres:YOUR_PASSWORD@127.0.0.1:5432/postgres');
+    const c = new Client(process.env.DATABASE_URL);
     await c.connect();
 
     await c.query(`DROP TABLE IF EXISTS sim_paragons CASCADE`);

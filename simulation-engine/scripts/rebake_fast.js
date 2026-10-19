@@ -1,3 +1,4 @@
+require("dotenv").config({ path: require("path").join(__dirname, "../.env") });
 const { Client } = require("pg");
 
 const BIOME_RESOURCES = {
@@ -17,7 +18,7 @@ const BIOME_RESOURCES = {
 };
 
 async function run() {
-    const client = new Client("postgres://postgres:YOUR_PASSWORD@127.0.0.1:5432/postgres");
+    const client = new Client(process.env.DATABASE_URL);
     await client.connect();
     
     const burgsRes = await client.query("SELECT b.burg_id, c.biome, c.id as cell_id FROM sim_burg_economy b JOIN sim_cells c ON b.cell_id = c.id");

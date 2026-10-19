@@ -1,7 +1,7 @@
 const { Client } = require('pg');
 
 async function applyLore() {
-    const client = new Client('postgres://postgres:YOUR_PASSWORD@127.0.0.1:5432/postgres');
+    const client = new Client(process.env.DATABASE_URL);
     await client.connect();
 
     console.log("Applying Lore Baselines to the 19 capitals...");

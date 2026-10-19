@@ -81,12 +81,14 @@ export class ConcordiaGameMaster {
   private activeNPCs: Map<string, InjectedNPC> = new Map();
   private activeContext: SectorContext | null = null;
 
+  // Tried in order. Gemini 1.5/2.0 are shut down and 2.5 is being retired, so
+  // "gemini-flash-latest" stays last as an alias Google keeps pointed at a live model.
   private readonly CANDIDATE_MODELS = [
-    "gemini-3.8-flash",
-    "gemini-3.8-flash-lite",
-    "gemini-2.5-flash",
+    "gemini-3.5-flash",
+    "gemini-3.1-flash-lite",
     "gemini-flash-latest"
   ];
+  private warnedInvalidKey = false;
 
   constructor(pool: Pool, apiKey: string) {
     this.pool = pool;
@@ -436,6 +438,10 @@ Return ONLY valid JSON matching this schema:
     maxOutputTokens = 250,
     temperature = 0.7
   ): Promise<string | null> {
+    const key = process.env.GEMINI_API_KEY?.trim();
+    if (!key || this.warnedInvalidKey) {
+      return null;
+    }
     for (const m of this.CANDIDATE_MODELS) {
       try {
         const res = await this.ai.models.generateContent({
@@ -451,6 +457,16 @@ Return ONLY valid JSON matching this schema:
           return res.text.trim();
         }
       } catch (err: any) {
+        // A bad key fails the same way for every model, so stop instead of retrying.
+        // Other errors (unknown model, rate limit, bad prompt) fall through to the next model.
+        const msg = String(err?.message || "");
+        if (msg.includes("API key not valid") || msg.includes("API_KEY_INVALID") || err?.status === 401 || err?.status === 403) {
+          if (!this.warnedInvalidKey) {
+            console.warn("[ConcordiaGM] GEMINI_API_KEY was rejected by Google. AI narration is disabled until the key in simulation-engine/.env is fixed and the server restarts.");
+            this.warnedInvalidKey = true;
+          }
+          return null;
+        }
         console.warn(`[ConcordiaGM] Model ${m} error: ${err?.message || err}. Trying next...`);
       }
     }

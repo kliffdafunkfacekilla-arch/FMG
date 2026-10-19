@@ -35,3 +35,7 @@ Thumbs.db
 *.tgz
 scripts/modal_replacement.txt
 
+
+# AI agent transcript dumps (may contain local credentials)
+simulation-engine/match.txt
+simulation-engine/matches_full.txt
