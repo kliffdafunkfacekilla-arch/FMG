@@ -1,6 +1,6 @@
 const { Client } = require('pg');
 async function seedGroves() {
-  const c = new Client('postgres://postgres:YOUR_PASSWORD@127.0.0.1:5432/postgres');
+  const c = new Client(process.env.DATABASE_URL);
   await c.connect();
   const cells = await c.query("SELECT id FROM sim_cells ORDER BY RANDOM() LIMIT 15");
   for (const cell of cells.rows) {

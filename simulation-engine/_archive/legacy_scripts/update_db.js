@@ -2,7 +2,7 @@ const { Client } = require('pg');
 
 async function run() {
   const client = new Client({
-    connectionString: 'postgres://postgres:YOUR_PASSWORD@127.0.0.1:5432/postgres'
+    connectionString: process.env.DATABASE_URL
   });
   await client.connect();
 

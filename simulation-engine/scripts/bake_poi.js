@@ -1,7 +1,8 @@
+require("dotenv").config({ path: require("path").join(__dirname, "../.env") });
 const { Client } = require("pg");
 
 async function run() {
-    const client = new Client("postgres://postgres:YOUR_PASSWORD@127.0.0.1:5432/postgres");
+    const client = new Client(process.env.DATABASE_URL);
     await client.connect();
 
     // 1. Fetch all cells with coords

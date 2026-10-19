@@ -1,6 +1,7 @@
+import "dotenv/config";
 import { Pool } from 'pg';
 
-const pool = new Pool({ connectionString: 'postgres://postgres:YOUR_PASSWORD@127.0.0.1:5432/postgres' });
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 async function postTick() {
     const res = await fetch('http://localhost:3000/api/observer/tick', { method: 'POST' });

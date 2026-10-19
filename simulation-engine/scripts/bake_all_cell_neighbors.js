@@ -1,8 +1,9 @@
+require("dotenv").config({ path: require("path").join(__dirname, "../.env") });
 const { Client } = require("pg");
 
 async function bake() {
     console.log("Connecting to DB...");
-    const c = new Client("postgres://postgres:YOUR_PASSWORD@127.0.0.1:5432/postgres");
+    const c = new Client(process.env.DATABASE_URL);
     await c.connect();
 
     console.log("Adding neighbor_biomes column if it doesn't exist...");

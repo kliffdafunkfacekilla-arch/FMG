@@ -1,5 +1,6 @@
+require("dotenv").config({ path: require("path").join(__dirname, "../.env") });
 const { Client } = require("pg");
-const c = new Client("postgres://postgres:YOUR_PASSWORD@127.0.0.1:5432/postgres");
+const c = new Client(process.env.DATABASE_URL);
 c.connect().then(async()=>{
   const eco = await c.query("SELECT id, eco_health, eco_max FROM sim_cells WHERE eco_health < 100 ORDER BY eco_health ASC LIMIT 5");
   console.log("Cells with eco strain:", eco.rows);

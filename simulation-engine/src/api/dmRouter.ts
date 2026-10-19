@@ -1,12 +1,11 @@
 import express from 'express';
-import { Pool } from 'pg';
 import dotenv from 'dotenv';
 import { ConcordiaGameMaster } from '../engine/rpg/ConcordiaGM.js';
+import pool from '../db/pool.js';
 
 dotenv.config({ override: true });
 
 const router = express.Router();
-const pool = new Pool({ connectionString: 'postgres://postgres:YOUR_PASSWORD@127.0.0.1:5432/postgres' });
 
 import { getWeapon, getArmor, STAT_WEAPON_GROUPS, STAT_ARMOR_GROUPS } from '../engine/rpg/EquipmentRegistry.js';
 import { generateCharacterFromSpecies, buildOstrakaCustomCharacter } from '../engine/rpg/CharacterGenerator.js';

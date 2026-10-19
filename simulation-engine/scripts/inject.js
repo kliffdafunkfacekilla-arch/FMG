@@ -1,5 +1,6 @@
+require("dotenv").config({ path: require("path").join(__dirname, "../.env") });
 const { Client } = require('pg');
-const c = new Client('postgres://postgres:YOUR_PASSWORD@127.0.0.1:5432/postgres');
+const c = new Client(process.env.DATABASE_URL);
 c.connect().then(async () => {
     const big = await c.query('SELECT burg_id FROM sim_burg_economy WHERE pop_null > 5000 LIMIT 1');
     const bId = big.rows[0].burg_id;

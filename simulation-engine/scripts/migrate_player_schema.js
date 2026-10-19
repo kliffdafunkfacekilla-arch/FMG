@@ -1,6 +1,7 @@
+require("dotenv").config({ path: require("path").join(__dirname, "../.env") });
 const pg = require('pg');
 const { Pool } = pg;
-const pool = new Pool({ connectionString: 'postgres://postgres:YOUR_PASSWORD@127.0.0.1:5432/postgres' });
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 async function migrate() {
   const sql = `

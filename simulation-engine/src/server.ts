@@ -22,7 +22,13 @@ import tellerRouter from './api/tellerRouter';
 dotenv.config();
 
 const app = express();
-app.use(cors());
+// Only the local player client may call the API from a browser.
+// Override with a comma-separated CORS_ORIGINS list in .env if needed.
+const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
 
@@ -92,8 +98,11 @@ app.get('/api/world/stream', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Simulation Engine Server running on http://localhost:${PORT}`);
+const PORT = Number(process.env.PORT) || 3000;
+// Bind to loopback by default so other machines on the network can't reach
+// unauthenticated routes like /api/observer/reset. Set HOST=0.0.0.0 to expose it.
+const HOST = process.env.HOST || '127.0.0.1';
+app.listen(PORT, HOST, () => {
+  console.log(`Simulation Engine Server running on http://${HOST}:${PORT}`);
 });
 
