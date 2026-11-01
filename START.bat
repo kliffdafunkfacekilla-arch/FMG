@@ -78,9 +78,10 @@ if %ERRORLEVEL% neq 0 (
     )
 )
 
-:: 8. Clean up any stale processes on ports 3000 and 5173
+:: 8. Clean up any stale processes on ports 3000, 5173, and 5174
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr :3000 ^| findstr LISTENING') do taskkill /f /pid %%a >nul 2>&1
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr :5173 ^| findstr LISTENING') do taskkill /f /pid %%a >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :5174 ^| findstr LISTENING') do taskkill /f /pid %%a >nul 2>&1
 
 :: 9. Launch Simulation Engine on Port 3000
 echo [1/2] Starting Simulation Engine Backend on Port 3000...
@@ -100,8 +101,9 @@ echo.
 echo ========================================================
 echo    SYSTEM ONLINE!
 echo ========================================================
-echo    - Tactical Client:   http://localhost:5173
-echo    - Simulation Engine: http://localhost:3000
+echo    - Tactical Client:    http://localhost:5173
+echo    - Observer Dashboard: http://localhost:5174
+echo    - Simulation Engine:  http://localhost:3000
 echo.
 echo    Keep this window open or minimize it.
 echo    To stop all servers, run STOP.bat

@@ -67,15 +67,20 @@ export interface InjectedNPC {
   maxHp: number;
   disposition: number; // -2 Hostile, -1 Territorial/Wary, 0 Neutral, +1 Friendly, +2 Allied
   alive: boolean;
-  equippedWeapon?: string;
-  equippedArmor?: string;
-  statAffinity?: StatKey;
-  stats?: Partial<Record<StatKey, number>>;
-  kingdom?: string;
-  species?: string;
-  lineage?: string;
-  inventory?: string[];
-  memoryNotes?: string[];
+  equippedWeapon?: string | undefined;
+  equippedArmor?: string | undefined;
+  statAffinity?: StatKey | undefined;
+  stats?: Partial<Record<StatKey, number>> | undefined;
+  kingdom?: string | undefined;
+  species?: string | undefined;
+  lineage?: string | undefined;
+  inventory?: string[] | undefined;
+  memoryNotes?: string[] | undefined;
+  homePos?: [number, number] | undefined;
+  workPos?: [number, number] | undefined;
+  currentTask?: string | undefined;
+  targetDestination?: [number, number] | undefined;
+  scheduleState?: "SLEEP" | "WORK" | "LEISURE" | "TRANSIT" | "AMBUSH" | undefined;
 }
 
 export interface InjectedWorldState {
@@ -833,9 +838,9 @@ export class WhatElseStoryEngine {
 
       } else if (primary.type === "TRADE" && primary.score >= 30) {
         questCategory = "HIGHWAY_ENCOUNTER";
-        questGiver = { name: "Imperial Surveyor", role: "Road Warden", faction: context.factionOwner || "The Realm" };
+        questGiver = { name: "Sovereign Waywarden", role: "Highroad Surveyor", faction: context.factionOwner || "The Realm" };
         title = `The Sovereign Highway of Sector (${rx}, ${ry})`;
-        hook = `A broad, stone-packed imperial highway cuts straight through the wilds. Iron-banded milestone pillars mark distances, while the ${emergentRelic.name} stands as an ancient roadside monument.`;
+        hook = `A broad, stone-packed trade artery cuts straight through the wilds. Carved stone milestone pillars mark distances, while the ${emergentRelic.name} stands as an ancient roadside monument.`;
         pivotDecision = `The highway channels civilization through the wilderness. Do you decipher old milestone proclamations, rest at a roadside firepit, or scan for incoming caravans?`;
         variants = [
           { name: "Read Milestone Inscription", description: "Translate weathered royal decrees and trade tariffs carved into the stone", preferredStat: "knowledge" },
@@ -1029,7 +1034,7 @@ export class WhatElseStoryEngine {
 
       // 1. Central Crossroads / Spawn Glade (around ~[128, 128])
       props.push(
-        TagMatrixEngine.createProp("prop_milestone", "Imperial Highway Milestone", centerPoint, ["stone", "ancient", "heavy", "milestone"], 80),
+        TagMatrixEngine.createProp("prop_milestone", "Sovereign Highway Milestone", centerPoint, ["stone", "ancient", "heavy", "milestone"], 80),
         TagMatrixEngine.createProp("prop_wayfarer_hearth", "Roadside Hearthfire", [centerPoint[0] + 3, centerPoint[1] - 2], ["fire", "hearth", "warmth", "rest"], 20),
         TagMatrixEngine.createProp("prop_abandoned_cart", "Weathered Trade Wagon", [centerPoint[0] - 4, centerPoint[1] + 3], ["wood", "container", "flammable", "openable"], 40)
       );

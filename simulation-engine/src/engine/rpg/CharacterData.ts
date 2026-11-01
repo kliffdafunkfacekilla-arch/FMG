@@ -356,9 +356,12 @@ export interface DerivedStats {
   maxComposure: number;
   maxStamina: number;
   maxFocus: number;
-  physDefense: number;
-  speed: number;
+  movementSpeed: number;
   perception: number;
+  stealth: number;
+  resilience: number;
+  speed: number; // Backwards-compatible alias for movementSpeed
+  physDefense: number;
   mentalDefense: number;
 }
 
@@ -367,14 +370,23 @@ export function calcDerivedStats(matrix: Record<string, number>): DerivedStats {
   const ratioBM = (b1: string, b2: string, m1: string) => get(b1) + get(b2) + Math.round(get(m1) / 2);
   const ratioMB = (m1: string, m2: string, b1: string) => get(m1) + get(m2) + Math.round(get(b1) / 2);
 
+  // 12 Attributes Groupings for Movement, Resilience, Perception, and Stealth (3 stats each)
+  const movementSpeed = ratioBM('reflex', 'finesse', 'intuition');
+  const resilience = ratioBM('fortitude', 'endurance', 'willpower');
+  const perception = ratioMB('awareness', 'knowledge', 'vitality');
+  const stealth = ratioMB('logic', 'charm', 'might');
+
   return {
     maxHp: 10 + ratioBM('vitality', 'endurance', 'willpower'),
     maxComposure: 10 + ratioMB('knowledge', 'awareness', 'fortitude'),
     maxStamina: ratioBM('might', 'finesse', 'intuition'),
     maxFocus: ratioMB('logic', 'charm', 'reflex'),
+    movementSpeed,
+    perception,
+    stealth,
+    resilience,
+    speed: movementSpeed,
     physDefense: ratioBM('might', 'fortitude', 'logic'),
-    speed: ratioBM('vitality', 'reflex', 'charm'),
-    perception: ratioMB('awareness', 'knowledge', 'finesse'),
     mentalDefense: ratioMB('willpower', 'intuition', 'endurance')
   };
 }

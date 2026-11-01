@@ -252,6 +252,11 @@ export class ProceduralNPCGenerator {
         const stats = this.generateStatsForProfile(roleDef.primaryStat, lineageInfo.affinity, rng);
         const maxHp = 10 + (stats.vitality || 5) + (stats.endurance || 5) + Math.round((stats.willpower || 5) / 2);
 
+        const homeOffset: [number, number] = [
+          Math.min(240, Math.max(15, centerPoint[0] + rng.range(-15, 15))),
+          Math.min(240, Math.max(15, centerPoint[1] + rng.range(-15, 15)))
+        ];
+
         npcs.push({
           id: npcId,
           name: fullName,
@@ -270,6 +275,10 @@ export class ProceduralNPCGenerator {
           kingdom,
           species: lineageInfo.species,
           lineage: lineageInfo.lineage,
+          homePos: homeOffset,
+          workPos: roleDef.offset,
+          currentTask: `Operating ${roleDef.roleTitle}`,
+          scheduleState: "WORK",
           inventory: (function() {
             const map: Record<string, string[]> = {
               provisioner: [weapon.name, "Trail Provisions", "Dried Fruit & Salt", "Merchant Ledger"],
@@ -413,6 +422,30 @@ export class ProceduralNPCGenerator {
               species: chosenSpecies.species,
               lineage: chosenSpecies.lineage,
               inventory: [weapon.name, "Trail Provisions", "Herbal Healing Salve", "Bolt of Fine Silk", "Pouch of 35 Gold"]
+            });
+          } else if (agent.type === "DraftBeast") {
+            const stats = this.generateStatsForProfile("might", "endurance", rng);
+            const beastNames = ["Harnessed Trail Mule", "Sturdy Pack Ox", "Caravan Draft-Beast", "Burden Yak"];
+            const chosenName = rng.pick(beastNames);
+
+            npcs.push({
+              id: npcId,
+              name: chosenName,
+              role: "Caravan Pack-Beast",
+              pos: spawnPos,
+              tags: ["beast", "domestic", "pack_animal", "neutral", "container", "tradeable", "organic"],
+              faction: context.factionOwner || "Free Traders Guild",
+              hp: 28,
+              maxHp: 28,
+              disposition: 0,
+              alive: true,
+              equippedWeapon: "Hoof Stamp",
+              equippedArmor: "Padded Pack Harness",
+              statAffinity: "endurance",
+              stats,
+              kingdom: "Mammal",
+              species: chosenName,
+              inventory: ["Bale of Refined Wool", "Crate of Forged Iron Nails", "Sack of Milled Grain", "Cask of Smoked Rations"]
             });
           } else if (agent.type === "Patrol") {
             const kingdom = rng.pick(["Mammal", "Avian", "Reptile"]);
@@ -562,6 +595,136 @@ export class ProceduralNPCGenerator {
                 "Warden Field Bandages",
                 `${context.dragonDomain || "Astral"} Ward Seal`
               ]
+            });
+          } else if (agent.type === "Pilgrim") {
+            const pilgrimKingdom = rng.pick(["Mammal", "Avian", "Plant"]);
+            const pilgrimSpecies = rng.pick(this.getKingdomSpecies(pilgrimKingdom));
+            const pilgrimFirstName = rng.pick(this.getKingdomFirstNames(pilgrimKingdom));
+            const stats = this.generateStatsForProfile("intuition", "willpower", rng);
+
+            npcs.push({
+              id: npcId,
+              name: `${pilgrimFirstName} the Pilgrim`,
+              role: "Monastic Wayfarer",
+              pos: spawnPos,
+              tags: ["pilgrim", "devotee", "peaceful", "talkative", "rumors", "organic"],
+              faction: "Shrine of the Sacred Accord",
+              hp: 16,
+              maxHp: 16,
+              disposition: 1,
+              alive: true,
+              equippedWeapon: "Carved Pilgrim Staff",
+              equippedArmor: "Woven Prayer Shroud",
+              statAffinity: "intuition",
+              stats,
+              kingdom: pilgrimKingdom,
+              species: pilgrimSpecies.species,
+              lineage: pilgrimSpecies.lineage,
+              inventory: ["Carved Pilgrim Staff", "Prayer Beads", "Consecrated Healing Salve", "Trail Bread"]
+            });
+          } else if (agent.type === "Scholar") {
+            const scholarKingdom = rng.pick(["Avian", "Mammal", "Insect"]);
+            const scholarSpecies = rng.pick(this.getKingdomSpecies(scholarKingdom));
+            const scholarFirstName = rng.pick(this.getKingdomFirstNames(scholarKingdom));
+            const stats = this.generateStatsForProfile("knowledge", "logic", rng);
+
+            npcs.push({
+              id: npcId,
+              name: `Scholar ${scholarFirstName}`,
+              role: "Wandering Naturalist",
+              pos: spawnPos,
+              tags: ["scholar", "naturalist", "curious", "talkative", "tradeable", "organic"],
+              faction: context.factionOwner || "Academy of Natural Lore",
+              hp: 15,
+              maxHp: 15,
+              disposition: 1,
+              alive: true,
+              equippedWeapon: "Bronze Compass Walking Cane",
+              equippedArmor: "Waxed Travel Cloak",
+              statAffinity: "knowledge",
+              stats,
+              kingdom: scholarKingdom,
+              species: scholarSpecies.species,
+              lineage: scholarSpecies.lineage,
+              inventory: ["Parchment Field Ledger", "Magnifying Lens", "Rare Botanical Specimen", "Pouch of 25 Gold"]
+            });
+          } else if (agent.type === "Trapper") {
+            const trapperKingdom = rng.pick(["Mammal", "Reptile"]);
+            const trapperSpecies = rng.pick(this.getKingdomSpecies(trapperKingdom));
+            const trapperFirstName = rng.pick(this.getKingdomFirstNames(trapperKingdom));
+            const stats = this.generateStatsForProfile("awareness", "finesse", rng);
+
+            npcs.push({
+              id: npcId,
+              name: `${trapperFirstName} Stone-Trapper`,
+              role: "Wilderness Trapper",
+              pos: spawnPos,
+              tags: ["trapper", "hunter", "survivalist", "tradeable", "organic"],
+              faction: "Frontier Trappers Ring",
+              hp: 22,
+              maxHp: 22,
+              disposition: 0,
+              alive: true,
+              equippedWeapon: "Short Recurve Bow",
+              equippedArmor: "Hardened Beaver Hide",
+              statAffinity: "awareness",
+              stats,
+              kingdom: trapperKingdom,
+              species: trapperSpecies.species,
+              lineage: trapperSpecies.lineage,
+              inventory: ["Hunting Snare", "Bundle of Fresh Pelts", "Bone Skinning Knife", "Dried Smoked Rations"]
+            });
+          } else if (agent.type === "Hermit") {
+            const hermitKingdom = "Mammal";
+            const hermitSpecies = rng.pick(this.getKingdomSpecies(hermitKingdom));
+            const hermitFirstName = rng.pick(this.getKingdomFirstNames(hermitKingdom));
+            const stats = this.generateStatsForProfile("willpower", "vitality", rng);
+
+            npcs.push({
+              id: npcId,
+              name: `Hermit ${hermitFirstName}`,
+              role: "Frontier Hermit",
+              pos: spawnPos,
+              tags: ["hermit", "eccentric", "solitary", "rumors", "organic"],
+              faction: "Wilderness",
+              hp: 20,
+              maxHp: 20,
+              disposition: 0,
+              alive: true,
+              equippedWeapon: "Gnarled Root Crook",
+              equippedArmor: "Lichen-Covered Rags",
+              statAffinity: "willpower",
+              stats,
+              kingdom: hermitKingdom,
+              species: hermitSpecies.species,
+              lineage: hermitSpecies.lineage,
+              inventory: ["Dried Bitter-Bark Lichen", "Poultice of Forest Roots", "Charm of Bone & Twig"]
+            });
+          } else if (agent.type === "Refugee" || agent.type === "Refugees") {
+            const refKingdom = rng.pick(["Mammal", "Reptile", "Avian"]);
+            const refSpecies = rng.pick(this.getKingdomSpecies(refKingdom));
+            const refFirstName = rng.pick(this.getKingdomFirstNames(refKingdom));
+            const stats = this.generateStatsForProfile("endurance", "vitality", rng);
+
+            npcs.push({
+              id: npcId,
+              name: `${refFirstName} the Wanderer`,
+              role: "War Refugee",
+              pos: spawnPos,
+              tags: ["refugee", "civilian", "desperate", "weary", "organic"],
+              faction: context.factionOwner || "Displaced Folk",
+              hp: 14,
+              maxHp: 14,
+              disposition: 1,
+              alive: true,
+              equippedWeapon: "Whittled Walking Stick",
+              equippedArmor: "Torn Woolen Shawl",
+              statAffinity: "endurance",
+              stats,
+              kingdom: refKingdom,
+              species: refSpecies.species,
+              lineage: refSpecies.lineage,
+              inventory: ["Cracked Clay Bowl", "Coarse Blanket", "Heirloom Copper Locket"]
             });
           }
         });

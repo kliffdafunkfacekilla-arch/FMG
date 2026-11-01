@@ -19,6 +19,12 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr :5173 ^| findstr LISTENING') 
     taskkill /f /pid %%a >nul 2>&1
 )
 
+:: Kill Port 5174 (Observer Dashboard Vite)
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :5174 ^| findstr LISTENING') do (
+    echo Stopping Observer Dashboard (PID: %%a)...
+    taskkill /f /pid %%a >nul 2>&1
+)
+
 echo.
 echo All FMG services have been stopped.
 echo.

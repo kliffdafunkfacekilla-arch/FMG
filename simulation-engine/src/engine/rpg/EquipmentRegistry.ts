@@ -29,6 +29,8 @@ export interface WeaponDef {
   conductorMetal: string;
   tags: string[];
   description: string;
+  staminaFee?: number;
+  focusFee?: number;
 }
 
 export interface ArmorDef {
@@ -40,6 +42,8 @@ export interface ArmorDef {
   conductorMetal: string;
   tags: string[];
   description: string;
+  staminaFee?: number;
+  focusFee?: number;
 }
 
 export const STAT_WEAPON_GROUPS: Record<StatKey, WeaponDef[]> = {
@@ -212,6 +216,17 @@ export const STAT_WEAPON_GROUPS: Record<StatKey, WeaponDef[]> = {
       conductorMetal: "Lead",
       tags: ["leather", "bludgeon", "ranged", "sonic"],
       description: "A reinforced sling hurling vibrating lead bullets that emit concussive sound on impact."
+    },
+    {
+      id: "w_reflex_torch",
+      name: "Blazing Firebrand Torch",
+      stat: "reflex",
+      mod: 1,
+      damageBonus: 2,
+      conductorMetal: "Copper",
+      staminaFee: 1,
+      tags: ["wood", "fire", "light", "torch", "illuminated", "flammable"],
+      description: "A pitch-soaked timber branch wrapped in fibrous resin cloth. Bathes dark sectors in warm light (+4 Vision) and burns foes."
     }
   ],
 
@@ -1074,4 +1089,24 @@ export function getRandomArmor(): ArmorDef {
   const stats = Object.keys(STAT_ARMOR_GROUPS) as StatKey[];
   const stat = stats[Math.floor(Math.random() * stats.length)]!;
   return getRandomArmorForStat(stat);
+}
+
+const BODY_STATS_SET: Set<StatKey> = new Set(['might', 'endurance', 'finesse', 'reflex', 'vitality', 'fortitude']);
+
+/**
+ * Calculates equipment loadout fee for stamina/focus budgeting.
+ */
+export function getEquipmentLoadoutFee(item: WeaponDef | ArmorDef): { staminaFee: number; focusFee: number } {
+  if (item.staminaFee !== undefined || item.focusFee !== undefined) {
+    return {
+      staminaFee: item.staminaFee ?? 0,
+      focusFee: item.focusFee ?? 0
+    };
+  }
+  const isBody = BODY_STATS_SET.has(item.stat);
+  const powerVal = 'damageBonus' in item ? (item.damageBonus || 1) : (item.damageReduction || 1);
+  const fee = Math.max(1, (item.mod || 1) + powerVal);
+  return isBody
+    ? { staminaFee: fee, focusFee: 0 }
+    : { staminaFee: 0, focusFee: fee };
 }
