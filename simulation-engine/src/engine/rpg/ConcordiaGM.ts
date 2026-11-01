@@ -27,9 +27,14 @@ export interface ActionInput {
   actionText: string;
   playerId: number;
   playerPos: [number, number];
+  coverBonus?: number | undefined;
+  coverLevel?: ("NONE" | "HALF" | "FULL") | undefined;
+  combatType?: ("melee" | "ranged") | undefined;
+  isStealthed?: boolean | undefined;
+  sneakAttack?: boolean | undefined;
 }
 
-export type ActionCategory = "COMBAT" | "MAGIC" | "SOCIAL" | "SUBTERFUGE" | "EXPLORATION" | "SURVIVAL";
+export type ActionCategory = "COMBAT" | "MAGIC" | "SOCIAL" | "SUBTERFUGE" | "EXPLORATION" | "SURVIVAL" | "CREATIVE_CHECK";
 
 export interface ParsedIntent {
   category: ActionCategory;
@@ -50,6 +55,20 @@ export interface GMResolutionOutput {
     difference: number;
     injuryPoints: number;
     hit: boolean;
+    attackerRoll?: number;
+    attackerStatKey?: string;
+    attackerStatVal?: number;
+    attackerMod?: number;
+    attackerTotal?: number;
+    defenderRoll?: number;
+    defenderStatKey?: string;
+    defenderStatVal?: number;
+    defenderMod?: number;
+    defenderTotal?: number;
+    coverBonus?: number;
+    coverLevel?: string;
+    weaponName?: string;
+    armorName?: string;
   };
   tagResult?: TagInteractionResult | undefined;
   systemLog: string;
@@ -123,20 +142,55 @@ export class ConcordiaGameMaster {
     }
 
     // Populate cosmological data from sim_calendar if not provided in context
-    if (!context.activeFlow || !context.dragonDomain || !context.moonPhase) {
-      try {
-        const calRes = await this.pool.query(
-          "SELECT active_flow, dragon_domain, moon_phase FROM sim_calendar ORDER BY id DESC LIMIT 1"
-        );
-        if (calRes.rows.length > 0) {
-          context.activeFlow = context.activeFlow || calRes.rows[0].active_flow;
-          context.dragonDomain = context.dragonDomain || calRes.rows[0].dragon_domain;
-          context.moonPhase = context.moonPhase || calRes.rows[0].moon_phase;
+    try {
+      const calRes = await this.pool.query(
+        "SELECT month, moon_phase, active_flow, dragon_domain, is_eclipse FROM sim_calendar ORDER BY id DESC LIMIT 1"
+      );
+      if (calRes.rows.length > 0) {
+        const cal = calRes.rows[0];
+        context.activeFlow = context.activeFlow || cal.active_flow;
+        context.dragonDomain = context.dragonDomain || cal.dragon_domain;
+        context.moonPhase = context.moonPhase || cal.moon_phase;
+        if (cal.month === 13 || cal.is_eclipse || cal.moon_phase?.includes("Nightmare") || cal.moon_phase?.includes("Full Blood")) {
+          context.chaosRadiation = Math.max(context.chaosRadiation || 0, 0.85);
+          (context as any).isEclipse = true;
         }
-      } catch (err) {
-        // Fallback gracefully
       }
-    }
+    } catch (err) {}
+
+    // Option 4: Query Live Burg Economy (Famine, Food Stockpile & Unrest Telemetry)
+    try {
+      const burgRes = await this.pool.query(
+        `SELECT b.burg_id, b.name, b.food, b.wealth, b.unrest, b.crime_rate 
+         FROM sim_burg_economy b
+         ORDER BY ABS(b.cell_id - $1) ASC LIMIT 1`,
+        [cellId]
+      );
+      if (burgRes.rows.length > 0) {
+        const nearestBurg = burgRes.rows[0];
+        (context as any).nearestBurg = nearestBurg.name;
+        context.crimeRate = Number(nearestBurg.crime_rate) || context.crimeRate || 0;
+        if (Number(nearestBurg.food) < 60 || Number(nearestBurg.unrest) > 40) {
+          context.isFamine = true;
+        }
+      }
+    } catch (err) {}
+
+    // Option 4: Query Live Faction Geopolitics (Active Warzone Frontline Telemetry)
+    try {
+      const warRes = await this.pool.query(
+        `SELECT fw.attacker_faction_id, fw.defender_faction_id, f1.name as f1_name, f2.name as f2_name
+         FROM sim_faction_wars fw
+         JOIN sim_factions f1 ON fw.attacker_faction_id = f1.id
+         JOIN sim_factions f2 ON fw.defender_faction_id = f2.id
+         WHERE fw.is_active = true
+         LIMIT 1`
+      );
+      if (warRes.rows.length > 0) {
+        context.isWarzone = true;
+        (context as any).warringFactions = `${warRes.rows[0].f1_name} vs ${warRes.rows[0].f2_name}`;
+      }
+    } catch (err) {}
 
     // 1. Fetch persisted NPCs from sim_npc_instances for this sector
     let persistedNPCs: InjectedNPC[] = [];
@@ -165,7 +219,12 @@ export class ConcordiaGameMaster {
           species: r.species || undefined,
           lineage: r.lineage || undefined,
           inventory: Array.isArray(r.inventory) ? r.inventory : (typeof r.inventory === "string" ? JSON.parse(r.inventory) : []),
-          memoryNotes: Array.isArray(r.memory_notes) ? r.memory_notes : (typeof r.memory_notes === "string" ? JSON.parse(r.memory_notes) : [])
+          memoryNotes: Array.isArray(r.memory_notes) ? r.memory_notes : (typeof r.memory_notes === "string" ? JSON.parse(r.memory_notes) : []),
+          homePos: r.home_pos ? [r.home_pos[0], r.home_pos[1]] : undefined,
+          workPos: r.work_pos ? [r.work_pos[0], r.work_pos[1]] : undefined,
+          currentTask: r.current_task || undefined,
+          targetDestination: r.target_destination ? [r.target_destination[0], r.target_destination[1]] : undefined,
+          scheduleState: r.schedule_state || "WORK"
         }));
       }
     } catch (err) {
@@ -326,6 +385,103 @@ Return ONLY valid JSON matching this schema:
       });
     }
 
+    // Option 4: Living Planetary Simulation Backfeed Injections
+    if (context.isWarzone) {
+      // Frontline barricade & vanguard soldier
+      injected.props.push(TagMatrixEngine.createProp(
+        `prop_warzone_barricade_${rx}_${ry}`,
+        "Frontline Spiked Barricade",
+        [135, 126],
+        ["wood", "spikes", "cover_heavy", "barrier", "flammable"],
+        30
+      ));
+      if (!injected.npcs.some(n => n.role?.includes("Vanguard") || n.role?.includes("Soldier"))) {
+        injected.npcs.push({
+          id: `npc_vanguard_${cellId}_${rx}_${ry}`,
+          name: "Vanguard Line Outrider",
+          role: "Faction Skirmisher",
+          pos: [136, 128],
+          tags: ["human", "soldier", "vanguard", "armed"],
+          faction: (context as any).warringFactions?.split(" vs ")?.[0] || "Border Guard",
+          hp: 22,
+          maxHp: 22,
+          disposition: -2,
+          alive: true,
+          equippedWeapon: "Titanium Bastion Spear",
+          equippedArmor: "Glacial Iron Hauberk",
+          statAffinity: "finesse",
+          stats: { might: 7, finesse: 8, reflex: 6, endurance: 6, vitality: 6, fortitude: 5, knowledge: 4, logic: 4, awareness: 7, intuition: 5, charm: 4, willpower: 5 },
+          kingdom: "Mammal",
+          species: "Human",
+          inventory: ["Frontline Rations", "Iron Dagger"]
+        });
+      }
+    }
+
+    if (context.isFamine) {
+      // Pillaged grain cart & starving bread rioter
+      injected.props.push(TagMatrixEngine.createProp(
+        `prop_famine_cart_${rx}_${ry}`,
+        "Pillaged Grain Wagon",
+        [122, 132],
+        ["wood", "container", "ruined", "flammable"],
+        20
+      ));
+      if (!injected.npcs.some(n => n.tags?.includes("raider") || n.tags?.includes("starving"))) {
+        injected.npcs.push({
+          id: `npc_famine_raider_${cellId}_${rx}_${ry}`,
+          name: "Starving Bread-Rioter",
+          role: "Desperate Outlaw",
+          pos: [120, 134],
+          tags: ["human", "raider", "starving", "desperate"],
+          faction: "Disenfranchised Peasants",
+          hp: 14,
+          maxHp: 14,
+          disposition: -1,
+          alive: true,
+          equippedWeapon: "Workday Blade",
+          equippedArmor: "Padded Gambeson",
+          statAffinity: "might",
+          stats: { might: 6, finesse: 5, reflex: 5, endurance: 4, vitality: 4, fortitude: 4, knowledge: 4, logic: 4, awareness: 5, intuition: 5, charm: 3, willpower: 6 },
+          kingdom: "Mammal",
+          species: "Human",
+          inventory: ["Moldy Crusts", "Crude Shank"]
+        });
+      }
+    }
+
+    if ((context.chaosRadiation || 0) >= 0.7) {
+      // Cruorbus Blood-Altar & Dark Cultist
+      injected.props.push(TagMatrixEngine.createProp(
+        `prop_blood_altar_${rx}_${ry}`,
+        "Blood-Altar of Lophex",
+        [128, 120],
+        ["stone", "altar", "magic", "runes", "unholy"],
+        45
+      ));
+      if (!injected.npcs.some(n => n.tags?.includes("cultist"))) {
+        injected.npcs.push({
+          id: `npc_blood_cultist_${cellId}_${rx}_${ry}`,
+          name: "Cruorbus Blood-Cultist",
+          role: "Chaos Zealot",
+          pos: [129, 122],
+          tags: ["human", "cultist", "magic", "chaos", "fanatical"],
+          faction: "Order of the Bleeding Eye",
+          hp: 18,
+          maxHp: 18,
+          disposition: -2,
+          alive: true,
+          equippedWeapon: "Cursed Bone Wand",
+          equippedArmor: "Padded Gambeson",
+          statAffinity: "willpower",
+          stats: { might: 4, finesse: 5, reflex: 5, endurance: 5, vitality: 5, fortitude: 4, knowledge: 7, logic: 6, awareness: 6, intuition: 7, charm: 4, willpower: 8 },
+          kingdom: "Mammal",
+          species: "Human",
+          inventory: ["Phial of Dragon Blood", "Occult Talisman"]
+        });
+      }
+    }
+
     this.activeProps.clear();
     this.activeNPCs.clear();
 
@@ -362,15 +518,19 @@ Return ONLY valid JSON matching this schema:
           `INSERT INTO sim_npc_instances (
             id, cell_id, current_rx, current_ry, local_pos, name, role, kingdom, species, lineage,
             tags, faction, hp, max_hp, disposition, alive, equipped_weapon, equipped_armor,
-            stat_affinity, stats, inventory, memory_notes, wander_anchor, updated_at
+            stat_affinity, stats, inventory, memory_notes, wander_anchor, home_pos, work_pos,
+            current_task, target_destination, schedule_state, updated_at
           ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
             $11, $12, $13, $14, $15, $16, $17, $18,
-            $19, $20, $21, $22, $23, NOW()
+            $19, $20, $21, $22, $23, $24, $25,
+            $26, $27, $28, NOW()
           ) ON CONFLICT (id) DO UPDATE SET
             local_pos = EXCLUDED.local_pos,
             current_rx = EXCLUDED.current_rx,
             current_ry = EXCLUDED.current_ry,
+            current_task = COALESCE(EXCLUDED.current_task, sim_npc_instances.current_task),
+            schedule_state = COALESCE(EXCLUDED.schedule_state, sim_npc_instances.schedule_state),
             updated_at = NOW()`,
           [
             n.id,
@@ -395,7 +555,12 @@ Return ONLY valid JSON matching this schema:
             JSON.stringify(n.stats || {}),
             JSON.stringify(n.inventory || []),
             JSON.stringify(n.memoryNotes || []),
-            [n.pos[0], n.pos[1]]
+            [n.pos[0], n.pos[1]],
+            n.homePos ? [n.homePos[0], n.homePos[1]] : [n.pos[0], n.pos[1]],
+            n.workPos ? [n.workPos[0], n.workPos[1]] : [n.pos[0], n.pos[1]],
+            n.currentTask || "IDLE",
+            n.targetDestination ? [n.targetDestination[0], n.targetDestination[1]] : null,
+            n.scheduleState || "WORK"
           ]
         );
       }
@@ -442,16 +607,28 @@ Return ONLY valid JSON matching this schema:
     if (!key || this.warnedInvalidKey) {
       return null;
     }
+    let payload = contents;
+    if (Array.isArray(contents) && contents.length === 1 && contents[0]?.parts?.[0]?.text) {
+      payload = contents[0].parts[0].text;
+    }
+
+    const isJsonRequested = systemInstruction?.toLowerCase().includes("json");
+
     for (const m of this.CANDIDATE_MODELS) {
       try {
+        const config: any = {
+          systemInstruction,
+          temperature,
+          maxOutputTokens
+        };
+        if (isJsonRequested) {
+          config.responseMimeType = "application/json";
+        }
+
         const res = await this.ai.models.generateContent({
           model: m,
-          contents,
-          config: {
-            systemInstruction,
-            temperature,
-            maxOutputTokens
-          }
+          contents: payload,
+          config
         });
         if (res.text && res.text.trim().length > 0) {
           return res.text.trim();
@@ -498,21 +675,22 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
       const raw = await this.callGeminiWithFallback(
         [{ role: "user", parts: [{ text: prompt }] }],
         "You are an exact intent parser for a dark fantasy RPG engine. Output only JSON.",
-        150,
+        400,
         0.1
       );
 
       if (raw) {
         const clean = raw.replace(/```json|```/g, "").trim();
         const parsed = JSON.parse(clean);
-        const category: ActionCategory = parsed.category || "COMBAT";
+        const category: ActionCategory = parsed.category || "CREATIVE_CHECK";
         const isCombat = category === "COMBAT";
+        const verb = (parsed.verb || "CUSTOM_CHECK").toUpperCase();
         return {
           category,
-          verb: (parsed.verb || "SMASH").toUpperCase(),
-          targetId: parsed.targetId || (availableTargets[0]?.id || ""),
-          targetName: parsed.targetName || (availableTargets[0]?.name || "Target"),
-          statUsed: parsed.statUsed || "might",
+          verb,
+          targetId: parsed.targetId || "",
+          targetName: parsed.targetName || "Surroundings",
+          statUsed: parsed.statUsed || "intuition",
           isCombat
         };
       }
@@ -522,76 +700,98 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
 
     // Heuristic Fallback
     const lower = actionText.toLowerCase();
-    let category: ActionCategory = "COMBAT";
-    let verb = "SLASH";
-    let statUsed = "might";
 
-    if (lower.includes("use") && (lower.includes("apply") || lower.includes("drink") || lower.includes("consume") || lower.includes("eat") || lower.includes("salve") || lower.includes("ration") || lower.includes("potion"))) {
+    // Helper for boundary-safe keyword matching
+    const hasWord = (...words: string[]) => words.some(w => new RegExp(`\\b${w}\\b`, "i").test(lower));
+
+    // Explicit combat check to avoid attacking innocent bystanders
+    const isExplicitAttack = hasWord("attack", "slash", "strike", "stab", "shoot", "smash", "kill", "thrust", "cleave", "behead");
+
+    let category: ActionCategory = isExplicitAttack ? "COMBAT" : "CREATIVE_CHECK";
+    let verb = isExplicitAttack ? "SLASH" : "CUSTOM_CHECK";
+    let statUsed = isExplicitAttack ? "might" : "intuition";
+
+    if (hasWord("play", "lute", "flute", "song", "sing", "dance", "perform", "poem", "recite", "ballad", "melody", "lullaby")) {
+      category = "CREATIVE_CHECK";
+      verb = "PERFORM";
+      statUsed = "charm";
+    } else if (hasWord("use", "apply", "drink", "consume", "eat", "swallow", "potion", "salve", "poultice", "draught") && (hasWord("ration", "salve", "potion", "draught", "meat", "herb") || hasWord("use", "drink", "eat"))) {
       category = "SURVIVAL";
       verb = "USE_ITEM";
       statUsed = "vitality";
-    } else if (lower.includes("forage") || lower.includes("harvest") || lower.includes("gather") || lower.includes("pick") || lower.includes("flora") || lower.includes("herb")) {
+    } else if (hasWord("forage", "harvest", "gather", "botany", "flora", "herbs", "herb", "mushrooms", "roots")) {
       category = "SURVIVAL";
       verb = "FORAGE";
       statUsed = "awareness";
-    } else if (lower.includes("dress") || lower.includes("butcher") || lower.includes("skin") || lower.includes("pelt")) {
+    } else if (hasWord("butcher", "field dress", "dress", "skin", "carcass", "pelt", "flesh", "gut")) {
       category = "SURVIVAL";
       verb = "FIELD_DRESS";
       statUsed = "finesse";
-    } else if (lower.includes("hunt") || lower.includes("track") || lower.includes("stalk")) {
+    } else if (hasWord("hunt", "track", "stalk")) {
       category = "SURVIVAL";
       verb = "HUNT";
       statUsed = "awareness";
-    } else if (lower.includes("cook") || lower.includes("roast")) {
+    } else if (hasWord("cook", "roast", "bake", "fry")) {
       category = "SURVIVAL";
       verb = "COOK";
       statUsed = "vitality";
-    } else if (lower.includes("brew") || lower.includes("concoct")) {
+    } else if (hasWord("brew", "concoct", "distill")) {
       category = "SURVIVAL";
       verb = "BREW";
       statUsed = "knowledge";
-    } else if (lower.includes("rest") || lower.includes("heal") || lower.includes("pause") || lower.includes("sleep") || lower.includes("bivouac")) {
+    } else if (hasWord("rest", "sleep", "camp", "bivouac", "nap") && !hasWord("wrestle", "forest", "crested", "arrest", "chest")) {
       category = "SURVIVAL";
       verb = "REST";
       statUsed = "vitality";
-    } else if (lower.includes("talk") || lower.includes("speak") || lower.includes("ask") || lower.includes("negotiate") || lower.includes("tell") || lower.includes("trade") || lower.includes("barter")) {
+    } else if (hasWord("talk", "speak", "converse", "negotiate", "chat", "greet", "hail") || (hasWord("ask") && !hasWord("cask", "flask", "mask", "task"))) {
       category = "SOCIAL";
       verb = "TALK";
       statUsed = "charm";
-    } else if (lower.includes("bribe") || lower.includes("pay") || lower.includes("coin") || lower.includes("gold")) {
+    } else if (hasWord("bribe") || (hasWord("pay") && !hasWord("spray"))) {
       category = "SOCIAL";
       verb = "BRIBE";
       statUsed = "charm";
-    } else if (lower.includes("intimidate") || lower.includes("threaten") || lower.includes("scare")) {
+    } else if (hasWord("intimidate", "threaten", "scare", "bully", "interrogate")) {
       category = "SOCIAL";
       verb = "INTIMIDATE";
       statUsed = "might";
-    } else if (lower.includes("fire") || lower.includes("burn") || lower.includes("ignite")) {
+    } else if (hasWord("pray", "meditate", "commune", "channel", "invoke")) {
+      category = "MAGIC";
+      verb = "CHANNEL_CHAOS";
+      statUsed = "willpower";
+    } else if (hasWord("fire", "burn", "ignite", "torch", "fireball")) {
       category = "MAGIC";
       verb = "IGNITE";
       statUsed = "intuition";
-    } else if (lower.includes("lightning") || lower.includes("shock") || lower.includes("spell")) {
+    } else if (hasWord("lightning", "shock", "electric", "spark", "zap")) {
       category = "MAGIC";
       verb = "CAST_LIGHTNING";
       statUsed = "intuition";
-    } else if (lower.includes("sneak") || lower.includes("shadow") || lower.includes("creep")) {
+    } else if (hasWord("freeze", "frost", "ice", "chill")) {
+      category = "MAGIC";
+      verb = "CAST_ICE";
+      statUsed = "intuition";
+    } else if (hasWord("sneak", "shadow", "creep", "skulk", "hide")) {
       category = "SUBTERFUGE";
       verb = "SNEAK";
       statUsed = "finesse";
-    } else if (lower.includes("lock") || lower.includes("pick") || lower.includes("open")) {
+    } else if (hasWord("lock", "lockpick", "pick") && !hasWord("pickpocket")) {
       category = "SUBTERFUGE";
       verb = "PICK_LOCK";
       statUsed = "finesse";
-    } else if (lower.includes("search") || lower.includes("inspect") || lower.includes("examine") || lower.includes("look")) {
+    } else if (hasWord("search", "inspect", "examine", "look", "study", "read", "scrutinize")) {
       category = "EXPLORATION";
       verb = "SEARCH";
       statUsed = "awareness";
     }
 
-    // Pick best matching target
-    let matchedTarget = availableTargets[0];
+    // Pick matching target ONLY if explicitly mentioned in action text (excluding stop-words)
+    const stopWords = new Set(["the", "a", "an", "of", "in", "to", "for", "with", "on", "at", "from", "by", "about"]);
+    let matchedTarget: any = null;
     for (const t of availableTargets) {
-      if (lower.includes(t.name.toLowerCase().split(" ")[0] || "")) {
+      const cleanName = t.name.toLowerCase().replace(/^(the|a|an)\s+/i, "").trim();
+      const tokens = cleanName.split(/\s+/).filter((tok: string) => tok.length > 2 && !stopWords.has(tok));
+      if (tokens.some((tok: string) => new RegExp(`\\b${tok}\\b`, "i").test(lower))) {
         matchedTarget = t;
         break;
       }
@@ -600,8 +800,8 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
     return {
       category,
       verb,
-      targetId: matchedTarget?.id || "",
-      targetName: matchedTarget?.name || "Target",
+      targetId: matchedTarget ? matchedTarget.id : "",
+      targetName: matchedTarget ? matchedTarget.name : "Surroundings",
       statUsed,
       isCombat: category === "COMBAT"
     };
@@ -685,6 +885,7 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
     let difference = 0;
     let hit = false;
     let injuryPoints = 0;
+    let detailedRollOutcome: any = null;
     let tagResult: TagInteractionResult | undefined;
     let inCharacterDialogue: string | undefined;
     let lootAwarded: { gold: number; item?: string } | undefined;
@@ -711,6 +912,53 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
     const toolBonusNotice = dynamicToolBonus > 0 ? ` (+${dynamicToolBonus} Tool)` : "";
 
     if (intent.category === "SOCIAL") {
+      // Check if target is an inanimate physical prop
+      if (targetProp && !targetNPC) {
+        return {
+          success: false,
+          intent,
+          rollOutcome: {
+            playerRoll,
+            playerStatVal,
+            dcOrDefenderRoll: 10,
+            difference: -10,
+            injuryPoints: 0,
+            hit: false
+          },
+          systemLog: `[SOCIAL: '${targetProp.name}' is an inanimate physical object. It does not respond to speech, bribes, or threats.]`,
+          narrativeResponse: `${player.name} addresses ${targetProp.name}, but stone, iron, and silence offer no response.`,
+          campaignState: this.storyEngine.getCampaignState(),
+          worldDelta: { propsDestroyed: [], npcsDefeated: [] }
+        };
+      }
+
+      // Check if target is a wild beast/animal (Animal Handling instead of courtier debate)
+      if (targetNPC && targetNPC.tags && (targetNPC.tags.includes("beast") || targetNPC.tags.includes("prey") || targetNPC.tags.includes("predator"))) {
+        const animalDC = 12;
+        const animalStatVal = Number(player.intuition) || 5;
+        const animalRoll = playerRoll + animalStatVal;
+        const animalDiff = animalRoll - animalDC;
+        const animalHit = animalDiff >= 0;
+        return {
+          success: animalHit,
+          intent,
+          rollOutcome: {
+            playerRoll,
+            playerStatVal: animalStatVal,
+            dcOrDefenderRoll: animalDC,
+            difference: animalDiff,
+            injuryPoints: 0,
+            hit: animalHit
+          },
+          systemLog: `[INTUITION ANIMAL EMPATHY: ${animalRoll} vs DC ${animalDC} | ${animalHit ? `SUCCESS: ${targetNPC.name} watches you cautiously, placated by your calm posture.` : `FAILED: ${targetNPC.name} bristles or bolts, startled by your approach.`}]`,
+          narrativeResponse: animalHit
+            ? `${player.name} lowers posture and projects stillness before ${targetNPC.name}. The creature watches with wary calm.`
+            : `${targetNPC.name} tenses against ${player.name}, ready to fight or flee the unfamiliar intruder.`,
+          campaignState: this.storyEngine.getCampaignState(),
+          worldDelta: { propsDestroyed: [], npcsDefeated: [] }
+        };
+      }
+
       // --- SOCIAL RESOLUTION (Composure & Mental Contest) ---
       const npcName = targetNPC?.name || intent.targetName || "The Guard";
       const npcRole = targetNPC?.role || (npcName.toLowerCase().includes("guard") ? "Guard" : "Wayfarer");
@@ -787,13 +1035,51 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
         if (contestRes.isBroken) xpGained += 50;
       }
 
-      // Query real simulation rumors from PostgreSQL
+      // Query geographically bounded & role-appropriate simulation rumors from PostgreSQL
       let recentRumors = "";
       try {
-        const eventsRes = await this.pool.query(
-          `SELECT message FROM sim_events ORDER BY id DESC LIMIT 4`
-        );
-        if (eventsRes.rows.length > 0) {
+        const localBurgId = this.activeContext?.burg?.burg_id ?? null;
+        const isTravelerOrTavern = targetNPC?.tags?.includes("merchant") || 
+                                   targetNPC?.tags?.includes("wayfarer") || 
+                                   targetNPC?.tags?.includes("innkeeper") || 
+                                   targetNPC?.tags?.includes("courier") ||
+                                   targetNPC?.tags?.includes("scholar") ||
+                                   targetNPC?.role?.toLowerCase().includes("innkeeper") ||
+                                   targetNPC?.role?.toLowerCase().includes("caravan") ||
+                                   targetNPC?.role?.toLowerCase().includes("messenger") ||
+                                   targetNPC?.role?.toLowerCase().includes("trader");
+
+        let eventsRes;
+        if (isTravelerOrTavern) {
+          // Well-traveled merchants, scholars, couriers, and innkeepers hear both distant and local news
+          eventsRes = await this.pool.query(
+            `SELECT message, tier FROM sim_events 
+             WHERE tier IN ('CRITICAL', 'MAJOR') 
+                OR burg_id = $1 
+                OR id IN (SELECT id FROM sim_events ORDER BY id DESC LIMIT 15)
+             ORDER BY id DESC LIMIT 4`,
+            [localBurgId]
+          );
+        } else if (localBurgId) {
+          // Local burg residents only know local municipal events or massive continental events
+          eventsRes = await this.pool.query(
+            `SELECT message, tier FROM sim_events 
+             WHERE tier IN ('CRITICAL', 'MAJOR') 
+                OR burg_id = $1 
+             ORDER BY id DESC LIMIT 3`,
+            [localBurgId]
+          );
+        } else {
+          // Frontier hermits/scouts only know massive cosmic events or wilderness occurrences
+          eventsRes = await this.pool.query(
+            `SELECT message, tier FROM sim_events 
+             WHERE tier IN ('CRITICAL', 'MAJOR') 
+                OR type IN ('ECOLOGICAL', 'TROPHIC_DISRUPTION', 'APEX_BEAST_SLAIN', 'CARTEL_EXPANSION')
+             ORDER BY id DESC LIMIT 3`
+          );
+        }
+
+        if (eventsRes && eventsRes.rows.length > 0) {
           recentRumors = eventsRes.rows.map((r: any) => `- ${r.message}`).join("\n");
         }
       } catch (err) {}
@@ -1066,6 +1352,27 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
       }
       systemLog = `[${intent.statUsed.toUpperCase()} MAGIC: ${totalRoll} vs DC ${dynamicDC} | ${hit ? "SUCCESS: Spell manifested" : "DISPELLED"} | ${injuryPoints} Magic Damage]`;
 
+    } else if (intent.category === "CREATIVE_CHECK" || intent.verb === "CUSTOM_CHECK") {
+      // --- CREATIVE CHECK (Non-violent skill / utility / custom player intent) ---
+      dcOrDefenderRoll = dynamicDC > 0 ? dynamicDC : 11;
+      const totalRoll = playerRoll + playerStatVal + dynamicToolBonus;
+      difference = totalRoll - dcOrDefenderRoll;
+      hit = difference >= 0;
+      injuryPoints = 0;
+
+      if (targetObj) {
+        tagResult = TagMatrixEngine.resolveInteraction(
+          player.name || "Hero",
+          intent.verb,
+          targetObj,
+          ["creative", intent.verb.toLowerCase()],
+          Array.from(this.activeProps.values())
+        );
+      }
+
+      xpGained += hit ? 20 : 5;
+      systemLog = `[${intent.statUsed.toUpperCase()} CREATIVE CHECK${toolBonusNotice}: ${totalRoll} vs DC ${dcOrDefenderRoll} | ${hit ? "SUCCESS: Creative action achieved" : "CHALLENGED: Unsuccessful effort"}] ${tagResult?.logs?.slice(1).join(" ") || ""}`.trim();
+
     } else {
       // --- COMBAT (Melee / Ranged Attack with 12-Stat Equipment Matrix) ---
       const playerWeapon = getWeapon(player.equipped_weapon || "Osmium Greatsword");
@@ -1087,6 +1394,7 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
         if (player.difficulty === "casual") advantageMod += 3;
         if (targetNPC.tags?.includes("vulnerable") || targetNPC.tags?.includes("burning")) advantageMod += 2;
         if (targetNPC.tags?.includes("cover_heavy") || targetNPC.tags?.includes("unyielding")) advantageMod -= 2;
+        if (input.isStealthed || input.sneakAttack) advantageMod += 4; // Surprise Advantage / Sneak Attack Rating
 
         const playerSkillRanks: Record<string, number> = (typeof player.skill_ranks === 'object' && player.skill_ranks)
           ? player.skill_ranks
@@ -1102,11 +1410,12 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
           : 0;
         const effectiveDefDR = Math.max(0, defArmor.damageReduction - activePierce);
 
+        const targetCoverBonus = input.coverBonus || 0;
         const combatRes = resolveOpposedCombat(
           playerAttackStatVal + advantageMod,
           attackMod,
           defStatVal,
-          defMod,
+          defMod + targetCoverBonus,
           {
             attackerWeaponSpecRank: playerWeaponSpecRank,
             defenderArmorSpecRank: 0
@@ -1117,8 +1426,26 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
         difference = combatRes.difference;
         dcOrDefenderRoll = combatRes.defenderTotal;
 
-        const netInjury = hit ? Math.max(1, combatRes.injuryPoints + playerWeapon.damageBonus + passiveDmgBonus - effectiveDefDR) : 0;
+        const sneakBonus = (input.isStealthed || input.sneakAttack) ? 4 : 0;
+        const netInjury = hit ? Math.max(1, combatRes.injuryPoints + playerWeapon.damageBonus + passiveDmgBonus + sneakBonus - effectiveDefDR) : 0;
         injuryPoints = netInjury;
+
+        detailedRollOutcome = {
+          attackerRoll: combatRes.attackerRoll,
+          attackerStatKey: attackStatKey,
+          attackerStatVal: playerAttackStatVal + advantageMod,
+          attackerMod: attackMod,
+          attackerTotal: combatRes.attackerTotal,
+          defenderRoll: combatRes.defenderRoll,
+          defenderStatKey: defStatKey,
+          defenderStatVal: defStatVal,
+          defenderMod: defMod + targetCoverBonus,
+          defenderTotal: combatRes.defenderTotal,
+          coverBonus: targetCoverBonus,
+          coverLevel: input.coverLevel || (targetCoverBonus >= 4 ? "FULL" : targetCoverBonus > 0 ? "HALF" : "NONE"),
+          weaponName: playerWeapon.name,
+          armorName: defArmor.name
+        };
 
         if (hit) {
           targetNPC.hp = Math.max(0, targetNPC.hp - (netInjury * 4));
@@ -1420,7 +1747,7 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
       }
     }
 
-    // C2. Prey / Wild Game Slain or Butchered -> Decrement Eco-Prey & Replenish Provincial Food Reserves
+    // C2. Prey / Wild Game Slain or Butchered -> Decrement Eco-Prey & Harvest Directly into Player Inventory
     if ((targetNPC && !targetNPC.alive && (targetNPC.tags.includes("prey") || targetNPC.tags.includes("game"))) || (hit && (intent.verb === "FIELD_DRESS" || intent.verb === "BUTCHER"))) {
       try {
         await this.pool.query(
@@ -1429,20 +1756,22 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
            WHERE id = $1`,
           [cellId]
         );
-        await this.pool.query(
-          `UPDATE sim_burg_economy
-           SET food = COALESCE(food, 0) + 2
-           WHERE cell_id = $1 OR burg_id = (SELECT burg_id FROM sim_burg_economy ORDER BY ABS(cell_id - $1) ASC LIMIT 1)`,
-          [cellId]
-        );
-        simDeltaNotice += " | 🦌 SIMULATION: Eco-Prey -1.0, Granary Reserves +2";
+        
+        // Grounded causality: animal meat/pelts drop into the traveler's inventory, NOT magically into a distant city granary!
+        player.inventory = Array.isArray(player.inventory) ? player.inventory : [];
+        const preyItem = targetNPC ? `Fresh ${targetNPC.name} Haunch` : "Fresh Wild Game Haunch";
+        const hideItem = targetNPC ? `${targetNPC.name} Pelt` : "Cured Game Hide";
+        player.inventory.push(preyItem);
+        if (Math.random() < 0.6) player.inventory.push(hideItem);
+
+        simDeltaNotice += ` | 🦌 ECOLOGY: Local Prey -1.0 | Harvested [${preyItem}] into traveler satchel`;
       } catch (err) {
         console.error("Backfeed eco prey error:", err);
       }
     }
 
-    // C3. Botanical Flora Foraged / Harvested -> Decrement Eco-Plants, Stockpile Herbs & Adjust Commodity Supply
-    if (hit && (intent.verb === "FORAGE" || intent.verb === "HARVEST" || intent.verb === "EXAMINE_BOTANY")) {
+    // C3. Botanical Flora Foraged / Harvested -> Decrement Eco-Plants & Harvest Directly into Satchel
+    if (hit && (intent.verb === "FORAGE" || intent.verb === "HARVEST" || intent.verb === "EXAMINE_BOTANY" || intent.verb === "GATHER")) {
       try {
         await this.pool.query(
           `UPDATE sim_cells
@@ -1450,21 +1779,96 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
            WHERE id = $1`,
           [cellId]
         );
-        await this.pool.query(
-          `UPDATE sim_industrial_stockpiles
-           SET raw_herbs = COALESCE(raw_herbs, 0) + 1
-           WHERE burg_id = (SELECT burg_id FROM sim_burg_economy ORDER BY ABS(cell_id - $1) ASC LIMIT 1)`,
-          [cellId]
-        );
-        await this.pool.query(
-          `UPDATE sim_commodity_prices
-           SET global_supply = global_supply + 1,
-               current_price = GREATEST(0.4, current_price * 0.99)
-           WHERE commodity = 'medicine'`
-        );
-        simDeltaNotice += " | 🌿 SIMULATION: Eco-Flora -1.0, Apothecary Stock +1, Medicine Supply +1";
+
+        // Grounded causality: foraged plants enter player's satchel
+        player.inventory = Array.isArray(player.inventory) ? player.inventory : [];
+        const herbNames = ["Wild Mountain Ginseng", "Silverleaf Stems", "Marsh Reed Fibre", "Earth-Root Tubers", "Bitter-Bark Lichen"];
+        const foundHerb = herbNames[Math.floor(Math.random() * herbNames.length)];
+        player.inventory.push(foundHerb);
+
+        simDeltaNotice += ` | 🌿 ECOLOGY: Local Flora -1.0 | Harvested [${foundHerb}] into satchel`;
       } catch (err) {
         console.error("Backfeed flora error:", err);
+      }
+    }
+
+    // C3b. Grounded Settlement Commerce: Selling Provisions or Materials to Local Merchants / Granaries
+    const isTradingAction = intent.category === "SOCIAL" && (
+      intent.verb === "TRADE" || intent.verb === "TALK" || intent.verb === "BRIBE" ||
+      actionText.toLowerCase().includes("sell") || actionText.toLowerCase().includes("trade") ||
+      actionText.toLowerCase().includes("provision") || actionText.toLowerCase().includes("deliver food")
+    );
+    const isMerchantTarget = targetNPC && (
+      targetNPC.tags.includes("merchant") || targetNPC.tags.includes("vendor") ||
+      targetNPC.tags.includes("provisioner") || targetNPC.tags.includes("innkeeper") ||
+      targetNPC.tags.includes("reeve") || targetNPC.role.toLowerCase().includes("provisioner") ||
+      targetNPC.role.toLowerCase().includes("merchant") || targetNPC.role.toLowerCase().includes("innkeeper")
+    );
+
+    if (hit && isTradingAction && isMerchantTarget) {
+      try {
+        player.inventory = Array.isArray(player.inventory) ? player.inventory : [];
+        let foodSold = 0;
+        let matsSold = 0;
+        const remainingInv: string[] = [];
+
+        for (const item of player.inventory) {
+          const itemLower = item.toLowerCase();
+          const isFood = itemLower.includes("haunch") || itemLower.includes("meat") || itemLower.includes("ration") ||
+                         itemLower.includes("venison") || itemLower.includes("tuber") || itemLower.includes("bread") ||
+                         itemLower.includes("fruit") || itemLower.includes("game");
+          const isMat = itemLower.includes("ginseng") || itemLower.includes("silverleaf") || itemLower.includes("herb") ||
+                        itemLower.includes("pelt") || itemLower.includes("hide") || itemLower.includes("fibre") ||
+                        itemLower.includes("ore") || itemLower.includes("lichen");
+
+          if (isFood && foodSold < 3) {
+            foodSold++;
+          } else if (isMat && matsSold < 3) {
+            matsSold++;
+          } else {
+            remainingInv.push(item);
+          }
+        }
+
+        if (foodSold > 0 || matsSold > 0) {
+          player.inventory = remainingInv;
+          const goldEarned = (foodSold * 12) + (matsSold * 16);
+          player.gold = (Number(player.gold) || 0) + goldEarned;
+
+          if (foodSold > 0) {
+            const foodUnits = foodSold * 4;
+            await this.pool.query(
+              `UPDATE sim_burg_economy
+               SET food = COALESCE(food, 0) + $1,
+                   unrest = GREATEST(0, COALESCE(unrest, 0) - 1)
+               WHERE cell_id = $2 OR burg_id = (SELECT burg_id FROM sim_burg_economy ORDER BY ABS(cell_id - $2) ASC LIMIT 1)`,
+              [foodUnits, cellId]
+            );
+            if (this.activeContext?.factionOwner) {
+              playerReputations[this.activeContext.factionOwner] = (playerReputations[this.activeContext.factionOwner] || 0) + 2;
+            }
+          }
+
+          if (matsSold > 0) {
+            await this.pool.query(
+              `UPDATE sim_industrial_stockpiles
+               SET raw_herbs = COALESCE(raw_herbs, 0) + $1
+               WHERE burg_id = (SELECT burg_id FROM sim_burg_economy ORDER BY ABS(cell_id - $2) ASC LIMIT 1)`,
+              [matsSold, cellId]
+            );
+            await this.pool.query(
+              `UPDATE sim_commodity_prices
+               SET global_supply = global_supply + $1,
+                   current_price = GREATEST(0.4, current_price * 0.99)
+               WHERE commodity = 'medicine'`,
+              [matsSold]
+            );
+          }
+
+          simDeltaNotice += ` | ⚖️ COMMERCE: Sold ${foodSold} food & ${matsSold} materials for +${goldEarned} Gold! Municipal Granary & Stockpiles replenished.`;
+        }
+      } catch (err) {
+        console.error("Backfeed commerce error:", err);
       }
     }
 
@@ -1581,12 +1985,31 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
       ).catch(() => {});
     }
 
+    // Ensure inventory and gold from harvesting or commerce are persisted
+    await this.pool.query(
+      `UPDATE sim_player_character
+       SET gold = $1, inventory = $2, faction_reputations = $3
+       WHERE id = $4`,
+      [player.gold, JSON.stringify(player.inventory || []), JSON.stringify(playerReputations), playerId]
+    ).catch(() => {});
+
     if (simDeltaNotice) {
       systemLog += simDeltaNotice;
     }
 
-    // 7. Grounded Sensory Narrative Synthesis (Gemini)
-    const narrativePrompt = `Event: Player performed ${intent.verb} (${intent.category}) on ${intent.targetName}. Outcome: ${hit ? "Success" : "Failure"}. Damage: ${injuryPoints}. Tags: ${tagResult?.appliedTags?.join(", ") || "None"}. Dialogue spoken: ${inCharacterDialogue || "None"}.`;
+    // 7. Grounded Sensory Narrative Synthesis (Gemini) with Persistent Memory Retrieval
+    let recentMemoriesContext = "";
+    try {
+      const memRes = await this.pool.query(
+        `SELECT summary FROM sim_gm_memories WHERE player_id = $1 ORDER BY id DESC LIMIT 3`,
+        [playerId]
+      );
+      if (memRes.rows.length > 0) {
+        recentMemoriesContext = `Recent Historical Memory Traces:\n${memRes.rows.map((r: any) => `- ${r.summary}`).reverse().join("\n")}\n`;
+      }
+    } catch (err) {}
+
+    const narrativePrompt = `${recentMemoriesContext}Current Event: Player performed ${intent.verb} (${intent.category}) on ${intent.targetName}. Outcome: ${hit ? "Success" : "Failure"}. Damage: ${injuryPoints}. Tags: ${tagResult?.appliedTags?.join(", ") || "None"}. Dialogue spoken: ${inCharacterDialogue || "None"}.`;
 
     const narrativeResponse = await this.callGeminiWithFallback(
       [{ role: "user", parts: [{ text: narrativePrompt }] }],
@@ -1595,12 +2018,18 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
       0.7
     ) || `${player.name} resolves the action against ${intent.targetName}. The environment settles in the wake of the attempt.`;
 
-    // 8. Record Associative Memory Trace
+    // 8. Record Associative Memory Trace (In-Memory + Persistent PostgreSQL Table)
+    const memSummary = `${intent.verb} on ${intent.targetName}: ${hit ? "Success" : "Failed"}`;
+    const memTags = [intent.verb, intent.targetName, hit ? "success" : "failed"];
     this.memoryStream.push({
       timestamp: Date.now(),
-      summary: `${intent.verb} on ${intent.targetName}: ${hit ? "Success" : "Failed"}`,
-      tags: [intent.verb, intent.targetName, hit ? "success" : "failed"]
+      summary: memSummary,
+      tags: memTags
     });
+    await this.pool.query(
+      `INSERT INTO sim_gm_memories (player_id, summary, tags) VALUES ($1, $2, $3)`,
+      [playerId, memSummary, memTags]
+    ).catch(() => {});
 
     return {
       success: hit,
@@ -1611,7 +2040,8 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
         dcOrDefenderRoll,
         difference,
         injuryPoints,
-        hit
+        hit,
+        ...(detailedRollOutcome || {})
       },
       tagResult,
       systemLog,

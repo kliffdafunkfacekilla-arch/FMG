@@ -2,6 +2,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import { ConcordiaGameMaster } from '../engine/rpg/ConcordiaGM.js';
 import pool from '../db/pool.js';
+import { updateSectorNPCRoutines } from '../engine/agents/npcRoutineAgent.js';
 
 dotenv.config({ override: true });
 
@@ -237,39 +238,39 @@ router.post('/character/create', async (req, res) => {
       difficulty
     } = req.body;
 
-    const charName = (name && name.trim()) || 'Ostraka Wanderer';
-    const charKingdom = kingdom || 'Mammal';
-    const charLineage = lineage || 'Ursine';
-    const charSpecies = species || 'Bear-Folk';
-    const charInstitution = institution || 'Mass';
-    const charMainType = mainType || 'Titan';
-    const charSubType = subType || 'Arcanist';
-    const charFinalType = finalType || 'Vanguard';
-    const charTrack = powerNullTrack || 'Mass Track';
-    const charOffense = offenseSkill || 'Shatter Impact';
-    const charDefense = defenseSkill || 'Brace Impact';
+    const charName = ((name && String(name).trim()) || 'Ostraka Wanderer').slice(0, 50);
+    const charKingdom = ((kingdom && String(kingdom).trim()) || 'Mammal').slice(0, 50);
+    const charLineage = ((lineage && String(lineage).trim()) || 'Ursine').slice(0, 50);
+    const charSpecies = ((species && String(species).trim()) || 'Bear-Folk').slice(0, 50);
+    const charInstitution = ((institution && String(institution).trim()) || 'Mass').slice(0, 50);
+    const charMainType = ((mainType && String(mainType).trim()) || 'Titan').slice(0, 50);
+    const charSubType = ((subType && String(subType).trim()) || 'Arcanist').slice(0, 50);
+    const charFinalType = ((finalType && String(finalType).trim()) || 'Vanguard').slice(0, 50);
+    const charTrack = ((powerNullTrack && String(powerNullTrack).trim()) || 'Mass Track').slice(0, 50);
+    const charOffense = ((offenseSkill && String(offenseSkill).trim()) || 'Shatter Impact').slice(0, 50);
+    const charDefense = ((defenseSkill && String(defenseSkill).trim()) || 'Brace Impact').slice(0, 50);
     const charDifficulty = (difficulty && ['casual', 'survivor', 'hardcore'].includes(String(difficulty).toLowerCase()))
       ? String(difficulty).toLowerCase()
       : 'survivor';
 
-    const m = Number(might) || 1;
-    const e = Number(endurance) || 1;
-    const f = Number(finesse) || 1;
-    const r = Number(reflex) || 1;
-    const v = Number(vitality) || 1;
-    const fort = Number(fortitude) || 1;
-    const k = Number(knowledge) || 1;
-    const l = Number(logic) || 1;
-    const aw = Number(awareness) || 1;
-    const it = Number(intuition) || 1;
-    const ch = Number(charm) || 1;
-    const w = Number(willpower) || 1;
+    const m = Math.max(1, Math.min(30, Number(might) || 1));
+    const e = Math.max(1, Math.min(30, Number(endurance) || 1));
+    const f = Math.max(1, Math.min(30, Number(finesse) || 1));
+    const r = Math.max(1, Math.min(30, Number(reflex) || 1));
+    const v = Math.max(1, Math.min(30, Number(vitality) || 1));
+    const fort = Math.max(1, Math.min(30, Number(fortitude) || 1));
+    const k = Math.max(1, Math.min(30, Number(knowledge) || 1));
+    const l = Math.max(1, Math.min(30, Number(logic) || 1));
+    const aw = Math.max(1, Math.min(30, Number(awareness) || 1));
+    const it = Math.max(1, Math.min(30, Number(intuition) || 1));
+    const ch = Math.max(1, Math.min(30, Number(charm) || 1));
+    const w = Math.max(1, Math.min(30, Number(willpower) || 1));
 
     const stats = { might: m, endurance: e, finesse: f, reflex: r, vitality: v, fortitude: fort, knowledge: k, logic: l, awareness: aw, intuition: it, charm: ch, willpower: w };
     const derived = calcDerivedStats(stats);
 
-    const wpn = (equippedWeapon && equippedWeapon.trim()) || 'Osmium Greatsword';
-    const arm = (equippedArmor && equippedArmor.trim()) || 'Juggernaut Osmium Plate';
+    const wpn = ((equippedWeapon && String(equippedWeapon).trim()) || 'Osmium Greatsword').slice(0, 50);
+    const arm = ((equippedArmor && String(equippedArmor).trim()) || 'Juggernaut Osmium Plate').slice(0, 50);
 
     const traitsJson = JSON.stringify(passiveTraits || []);
     const skillsJson = JSON.stringify(skills || []);
@@ -676,8 +677,22 @@ router.get('/state', (req, res) => {
 router.post('/sector_load', async (req, res) => {
   try {
     const context = req.body.context || (req.body.cellId ? req.body : null);
+    const targetCellId = Number(context?.cellId) || 13408;
+    const targetRx = Number(context?.rx) || 0;
+    const targetRy = Number(context?.ry) || 0;
+    const rawPhase = (req.body.diurnalPhase || context?.diurnalPhase || 'MORNING').toUpperCase();
+    const diurnalPhase: "MORNING" | "MIDDAY" | "EVENING" | "NIGHT" = rawPhase === 'NOON' ? 'MIDDAY' : (['MORNING', 'MIDDAY', 'EVENING', 'NIGHT'].includes(rawPhase) ? rawPhase as any : 'MORNING');
+
+    try {
+      await updateSectorNPCRoutines(pool, targetCellId, targetRx, targetRy, diurnalPhase);
+    } catch (routineErr) {
+      console.warn('Error running sector NPC routine update:', routineErr);
+    }
+
     const injected = await concordiaGM.loadSector(context || {
-      cellId: 13408,
+      cellId: targetCellId,
+      rx: targetRx,
+      ry: targetRy,
       biomeName: 'Wetland Swamp',
       isWarzone: false,
       isFamine: true,
@@ -777,22 +792,92 @@ Do not list numbers or mechanics. End with an urgent question of what they do.`;
  */
 router.post('/action', async (req, res) => {
   try {
-    const { actionText, playerId, playerPos } = req.body as {
+    const { actionText, playerId, playerPos, coverBonus, coverLevel, combatType, isStealthed, sneakAttack } = req.body as {
       actionText: string;
       playerId?: number;
       playerPos?: [number, number];
+      coverBonus?: number;
+      coverLevel?: 'NONE' | 'HALF' | 'FULL';
+      combatType?: 'melee' | 'ranged';
+      isStealthed?: boolean;
+      sneakAttack?: boolean;
     };
 
     const result = await concordiaGM.executeTurn({
       actionText,
       playerId: playerId || 1,
-      playerPos: playerPos || [128, 128]
+      playerPos: playerPos || [128, 128],
+      coverBonus,
+      coverLevel,
+      combatType,
+      isStealthed,
+      sneakAttack
     });
 
     res.json(result);
   } catch (e: any) {
     console.error('Action turn error:', e);
     res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /action_stream - SSE streaming for immediate mechanical resolution followed by streaming sensory prose
+ */
+router.post('/action_stream', async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  try {
+    const { actionText, playerId, playerPos, coverBonus, coverLevel, combatType, isStealthed, sneakAttack } = req.body as {
+      actionText: string;
+      playerId?: number;
+      playerPos?: [number, number];
+      coverBonus?: number;
+      coverLevel?: 'NONE' | 'HALF' | 'FULL';
+      combatType?: 'melee' | 'ranged';
+      isStealthed?: boolean;
+      sneakAttack?: boolean;
+    };
+
+    const result = await concordiaGM.executeTurn({
+      actionText,
+      playerId: playerId || 1,
+      playerPos: playerPos || [128, 128],
+      coverBonus,
+      coverLevel,
+      combatType,
+      isStealthed,
+      sneakAttack
+    });
+
+    // 1. Send immediate mechanical results event
+    res.write(`event: mechanics\ndata: ${JSON.stringify({
+      success: result.success,
+      systemLog: result.systemLog,
+      lootAwarded: result.lootAwarded,
+      objectiveProgress: result.objectiveProgress,
+      campaignState: result.campaignState,
+      dialogue: result.dialogue,
+      intent: result.intent
+    })}\n\n`);
+
+    // 2. Stream the sensory prose tokens
+    const narrative = result.narrativeResponse || '';
+    const words = narrative.split(' ');
+    for (let i = 0; i < words.length; i += 3) {
+      const chunk = words.slice(i, i + 3).join(' ') + (i + 3 < words.length ? ' ' : '');
+      res.write(`event: chunk\ndata: ${JSON.stringify({ text: chunk })}\n\n`);
+      await new Promise(r => setTimeout(r, 20));
+    }
+
+    // 3. Send done event
+    res.write(`event: done\ndata: ${JSON.stringify({ done: true })}\n\n`);
+    res.end();
+  } catch (e: any) {
+    res.write(`event: error\ndata: ${JSON.stringify({ error: e.message })}\n\n`);
+    res.end();
   }
 });
 
@@ -982,14 +1067,24 @@ router.get('/trade/catalog', async (req, res) => {
     }
 
     // Universal basic camp gear
-    dynamicWares.push({
-      name: 'Campfire Firestarter',
-      type: 'tool',
-      price: 8,
-      sellPrice: 4,
-      desc: 'Flint and tinderbox. Kindles campfires without fail',
-      icon: '🔥'
-    });
+    dynamicWares.push(
+      {
+        name: 'Campfire Firestarter',
+        type: 'tool',
+        price: 8,
+        sellPrice: 4,
+        desc: 'Flint and tinderbox. Kindles campfires without fail',
+        icon: '🔥'
+      },
+      {
+        name: 'Blazing Firebrand Torch',
+        type: 'weapon',
+        price: 8,
+        sellPrice: 4,
+        desc: 'Pitch-soaked timber torch. Illuminates darkness (+4 FOV radius) and sets flammable obstacles ablaze',
+        icon: '🔥'
+      }
+    );
 
     // Underworld Black Market Wares (if crime rate elevated or high unrest)
     if (burg.crime_rate > 20 || burg.unrest > 35) {

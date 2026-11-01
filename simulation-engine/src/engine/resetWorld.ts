@@ -379,9 +379,63 @@ CREATE TABLE IF NOT EXISTS sim_npc_instances (
     inventory JSONB DEFAULT '[]'::jsonb,
     memory_notes JSONB DEFAULT '[]'::jsonb,
     wander_anchor INT[] DEFAULT ARRAY[128, 128],
+    home_pos INT[] DEFAULT ARRAY[128, 128],
+    work_pos INT[] DEFAULT ARRAY[128, 128],
+    current_task VARCHAR(50) DEFAULT 'IDLE',
+    target_destination INT[],
+    schedule_state VARCHAR(50) DEFAULT 'WORK',
+    instinct VARCHAR(30) DEFAULT 'WARY',
+    temper VARCHAR(30) DEFAULT 'STOIC',
+    needs JSONB DEFAULT '{"food":0.8,"rest":0.8,"coin":0.5,"safety":0.8,"company":0.5}'::jsonb,
+    mood JSONB DEFAULT '{"fear":0.1,"anger":0.1,"joy":0.2}'::jsonb,
+    beliefs JSONB DEFAULT '[]'::jsonb,
+    social_links JSONB DEFAULT '[]'::jsonb,
+    trade_price_mult FLOAT DEFAULT 1.0,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_sim_npc_instances_loc ON sim_npc_instances(cell_id, current_rx, current_ry);
+
+CREATE TABLE IF NOT EXISTS sim_gm_memories (
+    id SERIAL PRIMARY KEY,
+    player_id INT DEFAULT 1,
+    sector_key VARCHAR(50),
+    timestamp BIGINT NOT NULL,
+    summary TEXT NOT NULL,
+    tags JSONB DEFAULT '[]'::jsonb,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_gm_memories_player ON sim_gm_memories(player_id);
+
+CREATE TABLE IF NOT EXISTS sim_world_vault_sectors (
+    cell_id INT NOT NULL,
+    rx INT NOT NULL,
+    ry INT NOT NULL,
+    biome_id SMALLINT NOT NULL,
+    elevation SMALLINT NOT NULL DEFAULT 500,
+    moisture SMALLINT NOT NULL DEFAULT 500,
+    chaos_radiation SMALLINT NOT NULL DEFAULT 0,
+    infrastructure_mask INT NOT NULL DEFAULT 0,
+    poi_type VARCHAR(64) NULL,
+    compressed_terrain BYTEA NULL,
+    PRIMARY KEY (cell_id, rx, ry)
+);
+CREATE INDEX IF NOT EXISTS idx_vault_coords ON sim_world_vault_sectors(cell_id, rx, ry);
+
+CREATE TABLE IF NOT EXISTS sim_world_landmarks (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(120) NOT NULL,
+    cell_id INT NOT NULL,
+    sector_x INT NOT NULL,
+    sector_y INT NOT NULL,
+    landmark_type VARCHAR(50) NOT NULL,
+    resource_type VARCHAR(50) NULL,
+    resource_richness INT DEFAULT 100,
+    faction_owner_id INT,
+    historical_origin TEXT NOT NULL,
+    current_status VARCHAR(50) DEFAULT 'ACTIVE'
+);
+CREATE INDEX IF NOT EXISTS idx_landmarks_resource ON sim_world_landmarks(resource_type);
+CREATE INDEX IF NOT EXISTS idx_landmarks_cell ON sim_world_landmarks(cell_id);
 
 CREATE TABLE IF NOT EXISTS sim_global_events (
     id SERIAL PRIMARY KEY,

@@ -6,17 +6,36 @@ const router = Router();
 // Create Character
 router.post('/create', async (req, res) => {
   try {
-    const { sessionId, name, type, creature_type, attributes } = req.body;
-    
+    const body = req.body || {};
+    const { sessionId, name, type, creature_type, attributes } = body;
+    const attrs = (attributes && typeof attributes === 'object') ? attributes : {};
+
+    if (!sessionId) {
+      return res.status(400).json({ error: 'sessionId is required to create a session character' });
+    }
+
+    const charName = String(name || 'Hero').trim().slice(0, 50);
+    const charType = String(type || 'Standard').trim().slice(0, 50);
+    const charCreature = String(creature_type || 'Humanoid').trim().slice(0, 50);
+
+    const might = Math.max(1, Math.min(30, Number(attrs.might) || 10));
+    const endurance = Math.max(1, Math.min(30, Number(attrs.endurance) || 10));
+    const finesse = Math.max(1, Math.min(30, Number(attrs.finesse) || 10));
+    const reflex = Math.max(1, Math.min(30, Number(attrs.reflex) || 10));
+    const vitality = Math.max(1, Math.min(30, Number(attrs.vitality) || 10));
+    const fortitude = Math.max(1, Math.min(30, Number(attrs.fortitude) || 10));
+    const knowledge = Math.max(1, Math.min(30, Number(attrs.knowledge) || 10));
+    const logic = Math.max(1, Math.min(30, Number(attrs.logic) || 10));
+    const awareness = Math.max(1, Math.min(30, Number(attrs.awareness) || 10));
+    const intuition = Math.max(1, Math.min(30, Number(attrs.intuition) || 10));
+    const charm = Math.max(1, Math.min(30, Number(attrs.charm) || 10));
+    const willpower = Math.max(1, Math.min(30, Number(attrs.willpower) || 10));
+
     // Default pools based on derived math
-    // Health = Vitality * 10
-    // Stamina = Endurance * 5
-    // Composure = Willpower * 3 + Charm
-    // Focus = Logic * 4 + Knowledge
-    const health = (attributes.vitality || 10) * 10;
-    const stamina = (attributes.endurance || 10) * 5;
-    const composure = (attributes.willpower || 10) * 3 + (attributes.charm || 10);
-    const focus = (attributes.logic || 10) * 4 + (attributes.knowledge || 10);
+    const health = vitality * 10;
+    const stamina = endurance * 5;
+    const composure = willpower * 3 + charm;
+    const focus = logic * 4 + knowledge;
 
     // Initial position on grid
     const grid_x = Math.floor(Math.random() * 5) + 2;
@@ -39,9 +58,9 @@ router.post('/create', async (req, res) => {
         $25, $26
       ) RETURNING character_id;`,
       [
-        sessionId, name, type, creature_type,
-        attributes.might, attributes.endurance, attributes.finesse, attributes.reflex, attributes.vitality, attributes.fortitude,
-        attributes.knowledge, attributes.logic, attributes.awareness, attributes.intuition, attributes.charm, attributes.willpower,
+        sessionId, charName, charType, charCreature,
+        might, endurance, finesse, reflex, vitality, fortitude,
+        knowledge, logic, awareness, intuition, charm, willpower,
         health, health, stamina, stamina,
         composure, composure, focus, focus,
         grid_x, grid_y
@@ -50,7 +69,7 @@ router.post('/create', async (req, res) => {
 
     res.json({ success: true, characterId: result.rows[0].character_id });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    res.status(400).json({ error: e.message });
   }
 });
 

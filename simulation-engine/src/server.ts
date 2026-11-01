@@ -24,7 +24,7 @@ dotenv.config();
 const app = express();
 // Only the local player client may call the API from a browser.
 // Override with a comma-separated CORS_ORIGINS list in .env if needed.
-const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173')
+const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174')
   .split(',')
   .map((o) => o.trim())
   .filter(Boolean);

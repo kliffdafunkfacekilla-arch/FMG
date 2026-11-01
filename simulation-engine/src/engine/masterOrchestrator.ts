@@ -10,6 +10,8 @@ import { runEncounterAgent } from "./agents/encounterAgent";
 import { runChroniclerAgent } from "./agents/chroniclerAgent";
 import { runCartelAgent } from "./agents/cartelAgent";
 import { runBurgExpansionAgent } from "./agents/burgExpansionAgent";
+import { runTrophicEcologyAgent } from "./agents/trophicEcologyAgent";
+import { runNPCRoutineAgent } from "./agents/npcRoutineAgent";
 
 export async function executeMasterTick(): Promise<{status: string, currentTick: number}> {
     const client = await pool.connect();
@@ -26,8 +28,9 @@ export async function executeMasterTick(): Promise<{status: string, currentTick:
         const cal = await runCalendarAgent(client, tick);
         const loreDate = cal.loreDate;
 
-        // 2. Weather
+        // 2. Weather & Trophic Ecology
         await runWeatherAgent(client, tick, cal.season, cal.dayOfMonth, loreDate, cal.isShadowWeek);
+        await runTrophicEcologyAgent(client, tick, cal.season, loreDate);
 
         // 3. Burg Operations
         await runBurgOperationsAgent(client, tick);
@@ -50,8 +53,9 @@ export async function executeMasterTick(): Promise<{status: string, currentTick:
         // 8. Underworld Cartels (Fringe Factions)
         await runCartelAgent(client, tick, loreDate);
 
-        // 9. Encounters
+        // 9. Encounters & NPC Routines
         await runEncounterAgent(client, tick);
+        await runNPCRoutineAgent(client, tick, loreDate);
 
         // 10. Chronicler
         await runChroniclerAgent(client, tick, loreDate);

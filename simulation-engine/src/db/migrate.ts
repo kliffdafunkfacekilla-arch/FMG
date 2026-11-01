@@ -431,6 +431,61 @@ WHERE NOT EXISTS (SELECT 1 FROM sim_fringe_factions WHERE name = 'The Ivory-Gate
 INSERT INTO sim_fringe_factions (name, type, wealth)
 SELECT 'The Ghostwind Raiders', 'RAIDER', 1000
 WHERE NOT EXISTS (SELECT 1 FROM sim_fringe_factions WHERE name = 'The Ghostwind Raiders');
+
+CREATE TABLE IF NOT EXISTS sim_gm_memories (
+    id SERIAL PRIMARY KEY,
+    player_id INT DEFAULT 1,
+    sector_key VARCHAR(50),
+    timestamp BIGINT NOT NULL,
+    summary TEXT NOT NULL,
+    tags JSONB DEFAULT '[]'::jsonb,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_gm_memories_player ON sim_gm_memories(player_id);
+
+CREATE TABLE IF NOT EXISTS sim_world_vault_sectors (
+    cell_id INT NOT NULL,
+    rx INT NOT NULL,
+    ry INT NOT NULL,
+    biome_id SMALLINT NOT NULL,
+    elevation SMALLINT NOT NULL DEFAULT 500,
+    moisture SMALLINT NOT NULL DEFAULT 500,
+    chaos_radiation SMALLINT NOT NULL DEFAULT 0,
+    infrastructure_mask INT NOT NULL DEFAULT 0,
+    poi_type VARCHAR(64) NULL,
+    compressed_terrain BYTEA NULL,
+    PRIMARY KEY (cell_id, rx, ry)
+);
+CREATE INDEX IF NOT EXISTS idx_vault_coords ON sim_world_vault_sectors(cell_id, rx, ry);
+
+CREATE TABLE IF NOT EXISTS sim_world_landmarks (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(120) NOT NULL,
+    cell_id INT NOT NULL,
+    sector_x INT NOT NULL,
+    sector_y INT NOT NULL,
+    landmark_type VARCHAR(50) NOT NULL,
+    resource_type VARCHAR(50) NULL,
+    resource_richness INT DEFAULT 100,
+    faction_owner_id INT,
+    historical_origin TEXT NOT NULL,
+    current_status VARCHAR(50) DEFAULT 'ACTIVE'
+);
+CREATE INDEX IF NOT EXISTS idx_landmarks_resource ON sim_world_landmarks(resource_type);
+CREATE INDEX IF NOT EXISTS idx_landmarks_cell ON sim_world_landmarks(cell_id);
+
+ALTER TABLE sim_npc_instances ADD COLUMN IF NOT EXISTS home_pos INT[] DEFAULT ARRAY[128, 128];
+ALTER TABLE sim_npc_instances ADD COLUMN IF NOT EXISTS work_pos INT[] DEFAULT ARRAY[128, 128];
+ALTER TABLE sim_npc_instances ADD COLUMN IF NOT EXISTS current_task VARCHAR(50) DEFAULT 'IDLE';
+ALTER TABLE sim_npc_instances ADD COLUMN IF NOT EXISTS target_destination INT[];
+ALTER TABLE sim_npc_instances ADD COLUMN IF NOT EXISTS schedule_state VARCHAR(50) DEFAULT 'WORK';
+ALTER TABLE sim_npc_instances ADD COLUMN IF NOT EXISTS instinct VARCHAR(30) DEFAULT 'WARY';
+ALTER TABLE sim_npc_instances ADD COLUMN IF NOT EXISTS temper VARCHAR(30) DEFAULT 'STOIC';
+ALTER TABLE sim_npc_instances ADD COLUMN IF NOT EXISTS needs JSONB DEFAULT '{"food":0.8,"rest":0.8,"coin":0.5,"safety":0.8,"company":0.5}'::jsonb;
+ALTER TABLE sim_npc_instances ADD COLUMN IF NOT EXISTS mood JSONB DEFAULT '{"fear":0.1,"anger":0.1,"joy":0.2}'::jsonb;
+ALTER TABLE sim_npc_instances ADD COLUMN IF NOT EXISTS beliefs JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE sim_npc_instances ADD COLUMN IF NOT EXISTS social_links JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE sim_npc_instances ADD COLUMN IF NOT EXISTS trade_price_mult NUMERIC(4,2) DEFAULT 1.00;
 `;
 
 async function migrate() {

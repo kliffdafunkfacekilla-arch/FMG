@@ -1,3 +1,5 @@
+import { generateUrbanSettlement } from './UrbanSettlementGenerator';
+
 // Very simple seeded PRNG
 function sfc32(a: number, b: number, c: number, d: number) {
   return function() {
@@ -26,6 +28,22 @@ function hashString(str: string) {
 
 export function generateLevel3Map(manifest: any) {
   const SIZE = 256;
+
+  // Milestone 3: Procedural Burg Settlement & Urban District Generator
+  const isUrban = manifest?.global_context?.burg != null ||
+                  manifest?.environment?.base_terrain === 4 ||
+                  ((manifest?.environment?.infrastructure_mask || 0) & 32) !== 0;
+
+  if (isUrban) {
+    const burgName = manifest?.global_context?.burg?.name || 'Provincial Burg';
+    const factionName = manifest?.global_context?.faction_owner || 'Crown Sovereignty';
+    const urbanTier = manifest?.global_context?.burg?.urban_tier || 2;
+    const unrest = manifest?.global_context?.burg?.unrest || 10;
+    const biomeId = manifest?.global_context?.biome_id || 6;
+    const urban = generateUrbanSettlement(burgName, factionName, urbanTier, unrest, biomeId);
+    return { grid: urban.grid, size: SIZE };
+  }
+
   const grid = new Uint8Array(SIZE * SIZE);
   
   // Seed the PRNG

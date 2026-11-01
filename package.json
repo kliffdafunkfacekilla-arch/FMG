@@ -14,11 +14,15 @@
 	"author": "Azgaar",
 	"main": "main.js",
 	"scripts": {
-		"dev": "vite --host 0.0.0.0 --port 3000",
-		"build": "vite build",
-		"preview": "vite preview --host 0.0.0.0 --port 3000",
-		"test": "vitest",
-		"test:e2e": "playwright test",
+		"dev": "npm --prefix player-client run dev",
+		"client": "npm --prefix player-client run dev",
+		"engine": "npm --prefix simulation-engine run dev",
+		"start:engine": "npm --prefix simulation-engine run start",
+		"observer": "npm --prefix simulation-engine run observer",
+		"build": "npm --prefix simulation-engine run build:server && npm --prefix simulation-engine run build:observer && npm --prefix player-client run build",
+		"build:client": "npm --prefix player-client run build",
+		"build:engine": "npm --prefix simulation-engine run build:server",
+		"build:observer": "npm --prefix simulation-engine run build:observer",
 		"lint": "biome check --write"
 	},
 	"devDependencies": {

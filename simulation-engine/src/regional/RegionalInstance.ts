@@ -81,8 +81,13 @@ export class RegionalInstance {
     }
 
     const features = this.globalData.features || {};
-    const routes = features.routes || [];
-    if (routes.includes("Imperial Highway")) {
+    const routes: string[] = features.routes || [];
+    const hasHighway = routes.some((r: string) => 
+      r.includes("Highway") || r.includes("Road") || r.includes("Artery") || 
+      r.includes("Way") || (r.includes("Route") && !r.includes("Smuggler"))
+    );
+
+    if (hasHighway) {
       const cx = Math.floor(this.w / 2);
       for (let y = 0; y < this.h; y++) {
         for (let x = cx - 5; x <= cx + 5; x++) {
@@ -246,17 +251,30 @@ export class RegionalInstance {
     }
     
     const burg = this.globalData.burg;
+    const faction = this.globalData.factionName || "Frontier Sovereignty";
+
     if (!burg || burg.pop_null === 0) {
       if (Math.random() < 0.3) spawn("Refugees", "Displaced Wanderers", "Wayfarer", "#9ca3af", 0.3, 3, 1);
       if (Math.random() < 0.2) spawn("Hermit", "Frontier Hermit", "Wayfarer", "#d97706", 0.2, 1, 0);
+      if (Math.random() < 0.3) spawn("Trapper", "Wilderness Trapper", "Hunter", "#a16207", 0.4, 2, 0);
     }
 
     const features = this.globalData.features || {};
-    const routes = features.routes || [];
-    if (routes.includes("Smuggler Route")) spawn("Smuggler", "Shadow Courier", "Outlaw", "#000000", 0.6, 2, -1);
-    if (routes.includes("Imperial Highway")) {
+    const routes: string[] = features.routes || [];
+    const hasHighway = routes.some((r: string) => 
+      r.includes("Highway") || r.includes("Road") || r.includes("Artery") || 
+      r.includes("Way") || (r.includes("Route") && !r.includes("Smuggler"))
+    );
+
+    if (routes.includes("Smuggler Route")) {
+      spawn("Smuggler", "Shadow Courier", "Outlaw", "#000000", 0.6, 2, -1);
+    }
+    if (hasHighway) {
       spawn("Merchant", "Caravan Master", "Trader", "#fbbf24", 0.4, 1, 1);
-      spawn("Patrol", "Imperial Outrider", "Garrison", "#1d4ed8", 0.5, 2, 0);
+      spawn("DraftBeast", "Caravan Pack-Beast", "Trader", "#d97706", 0.35, 1, 0);
+      spawn("Patrol", `${faction} Vanguard`, "Sovereign Guard", "#1d4ed8", 0.5, 2, 0);
+      if (Math.random() < 0.35) spawn("Pilgrim", "Monastic Wayfarer", "Devotee", "#38bdf8", 0.3, 2, 1);
+      if (Math.random() < 0.25) spawn("Scholar", "Wandering Naturalist", "Scholar", "#818cf8", 0.3, 1, 1);
     }
     if (Math.random() < 0.15) spawn("Anomaly", "Eldritch Rift-Entity", "Anomaly", "#c026d3", 0.1, 1, -2);
     
