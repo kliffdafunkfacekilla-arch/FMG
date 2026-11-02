@@ -24,6 +24,7 @@ import { computeActionDC, ATOMIC_TAG_ACTIONS } from "./TagRegistry.js";
 import { ProceduralNPCGenerator, SeededPRNG } from "./ProceduralNPCGenerator.js";
 import { getActiveChaosFlows, evaluatePointChaosFlowProximity, applyPlayerChaosMutation } from "../agents/chaosFlowAgent.js";
 import { generateChaosSurge } from "./chaosSurgeEngine.js";
+import { recruitCultistPersona, recruitWardenPersona, recruitMandatePersona } from "../agents/citizenPersonaHelper.js";
 
 export interface ActionInput {
   actionText: string;
@@ -273,40 +274,80 @@ export class ConcordiaGameMaster {
         };
         this.activeProps.set(anomalyProp.id, anomalyProp);
 
-        // High likelihood of Cultist, Grey Warden, or Mandate of the Chain encounter in adjacent / flow cells
-        if (Math.random() < 0.50 && !persistedNPCs.some(n => n.role.includes("Cultist") || n.role.includes("Warden") || n.role.includes("Mandate"))) {
-          const roll = Math.random();
-          const isCultist = roll < 0.45;
-          const isWarden = !isCultist && roll < 0.75;
-          const isMandate = !isCultist && !isWarden;
+        // Real Citizen Persona Encounter: Cultists, Wardens, or Mandate of the Chain
+        if (Math.random() < 0.55 && !persistedNPCs.some(n => n.role.includes("Cultist") || n.role.includes("Warden") || n.role.includes("Mandate"))) {
+          // Check if an actual tracked sim_agent is at this cell
+          const liveAgentRes = await this.pool.query(
+            `SELECT id, name, citizen_name, profession, species, spark_tier,
+                    personality_temper, personality_instinct, motivation, role, sub_role
+             FROM sim_agents
+             WHERE location_cell_id = $1
+             LIMIT 1`,
+            [cellId]
+          );
+
+          let agentData: any = null;
+          let roleType: "Cultist" | "Warden" | "Chain_Zealot";
+
+          if ((liveAgentRes.rowCount ?? 0) > 0) {
+            agentData = liveAgentRes.rows[0];
+            roleType = agentData.role;
+          } else {
+            const roll = Math.random();
+            roleType = roll < 0.45 ? "Cultist" : roll < 0.75 ? "Warden" : "Chain_Zealot";
+          }
 
           let encounterNPC: InjectedNPC;
-          if (isCultist) {
-            const isPriest = Math.random() < 0.35;
+
+          if (roleType === "Cultist") {
+            const persona = agentData || recruitCultistPersona(`Sector (${rx}, ${ry})`);
+            const isPriest = agentData?.sub_role === "Cult_Priest" || Math.random() < 0.3;
+            const citizenName = persona.citizen_name || persona.citizenName || "Vaelen Thorne";
+            const profession = persona.profession || "Weaver";
+            const temper = persona.personality_temper || persona.temper || "DESPERATE";
+            const species = persona.species || "Human";
+            const motivation = persona.motivation || "Seeking salvation in the primordial dark";
+
             encounterNPC = {
-              id: `npc_ley_cultist_${Date.now()}`,
-              name: isPriest ? `High Priest of ${flowProximity.nearestFlow?.dragonName || "Chaos"}` : `Cultist Zealot of ${flowProximity.nearestFlow?.dragonName || "Chaos"}`,
+              id: `npc_cultist_${agentData?.id || Date.now()}`,
+              name: `${citizenName} the ${profession} (${isPriest ? "Cult High Priest" : "Cult Infiltrator"})`,
               role: isPriest ? "Cult High Priest" : "Chaos Cultist",
               pos: [126, 126],
-              tags: ["cultist", "humanoid", "magic", "armed", isPriest ? "priest" : "infiltrator"],
+              tags: ["cultist", profession.toLowerCase(), species.toLowerCase(), temper.toLowerCase(), "humanoid", "armed", isPriest ? "priest" : "infiltrator"],
               faction: "Chaos Cultist Covenant",
-              hp: isPriest ? 28 : 18,
-              maxHp: isPriest ? 28 : 18,
+              hp: isPriest ? 28 : 20,
+              maxHp: isPriest ? 28 : 20,
               disposition: -2,
               alive: true,
               equippedWeapon: isPriest ? "Occult Chaos Scepter" : "Void Runic Dagger",
               equippedArmor: isPriest ? "Hierophant Obsidian Robes" : "Silk Cultist Vestments",
               statAffinity: "willpower",
-              inventory: isPriest ? ["Forbidden Dragon Effigy", "Blackstone Shard", "Phial of Dragon Blood"] : ["Forbidden Dragon Effigy", "Blackstone Shard"]
+              kingdom: "Mammal",
+              species: species,
+              lineage: "Humanoid",
+              memoryNotes: [
+                `Citizen Identity: Former ${profession} (${species})`,
+                `Temperament: ${temper}`,
+                `Motivation: ${motivation}`,
+                `Spark Status: ${persona.spark_tier || persona.sparkTier || "DORMANT_SPARK"}`
+              ],
+              inventory: isPriest ? ["Forbidden Dragon Effigy", "Blackstone Shard", "Phial of Dragon Blood"] : ["Forbidden Dragon Effigy", "Pouch of Siphoned Gold"]
             };
-          } else if (isWarden) {
-            const isCorrupted = Math.random() < 0.3;
+          } else if (roleType === "Warden") {
+            const persona = agentData || recruitWardenPersona();
+            const isCorrupted = agentData?.sub_role === "Warden_Martyr" || Math.random() < 0.25;
+            const citizenName = persona.citizen_name || persona.citizenName || "Cassian Stone";
+            const profession = persona.profession || "Apothecary";
+            const temper = persona.personality_temper || persona.temper || "STOIC";
+            const species = persona.species || "Human";
+            const motivation = persona.motivation || "Swore an oath at the Spire to hold the dragon seals";
+
             encounterNPC = {
-              id: `npc_ley_warden_${Date.now()}`,
-              name: isCorrupted ? "Corrupted Grey Warden Martyr" : "Grey Warden Ley-Vigilant",
+              id: `npc_warden_${agentData?.id || Date.now()}`,
+              name: `${citizenName} the ${profession} (${isCorrupted ? "Corrupted Warden Martyr" : "Grey Warden Sentinel"})`,
               role: isCorrupted ? "Warden Martyr" : "Grey Warden Sentinel",
               pos: [126, 126],
-              tags: ["warden", "humanoid", "magic", "armed", isCorrupted ? "kamikaze" : "sentinel"],
+              tags: ["warden", profession.toLowerCase(), species.toLowerCase(), temper.toLowerCase(), "humanoid", "armed", isCorrupted ? "kamikaze" : "sentinel"],
               faction: "The Grey Wardens",
               hp: isCorrupted ? 32 : 26,
               maxHp: isCorrupted ? 32 : 26,
@@ -315,15 +356,31 @@ export class ConcordiaGameMaster {
               equippedWeapon: isCorrupted ? "Overcharged Unstable Sigil" : "Sun-Forged Halberd",
               equippedArmor: "Steel Plated Cuirass",
               statAffinity: isCorrupted ? "fortitude" : "might",
+              kingdom: "Mammal",
+              species: species,
+              lineage: "Humanoid",
+              memoryNotes: [
+                `Citizen Identity: Former ${profession} (${species})`,
+                `Temperament: ${temper}`,
+                `Motivation: ${motivation}`,
+                `Spark Status: ${persona.spark_tier || persona.sparkTier || "SENSITIVE"}`
+              ],
               inventory: isCorrupted ? ["Volatile Sigil Core", "Purifying Draught"] : ["Warden Binding Ward", "Healing Draught"]
             };
           } else {
+            const persona = agentData || recruitMandatePersona(`Hinterlands (${rx}, ${ry})`);
+            const citizenName = persona.citizen_name || persona.citizenName || "Lucian Cooper";
+            const profession = persona.profession || "Stonemason";
+            const temper = persona.personality_temper || persona.temper || "VENGEFUL";
+            const species = persona.species || "Human";
+            const motivation = persona.motivation || "Believes sparks are an unholy plague destroying mortal peace";
+
             encounterNPC = {
-              id: `npc_ley_mandate_${Date.now()}`,
-              name: "Inquisitor of the Mandate of the Chain",
+              id: `npc_mandate_${agentData?.id || Date.now()}`,
+              name: `${citizenName} the ${profession} (Mandate Chain-Inquisitor)`,
               role: "Mandate Inquisitor",
               pos: [126, 126],
-              tags: ["mandate", "null", "inquisitor", "zealot", "armed"],
+              tags: ["mandate", "null", profession.toLowerCase(), species.toLowerCase(), temper.toLowerCase(), "inquisitor", "zealot", "armed"],
               faction: "The Mandate of the Chain",
               hp: 24,
               maxHp: 24,
@@ -332,6 +389,15 @@ export class ConcordiaGameMaster {
               equippedWeapon: "Elemental Binding Shackles",
               equippedArmor: "Dampening Lead-Studded Gambeson",
               statAffinity: "endurance",
+              kingdom: "Mammal",
+              species: species,
+              lineage: "Humanoid",
+              memoryNotes: [
+                `Citizen Identity: Former ${profession} (${species})`,
+                `Temperament: ${temper}`,
+                `Motivation: ${motivation}`,
+                "Spark Status: TRUE NULL"
+              ],
               inventory: ["Elemental Siphon Chain", "Vial of Extracted Spark", "Witch-Hunter Null Brand"]
             };
           }
@@ -602,15 +668,16 @@ Return ONLY valid JSON matching this schema:
         45
       ));
       if (!injected.npcs.some(n => n.tags?.includes("cultist"))) {
+        const persona = recruitCultistPersona(`Sector (${rx}, ${ry})`);
         injected.npcs.push({
           id: `npc_blood_cultist_${cellId}_${rx}_${ry}`,
-          name: "Cruorbus Blood-Cultist",
+          name: `${persona.citizenName} the ${persona.profession} (Cruorbus Blood-Cultist)`,
           role: "Chaos Zealot",
           pos: [129, 122],
-          tags: ["human", "cultist", "magic", "chaos", "fanatical"],
+          tags: ["cultist", persona.profession.toLowerCase(), persona.species.toLowerCase(), persona.temper.toLowerCase(), "magic", "chaos"],
           faction: "Order of the Bleeding Eye",
-          hp: 18,
-          maxHp: 18,
+          hp: 20,
+          maxHp: 20,
           disposition: -2,
           alive: true,
           equippedWeapon: "Cursed Bone Wand",
@@ -618,8 +685,15 @@ Return ONLY valid JSON matching this schema:
           statAffinity: "willpower",
           stats: { might: 4, finesse: 5, reflex: 5, endurance: 5, vitality: 5, fortitude: 4, knowledge: 7, logic: 6, awareness: 6, intuition: 7, charm: 4, willpower: 8 },
           kingdom: "Mammal",
-          species: "Human",
-          inventory: ["Phial of Dragon Blood", "Occult Talisman"]
+          species: persona.species,
+          lineage: "Humanoid",
+          memoryNotes: [
+            `Citizen Identity: Former ${persona.profession} (${persona.species})`,
+            `Temperament: ${persona.temper} [${persona.instinct}]`,
+            `Motivation: ${persona.motivation}`,
+            `Spark Status: ${persona.sparkTier}`
+          ],
+          inventory: ["Phial of Dragon Blood", "Occult Talisman", "Pouch of Siphoned Gold"]
         });
       }
     }
