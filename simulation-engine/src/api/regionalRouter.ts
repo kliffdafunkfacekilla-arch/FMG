@@ -1,10 +1,38 @@
 import { Router } from "express";
 import pool from "../db/pool";
 import { RegionalInstance } from "../regional/RegionalInstance";
+import { getActiveChaosFlows, evaluatePointChaosFlowProximity } from "../engine/agents/chaosFlowAgent.js";
 
 export const regionalRouter = Router();
 
 const activeRegions = new Map<number, RegionalInstance>();
+
+async function enrichCellChaosTelemetry(cellRow: any) {
+  if (!cellRow) return cellRow;
+  try {
+    const flows = await getActiveChaosFlows(pool);
+    const cx = Number(cellRow.center_x) || 1409;
+    const cy = Number(cellRow.center_y) || 740;
+    const prox = evaluatePointChaosFlowProximity(cx, cy, flows);
+
+    return {
+      ...cellRow,
+      is_flow_cell: prox.intersected,
+      is_adjacent_to_flow: prox.isAdjacent,
+      flow_name: prox.nearestFlow?.name || null,
+      dragon_name: prox.nearestFlow?.dragonName || null,
+      elemental_power: prox.nearestFlow?.elementalPower || null,
+      current_surge: prox.nearestFlow?.currentSurge || 1.0,
+      ambient_chaos: prox.ambientChaos,
+      near_narrow_spot: prox.nearNarrowSpot,
+      narrow_spot: prox.narrowSpot || null,
+      dist_to_flow: prox.distToFlow
+    };
+  } catch {
+    return cellRow;
+  }
+}
+
 
 regionalRouter.post("/start/:cell_id", async (req, res) => {
   const cellId = parseInt(req.params.cell_id);
@@ -89,7 +117,7 @@ regionalRouter.get("/cell/:cell_id", async (req, res) => {
     if (cellRes.rowCount === 0) return res.status(404).json({ error: "Cell not found" });
 
     res.json({
-      cell: cellRes.rows[0],
+      cell: await enrichCellChaosTelemetry(cellRes.rows[0]),
       burg: burgRes.rows[0] || null,
       faction: factionRes.rows[0] || { id: null, name: "Wild Frontier", color: "#64748b" },
       calendar: calRes.rows[0] || null
@@ -137,10 +165,10 @@ regionalRouter.get("/neighbor", async (req, res) => {
         ORDER BY ((c.center_x - $2)^2 + (c.center_y - $3)^2) ASC
         LIMIT 1
       `, [cellId, cx, cy]);
-      return res.json({ neighbor: fallback.rows[0] || null });
+      return res.json({ neighbor: await enrichCellChaosTelemetry(fallback.rows[0]) || null });
     }
 
-    res.json({ neighbor: nbrRes.rows[0] });
+    res.json({ neighbor: await enrichCellChaosTelemetry(nbrRes.rows[0]) });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -161,7 +189,7 @@ regionalRouter.get("/nearest", async (req, res) => {
       LIMIT 1
     `, [x, y]);
 
-    res.json({ cell: nearestRes.rows[0] || null });
+    res.json({ cell: await enrichCellChaosTelemetry(nearestRes.rows[0]) || null });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -179,3 +207,92 @@ regionalRouter.post("/stop/:cell_id", (req, res) => {
   }
 });
 
+/**
+ * POST /api/regional/attempt_crossing - Handles full global-cell scale traversal of a Chaos Flow
+ */
+regionalRouter.post("/attempt_crossing", async (req, res) => {
+  const { cellId, playerId, method } = req.body;
+  try {
+    const flows = await getActiveChaosFlows(pool);
+    const cellCoordRes = await pool.query("SELECT center_x, center_y FROM sim_cells WHERE id = $1", [cellId]);
+    const cx = Number(cellCoordRes.rows[0]?.center_x) || 1409;
+    const cy = Number(cellCoordRes.rows[0]?.center_y) || 740;
+    const prox = evaluatePointChaosFlowProximity(cx, cy, flows);
+    const flow = prox.nearestFlow || flows[0];
+
+    const playerRes = await pool.query("SELECT * FROM sim_player_character WHERE id = $1", [playerId]);
+    if (playerRes.rowCount === 0) return res.status(404).json({ error: "Player not found" });
+    const player = playerRes.rows[0];
+    const inventory = typeof player.inventory === "string" ? JSON.parse(player.inventory) : (player.inventory || []);
+
+    if (method === "AIRSHIP_OWNED") {
+      const hasAirship = inventory.some((it: string) => /airship|skyship|sky vessel|cloud cruiser/i.test(it));
+      if (!hasAirship) {
+        return res.status(400).json({ error: "No personal airship found in adventurer inventory." });
+      }
+      return res.json({
+        success: true,
+        method: "AIRSHIP_OWNED",
+        damageTaken: 0,
+        xpAwarded: 150,
+        narrative: `Taking to the skies aboard your ${inventory.find((i: string) => /airship|skyship/i.test(i)) || "Aetheric Skyship"}, you soar high above the swirling primordial abyss of ${flow?.name}. The hundreds-of-leagues wide torrent lashes fruitlessly beneath your sealed hull as you cross safely into the new territory!`,
+        mutation: null
+      });
+    }
+
+    if (method === "AIRSHIP_CHARTER") {
+      const currentGold = Number(player.gold) || 0;
+      const FERRY_COST = 80;
+      if (currentGold < FERRY_COST) {
+        return res.status(400).json({ error: `Insufficient gold for Imperial Sky-Ferry charter (requires ${FERRY_COST}g, you have ${currentGold}g).` });
+      }
+      await pool.query("UPDATE sim_player_character SET gold = GREATEST(0, gold - $1) WHERE id = $2", [FERRY_COST, playerId]);
+      return res.json({
+        success: true,
+        method: "AIRSHIP_CHARTER",
+        goldCost: FERRY_COST,
+        damageTaken: 0,
+        xpAwarded: 100,
+        narrative: `You pay ${FERRY_COST} gold to the sky-captains of the Sky-Guild ferry. Their armored clipper hoists runic sails and carries your party high above the roaring chasm of ${flow?.name}. The crossing is smooth, insulating you from catastrophic primordial radiation.`,
+        mutation: null
+      });
+    }
+
+    // ON_FOOT_HAZARD - Player attempts to walk across leagues of boiling chaos aether
+    const endurance = Number(player.endurance) || 5;
+    const roll = Math.floor(Math.random() * 20) + 1;
+    const total = roll + endurance;
+    const DC = 25;
+    const passed = total >= DC;
+
+    const baseDmg = passed ? 25 : Math.floor(35 + Math.random() * 30);
+    const newHp = Math.max(0, (Number(player.current_hp) || 20) - baseDmg);
+    await pool.query("UPDATE sim_player_character SET current_hp = $1 WHERE id = $2", [newHp, playerId]);
+
+    const { applyPlayerChaosMutation } = await import("../engine/agents/chaosFlowAgent.js");
+    const mutation = await applyPlayerChaosMutation(
+      pool,
+      playerId,
+      flow?.elementalPower || "Flux",
+      1,
+      `Suicidal Foot Crossing (${flow?.name})`
+    );
+
+    return res.json({
+      success: passed,
+      method: "ON_FOOT_HAZARD",
+      roll,
+      total,
+      dc: DC,
+      damageTaken: baseDmg,
+      remainingHp: newHp,
+      incapacitated: newHp <= 0,
+      mutation,
+      narrative: passed
+        ? `Against all mortal odds, you stagger across leagues of boiling primordial terrain through ${flow?.name}! Your boots melt and aetheric lightning scars your marrow, dealing ${baseDmg} damage. You collapse on the far border alive, though permanently scarred by ${mutation.name}!`
+        : `Disaster strikes within the churning expanse of ${flow?.name}! The sheer raw fury of ${flow?.elementalPower} aether tears through your body, inflicting ${baseDmg} catastrophic damage! You collapse in agonizing spasms on the far border, your vessel violently mutated: ${mutation.name}!`
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});

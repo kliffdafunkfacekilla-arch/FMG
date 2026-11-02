@@ -56,6 +56,7 @@ import { BarterShopModal } from './components/modals/BarterShopModal';
 import { NoticeBoardModal } from './components/modals/NoticeBoardModal';
 import { FieldCraftingModal } from './components/modals/FieldCraftingModal';
 import { PaperdollLoadoutModal, type EquipmentItem } from './components/modals/PaperdollLoadoutModal';
+import { ChaosFlowCrossingModal } from './components/modals/ChaosFlowCrossingModal';
 import { ContextRadialMenu, type RadialActionOption } from './components/hud/ContextRadialMenu';
 import {
   processFireSpread,
@@ -89,6 +90,9 @@ export default function App() {
   const [campaignState, setCampaignState] = useState<any>(null);
   const [calendarState, setCalendarState] = useState<any>(null);
   const [chaosFlowTelemetry, setChaosFlowTelemetry] = useState<any>(null);
+  const [crossingTargetCell, setCrossingTargetCell] = useState<any | null>(null);
+  const [isCrossingSubmitting, setIsCrossingSubmitting] = useState<boolean>(false);
+  const [activeChaosSurge, setActiveChaosSurge] = useState<any | null>(null);
 
   // Spatial Hash Grid Partitioning (O(1) Proximity & Collision on 16x16 Buckets)
   const npcSpatialGridRef = useRef<SpatialHashGrid<InjectedNPC>>(new SpatialHashGrid<InjectedNPC>(16));
@@ -441,6 +445,35 @@ export default function App() {
           setCampaignState(sectorData.campaignState || null);
           if (sectorData.calendar) setCalendarState(sectorData.calendar);
           setChaosFlowTelemetry(sectorData.chaosFlow || null);
+
+          // Phase C: Dynamic Chaos Surge & Cascade Ripples
+          if (sectorData.chaosSurge) {
+            setActiveChaosSurge(sectorData.chaosSurge);
+            setMessages(prev => [
+              ...prev,
+              {
+                sender: `🌀 Chaos Surge [${sectorData.chaosSurge.activeSurge.domainLean}]`,
+                text: `${sectorData.chaosSurge.activeSurge.headline} — ${sectorData.chaosSurge.activeSurge.description}`,
+                type: 'event'
+              }
+            ]);
+            if (sectorData.chaosSurge.ripples?.length > 0) {
+              const rippleSummary = sectorData.chaosSurge.ripples
+                .map((r: any) => `• ${r.targetName}: ${r.outcomeDescription}`)
+                .join('\n');
+              setMessages(prev => [
+                ...prev,
+                {
+                  sender: '🌊 Chaotic Ripple Cascade',
+                  text: rippleSummary,
+                  type: 'info'
+                }
+              ]);
+            }
+          } else {
+            setActiveChaosSurge(null);
+          }
+
           audioManager.setBiomeSoundscape(getBiomeName(data.global_context.biome_id), Boolean(isUrban));
           lastEncounterId.current = null;
           setEncounterTarget(null);
@@ -867,6 +900,19 @@ export default function App() {
               const nextCellId = data.neighbor.id;
               const nextRx = cellDir === 'W' ? 224 : cellDir === 'E' ? 0 : nr_x;
               const nextRy = cellDir === 'N' ? 224 : cellDir === 'S' ? 0 : nr_y;
+
+              // Check if crossing into a lethal Primordial Chaos Flow global cell
+              if (data.neighbor.is_flow_cell) {
+                setCrossingTargetCell({
+                  ...data.neighbor,
+                  pendingNextRx: nextRx,
+                  pendingNextRy: nextRy,
+                  pendingNx: nx,
+                  pendingNy: ny
+                });
+                return;
+              }
+
               setCurrentCellId(nextCellId);
               setRegionalPos({ rx: nextRx, ry: nextRy });
               setLocalPos({ lx: nx, ly: ny });
@@ -1970,12 +2016,61 @@ export default function App() {
       }
     }
 
+    // 6b. Chaos Storm Weather Overlay (Aetheric Storms & Volatile Atmosphere)
+    if (canvasRef.current && activeChaosSurge?.stormActive) {
+      const stormType = activeChaosSurge.stormType || activeChaosSurge.activeSurge?.name || 'Aetheric Storm';
+      ctx.save();
+      const timeMs = Date.now();
+
+      // Shimmering Atmospheric Chaos Tint
+      const isViolet = /flux|nexus|motus|dragon|void/i.test(stormType);
+      const isCrimson = /blood|omen|mass|war/i.test(stormType);
+
+      ctx.fillStyle = isViolet
+        ? 'rgba(168, 85, 247, 0.08)'
+        : isCrimson
+        ? 'rgba(239, 68, 68, 0.08)'
+        : 'rgba(56, 189, 248, 0.08)';
+      ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+
+      // Inverted Gravity Rain or Shimmering Motes (falling UP or swirling)
+      const numChaosParticles = 35;
+      for (let i = 0; i < numChaosParticles; i++) {
+        const seed = (i * 941 + Math.floor(timeMs / 40)) % 10000;
+        const px = (seed * 67 + (timeMs * 0.05 * (i % 2 === 0 ? 1 : -1))) % canvasRef.current.width;
+        // Inverted rain: moving upward!
+        const py = (canvasRef.current.height - ((timeMs * 0.12 * ((i % 5) + 1) + seed * 31) % canvasRef.current.height));
+
+        ctx.fillStyle = isViolet
+          ? (i % 2 === 0 ? 'rgba(216, 180, 254, 0.7)' : 'rgba(192, 132, 252, 0.9)')
+          : isCrimson
+          ? (i % 2 === 0 ? 'rgba(252, 165, 165, 0.7)' : 'rgba(248, 113, 113, 0.9)')
+          : (i % 2 === 0 ? 'rgba(186, 230, 253, 0.7)' : 'rgba(125, 211, 252, 0.9)');
+
+        ctx.beginPath();
+        ctx.arc(Math.abs(px), Math.abs(py), (i % 3) + 1.2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Occasional lightning aetheric arc
+        if (i === 0 && (timeMs % 3000 < 120)) {
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(canvasRef.current.width * 0.2, 0);
+          ctx.lineTo(canvasRef.current.width * 0.35, canvasRef.current.height * 0.4);
+          ctx.lineTo(canvasRef.current.width * 0.5, canvasRef.current.height);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+
     // 7. Phase A: Floating Combat Text Particles (Damage, Procs, Deflections)
     particleManagerRef.current.updateAndDraw(ctx);
 
     // Continuous 60 FPS animation ticker when particles are active or hero is walking
     const isWalking = Math.abs(localPos.lx - visualHeroPos.current.x) > 0.01 || Math.abs(localPos.ly - visualHeroPos.current.y) > 0.01;
-    if (particleManagerRef.current.hasActiveParticles() || isWalking) {
+    if (particleManagerRef.current.hasActiveParticles() || isWalking || activeChaosSurge?.stormActive) {
       animId = requestAnimationFrame(render);
     }
   };
@@ -1985,7 +2080,7 @@ export default function App() {
   return () => {
     if (animId) cancelAnimationFrame(animId);
   };
-}, [localPos, tilemap, manifest, injectedProps, injectedNPCs, gfxLoaded, character, encounterTarget, combatState, isStealthed]);
+}, [localPos, tilemap, manifest, injectedProps, injectedNPCs, gfxLoaded, character, encounterTarget, combatState, isStealthed, activeChaosSurge]);
 
   // --- PHASE C: TACTICAL TURN-BASED COMBAT ENGINE (STAMINA & FOCUS POOLS + 3-PHASE ROUND) ---
 
@@ -2988,9 +3083,13 @@ export default function App() {
   };
 
   const handleFastTravel = (targetCell: any) => {
+    if (targetCell.is_flow_cell) {
+      setCrossingTargetCell(targetCell);
+      return;
+    }
     setCurrentCellId(targetCell.id);
-    const targetRx = Math.min(224, Math.max(0, Math.floor(targetCell.p[0] / 12.5)));
-    const targetRy = Math.min(224, Math.max(0, Math.floor(targetCell.p[1] / 6.6)));
+    const targetRx = Math.min(224, Math.max(0, Math.floor((targetCell.p?.[0] || targetCell.center_x || 1400) / 12.5)));
+    const targetRy = Math.min(224, Math.max(0, Math.floor((targetCell.p?.[1] || targetCell.center_y || 740) / 6.6)));
     setRegionalPos({ rx: targetRx, ry: targetRy });
     setLocalPos({ lx: 128, ly: 128 });
     fetchSectorState(targetRx, targetRy, targetCell.id);
@@ -3003,6 +3102,108 @@ export default function App() {
         type: 'narrative'
       }
     ]);
+  };
+
+  const handleConfirmCrossing = async (method: 'AIRSHIP_OWNED' | 'AIRSHIP_CHARTER' | 'ON_FOOT_HAZARD') => {
+    if (!crossingTargetCell || !character) return;
+    setIsCrossingSubmitting(true);
+    try {
+      const res = await fetch('http://localhost:3000/api/regional/attempt_crossing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cellId: crossingTargetCell.id,
+          playerId: character.id || 1,
+          method
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMessages(prev => [
+          ...prev,
+          {
+            sender: 'Sky-Guild Dispatcher',
+            text: `❌ Crossing Rejected: ${data.error || 'Transit disallowed.'}`,
+            type: 'error'
+          }
+        ]);
+        return;
+      }
+
+      const targetCellId = crossingTargetCell.id;
+      const targetRx = crossingTargetCell.pendingNextRx ?? Math.min(224, Math.max(0, Math.floor((crossingTargetCell.p?.[0] || crossingTargetCell.center_x || 1400) / 12.5)));
+      const targetRy = crossingTargetCell.pendingNextRy ?? Math.min(224, Math.max(0, Math.floor((crossingTargetCell.p?.[1] || crossingTargetCell.center_y || 740) / 6.6)));
+      const targetLx = crossingTargetCell.pendingNx ?? 128;
+      const targetLy = crossingTargetCell.pendingNy ?? 128;
+
+      setCharacter((prev: any) => {
+        if (!prev) return prev;
+        const updated = { ...prev };
+        if (data.goldCost) {
+          updated.gold = Math.max(0, (Number(updated.gold) || 0) - data.goldCost);
+        }
+        if (data.damageTaken != null) {
+          updated.current_hp = Math.max(0, (Number(updated.current_hp) || 20) - data.damageTaken);
+        }
+        if (data.xpAwarded) {
+          updated.xp = (Number(updated.xp) || 0) + data.xpAwarded;
+        }
+        if (data.mutation) {
+          const currentMutations = Array.isArray(updated.mutations) ? [...updated.mutations] : [];
+          currentMutations.push(data.mutation);
+          updated.mutations = currentMutations;
+        }
+        return updated;
+      });
+
+      if (method === 'ON_FOOT_HAZARD') {
+        audioManager.playSfx('damage');
+      } else {
+        audioManager.playSfx('special');
+      }
+
+      setMessages(prev => [
+        ...prev,
+        {
+          sender: method === 'ON_FOOT_HAZARD' ? '⚠️ The Abyssal Chasm' : '🚀 Sky-Guild Flight',
+          text: data.narrative,
+          type: method === 'ON_FOOT_HAZARD' ? (data.incapacitated ? 'error' : 'event') : 'narrative'
+        }
+      ]);
+
+      if (data.mutation) {
+        setMessages(prev => [
+          ...prev,
+          {
+            sender: '🧬 Primordial Mutation Manifested',
+            text: `[${data.mutation.name}]: ${data.mutation.description}`,
+            type: 'event'
+          }
+        ]);
+      }
+
+      setCrossingTargetCell(null);
+
+      if (data.incapacitated || (data.remainingHp != null && data.remainingHp <= 0)) {
+        setShowDeathModal(true);
+        return;
+      }
+
+      setCurrentCellId(targetCellId);
+      setRegionalPos({ rx: targetRx, ry: targetRy });
+      setLocalPos({ lx: targetLx, ly: targetLy });
+      await fetch(`http://localhost:3000/api/regional/start/${targetCellId}`, { method: 'POST' });
+      await fetchSectorState(targetRx, targetRy, targetCellId);
+      setActiveCenterTab('battlegrid');
+    } catch (err: any) {
+      console.error('Crossing error:', err);
+      setMessages(prev => [
+        ...prev,
+        { sender: 'System', text: `Failed to attempt crossing: ${err.message}`, type: 'error' }
+      ]);
+    } finally {
+      setIsCrossingSubmitting(false);
+    }
   };
 
   // Direction & Distance to Sector Center (128, 128)
@@ -3138,13 +3339,39 @@ export default function App() {
                       )}
                       <button
                         type="button"
-                        onClick={() => triggerAction('I board my airship and fly safely over the chaos flow')}
+                        onClick={() => {
+                          if (cellTelemetry?.cell) {
+                            setCrossingTargetCell({
+                              ...cellTelemetry.cell,
+                              flow_name: chaosFlowTelemetry?.nearestFlow?.name,
+                              dragon_name: chaosFlowTelemetry?.nearestFlow?.dragonName,
+                              elemental_power: chaosFlowTelemetry?.nearestFlow?.elementalPower,
+                              current_surge: chaosFlowTelemetry?.nearestFlow?.currentSurge
+                            });
+                          } else {
+                            triggerAction('I board my airship and fly safely over the chaos flow');
+                          }
+                        }}
                         className="px-2.5 py-1 bg-purple-700 hover:bg-purple-600 text-purple-100 font-bold text-[10px] rounded shadow border border-purple-400 transition-colors"
-                        title="100% safe crossing using an Airship"
+                        title="Safe passage across the planetary barrier via Airship"
                       >
                         Airship Transit
                       </button>
                     </div>
+                  </div>
+                )}
+
+                {/* Active Sector Chaos Surge Banner */}
+                {activeChaosSurge && (
+                  <div className="absolute bottom-2 left-2 right-2 z-20 flex items-center justify-between px-3 py-1.5 rounded-lg bg-gray-950/90 border border-purple-600/70 shadow-2xl backdrop-blur-md font-mono text-[11px] text-purple-200">
+                    <div className="flex items-center gap-2">
+                      <span className="animate-spin text-sm">🌀</span>
+                      <div>
+                        <span className="font-bold text-amber-300">Surge: {activeChaosSurge.activeSurge.name}</span>
+                        <span className="text-gray-300 ml-2">[{activeChaosSurge.activeSurge.domainLean} • {activeChaosSurge.activeSurge.tier}]</span>
+                      </div>
+                    </div>
+                    <span className="text-[10.5px] text-purple-300/90 italic truncate max-w-sm">{activeChaosSurge.activeSurge.headline}</span>
                   </div>
                 )}
 
@@ -3405,6 +3632,16 @@ export default function App() {
         onClose={() => setShowPaperdollModal(false)}
         character={character}
         onEquipItem={handleEquipItem}
+      />
+
+      {/* Primordial Chaos Flow Lethal Crossing Modal */}
+      <ChaosFlowCrossingModal
+        isOpen={Boolean(crossingTargetCell)}
+        targetCell={crossingTargetCell}
+        character={character}
+        isSubmitting={isCrossingSubmitting}
+        onClose={() => setCrossingTargetCell(null)}
+        onConfirmTransit={handleConfirmCrossing}
       />
 
       {/* Option 1: Context Radial Action Menu */}
