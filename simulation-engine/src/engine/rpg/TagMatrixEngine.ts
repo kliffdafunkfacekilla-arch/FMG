@@ -23,6 +23,7 @@ export interface TaggedObject {
   maxHp: number;
   isDestroyed: boolean;
   inventory?: string[];
+  description?: string;
 }
 
 export interface TagInteractionResult {
