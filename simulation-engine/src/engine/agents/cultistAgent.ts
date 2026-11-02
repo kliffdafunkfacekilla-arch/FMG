@@ -29,8 +29,34 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
     if (existingInfiltrator.rowCount === 0) {
       const spawnChance = Math.min(0.60, burg.unrest / 130);
       if (Math.random() < spawnChance) {
-        // Recruit an authentic citizen with personality & background
-        const citizen = recruitCultistPersona(burg.name || `Burg #${burg.burg_id}`);
+        // Query pre-rendered citizen pool in this burg
+        const recruitRes = await client.query(`
+          SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation
+          FROM population_demographics
+          WHERE settlement_id = $1 AND allegiance_status = 'CIVILIAN'
+          ORDER BY 
+            CASE WHEN temper = 'FANATICAL' THEN 1 WHEN temper = 'DESPERATE' THEN 2 WHEN temper = 'GREEDY' THEN 3 ELSE 4 END,
+            RANDOM()
+          LIMIT 1
+        `, [burg.burg_id]);
+
+        const dbCitizen = recruitRes.rows[0];
+        const citizen = dbCitizen ? {
+          citizenName: dbCitizen.name,
+          profession: dbCitizen.profession,
+          species: dbCitizen.species,
+          sparkTier: dbCitizen.spark_tier,
+          temper: dbCitizen.temper,
+          instinct: dbCitizen.instinct,
+          motivation: dbCitizen.motivation
+        } : recruitCultistPersona(burg.name || `Burg #${burg.burg_id}`);
+
+        if (dbCitizen) {
+          await client.query(
+            "UPDATE population_demographics SET allegiance_status = 'CULTIST_INFILTRATOR' WHERE citizen_id = $1",
+            [dbCitizen.citizen_id]
+          );
+        }
 
         await client.query(`
           INSERT INTO sim_agents (

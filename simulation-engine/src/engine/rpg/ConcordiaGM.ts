@@ -293,6 +293,24 @@ export class ConcordiaGameMaster {
             agentData = liveAgentRes.rows[0];
             roleType = agentData.role;
           } else {
+            // Query persistent pre-rendered citizen from population_demographics
+            const popRes = await this.pool.query(
+              "SELECT * FROM population_demographics WHERE home_cell_id = $1 ORDER BY RANDOM() LIMIT 1",
+              [cellId]
+            );
+            if (popRes.rows.length > 0) {
+              const row = popRes.rows[0];
+              agentData = {
+                citizen_name: row.name,
+                profession: row.profession,
+                species: row.species,
+                spark_tier: row.spark_tier,
+                personality_temper: row.temper,
+                personality_instinct: row.instinct,
+                motivation: row.motivation
+              };
+            }
+
             const roll = Math.random();
             roleType = roll < 0.45 ? "Cultist" : roll < 0.75 ? "Warden" : "Chain_Zealot";
           }

@@ -11,7 +11,7 @@
 import { stepTowardCell, getWeakestSacredGrove, getNearestCultistCell } from "./agentMovementHelper.js";
 import { recruitWardenPersona } from "./citizenPersonaHelper.js";
 
-const CONVERGENCE_SPIRE_CELL = 17487;
+const CONVERGENCE_SPIRE_CELL = 16166; // The Verge (Sacred Spire)
 
 export async function runWardenAgent(client: any, tick: number, loreDate: string) {
   // 1. Maintain the Order at the Spire of Convergence (draw from civilian adepts & sensitives)
@@ -19,7 +19,35 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
   const wardenCount = parseInt(activeWardensRes.rows[0].total) || 0;
 
   if (wardenCount < 7 && Math.random() < 0.35) {
-    const citizen = recruitWardenPersona();
+    // Query pre-rendered citizen pool for civilian Channelers, Adepts, or Sensitives
+    const recruitRes = await client.query(`
+      SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation
+      FROM population_demographics
+      WHERE spark_tier IN ('CHANNELER', 'ADEPT', 'SENSITIVE')
+        AND allegiance_status = 'CIVILIAN'
+      ORDER BY 
+        CASE WHEN spark_tier = 'ADEPT' THEN 1 WHEN spark_tier = 'CHANNELER' THEN 2 ELSE 3 END,
+        RANDOM()
+      LIMIT 1
+    `);
+
+    const dbCitizen = recruitRes.rows[0];
+    const citizen = dbCitizen ? {
+      citizenName: dbCitizen.name,
+      profession: dbCitizen.profession,
+      species: dbCitizen.species,
+      sparkTier: dbCitizen.spark_tier,
+      temper: dbCitizen.temper,
+      instinct: dbCitizen.instinct,
+      motivation: dbCitizen.motivation
+    } : recruitWardenPersona();
+
+    if (dbCitizen) {
+      await client.query(
+        "UPDATE population_demographics SET allegiance_status = 'WARDEN_SENTINEL' WHERE citizen_id = $1",
+        [dbCitizen.citizen_id]
+      );
+    }
 
     await client.query(`
       INSERT INTO sim_agents (
