@@ -1,4 +1,5 @@
 import { Router } from "express";
+import zlib from "zlib";
 import pool from "../db/pool";
 import { RegionalInstance } from "../regional/RegionalInstance";
 import { getActiveChaosFlows, evaluatePointChaosFlowProximity } from "../engine/agents/chaosFlowAgent.js";
@@ -89,7 +90,7 @@ regionalRouter.get("/map/:cell_id", (req, res) => {
   });
 });
 
-regionalRouter.get("/manifest/:cell_id", (req, res) => {
+regionalRouter.get("/manifest/:cell_id", async (req, res) => {
   const cellId = parseInt(req.params.cell_id);
   const rx = parseInt(req.query.x as string);
   const ry = parseInt(req.query.y as string);
@@ -101,7 +102,77 @@ regionalRouter.get("/manifest/:cell_id", (req, res) => {
 
   if (rx < 0 || rx >= 225 || ry < 0 || ry >= 225) return res.status(400).json({ error: "Coordinates out of bounds (0-224)" });
 
-  res.json(instance.getManifest(rx, ry));
+  const manifest = instance.getManifest(rx, ry);
+
+  // Check if a pre-rendered vault map exists for this sector
+  try {
+    const vaultRes = await pool.query(
+      `SELECT name, poi_type, compressed_terrain, props, npcs, features
+       FROM sim_world_vault_sectors
+       WHERE cell_id = $1 AND rx = $2 AND ry = $3`,
+      [cellId, rx, ry]
+    );
+    if (vaultRes.rowCount && vaultRes.rowCount > 0) {
+      const v = vaultRes.rows[0];
+      const decompressed = zlib.gunzipSync(v.compressed_terrain);
+      (manifest as any).pre_rendered = true;
+      (manifest as any).grid = Array.from(decompressed);
+      (manifest as any).vault_name = v.name;
+      (manifest as any).poi_type = v.poi_type;
+      (manifest as any).vault_props = v.props;
+      (manifest as any).vault_npcs = v.npcs;
+    }
+  } catch (err) {
+    console.warn("Could not query sim_world_vault_sectors in manifest:", err);
+  }
+
+  res.json(manifest);
+});
+
+// Explicit endpoint to retrieve a pre-rendered sector from sim_world_vault_sectors
+regionalRouter.get("/sector/:cell_id", async (req, res) => {
+  const cellId = parseInt(req.params.cell_id);
+  const rx = parseInt(req.query.x as string) || 112;
+  const ry = parseInt(req.query.y as string) || 112;
+
+  try {
+    const vaultRes = await pool.query(
+      `SELECT name, poi_type, compressed_terrain, props, npcs, features, biome_id, elevation
+       FROM sim_world_vault_sectors
+       WHERE cell_id = $1 AND rx = $2 AND ry = $3`,
+      [cellId, rx, ry]
+    );
+
+    if (vaultRes.rowCount && vaultRes.rowCount > 0) {
+      const v = vaultRes.rows[0];
+      const decompressed = zlib.gunzipSync(v.compressed_terrain);
+      return res.json({
+        success: true,
+        pre_rendered: true,
+        cell_id: cellId,
+        rx,
+        ry,
+        name: v.name,
+        poi_type: v.poi_type,
+        grid: Array.from(decompressed),
+        props: v.props || [],
+        npcs: v.npcs || [],
+        features: v.features || {},
+        biome_id: v.biome_id,
+        elevation: v.elevation
+      });
+    }
+
+    res.json({
+      success: true,
+      pre_rendered: false,
+      cell_id: cellId,
+      rx,
+      ry
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 regionalRouter.get("/cell/:cell_id", async (req, res) => {
