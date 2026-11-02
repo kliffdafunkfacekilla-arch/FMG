@@ -12,6 +12,7 @@ import { runCartelAgent } from "./agents/cartelAgent";
 import { runBurgExpansionAgent } from "./agents/burgExpansionAgent";
 import { runTrophicEcologyAgent } from "./agents/trophicEcologyAgent";
 import { runNPCRoutineAgent } from "./agents/npcRoutineAgent";
+import { runChaosFlowAgent } from "./agents/chaosFlowAgent";
 
 export async function executeMasterTick(): Promise<{status: string, currentTick: number}> {
     const client = await pool.connect();
@@ -31,6 +32,13 @@ export async function executeMasterTick(): Promise<{status: string, currentTick:
         // 2. Weather & Trophic Ecology
         await runWeatherAgent(client, tick, cal.season, cal.dayOfMonth, loreDate, cal.isShadowWeek);
         await runTrophicEcologyAgent(client, tick, cal.season, loreDate);
+
+        // 2b. Primordial Chaos Flows (12 Meandering Ebb/Flow Rivers)
+        await runChaosFlowAgent(client, tick, {
+            active_flow: cal.activeFlow.domain,
+            dragon_domain: cal.activeFlow.dragon,
+            moon_phase: cal.cruorbusPhase
+        });
 
         // 3. Burg Operations
         await runBurgOperationsAgent(client, tick);

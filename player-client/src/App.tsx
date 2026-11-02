@@ -88,6 +88,7 @@ export default function App() {
   const [activeBeat, setActiveBeat] = useState<StoryBeat | null>(null);
   const [campaignState, setCampaignState] = useState<any>(null);
   const [calendarState, setCalendarState] = useState<any>(null);
+  const [chaosFlowTelemetry, setChaosFlowTelemetry] = useState<any>(null);
 
   // Spatial Hash Grid Partitioning (O(1) Proximity & Collision on 16x16 Buckets)
   const npcSpatialGridRef = useRef<SpatialHashGrid<InjectedNPC>>(new SpatialHashGrid<InjectedNPC>(16));
@@ -439,6 +440,7 @@ export default function App() {
           setActiveBeat(sectorData.beat || null);
           setCampaignState(sectorData.campaignState || null);
           if (sectorData.calendar) setCalendarState(sectorData.calendar);
+          setChaosFlowTelemetry(sectorData.chaosFlow || null);
           audioManager.setBiomeSoundscape(getBiomeName(data.global_context.biome_id), Boolean(isUrban));
           lastEncounterId.current = null;
           setEncounterTarget(null);
@@ -1406,6 +1408,58 @@ export default function App() {
           ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
         }
       }
+    }
+
+    // 0a. Primordial Chaos Flow Luminescent Torrent Overlay
+    if (chaosFlowTelemetry && (chaosFlowTelemetry.intersected || chaosFlowTelemetry.distToFlow <= 60)) {
+      ctx.save();
+      const timeSec = Date.now() * 0.002;
+      const surge = chaosFlowTelemetry.nearestFlow?.currentSurge || 1.2;
+      const flowWidth = Math.max(4, Math.min(8, Math.round((chaosFlowTelemetry.nearestFlow?.currentWidth || 25) / 4)));
+
+      for (let y = 0; y < VIEWPORT_SIZE; y++) {
+        const ty = localPos.ly - half + y;
+        const waveOffset = Math.sin((ty * 0.08) + timeSec) * 4;
+        const centerCol = 128 + waveOffset;
+
+        for (let w = -flowWidth; w <= flowWidth; w++) {
+          const tx = Math.round(centerCol + w);
+          const screenX = (tx - localPos.lx + half) * TILE_SIZE;
+          const screenY = (ty - localPos.ly + half) * TILE_SIZE;
+
+          if (screenX >= 0 && screenX < canvasRef.current!.width && screenY >= 0 && screenY < canvasRef.current!.height) {
+            const edgeRatio = 1.0 - (Math.abs(w) / flowWidth);
+            const pulse = (Math.sin(timeSec * 3 + ty * 0.1) * 0.15) + 0.35;
+            const alpha = Math.min(0.65, edgeRatio * pulse * Math.min(1.5, surge));
+
+            ctx.fillStyle = `rgba(168, 85, 247, ${alpha})`;
+            ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+
+            if (Math.abs(w) <= 1 && Math.random() < 0.2) {
+              ctx.fillStyle = `rgba(253, 224, 71, ${alpha + 0.25})`;
+              ctx.fillRect(screenX + 3, screenY + 3, TILE_SIZE - 6, TILE_SIZE - 6);
+            }
+          }
+        }
+      }
+
+      // If near narrow spot, render crossing stepping stones
+      if (chaosFlowTelemetry.nearNarrowSpot) {
+        for (let sy = 126; sy <= 130; sy++) {
+          const screenX = (128 - localPos.lx + half) * TILE_SIZE;
+          const screenY = (sy - localPos.ly + half) * TILE_SIZE;
+          if (screenX >= 0 && screenX < canvasRef.current!.width && screenY >= 0 && screenY < canvasRef.current!.height) {
+            ctx.fillStyle = '#475569';
+            ctx.beginPath();
+            ctx.arc(screenX + TILE_SIZE / 2, screenY + TILE_SIZE / 2, TILE_SIZE / 2 - 1, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+          }
+        }
+      }
+      ctx.restore();
     }
 
     // 0b. Phase C: Tactical Movement Reachability Overlay (during Movement Phase)
@@ -3045,6 +3099,54 @@ export default function App() {
                   className="bg-black block cursor-crosshair"
                   title="Click any prop or NPC to target directly"
                 />
+
+                {/* Primordial Chaos Flow Hazard & Crossing HUD Overlay */}
+                {chaosFlowTelemetry && (chaosFlowTelemetry.intersected || chaosFlowTelemetry.nearNarrowSpot || chaosFlowTelemetry.distToFlow <= 60) && (
+                  <div className="absolute top-2 left-2 right-2 z-20 flex items-center justify-between px-3 py-2 rounded-lg bg-gray-950/90 border border-purple-500/70 shadow-2xl backdrop-blur-md font-mono text-xs text-purple-200">
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-base animate-pulse">⚡</span>
+                      <div>
+                        <div className="font-bold text-amber-300 flex items-center gap-2">
+                          <span>{chaosFlowTelemetry.nearestFlow?.name || 'Primordial Chaos Flow'}</span>
+                          <span className="px-1.5 py-0.5 rounded bg-purple-900/80 text-[10px] text-purple-300 border border-purple-700/50">
+                            {chaosFlowTelemetry.nearestFlow?.elementalPower} (Surge x{chaosFlowTelemetry.nearestFlow?.currentSurge})
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-gray-300 mt-0.5">
+                          {chaosFlowTelemetry.nearNarrowSpot ? (
+                            <span className="text-emerald-400 font-semibold">
+                              ⚠️ Narrow Ford Discovered (DC {chaosFlowTelemetry.narrowSpot?.crossingDC || 15}): Dangerous on-foot dash possible! Safe by Airship.
+                            </span>
+                          ) : (
+                            <span className="text-rose-400 font-semibold">
+                              ☠️ Unbridged Torrent: Lethal chaotic radiation! Only safe passage is by Airship.
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {chaosFlowTelemetry.nearNarrowSpot && (
+                        <button
+                          type="button"
+                          onClick={() => triggerAction('I sprint across the narrow ford')}
+                          className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-gray-950 font-bold text-[10px] rounded shadow transition-colors"
+                          title="Attempt dangerous opposed sprint across the narrow ford"
+                        >
+                          Brave Ford
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => triggerAction('I board my airship and fly safely over the chaos flow')}
+                        className="px-2.5 py-1 bg-purple-700 hover:bg-purple-600 text-purple-100 font-bold text-[10px] rounded shadow border border-purple-400 transition-colors"
+                        title="100% safe crossing using an Airship"
+                      >
+                        Airship Transit
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Phase A: Interactive Tile Hover Telemetry Tooltip */}
                 {hoverTile && (

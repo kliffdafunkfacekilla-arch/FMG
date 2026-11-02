@@ -486,6 +486,34 @@ ALTER TABLE sim_npc_instances ADD COLUMN IF NOT EXISTS mood JSONB DEFAULT '{"fea
 ALTER TABLE sim_npc_instances ADD COLUMN IF NOT EXISTS beliefs JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE sim_npc_instances ADD COLUMN IF NOT EXISTS social_links JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE sim_npc_instances ADD COLUMN IF NOT EXISTS trade_price_mult NUMERIC(4,2) DEFAULT 1.00;
+
+CREATE TABLE IF NOT EXISTS sim_chaos_flows (
+    flow_id INT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    dragon_name VARCHAR(100) NOT NULL,
+    elemental_power VARCHAR(50) NOT NULL,
+    source_angle FLOAT NOT NULL,
+    source_coord JSONB NOT NULL,
+    sink_coord JSONB NOT NULL,
+    current_surge FLOAT NOT NULL DEFAULT 1.0,
+    current_width FLOAT NOT NULL DEFAULT 2.5,
+    meander_offset FLOAT NOT NULL DEFAULT 0.0,
+    waypoints JSONB NOT NULL DEFAULT '[]'::jsonb,
+    narrow_spots JSONB NOT NULL DEFAULT '[]'::jsonb,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sim_player_mutations (
+    id SERIAL PRIMARY KEY,
+    player_id INT NOT NULL,
+    mutation_key VARCHAR(100) NOT NULL,
+    mutation_name VARCHAR(100) NOT NULL,
+    description TEXT NOT NULL,
+    stat_modifiers JSONB DEFAULT '{}'::jsonb,
+    acquired_at_tick INT DEFAULT 1,
+    acquired_source VARCHAR(100) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_player_mutations_pid ON sim_player_mutations(player_id);
 `;
 
 async function migrate() {

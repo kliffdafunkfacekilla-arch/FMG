@@ -116,6 +116,7 @@ export interface SectorContext {
   activeFlow?: string;
   dragonDomain?: string;
   moonPhase?: string;
+  chaosFlow?: any;
 }
 
 class SeededPRNG {

@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import { ConcordiaGameMaster } from '../engine/rpg/ConcordiaGM.js';
 import pool from '../db/pool.js';
 import { updateSectorNPCRoutines } from '../engine/agents/npcRoutineAgent.js';
+import { getActiveChaosFlows, evaluatePointChaosFlowProximity } from '../engine/agents/chaosFlowAgent.js';
 
 dotenv.config({ override: true });
 
@@ -187,7 +188,12 @@ router.get('/player', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM sim_player_character ORDER BY id ASC LIMIT 1');
     if (result.rows.length === 0) return void res.status(404).json({ error: 'Player not found' });
-    res.json(enrichCharacter(result.rows[0]));
+    const p = result.rows[0];
+    const mutRes = await pool.query('SELECT * FROM sim_player_mutations WHERE player_id = $1 ORDER BY id DESC', [p.id]);
+    res.json({
+      ...enrichCharacter(p),
+      mutations: mutRes.rows
+    });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -711,6 +717,12 @@ router.post('/sector_load', async (req, res) => {
       dragon_domain: 'Tiraton'
     };
 
+    const cellCoordRes = await pool.query('SELECT center_x, center_y FROM sim_cells WHERE id = $1', [targetCellId]);
+    const cx = Number(cellCoordRes.rows[0]?.center_x) || 1409;
+    const cy = Number(cellCoordRes.rows[0]?.center_y) || 740;
+    const flows = await getActiveChaosFlows(pool);
+    const flowProximity = evaluatePointChaosFlowProximity(cx, cy, flows);
+
     res.json({
       success: true,
       beat: injected.activeBeat,
@@ -725,10 +737,23 @@ router.post('/sector_load', async (req, res) => {
       })),
       npcs: injected.npcs,
       campaignState: concordiaGM.getStoryEngine().getCampaignState(),
-      calendar
+      calendar,
+      chaosFlow: flowProximity
     });
   } catch (e: any) {
     console.error('Sector load error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * GET /flows - Returns all 12 live Primordial Chaos Flows
+ */
+router.get('/flows', async (req, res) => {
+  try {
+    const flows = await getActiveChaosFlows(pool);
+    res.json({ success: true, flows });
+  } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
 });

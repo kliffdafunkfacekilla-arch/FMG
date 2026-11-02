@@ -520,10 +520,39 @@ export const HeroHud: React.FC<HeroHudProps> = ({
                 <div className="space-y-1">
                   {character.passive_traits.map((t: any, idx: number) => (
                     <div key={idx} className="bg-gray-850 p-1.5 rounded border border-gray-800 text-[10px]">
-                      <strong className="text-amber-300 block">✨ {t.name}</strong>
-                      <span className="text-gray-400 leading-tight block text-[9.5px] mt-0.5">{t.desc}</span>
+                      <strong className="text-amber-300 block">✨ {typeof t === 'object' && t ? t.name : t}</strong>
+                      {typeof t === 'object' && t?.desc && (
+                        <span className="text-gray-400 leading-tight block text-[9.5px] mt-0.5">{t.desc}</span>
+                      )}
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* Primordial Chaos Mutations */}
+            {character.mutations && character.mutations.length > 0 && (
+              <div className="bg-purple-950/40 rounded p-2.5 border border-purple-700/60 space-y-1.5 shadow">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-purple-300 uppercase tracking-wider block">
+                    ⚡ Primordial Mutations ({character.mutations.length})
+                  </span>
+                  <span className="text-[9px] font-mono text-purple-400 bg-purple-900/60 px-1 rounded">CORRUPTED</span>
+                </div>
+                <div className="space-y-1">
+                  {character.mutations.map((m: any, idx: number) => {
+                    const mods = typeof m.stat_modifiers === 'string' ? JSON.parse(m.stat_modifiers) : (m.stat_modifiers || {});
+                    const modStr = Object.entries(mods).map(([s, d]) => `${(d as number) > 0 ? `+${d}` : d} ${s}`).join(', ');
+                    return (
+                      <div key={idx} className="bg-gray-900/80 p-1.5 rounded border border-purple-900/80 text-[10px]">
+                        <div className="flex items-center justify-between">
+                          <strong className="text-purple-300">⚡ {m.mutation_name}</strong>
+                          {modStr && <span className="text-[9px] text-amber-400 font-mono">[{modStr}]</span>}
+                        </div>
+                        <span className="text-gray-400 leading-tight block text-[9.5px] mt-0.5">{m.description}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}

@@ -22,6 +22,7 @@ import { getSocialWeapon, getSocialArmor, SocialWeaponDef, SocialArmorDef } from
 import { resolveOpposedSocialContest, resolveCosmicDreadCheck, SocialCombatant } from "../socialCombat.js";
 import { computeActionDC, ATOMIC_TAG_ACTIONS } from "./TagRegistry.js";
 import { ProceduralNPCGenerator, SeededPRNG } from "./ProceduralNPCGenerator.js";
+import { getActiveChaosFlows, evaluatePointChaosFlowProximity, applyPlayerChaosMutation } from "../agents/chaosFlowAgent.js";
 
 export interface ActionInput {
   actionText: string;
@@ -191,6 +192,56 @@ export class ConcordiaGameMaster {
         (context as any).warringFactions = `${warRes.rows[0].f1_name} vs ${warRes.rows[0].f2_name}`;
       }
     } catch (err) {}
+
+    // Query Live Primordial Chaos Flow Proximity
+    try {
+      const cellCoordRes = await this.pool.query(
+        "SELECT center_x, center_y FROM sim_cells WHERE id = $1",
+        [cellId]
+      );
+      const cx = Number(cellCoordRes.rows[0]?.center_x) || 1409;
+      const cy = Number(cellCoordRes.rows[0]?.center_y) || 740;
+      const flows = await getActiveChaosFlows(this.pool);
+      const flowProximity = evaluatePointChaosFlowProximity(cx, cy, flows);
+      context.chaosFlow = flowProximity;
+
+      if (flowProximity.intersected || flowProximity.nearNarrowSpot || flowProximity.distToFlow <= 60) {
+        context.chaosRadiation = Math.max(context.chaosRadiation || 0, 0.95);
+
+        // Inject Ford Prop if at narrow constriction
+        if (flowProximity.nearNarrowSpot && flowProximity.narrowSpot) {
+          const fordProp: TaggedObject = {
+            id: `prop_chaos_ford_${cellId}`,
+            name: `The Narrow Ford of ${flowProximity.nearestFlow?.dragonName || "Chaos"}`,
+            type: "PROP",
+            pos: [128, 128],
+            tags: new Set<string>(["stone", "chasm", "narrow_ford", "chaos_crossing", "stepping_stones"]),
+            hp: 200,
+            maxHp: 200,
+            isDestroyed: false,
+            description: flowProximity.narrowSpot.description
+          };
+          this.activeProps.set(fordProp.id, fordProp);
+        }
+
+        // Inject Roaring Flow Prop
+        const currentFlow = flowProximity.nearestFlow;
+        const flowProp: TaggedObject = {
+          id: `prop_chaos_flow_${cellId}`,
+          name: `Roaring Cataract of ${currentFlow?.name || "Primordial Chaos"}`,
+          type: "PROP",
+          pos: [142, 128],
+          tags: new Set<string>(["chaos_flow", "hazard", "deadly", "aether", "primordial"]),
+          hp: 99999,
+          maxHp: 99999,
+          isDestroyed: false,
+          description: `A churning channel of raw ${currentFlow?.elementalPower || "Chaos"} aether (${currentFlow?.currentWidth || 30}m wide, Surge x${currentFlow?.currentSurge || 1.0}). Ground crossing is deadly unless braving the narrow ford; safe by airship.`
+        };
+        this.activeProps.set(flowProp.id, flowProp);
+      }
+    } catch (err) {
+      console.warn("Could not query chaos flows in loadSector:", err);
+    }
 
     // 1. Fetch persisted NPCs from sim_npc_instances for this sector
     let persistedNPCs: InjectedNPC[] = [];
@@ -783,6 +834,10 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
       category = "EXPLORATION";
       verb = "SEARCH";
       statUsed = "awareness";
+    } else if (hasWord("cross", "ford", "traverse", "leap", "jump", "fly", "dash", "swim") && (hasWord("river", "flow", "torrent", "cataract", "chasm", "water", "ford", "current", "chaos", "vein", "strand", "ribbon", "stones", "airship", "skyship") || lower.includes("ford") || lower.includes("flow"))) {
+      category = "EXPLORATION";
+      verb = "CROSS_CHAOS_FLOW";
+      statUsed = hasWord("fly", "airship", "skyship") ? "logic" : (hasWord("leap", "jump", "dash", "sprint") ? "reflex" : "endurance");
     }
 
     // Pick matching target ONLY if explicitly mentioned in action text (excluding stop-words)
@@ -891,6 +946,7 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
     let lootAwarded: { gold: number; item?: string } | undefined;
     let xpGained = 0;
     let systemLog = "";
+    let customNarrative: string | undefined;
 
     // 4. Multi-Faceted Concordia Resolution
     const targetTagsList: string[] = targetProp
@@ -1277,55 +1333,129 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
       }
 
     } else if (intent.category === "EXPLORATION") {
-      // --- EXPLORATION & SEARCH ---
-      dcOrDefenderRoll = dynamicDC;
-      const totalRoll = playerRoll + playerStatVal + dynamicToolBonus;
-      difference = totalRoll - dcOrDefenderRoll;
-      hit = difference >= 0;
+      // --- EXPLORATION, CROSSING & SEARCH ---
+      const isChaosFlowCrossing = intent.verb === "CROSS_CHAOS_FLOW" ||
+        Boolean(targetProp && (targetProp.tags.has("chaos_flow") || targetProp.tags.has("narrow_ford"))) ||
+        (/\b(cross|ford|traverse|leap across|jump across|fly across|swim across|wade|brave the ford)\b/i.test(actionText) && Boolean(this.activeContext?.chaosFlow?.intersected || this.activeContext?.chaosFlow?.nearNarrowSpot));
 
-      const isCorpse = targetProp && (targetProp.tags.has("corpse") || targetProp.tags.has("remains") || targetProp.tags.has("lootable"));
-      const isContainer = targetProp && (targetProp.tags.has("container") || targetProp.tags.has("cache") || targetProp.tags.has("chest"));
+      if (isChaosFlowCrossing) {
+        const airshipItem = playerInv.find(it => /airship|skyship|sky vessel|cloud cruiser|aetheric craft|aether glider/i.test(it));
+        const flowInfo = this.activeContext?.chaosFlow?.nearestFlow || {
+          name: "Primordial Chaos Torrent",
+          dragonName: "Chaos Dragon",
+          elementalPower: this.activeContext?.activeFlow || "Flux",
+          currentSurge: 1.5,
+          currentWidth: 32
+        };
+        const isAtNarrow = Boolean(
+          this.activeContext?.chaosFlow?.nearNarrowSpot ||
+          (targetProp && targetProp.tags.has("narrow_ford")) ||
+          /\b(ford|chokepoint|narrow|stepping stones|narrows)\b/i.test(actionText)
+        );
 
-      if (hit && isCorpse) {
-        const foundGold = Math.floor(Math.random() * 15) + 5;
-        player.gold = (player.gold || 0) + foundGold;
-        const corpseInv = targetProp.inventory || [];
-        player.inventory = Array.isArray(player.inventory) ? player.inventory : [];
-        if (corpseInv.length > 0) {
-          corpseInv.forEach((it: string) => player.inventory.push(it));
-          lootAwarded = { gold: foundGold, item: corpseInv.join(", ") };
-          targetProp.inventory = [];
-          targetProp.tags.delete("lootable");
-          systemLog = `[${intent.statUsed.toUpperCase()} SEARCH${toolBonusNotice}: ${totalRoll} vs DC ${dynamicDC} | SUCCESS: Looted ${targetProp.name}! Found ${foundGold} Gold & [${corpseInv.join(", ")}]]`;
-        } else {
-          lootAwarded = { gold: foundGold };
-          targetProp.tags.delete("lootable");
-          systemLog = `[${intent.statUsed.toUpperCase()} SEARCH${toolBonusNotice}: ${totalRoll} vs DC ${dynamicDC} | SUCCESS: Searched ${targetProp.name}, found ${foundGold} Gold]`;
-        }
-      } else if (hit && isContainer) {
-        const foundGold = Math.floor(Math.random() * 25) + 12;
-        player.gold = (player.gold || 0) + foundGold;
-        player.inventory = Array.isArray(player.inventory) ? player.inventory : [];
+        if (airshipItem) {
+          hit = true;
+          difference = 15;
+          injuryPoints = 0;
+          xpGained = 120;
+          systemLog = `[AIRSHIP AETHER-TRANSIT | 100% SAFE: Boarded ${airshipItem} and soared safely above ${flowInfo.name}! Primordial radiation bypassed completely with 0 damage.]`;
+          customNarrative = `Boarding your ${airshipItem}, the skycraft's resonant anti-grav keels hum with soothing azure light. You ascend smoothly into the atmosphere, gliding hundreds of meters above the reality-tearing chasm of ${flowInfo.name}. Far below, violent surges of ${flowInfo.elementalPower} aether roar and writhe against the earth, but the skyship's sealed envelope insulates your crew completely from chaotic radiation and temporal distortion. You touch down safely on the far embankment, unscathed.`;
+        } else if (isAtNarrow) {
+          const narrowDC = this.activeContext?.chaosFlow?.narrowSpot?.crossingDC || Math.min(23, Math.max(12, Math.round(13 + (flowInfo.currentSurge || 1.0) * 3.2)));
+          dcOrDefenderRoll = narrowDC;
+          const bestStat = Math.max(Number(player.reflex) || 5, Number(player.endurance) || 5);
+          const totalRoll = playerRoll + bestStat + dynamicToolBonus;
+          difference = totalRoll - dcOrDefenderRoll;
+          hit = difference >= 0;
 
-        let dynamicItem = targetProp.inventory?.[0];
-        if (!dynamicItem) {
-          if (this.activeContext?.activeFlow) {
-            dynamicItem = `${this.activeContext.activeFlow} Resonant Shard`;
-          } else if (this.activeContext?.infrastructureMask && (this.activeContext.infrastructureMask & 8)) {
-            dynamicItem = "Ancient Inscribed Tablet";
-          } else if (this.activeContext?.infrastructureMask && (this.activeContext.infrastructureMask & 4)) {
-            dynamicItem = "Smuggled Contraband Phial";
+          if (hit) {
+            const splashDmg = Math.max(0, Math.floor(Math.random() * 3));
+            player.current_hp = Math.max(1, (Number(player.current_hp) || 14) - splashDmg);
+            xpGained = 90;
+            systemLog = `[NARROW FORD SPRINT | SUCCESS: Rolled ${totalRoll} vs DC ${narrowDC} | Braved the jagged chasm of ${flowInfo.name}! Sprinted across the narrow rock ford safely (took ${splashDmg} aether splash damage).]`;
+            customNarrative = `You gauge the pulsating rhythm of ${flowInfo.name}, waiting for the chaotic flood to momentarily recede. With a desperate burst of speed, you sprint across the jagged stepping stones of the narrow ford! Roaring plumes of ${flowInfo.elementalPower} aether hiss around your boots and singe your cloak, but your footing holds true. You collapse onto the far bank, heart hammering in your chest, having successfully braved the primordial chokepoint!`;
           } else {
-            dynamicItem = "Preserved Field Rations";
+            const chaosDmg = Math.floor((Math.random() * 8 + 8) * Math.max(1.0, flowInfo.currentSurge || 1.0));
+            player.current_hp = Math.max(0, (Number(player.current_hp) || 14) - chaosDmg);
+            const mutation = await applyPlayerChaosMutation(
+              this.pool,
+              playerId,
+              flowInfo.elementalPower,
+              (this.activeContext as any)?.tick || 1,
+              `Narrow Ford Hazard (${flowInfo.name})`
+            );
+            systemLog = `[NARROW FORD SPRINT | FAILED: Rolled ${totalRoll} vs DC ${narrowDC} | Washed by ${flowInfo.name}! Sustained ${chaosDmg} unmitigated chaos damage and contracted MUTATION: ${mutation.name} (${JSON.stringify(mutation.statModifiers)})!]`;
+            customNarrative = `Halfway across the narrow ford, an unexpected gravitic surge knocks you off balance! Your foot slips on the glassy crystal shelf, and a cataract of raw ${flowInfo.elementalPower} aether engulfs your body. Catastrophic energy burns through your nervous system as reality distorts around you. You drag yourself claw-over-claw to the far shore, coughing up luminescent bile. As the burning subsides, you realize with horror that your body has warped: you have contracted ${mutation.name}! (${mutation.description})`;
           }
+        } else {
+          // Open river crossing on foot - deadly hazard!
+          const hazardDC = 24;
+          dcOrDefenderRoll = hazardDC;
+          const totalRoll = playerRoll + (Number(player.endurance) || 5) + dynamicToolBonus;
+          difference = totalRoll - dcOrDefenderRoll;
+          hit = false;
+          const massiveDmg = Math.floor(22 * Math.max(1.0, flowInfo.currentSurge || 1.2));
+          player.current_hp = Math.max(0, (Number(player.current_hp) || 14) - massiveDmg);
+          const mutation = await applyPlayerChaosMutation(
+            this.pool,
+            playerId,
+            flowInfo.elementalPower,
+            (this.activeContext as any)?.tick || 1,
+            `Open Primordial River Immersion (${flowInfo.name})`
+          );
+          systemLog = `[CATASTROPHIC CROSSING HAZARD: Waded into open ${flowInfo.name} without an Airship! Sustained ${massiveDmg} primordial damage and contracted MUTATION: ${mutation.name} (${JSON.stringify(mutation.statModifiers)})!]`;
+          customNarrative = `Wading directly into the churning primordial torrent of ${flowInfo.name} without an airship is utter madness! The full, unbridled fury of ${flowInfo.elementalPower} aether rips into your flesh and soul. Your bones creak under cosmic pressure and your veins boil with uncontainable power. You barely crawl to the opposing bank before collapsing in agonizing spasms. The raw primordial flood has permanently scarred your vessel with ${mutation.name}: ${mutation.description}!`;
         }
-        player.inventory.push(dynamicItem);
-        lootAwarded = { gold: foundGold, item: dynamicItem };
-        targetProp.tags.delete("container");
-        targetProp.tags.add("opened");
-        systemLog = `[${intent.statUsed.toUpperCase()} INSPECT${toolBonusNotice}: ${totalRoll} vs DC ${dynamicDC} | SUCCESS: Discovered cache inside ${targetProp.name}! Found ${foundGold} Gold & ${dynamicItem}]`;
       } else {
-        systemLog = `[${intent.statUsed.toUpperCase()} INSPECT${toolBonusNotice}: ${totalRoll} vs DC ${dynamicDC} | ${hit ? "SUCCESS: Area scouted; no further caches detected" : "NOTHING FOUND"}]`;
+        dcOrDefenderRoll = dynamicDC;
+        const totalRoll = playerRoll + playerStatVal + dynamicToolBonus;
+        difference = totalRoll - dcOrDefenderRoll;
+        hit = difference >= 0;
+
+        const isCorpse = targetProp && (targetProp.tags.has("corpse") || targetProp.tags.has("remains") || targetProp.tags.has("lootable"));
+        const isContainer = targetProp && (targetProp.tags.has("container") || targetProp.tags.has("cache") || targetProp.tags.has("chest"));
+
+        if (hit && isCorpse) {
+          const foundGold = Math.floor(Math.random() * 15) + 5;
+          player.gold = (player.gold || 0) + foundGold;
+          const corpseInv = targetProp.inventory || [];
+          player.inventory = Array.isArray(player.inventory) ? player.inventory : [];
+          if (corpseInv.length > 0) {
+            corpseInv.forEach((it: string) => player.inventory.push(it));
+            lootAwarded = { gold: foundGold, item: corpseInv.join(", ") };
+            targetProp.inventory = [];
+            targetProp.tags.delete("lootable");
+            systemLog = `[${intent.statUsed.toUpperCase()} SEARCH${toolBonusNotice}: ${totalRoll} vs DC ${dynamicDC} | SUCCESS: Looted ${targetProp.name}! Found ${foundGold} Gold & [${corpseInv.join(", ")}]]`;
+          } else {
+            lootAwarded = { gold: foundGold };
+            targetProp.tags.delete("lootable");
+            systemLog = `[${intent.statUsed.toUpperCase()} SEARCH${toolBonusNotice}: ${totalRoll} vs DC ${dynamicDC} | SUCCESS: Searched ${targetProp.name}, found ${foundGold} Gold]`;
+          }
+        } else if (hit && isContainer) {
+          const foundGold = Math.floor(Math.random() * 25) + 12;
+          player.gold = (player.gold || 0) + foundGold;
+          player.inventory = Array.isArray(player.inventory) ? player.inventory : [];
+
+          let dynamicItem = targetProp.inventory?.[0];
+          if (!dynamicItem) {
+            if (this.activeContext?.activeFlow) {
+              dynamicItem = `${this.activeContext.activeFlow} Resonant Shard`;
+            } else if (this.activeContext?.infrastructureMask && (this.activeContext.infrastructureMask & 8)) {
+              dynamicItem = "Ancient Inscribed Tablet";
+            } else if (this.activeContext?.infrastructureMask && (this.activeContext.infrastructureMask & 4)) {
+              dynamicItem = "Smuggled Contraband Phial";
+            } else {
+              dynamicItem = "Preserved Field Rations";
+            }
+          }
+          player.inventory.push(dynamicItem);
+          lootAwarded = { gold: foundGold, item: dynamicItem };
+          targetProp.tags.delete("container");
+          targetProp.tags.add("opened");
+          systemLog = `[${intent.statUsed.toUpperCase()} INSPECT${toolBonusNotice}: ${totalRoll} vs DC ${dynamicDC} | SUCCESS: Discovered cache inside ${targetProp.name}! Found ${foundGold} Gold & ${dynamicItem}]`;
+        } else {
+          systemLog = `[${intent.statUsed.toUpperCase()} INSPECT${toolBonusNotice}: ${totalRoll} vs DC ${dynamicDC} | ${hit ? "SUCCESS: Area scouted; no further caches detected" : "NOTHING FOUND"}]`;
+        }
       }
 
     } else if (intent.category === "MAGIC") {
@@ -2011,12 +2141,12 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
 
     const narrativePrompt = `${recentMemoriesContext}Current Event: Player performed ${intent.verb} (${intent.category}) on ${intent.targetName}. Outcome: ${hit ? "Success" : "Failure"}. Damage: ${injuryPoints}. Tags: ${tagResult?.appliedTags?.join(", ") || "None"}. Dialogue spoken: ${inCharacterDialogue || "None"}.`;
 
-    const narrativeResponse = await this.callGeminiWithFallback(
+    const narrativeResponse = customNarrative || (await this.callGeminiWithFallback(
       [{ role: "user", parts: [{ text: narrativePrompt }] }],
       "You are the Concordia Game Master for a gritty dark fantasy TTRPG. Write EXACTLY 1-2 evocative, sensory sentences describing the immediate physical aftermath of this action. Output only prose.",
       200,
       0.7
-    ) || `${player.name} resolves the action against ${intent.targetName}. The environment settles in the wake of the attempt.`;
+    )) || `${player.name} resolves the action against ${intent.targetName}. The environment settles in the wake of the attempt.`;
 
     // 8. Record Associative Memory Trace (In-Memory + Persistent PostgreSQL Table)
     const memSummary = `${intent.verb} on ${intent.targetName}: ${hit ? "Success" : "Failed"}`;
