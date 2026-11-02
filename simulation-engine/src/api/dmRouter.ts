@@ -1,5 +1,6 @@
 import express from 'express';
 import dotenv from 'dotenv';
+import zlib from 'zlib';
 import { ConcordiaGameMaster } from '../engine/rpg/ConcordiaGM.js';
 import pool from '../db/pool.js';
 import { updateSectorNPCRoutines } from '../engine/agents/npcRoutineAgent.js';
@@ -723,19 +724,72 @@ router.post('/sector_load', async (req, res) => {
     const flows = await getActiveChaosFlows(pool);
     const flowProximity = evaluatePointChaosFlowProximity(cx, cy, flows);
 
+    // Check if sector is pre-rendered in sim_world_vault_sectors
+    let preRenderedMap: any = null;
+    try {
+      const vaultRes = await pool.query(
+        `SELECT name, poi_type, compressed_terrain, props, npcs, features
+         FROM sim_world_vault_sectors
+         WHERE cell_id = $1 AND rx = $2 AND ry = $3`,
+        [targetCellId, targetRx, targetRy]
+      );
+      if (vaultRes.rowCount && vaultRes.rowCount > 0) {
+        const v = vaultRes.rows[0];
+        const decompressed = zlib.gunzipSync(v.compressed_terrain);
+        preRenderedMap = {
+          name: v.name,
+          poiType: v.poi_type,
+          grid: Array.from(decompressed),
+          props: v.props || [],
+          npcs: v.npcs || [],
+          features: v.features || {}
+        };
+      }
+    } catch (vaultErr) {
+      console.warn('Could not query vault sectors in sector_load:', vaultErr);
+    }
+
+    // Merge vaulted props if present
+    const finalProps = injected.props.map(p => ({
+      id: p.id,
+      name: p.name,
+      pos: p.pos,
+      tags: Array.from(p.tags),
+      hp: p.hp,
+      maxHp: p.maxHp,
+      isDestroyed: p.isDestroyed
+    }));
+    const existingPropIds = new Set(finalProps.map(p => p.id));
+    if (preRenderedMap && Array.isArray(preRenderedMap.props)) {
+      for (const vp of preRenderedMap.props) {
+        if (!existingPropIds.has(vp.id)) {
+          finalProps.push(vp);
+          existingPropIds.add(vp.id);
+        }
+      }
+    }
+
+    // Merge vaulted npcs if present
+    const finalNPCs = [...injected.npcs];
+    const existingNpcIds = new Set(finalNPCs.map(n => n.id));
+    if (preRenderedMap && Array.isArray(preRenderedMap.npcs)) {
+      for (const vn of preRenderedMap.npcs) {
+        if (!existingNpcIds.has(vn.id)) {
+          finalNPCs.push(vn);
+          existingNpcIds.add(vn.id);
+        }
+      }
+    }
+
     res.json({
       success: true,
       beat: injected.activeBeat,
-      props: injected.props.map(p => ({
-        id: p.id,
-        name: p.name,
-        pos: p.pos,
-        tags: Array.from(p.tags),
-        hp: p.hp,
-        maxHp: p.maxHp,
-        isDestroyed: p.isDestroyed
-      })),
-      npcs: injected.npcs,
+      props: finalProps,
+      npcs: finalNPCs,
+      preRendered: Boolean(preRenderedMap),
+      grid: preRenderedMap ? preRenderedMap.grid : undefined,
+      vaultName: preRenderedMap ? preRenderedMap.name : undefined,
+      poiType: preRenderedMap ? preRenderedMap.poiType : undefined,
       campaignState: concordiaGM.getStoryEngine().getCampaignState(),
       calendar,
       chaosFlow: flowProximity,

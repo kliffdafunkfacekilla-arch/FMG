@@ -364,9 +364,14 @@ export default function App() {
         setManifest(data);
         exploredTilesRef.current.clear();
 
-        // Phase B: Asynchronous Web Worker Generation (zero main-thread blocking)
-        const map = await generateLevel3Async(data);
-        setTilemap(map);
+        // If pre-rendered map exists in the simulation vault, load immediately
+        if (data.pre_rendered && data.grid) {
+          setTilemap({ grid: new Uint8Array(data.grid), size: 256 });
+        } else {
+          // Phase B: Asynchronous Web Worker Generation (zero main-thread blocking)
+          const map = await generateLevel3Async(data);
+          setTilemap(map);
+        }
 
         // Load WhatELSE Sector Injection
         const sectorRes = await fetch('http://localhost:3000/api/dm/sector_load', {
@@ -396,10 +401,19 @@ export default function App() {
           const combinedProps: InjectedProp[] = sectorData.props || [];
           const combinedNPCs: InjectedNPC[] = sectorData.npcs || [];
 
-          // Milestone 3: If this sector is an urban Burg Settlement, synthesize authentic urban landmarks & citizens
-          const isUrban = data.global_context?.burg != null ||
+          if (sectorData.grid && !data.pre_rendered) {
+            setTilemap({ grid: new Uint8Array(sectorData.grid), size: 256 });
+          }
+
+          // If this sector is a pre-rendered vault sector (Burg, Spire, Prison, Outlying Hamlet),
+          // its props, layout, and citizens are already authentic and loaded.
+          const isPreRendered = Boolean(data.pre_rendered || sectorData.preRendered);
+
+          // Milestone 3: If this sector is an urban Burg Settlement and not pre-rendered, synthesize fallback
+          const isUrban = !isPreRendered && (
+                          data.global_context?.burg != null ||
                           data.environment?.base_terrain === 4 ||
-                          ((data.environment?.infrastructure_mask || 0) & 32) !== 0;
+                          ((data.environment?.infrastructure_mask || 0) & 32) !== 0);
 
           if (isUrban) {
             const burgName = data.global_context?.burg?.name || 'Provincial Burg';

@@ -454,6 +454,11 @@ CREATE TABLE IF NOT EXISTS sim_world_vault_sectors (
     infrastructure_mask INT NOT NULL DEFAULT 0,
     poi_type VARCHAR(64) NULL,
     compressed_terrain BYTEA NULL,
+    name VARCHAR(128) NULL,
+    props JSONB DEFAULT '[]'::jsonb,
+    npcs JSONB DEFAULT '[]'::jsonb,
+    features JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (cell_id, rx, ry)
 );
 CREATE INDEX IF NOT EXISTS idx_vault_coords ON sim_world_vault_sectors(cell_id, rx, ry);
