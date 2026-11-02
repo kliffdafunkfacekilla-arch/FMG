@@ -273,26 +273,68 @@ export class ConcordiaGameMaster {
         };
         this.activeProps.set(anomalyProp.id, anomalyProp);
 
-        // High likelihood of Cultist or Grey Warden encounter in adjacent / flow cells
-        if (Math.random() < 0.45 && !persistedNPCs.some(n => n.role.includes("Cultist") || n.role.includes("Warden"))) {
-          const isCultist = Math.random() < 0.55;
-          const factionName = isCultist ? "Chaos Cultist Covenant" : "The Grey Wardens";
-          const encounterNPC: InjectedNPC = {
-            id: `npc_ley_${isCultist ? "cultist" : "warden"}_${Date.now()}`,
-            name: isCultist ? `Cultist Zealot of ${flowProximity.nearestFlow?.dragonName || "Chaos"}` : "Grey Warden Ley-Vigilant",
-            role: isCultist ? "Chaos Cultist" : "Grey Warden Sentinel",
-            pos: [126, 126],
-            tags: [isCultist ? "cultist" : "warden", "humanoid", "magic", "armed"],
-            faction: factionName,
-            hp: isCultist ? 18 : 26,
-            maxHp: isCultist ? 18 : 26,
-            disposition: isCultist ? -2 : 1,
-            alive: true,
-            equippedWeapon: isCultist ? "Void Runic Dagger" : "Sun-Forged Halberd",
-            equippedArmor: isCultist ? "Silk Cultist Vestments" : "Steel Plated Cuirass",
-            statAffinity: isCultist ? "willpower" : "might",
-            inventory: isCultist ? ["Forbidden Dragon Effigy", "Blackstone Shard"] : ["Warden Binding Ward", "Healing Draught"]
-          };
+        // High likelihood of Cultist, Grey Warden, or Mandate of the Chain encounter in adjacent / flow cells
+        if (Math.random() < 0.50 && !persistedNPCs.some(n => n.role.includes("Cultist") || n.role.includes("Warden") || n.role.includes("Mandate"))) {
+          const roll = Math.random();
+          const isCultist = roll < 0.45;
+          const isWarden = !isCultist && roll < 0.75;
+          const isMandate = !isCultist && !isWarden;
+
+          let encounterNPC: InjectedNPC;
+          if (isCultist) {
+            const isPriest = Math.random() < 0.35;
+            encounterNPC = {
+              id: `npc_ley_cultist_${Date.now()}`,
+              name: isPriest ? `High Priest of ${flowProximity.nearestFlow?.dragonName || "Chaos"}` : `Cultist Zealot of ${flowProximity.nearestFlow?.dragonName || "Chaos"}`,
+              role: isPriest ? "Cult High Priest" : "Chaos Cultist",
+              pos: [126, 126],
+              tags: ["cultist", "humanoid", "magic", "armed", isPriest ? "priest" : "infiltrator"],
+              faction: "Chaos Cultist Covenant",
+              hp: isPriest ? 28 : 18,
+              maxHp: isPriest ? 28 : 18,
+              disposition: -2,
+              alive: true,
+              equippedWeapon: isPriest ? "Occult Chaos Scepter" : "Void Runic Dagger",
+              equippedArmor: isPriest ? "Hierophant Obsidian Robes" : "Silk Cultist Vestments",
+              statAffinity: "willpower",
+              inventory: isPriest ? ["Forbidden Dragon Effigy", "Blackstone Shard", "Phial of Dragon Blood"] : ["Forbidden Dragon Effigy", "Blackstone Shard"]
+            };
+          } else if (isWarden) {
+            const isCorrupted = Math.random() < 0.3;
+            encounterNPC = {
+              id: `npc_ley_warden_${Date.now()}`,
+              name: isCorrupted ? "Corrupted Grey Warden Martyr" : "Grey Warden Ley-Vigilant",
+              role: isCorrupted ? "Warden Martyr" : "Grey Warden Sentinel",
+              pos: [126, 126],
+              tags: ["warden", "humanoid", "magic", "armed", isCorrupted ? "kamikaze" : "sentinel"],
+              faction: "The Grey Wardens",
+              hp: isCorrupted ? 32 : 26,
+              maxHp: isCorrupted ? 32 : 26,
+              disposition: isCorrupted ? -1 : 1,
+              alive: true,
+              equippedWeapon: isCorrupted ? "Overcharged Unstable Sigil" : "Sun-Forged Halberd",
+              equippedArmor: "Steel Plated Cuirass",
+              statAffinity: isCorrupted ? "fortitude" : "might",
+              inventory: isCorrupted ? ["Volatile Sigil Core", "Purifying Draught"] : ["Warden Binding Ward", "Healing Draught"]
+            };
+          } else {
+            encounterNPC = {
+              id: `npc_ley_mandate_${Date.now()}`,
+              name: "Inquisitor of the Mandate of the Chain",
+              role: "Mandate Inquisitor",
+              pos: [126, 126],
+              tags: ["mandate", "null", "inquisitor", "zealot", "armed"],
+              faction: "The Mandate of the Chain",
+              hp: 24,
+              maxHp: 24,
+              disposition: -1,
+              alive: true,
+              equippedWeapon: "Elemental Binding Shackles",
+              equippedArmor: "Dampening Lead-Studded Gambeson",
+              statAffinity: "endurance",
+              inventory: ["Elemental Siphon Chain", "Vial of Extracted Spark", "Witch-Hunter Null Brand"]
+            };
+          }
           persistedNPCs.push(encounterNPC);
         }
 
@@ -2071,6 +2113,17 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
         simDeltaNotice += " | 🕊️ SIMULATION: Cultist Threat Purged! Dragon Seal Restored +4, Eco-Blight -0.5";
       } catch (err) {
         console.error("Backfeed cultist error:", err);
+      }
+    }
+
+    // C5. Mandate of the Chain Inquisitor Defeated
+    if (targetNPC && !targetNPC.alive && (targetNPC.tags.includes("mandate") || targetNPC.role.toLowerCase().includes("mandate") || targetNPC.faction.toLowerCase().includes("chain"))) {
+      try {
+        playerReputations["Mandate of the Chain"] = (playerReputations["Mandate of the Chain"] || 0) - 10;
+        playerReputations["Hedge Practitioners"] = (playerReputations["Hedge Practitioners"] || 0) + 5;
+        simDeltaNotice += " | ⛓️ SIMULATION: Mandate Inquisitor Defeated! Elemental shackles shattered.";
+      } catch (err) {
+        console.error("Backfeed mandate error:", err);
       }
     }
 

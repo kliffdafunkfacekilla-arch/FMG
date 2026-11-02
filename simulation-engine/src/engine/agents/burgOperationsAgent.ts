@@ -334,6 +334,18 @@ export async function runBurgOperationsAgent(client: any, tick: number) {
             }
         }
         const newPopNull = Math.floor(Math.max(1, (burg.pop_null || 0) - (starvationDeaths || 0) + births));
+        const newPopAttuned = newPopNull; // Strict 50% Sparkborn / 50% Null Demographics
+        const sparkbornTotal = newPopAttuned;
+        const dormantSparks = Math.round(sparkbornTotal * 0.50);
+        const adepts = Math.max(1, Math.round(sparkbornTotal * 0.01));
+        const sensitives = Math.max(0, sparkbornTotal - dormantSparks - adepts);
+        const demoJson = JSON.stringify({
+            nulls: newPopNull,
+            sparkborn_total: sparkbornTotal,
+            dormant_sparks: dormantSparks,
+            sensitives: sensitives,
+            adepts: adepts
+        });
 
         for (const key in inventory) {
             if (inventory[key] > 100000) inventory[key] = 100000;
@@ -348,6 +360,8 @@ export async function runBurgOperationsAgent(client: any, tick: number) {
             crime: newCrime,
             urbanTier: urbanTier,
             pop_null: newPopNull,
+            pop_attuned: newPopAttuned,
+            demographics: demoJson,
             military_forces: burg.military_forces
         });
 
@@ -365,7 +379,11 @@ export async function runBurgOperationsAgent(client: any, tick: number) {
               health = v.health,
               unrest = v.unrest,
               crime_rate = v.crime,
-              urban_tier = v.urban_tier, pop_null = v.pop_null, military_forces = v.military_forces::jsonb
+              urban_tier = v.urban_tier,
+              pop_null = v.pop_null,
+              pop_attuned = v.pop_attuned,
+              demographics = v.demographics,
+              military_forces = v.military_forces::jsonb
             FROM (
               SELECT unnest($1::int[]) as id,
                      unnest($2::int[]) as food,
@@ -373,13 +391,19 @@ export async function runBurgOperationsAgent(client: any, tick: number) {
                      unnest($4::int[]) as health,
                      unnest($5::int[]) as unrest,
                      unnest($6::int[]) as crime,
-                     unnest($7::int[]) as urban_tier, unnest($8::int[]) as pop_null, unnest($9::text[]) as military_forces
+                     unnest($7::int[]) as urban_tier,
+                     unnest($8::int[]) as pop_null,
+                     unnest($9::int[]) as pop_attuned,
+                     unnest($10::text[]) as demographics,
+                     unnest($11::text[]) as military_forces
             ) AS v
             WHERE b.burg_id = v.id
         `, [
             burgUpdates.map(u => u.id), burgUpdates.map(u => u.food), burgUpdates.map(u => u.wealth),
             burgUpdates.map(u => u.health), burgUpdates.map(u => u.unrest), burgUpdates.map(u => u.crime),
-            burgUpdates.map(u => u.urbanTier), burgUpdates.map(u => u.pop_null || 0), burgUpdates.map(u => typeof u.military_forces === 'string' ? u.military_forces : JSON.stringify(u.military_forces || {}))
+            burgUpdates.map(u => u.urbanTier), burgUpdates.map(u => u.pop_null || 0),
+            burgUpdates.map(u => u.pop_attuned || 0), burgUpdates.map(u => u.demographics),
+            burgUpdates.map(u => typeof u.military_forces === 'string' ? u.military_forces : JSON.stringify(u.military_forces || {}))
         ]);
     }
 
