@@ -26,7 +26,36 @@ export async function runMandateAgent(client: any, tick: number, loreDate: strin
     );
 
     if (existingWarband.rowCount === 0 && Math.random() < 0.25) {
-      const citizen = recruitMandatePersona(burg.name || `Burg #${burg.burg_id}`);
+      // Query pre-rendered citizen pool for Null laborers
+      const recruitRes = await client.query(`
+        SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation
+        FROM population_demographics
+        WHERE settlement_id = $1
+          AND is_null = true
+          AND allegiance_status = 'CIVILIAN'
+        ORDER BY 
+          CASE WHEN temper = 'VENGEFUL' THEN 1 WHEN temper = 'BITTER' THEN 2 WHEN temper = 'FANATICAL' THEN 3 ELSE 4 END,
+          RANDOM()
+        LIMIT 1
+      `, [burg.burg_id]);
+
+      const dbCitizen = recruitRes.rows[0];
+      const citizen = dbCitizen ? {
+        citizenName: dbCitizen.name,
+        profession: dbCitizen.profession,
+        species: dbCitizen.species,
+        sparkTier: dbCitizen.spark_tier,
+        temper: dbCitizen.temper,
+        instinct: dbCitizen.instinct,
+        motivation: dbCitizen.motivation
+      } : recruitMandatePersona(burg.name || `Burg #${burg.burg_id}`);
+
+      if (dbCitizen) {
+        await client.query(
+          "UPDATE population_demographics SET allegiance_status = 'MANDATE_ZEALOT' WHERE citizen_id = $1",
+          [dbCitizen.citizen_id]
+        );
+      }
 
       await client.query(`
         INSERT INTO sim_agents (
