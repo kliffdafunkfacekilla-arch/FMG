@@ -73,7 +73,7 @@ export async function runTrophicEcologyAgent(
     // 4. Predator-Prey Balance & Starvation Cascade
     // When predators exceed prey (e.g. overhunting prey or natural cycles), predators starve
     const starvingEcosystems = await client.query(`
-        SELECT id, eco_predators, eco_prey, cell_features
+        SELECT id, eco_predators, eco_prey
         FROM sim_cells
         WHERE eco_predators > (eco_prey * 1.4) AND eco_predators >= 2.0
         ORDER BY RANDOM()

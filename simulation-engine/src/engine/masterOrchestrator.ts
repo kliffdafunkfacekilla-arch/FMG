@@ -6,6 +6,7 @@ import { runLocalParagonAgent } from "./agents/paragonPlanningAgent";
 import { runFactionPlanningAgent } from "./agents/factionPlanningAgent";
 import { runWardenAgent } from "./agents/wardenAgent";
 import { runCultistAgent } from "./agents/cultistAgent";
+import { runMandateAgent } from "./agents/mandateAgent";
 import { runEncounterAgent } from "./agents/encounterAgent";
 import { runChroniclerAgent } from "./agents/chroniclerAgent";
 import { runCartelAgent } from "./agents/cartelAgent";
@@ -57,6 +58,9 @@ export async function executeMasterTick(): Promise<{status: string, currentTick:
 
         // 7. Cultists
         await runCultistAgent(client, tick, loreDate);
+
+        // 7b. Mandate of the Chain (The Null Zealots)
+        await runMandateAgent(client, tick, loreDate);
 
         // 8. Underworld Cartels (Fringe Factions)
         await runCartelAgent(client, tick, loreDate);

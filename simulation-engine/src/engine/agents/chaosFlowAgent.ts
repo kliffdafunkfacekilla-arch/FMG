@@ -229,11 +229,26 @@ export async function runChaosFlowAgent(
               ).catch(() => {});
 
               if (Math.random() < 0.20) {
-                const role = Math.random() < 0.6 ? "Cultist" : "Warden";
-                await client.query(
-                  `INSERT INTO sim_agents (role, location_cell_id) VALUES ($1, $2)`,
-                  [role, cell.id]
-                ).catch(() => {});
+                const roll = Math.random();
+                if (roll < 0.50) {
+                  await client.query(
+                    `INSERT INTO sim_agents (name, role, sub_role, location_cell_id, state, corruption, age_ticks, active_plot)
+                     VALUES ($1, 'Cultist', 'Cultist_Pilgrim', $2, 'TRAVELING_TO_SEAL', 20, 0, 'Communing with chaotic aether along flow banks')`,
+                    [`Flow Cabal of ${flow.dragonName}`, cell.id]
+                  ).catch(() => {});
+                } else if (roll < 0.80) {
+                  await client.query(
+                    `INSERT INTO sim_agents (name, role, sub_role, location_cell_id, state, corruption, age_ticks, active_plot)
+                     VALUES ($1, 'Warden', 'Warden_Sentinel', $2, 'TRAVELING_TO_SEAL', 5, 0, 'Patrolling primordial flow perimeter')`,
+                    [`Grey Warden Flow-Patrol`, cell.id]
+                  ).catch(() => {});
+                } else {
+                  await client.query(
+                    `INSERT INTO sim_agents (name, role, sub_role, location_cell_id, state, drained_power, age_ticks, active_plot)
+                     VALUES ($1, 'Chain_Zealot', 'Chain_Inquisitor', $2, 'WITCH_HUNTING', 15, 0, 'Hunting wild sparks drawn to the flow')`,
+                    [`Null-Chain Outriders`, cell.id]
+                  ).catch(() => {});
+                }
               }
             }
           }

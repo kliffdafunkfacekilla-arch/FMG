@@ -753,9 +753,22 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
           break;
       }
 
+      const halfNull = Math.max(1, Math.round(pop * 0.5));
+      const halfAttuned = Math.max(1, Math.round(pop * 0.5));
+      const dormant = Math.round(halfAttuned * 0.5);
+      const adepts = Math.max(1, Math.round(halfAttuned * 0.01));
+      const sensitives = Math.max(0, halfAttuned - dormant - adepts);
+      const demoStr = JSON.stringify({
+        nulls: halfNull,
+        sparkborn_total: halfAttuned,
+        dormant_sparks: dormant,
+        sensitives,
+        adepts
+      });
+
       await client.query(
-        `UPDATE sim_burg_economy SET pop_null = $1, pop_attuned = 0, wealth = $2, food = $3, crime_rate = $4, military_forces = $5 WHERE burg_id = $6`,
-        [pop, Math.max(wealth, b.wealth||0), Math.max(food, b.food||0), Math.max(crime, b.crime_rate||0), JSON.stringify({ footmen: mil }), b.burg_id]
+        `UPDATE sim_burg_economy SET pop_null = $1, pop_attuned = $2, demographics = $3, wealth = $4, food = $5, crime_rate = $6, military_forces = $7 WHERE burg_id = $8`,
+        [halfNull, halfAttuned, demoStr, Math.max(wealth, b.wealth||0), Math.max(food, b.food||0), Math.max(crime, b.crime_rate||0), JSON.stringify({ footmen: mil }), b.burg_id]
       );
       
       await client.query(
