@@ -23,6 +23,7 @@ import { resolveOpposedSocialContest, resolveCosmicDreadCheck, SocialCombatant }
 import { computeActionDC, ATOMIC_TAG_ACTIONS } from "./TagRegistry.js";
 import { ProceduralNPCGenerator, SeededPRNG } from "./ProceduralNPCGenerator.js";
 import { getActiveChaosFlows, evaluatePointChaosFlowProximity, applyPlayerChaosMutation } from "../agents/chaosFlowAgent.js";
+import { generateChaosSurge } from "./chaosSurgeEngine.js";
 
 export interface ActionInput {
   actionText: string;
@@ -193,55 +194,7 @@ export class ConcordiaGameMaster {
       }
     } catch (err) {}
 
-    // Query Live Primordial Chaos Flow Proximity
-    try {
-      const cellCoordRes = await this.pool.query(
-        "SELECT center_x, center_y FROM sim_cells WHERE id = $1",
-        [cellId]
-      );
-      const cx = Number(cellCoordRes.rows[0]?.center_x) || 1409;
-      const cy = Number(cellCoordRes.rows[0]?.center_y) || 740;
-      const flows = await getActiveChaosFlows(this.pool);
-      const flowProximity = evaluatePointChaosFlowProximity(cx, cy, flows);
-      context.chaosFlow = flowProximity;
 
-      if (flowProximity.intersected || flowProximity.nearNarrowSpot || flowProximity.distToFlow <= 60) {
-        context.chaosRadiation = Math.max(context.chaosRadiation || 0, 0.95);
-
-        // Inject Ford Prop if at narrow constriction
-        if (flowProximity.nearNarrowSpot && flowProximity.narrowSpot) {
-          const fordProp: TaggedObject = {
-            id: `prop_chaos_ford_${cellId}`,
-            name: `The Narrow Ford of ${flowProximity.nearestFlow?.dragonName || "Chaos"}`,
-            type: "PROP",
-            pos: [128, 128],
-            tags: new Set<string>(["stone", "chasm", "narrow_ford", "chaos_crossing", "stepping_stones"]),
-            hp: 200,
-            maxHp: 200,
-            isDestroyed: false,
-            description: flowProximity.narrowSpot.description
-          };
-          this.activeProps.set(fordProp.id, fordProp);
-        }
-
-        // Inject Roaring Flow Prop
-        const currentFlow = flowProximity.nearestFlow;
-        const flowProp: TaggedObject = {
-          id: `prop_chaos_flow_${cellId}`,
-          name: `Roaring Cataract of ${currentFlow?.name || "Primordial Chaos"}`,
-          type: "PROP",
-          pos: [142, 128],
-          tags: new Set<string>(["chaos_flow", "hazard", "deadly", "aether", "primordial"]),
-          hp: 99999,
-          maxHp: 99999,
-          isDestroyed: false,
-          description: `A churning channel of raw ${currentFlow?.elementalPower || "Chaos"} aether (${currentFlow?.currentWidth || 30}m wide, Surge x${currentFlow?.currentSurge || 1.0}). Ground crossing is deadly unless braving the narrow ford; safe by airship.`
-        };
-        this.activeProps.set(flowProp.id, flowProp);
-      }
-    } catch (err) {
-      console.warn("Could not query chaos flows in loadSector:", err);
-    }
 
     // 1. Fetch persisted NPCs from sim_npc_instances for this sector
     let persistedNPCs: InjectedNPC[] = [];
@@ -280,6 +233,102 @@ export class ConcordiaGameMaster {
       }
     } catch (err) {
       console.error("Error querying persisted NPCs:", err);
+    }
+
+    // Query Live Primordial Chaos Flow Proximity & Ambient Chaos Surges
+    try {
+      const cellCoordRes = await this.pool.query(
+        "SELECT center_x, center_y FROM sim_cells WHERE id = $1",
+        [cellId]
+      );
+      const cx = Number(cellCoordRes.rows[0]?.center_x) || 1409;
+      const cy = Number(cellCoordRes.rows[0]?.center_y) || 740;
+      const flows = await getActiveChaosFlows(this.pool);
+      const flowProximity = evaluatePointChaosFlowProximity(cx, cy, flows);
+      context.chaosFlow = flowProximity;
+
+      if (flowProximity.intersected || flowProximity.isAdjacent) {
+        context.chaosRadiation = Math.max(context.chaosRadiation || 0, flowProximity.ambientChaos);
+
+        // Generate dynamic wild chaos surge & environmental ripples
+        const surge = generateChaosSurge(
+          flowProximity.nearestFlow?.elementalPower || "Flux",
+          flowProximity.ambientChaos,
+          Array.from(this.activeProps.values()).map(p => ({ id: p.id, name: p.name })),
+          persistedNPCs.map(n => ({ id: n.id, name: n.name }))
+        );
+        (context as any).activeSurge = surge;
+
+        // Inject the Surge Anomaly Prop
+        const anomalyProp: TaggedObject = {
+          id: `prop_chaos_anomaly_${cellId}`,
+          name: surge.activeSurge.name,
+          type: "PROP",
+          pos: [134, 128],
+          tags: new Set<string>(["chaos_surge", "aether", "hazard", surge.activeSurge.tier.toLowerCase()]),
+          hp: 50,
+          maxHp: 50,
+          isDestroyed: false,
+          description: `${surge.activeSurge.headline} ${surge.activeSurge.description}`
+        };
+        this.activeProps.set(anomalyProp.id, anomalyProp);
+
+        // High likelihood of Cultist or Grey Warden encounter in adjacent / flow cells
+        if (Math.random() < 0.45 && !persistedNPCs.some(n => n.role.includes("Cultist") || n.role.includes("Warden"))) {
+          const isCultist = Math.random() < 0.55;
+          const factionName = isCultist ? "Chaos Cultist Covenant" : "The Grey Wardens";
+          const encounterNPC: InjectedNPC = {
+            id: `npc_ley_${isCultist ? "cultist" : "warden"}_${Date.now()}`,
+            name: isCultist ? `Cultist Zealot of ${flowProximity.nearestFlow?.dragonName || "Chaos"}` : "Grey Warden Ley-Vigilant",
+            role: isCultist ? "Chaos Cultist" : "Grey Warden Sentinel",
+            pos: [126, 126],
+            tags: [isCultist ? "cultist" : "warden", "humanoid", "magic", "armed"],
+            faction: factionName,
+            hp: isCultist ? 18 : 26,
+            maxHp: isCultist ? 18 : 26,
+            disposition: isCultist ? -2 : 1,
+            alive: true,
+            equippedWeapon: isCultist ? "Void Runic Dagger" : "Sun-Forged Halberd",
+            equippedArmor: isCultist ? "Silk Cultist Vestments" : "Steel Plated Cuirass",
+            statAffinity: isCultist ? "willpower" : "might",
+            inventory: isCultist ? ["Forbidden Dragon Effigy", "Blackstone Shard"] : ["Warden Binding Ward", "Healing Draught"]
+          };
+          persistedNPCs.push(encounterNPC);
+        }
+
+        // Inject Ford Prop if at narrow constriction
+        if (flowProximity.nearNarrowSpot && flowProximity.narrowSpot) {
+          const fordProp: TaggedObject = {
+            id: `prop_chaos_ford_${cellId}`,
+            name: `The Narrow Ford of ${flowProximity.nearestFlow?.dragonName || "Chaos"}`,
+            type: "PROP",
+            pos: [128, 128],
+            tags: new Set<string>(["stone", "chasm", "narrow_ford", "chaos_crossing", "stepping_stones"]),
+            hp: 200,
+            maxHp: 200,
+            isDestroyed: false,
+            description: flowProximity.narrowSpot.description
+          };
+          this.activeProps.set(fordProp.id, fordProp);
+        }
+
+        // Inject Roaring Flow Prop
+        const currentFlow = flowProximity.nearestFlow;
+        const flowProp: TaggedObject = {
+          id: `prop_chaos_flow_${cellId}`,
+          name: `Roaring Cataract of ${currentFlow?.name || "Primordial Chaos"}`,
+          type: "PROP",
+          pos: [142, 128],
+          tags: new Set<string>(["chaos_flow", "hazard", "deadly", "aether", "primordial"]),
+          hp: 99999,
+          maxHp: 99999,
+          isDestroyed: false,
+          description: `A churning channel of raw ${currentFlow?.elementalPower || "Chaos"} aether (${currentFlow?.currentWidth || 30}m wide, Surge x${currentFlow?.currentSurge || 1.0}). Ground crossing is deadly unless braving the narrow ford; safe by airship.`
+        };
+        this.activeProps.set(flowProp.id, flowProp);
+      }
+    } catch (err) {
+      console.warn("Could not query chaos flows in loadSector:", err);
     }
 
     const seedVal = (cellId * 73856093) ^ (rx * 19349663) ^ (ry * 83492791);

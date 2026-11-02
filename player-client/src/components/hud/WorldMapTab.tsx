@@ -24,7 +24,10 @@ export const WorldMapTab: React.FC<WorldMapTabProps> = ({
       const data = await res.json();
       if (data.cell) {
         const targetCell = data.cell;
-        if (window.confirm(`Fast-travel across the realm to Global Cell ${targetCell.id} (${targetCell.faction_name || 'Wild Frontier'})?`)) {
+        if (targetCell.is_flow_cell) {
+          // Primordial Chaos Flow: route to dedicated lethal crossing modal
+          onFastTravel(targetCell);
+        } else if (window.confirm(`Fast-travel across the realm to Global Cell ${targetCell.id} (${targetCell.faction_name || 'Wild Frontier'})?`)) {
           onFastTravel(targetCell);
         }
       }

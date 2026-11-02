@@ -738,7 +738,8 @@ router.post('/sector_load', async (req, res) => {
       npcs: injected.npcs,
       campaignState: concordiaGM.getStoryEngine().getCampaignState(),
       calendar,
-      chaosFlow: flowProximity
+      chaosFlow: flowProximity,
+      chaosSurge: (injected as any).activeBeat?.context?.activeSurge || null
     });
   } catch (e: any) {
     console.error('Sector load error:', e);

@@ -197,6 +197,53 @@ export async function runChaosFlowAgent(
     ).catch(() => {});
   }
 
+  // 4. Update Ambient Chaos & Attract Cultists / Wardens along Flow Banks
+  if (tick % 2 === 0) {
+    try {
+      for (const flow of liveFlows) {
+        const samplePts = [flow.waypoints[2], flow.waypoints[5], flow.waypoints[8]].filter(Boolean);
+        for (const pt of samplePts) {
+          if (!pt) continue;
+          const nearbyCellsRes = await client.query(
+            `SELECT id, center_x, center_y, eco_blight FROM sim_cells
+             WHERE center_x BETWEEN $1 AND $2 AND center_y BETWEEN $3 AND $4
+             LIMIT 4`,
+            [pt.x - 70, pt.x + 70, pt.y - 70, pt.y + 70]
+          );
+
+          for (const cell of nearbyCellsRes.rows) {
+            const prox = evaluatePointChaosFlowProximity(cell.center_x, cell.center_y, [flow]);
+            if (prox.intersected || prox.isAdjacent) {
+              const zoneIntensity = Math.round(prox.ambientChaos * 100);
+              await client.query(
+                `INSERT INTO sim_chaos_zones (cell_id, intensity, type)
+                 VALUES ($1, $2, $3)`,
+                [cell.id, zoneIntensity, `${flow.elementalPower.toUpperCase()}_CHAOS_LEYS`]
+              ).catch(() => {});
+
+              await client.query(
+                `UPDATE sim_cells
+                 SET eco_blight = LEAST(100.0, COALESCE(eco_blight, 0) + 1.5)
+                 WHERE id = $1`,
+                [cell.id]
+              ).catch(() => {});
+
+              if (Math.random() < 0.20) {
+                const role = Math.random() < 0.6 ? "Cultist" : "Warden";
+                await client.query(
+                  `INSERT INTO sim_agents (role, location_cell_id) VALUES ($1, $2)`,
+                  [role, cell.id]
+                ).catch(() => {});
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Error updating flow adjacent chaos cells:", err);
+    }
+  }
+
   return liveFlows;
 }
 
@@ -209,10 +256,12 @@ export function evaluatePointChaosFlowProximity(
   flows: LiveChaosFlowState[]
 ): {
   intersected: boolean;
+  isAdjacent: boolean;
   nearNarrowSpot: boolean;
   nearestFlow?: LiveChaosFlowState | undefined;
   distToFlow: number;
   narrowSpot?: NarrowCrossingSpot | undefined;
+  ambientChaos: number;
 } {
   let closestDist = Infinity;
   let closestFlow: LiveChaosFlowState | undefined;
@@ -242,15 +291,29 @@ export function evaluatePointChaosFlowProximity(
     }
   }
 
-  const intersected = closestFlow ? closestDist <= (closestFlow.currentWidth * 1.5) : false;
+  const flowHalfWidth = closestFlow ? (closestFlow.currentWidth * 1.5) : 35;
+  const intersected = closestFlow ? closestDist <= flowHalfWidth : false;
+  const isAdjacent = closestFlow ? (!intersected && closestDist <= (flowHalfWidth + 75)) : false;
   const nearNarrowSpot = !!matchedNarrow;
+
+  let ambientChaos = 0.10;
+  if (closestFlow) {
+    if (intersected) {
+      ambientChaos = Math.min(1.0, 0.85 * (closestFlow.currentSurge || 1.0));
+    } else if (isAdjacent) {
+      const proximityFactor = Math.max(0, 1.0 - ((closestDist - flowHalfWidth) / 75.0));
+      ambientChaos = Math.min(0.95, parseFloat((0.55 + (0.35 * proximityFactor * Math.min(1.4, closestFlow.currentSurge))).toFixed(2)));
+    }
+  }
 
   return {
     intersected,
+    isAdjacent,
     nearNarrowSpot,
     nearestFlow: closestFlow,
     distToFlow: closestDist,
-    narrowSpot: matchedNarrow
+    narrowSpot: matchedNarrow,
+    ambientChaos
   };
 }
 
