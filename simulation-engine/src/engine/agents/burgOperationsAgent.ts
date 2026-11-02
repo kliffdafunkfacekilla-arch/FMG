@@ -1,4 +1,131 @@
+const ADULT_TRADE_MAP: Record<string, string> = {
+    "Forge Apprentice": "Blacksmith",
+    "Weaver Youth": "Weaver",
+    "Temple Ward": "Temple Acolyte",
+    "Farm Hand": "Farmer",
+    "Herbalist Gatherer": "Hedge Herbalist",
+    "Scribe Runner": "Town Scribe",
+    "Potter Apprentice": "Potter",
+    "Dock Urchin": "Fisherman",
+    "Stable Hand": "Caravan Drover",
+    "Tinker Apprentice": "Clockmaker",
+    "Kitchen Scullion": "Baker",
+    "Fisher Boy": "Fisherman"
+};
+
+const CHILDHOOD_BACKGROUNDS = [
+    "Apprenticed early at the forge; blistered palms taught them the stubborn value of endurance.",
+    "Survived a bitter winter famine by foraging frozen marsh-moss with their elder siblings.",
+    "Discovered strange arcane sparks dancing along their fingertips while resting beside an ancient stone megalith.",
+    "Grew up listening to temple priests chant solemn hymns about the 12 Chaos Dragons and the weakening seals.",
+    "Witnessed a city watch raid on their parents' workshop over unpaid grain taxes.",
+    "Raised on a frontier farm constantly defending sheep herds from wandering shadow-wolves.",
+    "Spent quiet candlelit hours in a scribe's dusty scriptorium copying forbidden dragon geometry.",
+    "Lost a childhood companion to a river flood; swore never to abandon their fellow cohort.",
+    "Learned to sprint across rooftops and alleys carrying sensitive missives for the merchant guild.",
+    "Fascinated by clockwork mechanisms and copper gears salvaged from behind the master tinker's bench.",
+    "Sheltered in an underground stone cellar while a chaotic purple thunderstorm warped the harvest fields.",
+    "Labored in municipal clay pits from sunrise to twilight, dreaming of buying their family's independence."
+];
+
+const FIRST_NAMES: Record<string, string[]> = {
+    "Human": ["Elian", "Vaelen", "Mara", "Lucian", "Kenneth", "Cassian", "Theron", "Orla", "Danica", "Gareth", "Fiona", "Tobias", "Morwen", "Darek", "Brina", "Jarek", "Sylvia"],
+    "Avian": ["Corvus", "Aeron", "Peregrine", "Skye", "Talon", "Cirrus", "Zephyr", "Kestrel", "Osprey", "Altair", "Sora", "Gale"],
+    "Bear-Folk": ["Bjorn", "Kaelis", "Ursan", "Torben", "Grizel", "Brant", "Hulda", "Bram", "Orson", "Valko", "Thora"],
+    "Wolf-Kin": ["Fenrir", "Lupen", "Varik", "Kira", "Ragnar", "Skoll", "Volf", "Freki", "Torva", "Astrid"],
+    "Felid": ["Leona", "Raza", "Sabre", "Tigran", "Panthera", "Vesper", "Lynx", "Cleo", "Shadow", "Zara"],
+    "Saurian": ["Krag", "Ssys", "Xerxes", "Scales", "Gorgon", "Viper", "Drakon", "Slither", "Caiman", "Basil"],
+    "Plant-Folk": ["Rowan", "Bramble", "Thorn", "Moss", "Willow", "Oakley", "Sylvan", "Fern", "Petal", "Barkley"]
+};
+
+const LAST_NAMES: Record<string, string[]> = {
+    "Human": ["Thorne", "Vance", "Ironwood", "Miller", "Blackwood", "Fletcher", "Cooper", "Ashfall", "Clearwater", "Vane", "Frost", "Stone", "Cross", "Sterling", "Oakhaven", "Pike", "Weaver"],
+    "Avian": ["Wind-Rider", "Cloud-Crest", "Sky-Watcher", "Feather-Bound", "Gale-Walker", "Storm-Beak", "High-Roost"],
+    "Bear-Folk": ["Iron-Paw", "Rock-Cleaver", "Honey-Crag", "Heavy-Stride", "Frost-Fur", "Brawn-Hammer", "Stone-Back"],
+    "Wolf-Kin": ["Blood-Howl", "Moon-Stalker", "Grey-Pelt", "Swift-Fang", "Night-Tracker", "Pine-Runner", "Frost-Howl"],
+    "Felid": ["Silent-Paws", "Shadow-Pounce", "Sun-Basker", "Razor-Claw", "Night-Stalker", "Dune-Leaper"],
+    "Saurian": ["Iron-Scale", "Deep-Basker", "Mud-Crag", "Venom-Spit", "Swamp-Stalker", "Spire-Tail"],
+    "Plant-Folk": ["Deep-Root", "Green-Bough", "Sap-Flow", "Briar-Twist", "Autumn-Leaf", "Iron-Bark"]
+};
+
+const ADULT_PROFESSIONS = [
+    "Blacksmith", "Weaver", "Miller", "Baker", "Carpenter", "Cobbler", "Stonemason",
+    "Tanner", "Fisherman", "Farmer", "City Watchman", "Gate Sentry", "Town Scribe",
+    "Hedge Herbalist", "Apothecary Apprentice", "Temple Acolyte", "Clockmaker",
+    "Disenfranchised Laborer", "Merchant Trader", "Caravan Drover", "Potter",
+    "Cooper", "Brewmaster", "Foundry Worker", "Armorer", "Bowyer"
+];
+
+function pickRandom<T>(arr: T[], fallback: T): T {
+    if (!arr || arr.length === 0) return fallback;
+    return arr[Math.floor(Math.random() * arr.length)] ?? fallback;
+}
+
+function resolveSpecies(demographicsStr: string): string {
+    try {
+        const demo = JSON.parse(demographicsStr || "{}");
+        const entries = Object.entries(demo);
+        if (entries.length === 0) return "Human";
+        const roll = Math.random();
+        let cumulative = 0;
+        for (const [sp, weight] of entries) {
+            cumulative += Number(weight);
+            if (roll <= cumulative) {
+                if (sp.includes("Avian") || sp.includes("Eagle") || sp.includes("Hawk")) return "Avian";
+                if (sp.includes("Bear") || sp.includes("Ursine")) return "Bear-Folk";
+                if (sp.includes("Wolf") || sp.includes("Hound")) return "Wolf-Kin";
+                if (sp.includes("Felid") || sp.includes("Cat") || sp.includes("Red Panda")) return "Felid";
+                if (sp.includes("Lizard") || sp.includes("Reptile") || sp.includes("Saurian")) return "Saurian";
+                if (sp.includes("Plant") || sp.includes("Mushroom") || sp.includes("Fae")) return "Plant-Folk";
+                return sp;
+            }
+        }
+    } catch (e) {}
+    return "Human";
+}
+
+async function spawnImmigrant(client: any, burg: any) {
+    const isExotic = Math.random() < 0.15;
+    const ALL_SPECIES = ["Human", "Avian", "Bear-Folk", "Wolf-Kin", "Felid", "Saurian", "Plant-Folk"];
+    const species = isExotic ? pickRandom(ALL_SPECIES, "Human") : resolveSpecies(burg.species_demographics);
+    const first = pickRandom(FIRST_NAMES[species] || FIRST_NAMES["Human"] || ["Val"], "Val");
+    const last = pickRandom(LAST_NAMES[species] || LAST_NAMES["Human"] || ["Traveler"], "Traveler");
+    const name = `${first} ${last}`;
+    const profession = pickRandom(ADULT_PROFESSIONS, "Merchant Trader");
+    const age = Math.floor(Math.random() * 25) + 20;
+    const childhood = pickRandom(CHILDHOOD_BACKGROUNDS, "Traveled far across the leylines during youth.");
+    const isNull = Math.random() < 0.50;
+    const sparkTier = isNull ? "NULL" : (Math.random() < 0.50 ? "DORMANT_SPARK" : Math.random() < 0.70 ? "SENSITIVE" : "CHANNELER");
+    const temper = pickRandom(["GREEDY", "FANATICAL", "DESPERATE", "SCHOLARLY", "STOIC", "VENGEFUL", "COMPASSIONATE", "BITTER"], "CURIOUS");
+    const instinct = pickRandom(["WARY", "CURIOUS", "AGGRESSIVE", "FEARFUL", "DEVOUT"], "WARY");
+    const motiv = `Relocated to ${burg.name || 'town'} seeking new trade opportunities and stability.`;
+
+    await client.query(`
+        INSERT INTO population_demographics (
+            settlement_id, home_cell_id, name, profession, species,
+            is_null, spark_tier, attunement_level, chaos_attraction_index,
+            temper, instinct, motivation, traits, social_links, allegiance_status,
+            unit_size, life_stage, age, childhood_background, is_immigrant
+        ) VALUES (
+            $1, $2, $3, $4, $5,
+            $6, $7, $8, $9,
+            $10, $11, $12, $13::jsonb, '[]'::jsonb, 'CIVILIAN',
+            12, 'ADULT', $14, $15, TRUE
+        )
+    `, [
+        burg.burg_id, burg.cell_id, name, profession, species,
+        isNull, sparkTier, isNull ? 0 : 0.3, isNull ? 0 : 2.0,
+        temper, instinct, motiv, JSON.stringify([temper, instinct]),
+        age, childhood
+    ]);
+}
+
 export async function runBurgOperationsAgent(client: any, tick: number) {
+    if (tick % 44 === 0) {
+        // Natural maturation: advance child ages each month
+        await client.query("UPDATE population_demographics SET age = age + 1 WHERE life_stage = 'CHILD'").catch(() => {});
+    }
+
     const burgRes = await client.query(`
         SELECT b.*, s.complex_inventory as current_inventory 
         FROM sim_burg_economy b
@@ -333,8 +460,102 @@ export async function runBurgOperationsAgent(client: any, tick: number) {
                 births = Math.max(1, births);
             }
         }
-        const newPopNull = Math.floor(Math.max(1, (burg.pop_null || 0) - (starvationDeaths || 0) + births));
-        const newPopAttuned = newPopNull; // Strict 50% Sparkborn / 50% Null Demographics
+        // 12-to-1 Demographic Growth, Maturation & Immigration
+        let growthPool = (Number(burg.pop_growth_pool) || 0) + (births - (starvationDeaths || 0));
+        let popNullDelta = 0;
+        let popAttunedDelta = 0;
+
+        // When positive growth accumulates to a full unit of 12:
+        while (growthPool >= 12) {
+            growthPool -= 12;
+            popNullDelta += 6;
+            popAttunedDelta += 6;
+
+            // 50% from children coming of age, 50% from immigration
+            const isMaturation = Math.random() < 0.50;
+            if (isMaturation) {
+                // Find oldest living child in this burg
+                const childRes = await client.query(`
+                    SELECT citizen_id, name, profession, species, spark_tier, childhood_background
+                    FROM population_demographics
+                    WHERE settlement_id = $1 AND life_stage = 'CHILD' AND allegiance_status = 'CIVILIAN'
+                    ORDER BY age DESC, citizen_id ASC
+                    LIMIT 1
+                `, [burg.burg_id]);
+
+                if (childRes.rows.length > 0) {
+                    const child = childRes.rows[0];
+                    const adultTrade = ADULT_TRADE_MAP[child.profession] || "Laborer";
+                    const newAdultMotiv = `Having come of age in ${burg.name || 'their hometown'}, they carry forward the lessons of their childhood: ${child.childhood_background || 'faithful labor'}`;
+
+                    // Promote child to adult
+                    await client.query(`
+                        UPDATE population_demographics
+                        SET life_stage = 'ADULT', age = 16, profession = $1, motivation = $2
+                        WHERE citizen_id = $3
+                    `, [adultTrade, newAdultMotiv, child.citizen_id]);
+
+                    // Spawn replacement infant/child in the cradle to replace them
+                    const replacementFirst = pickRandom(FIRST_NAMES[child.species] || FIRST_NAMES["Human"] || ["Val"], "Val");
+                    const replacementLast = child.name.split(" ")[1] || "Kin";
+                    const replacementName = `${replacementFirst} ${replacementLast}`;
+                    const replacementRole = pickRandom(["Forge Apprentice", "Weaver Youth", "Temple Ward", "Farm Hand", "Herbalist Gatherer", "Scribe Runner", "Potter Apprentice"], "Apprentice");
+                    const childBg = pickRandom(CHILDHOOD_BACKGROUNDS, "Learning the traditions of their elders.");
+                    const isChildNull = Math.random() < 0.5;
+
+                    await client.query(`
+                        INSERT INTO population_demographics (
+                            settlement_id, home_cell_id, name, profession, species,
+                            is_null, spark_tier, attunement_level, chaos_attraction_index,
+                            temper, instinct, motivation, traits, social_links, allegiance_status,
+                            unit_size, life_stage, age, childhood_background
+                        ) VALUES (
+                            $1, $2, $3, $4, $5,
+                            $6, $7, $8, $9,
+                            'CURIOUS', 'WARY', $10, '["CURIOUS","WARY","YOUTH"]'::jsonb, '[]'::jsonb, 'CIVILIAN',
+                            12, 'CHILD', 1, $11
+                        )
+                    `, [
+                        burg.burg_id, burg.cell_id, replacementName, replacementRole, child.species,
+                        isChildNull, isChildNull ? 'NULL' : (Math.random() < 0.5 ? 'DORMANT_SPARK' : 'SENSITIVE'),
+                        isChildNull ? 0 : 0.2, isChildNull ? 0 : 1.0,
+                        `Growing up in ${burg.name || 'town'} under the guidance of elder craftsmen.`,
+                        childBg
+                    ]);
+                } else {
+                    await spawnImmigrant(client, burg);
+                }
+            } else {
+                // 50% immigration: someone moving to the area
+                await spawnImmigrant(client, burg);
+            }
+        }
+
+        // When negative growth reaches -12 (starvation or casualties):
+        while (growthPool <= -12) {
+            growthPool += 12;
+            popNullDelta -= 6;
+            popAttunedDelta -= 6;
+
+            const victimRes = await client.query(`
+                SELECT citizen_id, name, profession
+                FROM population_demographics
+                WHERE settlement_id = $1 AND allegiance_status = 'CIVILIAN'
+                ORDER BY (CASE WHEN temper = 'DESPERATE' THEN 1 WHEN temper = 'BITTER' THEN 2 ELSE 3 END), RANDOM()
+                LIMIT 1
+            `, [burg.burg_id]);
+
+            if (victimRes.rows.length > 0) {
+                await client.query(`
+                    UPDATE population_demographics
+                    SET allegiance_status = 'DECEASED', cause_of_death = 'FAMINE_OR_PLAGUE'
+                    WHERE citizen_id = $1
+                `, [victimRes.rows[0].citizen_id]);
+            }
+        }
+
+        const newPopNull = Math.floor(Math.max(12, (burg.pop_null || 0) + popNullDelta));
+        const newPopAttuned = Math.floor(Math.max(12, (burg.pop_attuned || 0) + popAttunedDelta));
         const sparkbornTotal = newPopAttuned;
         const dormantSparks = Math.round(sparkbornTotal * 0.50);
         const adepts = Math.max(1, Math.round(sparkbornTotal * 0.01));
@@ -361,6 +582,7 @@ export async function runBurgOperationsAgent(client: any, tick: number) {
             urbanTier: urbanTier,
             pop_null: newPopNull,
             pop_attuned: newPopAttuned,
+            pop_growth_pool: growthPool,
             demographics: demoJson,
             military_forces: burg.military_forces
         });
@@ -382,6 +604,7 @@ export async function runBurgOperationsAgent(client: any, tick: number) {
               urban_tier = v.urban_tier,
               pop_null = v.pop_null,
               pop_attuned = v.pop_attuned,
+              pop_growth_pool = v.pop_growth_pool,
               demographics = v.demographics,
               military_forces = v.military_forces::jsonb
             FROM (
@@ -395,7 +618,8 @@ export async function runBurgOperationsAgent(client: any, tick: number) {
                      unnest($8::int[]) as pop_null,
                      unnest($9::int[]) as pop_attuned,
                      unnest($10::text[]) as demographics,
-                     unnest($11::text[]) as military_forces
+                     unnest($11::text[]) as military_forces,
+                     unnest($12::float[]) as pop_growth_pool
             ) AS v
             WHERE b.burg_id = v.id
         `, [
@@ -403,7 +627,8 @@ export async function runBurgOperationsAgent(client: any, tick: number) {
             burgUpdates.map(u => u.health), burgUpdates.map(u => u.unrest), burgUpdates.map(u => u.crime),
             burgUpdates.map(u => u.urbanTier), burgUpdates.map(u => u.pop_null || 0),
             burgUpdates.map(u => u.pop_attuned || 0), burgUpdates.map(u => u.demographics),
-            burgUpdates.map(u => typeof u.military_forces === 'string' ? u.military_forces : JSON.stringify(u.military_forces || {}))
+            burgUpdates.map(u => typeof u.military_forces === 'string' ? u.military_forces : JSON.stringify(u.military_forces || {})),
+            burgUpdates.map(u => u.pop_growth_pool || 0.0)
         ]);
     }
 
