@@ -2,27 +2,31 @@
  * prerenderWorldPopulation.ts
  * ─────────────────────────────────────────────────────────────────────────
  * Pre-renders the entire persistent citizen population for all 345 burgs
- * and stores them in PostgreSQL `population_demographics`.
+ * at a strict 12-to-1 consolidation ratio (1 citizen per unit of 12).
  *
- * Core Simulation & Lore Guarantees:
- *  1. Demographics & Spark Distribution:
- *     - Exactly 50% True Nulls (immune to ambient chaos, unable to cast).
+ * Core Simulation & Lore Rules (from GEMINI.md):
+ *  1. Population Scaling & Urbanization Tiers:
+ *     - Village / Hamlet: < 1,200 population (Tier 1)
+ *     - Town: 1,200 – 12,000 population (Tier 2)
+ *     - City / Metropolis: > 12,000 population (Tier 3)
+ *     - Strictly organized into "Groups of 12" workers.
+ *  2. 12-to-1 Personhood Consolidation:
+ *     - Each database record represents the primary persona & household head
+ *       for a discrete unit of 12 (`unit_size = 12`).
+ *     - Total continental urban population: ~1.95 Million across 345 burgs.
+ *     - Total persistent citizens in DB: ~162,980 individuals.
+ *  3. Sparkborn vs. True Null Distribution:
+ *     - Exactly 50% True Nulls (immune to chaos, cannot channel).
  *     - Exactly 50% Sparkborn:
- *       * 50% of Sparkborn (25% total): Dormant Spark (no practical channeling).
- *       * Sensitive: Slight arcane intuition, low manifestation.
- *       * Channelers: Active spellweavers, sigil smiths, elemental shapers.
- *       * Adepts: Top 1% of Sparkborn (top 0.5% of total pop), reality benders.
- *  2. Personhood & Backstory:
- *     - Real first and last names.
- *     - Species matching the burg's sovereign realm demographics (Bear-Folk,
- *       Avian, Lizard-Folk, Wolf-Kin, Felid, Human, Saurian, Plant-Folk, etc.).
- *     - Authentic professions (Blacksmith, Weaver, Scribe, Baker, Guard,
- *       Apothecary, Stonemason, Carpenter, Tanner, Farmer, Clockmaker, Laborer).
- *     - 8 Psychological Tempers (Greedy, Fanatical, Desperate, Scholarly,
- *       Stoic, Vengeful, Compassionate, Bitter) and Survival Instincts.
- *     - Dynamic social ties (Kin, Acquaintance, Rival) linking to fellow townsfolk.
- *     - Allegiance tracking ('CIVILIAN', 'CULTIST_INFILTRATOR', 'WARDEN_SENTINEL',
- *       'MANDATE_ZEALOT').
+ *       * 25% of total (50% of sparkborn): Dormant Spark.
+ *       * 17.5% of total: Sensitive (slight empathy/intuition).
+ *       * 7.0% of total: Channelers (active spellcrafters).
+ *       * 0.5% of total: Adepts (Top 1% of Sparkborn, reality benders).
+ *  4. Full Living Backstories:
+ *     - First & last names, species drawn from realm demographics.
+ *     - Mundane trades (Blacksmith, Weaver, Scribe, Baker, Armorer, Guard, etc.).
+ *     - 8 Psychological Tempers & Survival Instincts.
+ *     - In-town social ties & allegiance tracking.
  */
 
 import pool from "./pool";
@@ -89,33 +93,33 @@ function resolveSpecies(demographicsStr: string): string {
 function generateMotivation(profession: string, temper: string, species: string, burgName: string): string {
   switch (temper) {
     case "GREEDY":
-      return `Determined to amass coin and acquire prime real estate along the trade thoroughfare of ${burgName}.`;
+      return `Leading their workshop to corner local commerce in ${burgName}.`;
     case "FANATICAL":
-      return `Convinced of divine prophecy and the cosmic reckoning of the dragon alignment.`;
+      return `Convinced the 12 Dragon Seals are awakening and preaching imminent cosmic judgment.`;
     case "DESPERATE":
-      return `Struggling to provide for kin amidst municipal commodity price spikes in ${burgName}.`;
+      return `Leading a struggling household striving to pay municipal guild levies in ${burgName}.`;
     case "SCHOLARLY":
-      return `Fascinated by ancient pre-calamity texts and primordial geometry forgotten by the guilds.`;
+      return `Quietly cataloging ancient pre-calamity texts and primordial dragon geometry.`;
     case "STOIC":
-      return `Faithfully carries out the daily labor of a ${profession.toLowerCase()} without complaint.`;
+      return `Upholding the daily duties of a ${profession.toLowerCase()} and providing for their 12-person cohort.`;
     case "VENGEFUL":
-      return `Harbors deep resentment against municipal magistrates over unredressed family grievances.`;
+      return `Nursing a bitter family feud against the local burg reeve.`;
     case "COMPASSIONATE":
-      return `Regularly shares bread and shelter with disenfranchised laborers outside the city gates.`;
+      return `Sheltering outcasts and sharing workshop rations with hungry laborers.`;
     case "BITTER":
-      return `Believes their lifelong craftsmanship as a ${profession.toLowerCase()} has been undervalued by the nobility.`;
+      return `Believing their cohort's hard labor is stolen by corrupt provincial nobles.`;
     default:
-      return `Seeking an honest livelihood and peace in ${burgName}.`;
+      return `Seeking peace and honest trade in ${burgName}.`;
   }
 }
 
 export async function prerenderWorldPopulation() {
   const client = await pool.connect();
   try {
-    console.log("[Prerender] Starting World Population Pre-Rendering pipeline...");
+    console.log("[Prerender] Initializing 12-to-1 Consolidated World Population pipeline...");
     await client.query("BEGIN");
 
-    // 1. Prepare Schema & Indexes
+    // 1. Prepare Schema & Add unit_size
     await client.query(`
       ALTER TABLE population_demographics DROP CONSTRAINT IF EXISTS population_demographics_settlement_id_fkey;
 
@@ -129,24 +133,25 @@ export async function prerenderWorldPopulation() {
       ALTER TABLE population_demographics ADD COLUMN IF NOT EXISTS traits JSONB DEFAULT '[]'::jsonb;
       ALTER TABLE population_demographics ADD COLUMN IF NOT EXISTS social_links JSONB DEFAULT '[]'::jsonb;
       ALTER TABLE population_demographics ADD COLUMN IF NOT EXISTS allegiance_status VARCHAR(50) DEFAULT 'CIVILIAN';
+      ALTER TABLE population_demographics ADD COLUMN IF NOT EXISTS unit_size INT DEFAULT 12;
 
       CREATE INDEX IF NOT EXISTS idx_pop_settlement ON population_demographics(settlement_id);
       CREATE INDEX IF NOT EXISTS idx_pop_spark ON population_demographics(spark_tier);
       CREATE INDEX IF NOT EXISTS idx_pop_allegiance ON population_demographics(allegiance_status);
     `);
 
-    // 2. Fetch all 345 burgs
+    // 2. Fetch all 345 burgs and sort by original wealth/population to preserve hierarchy
     const burgsRes = await client.query(`
-      SELECT burg_id, name, cell_id, urban_tier, is_capital, species_demographics
+      SELECT burg_id, name, cell_id, urban_tier, is_capital, species_demographics, wealth
       FROM sim_burg_economy
-      ORDER BY burg_id ASC
+      ORDER BY wealth DESC, burg_id ASC
     `);
 
-    console.log(`[Prerender] Found ${burgsRes.rows.length} burgs to populate.`);
-    await client.query("DELETE FROM population_demographics");
-    console.log("[Prerender] Cleared previous population_demographics.");
+    console.log(`[Prerender] Re-normalizing populations for ${burgsRes.rows.length} burgs into realistic historical tiers...`);
 
-    let totalCitizens = 0;
+    let totalContinentalPop = 0;
+    let totalConsolidatedCitizens = 0;
+
     let totalNull = 0;
     let totalDormant = 0;
     let totalSensitive = 0;
@@ -154,7 +159,7 @@ export async function prerenderWorldPopulation() {
     let totalAdepts = 0;
 
     // Batch insertion collector
-    const BATCH_SIZE = 2500;
+    const BATCH_SIZE = 3500;
     let batchSettlementIds: number[] = [];
     let batchCellIds: number[] = [];
     let batchNames: string[] = [];
@@ -169,6 +174,7 @@ export async function prerenderWorldPopulation() {
     let batchMotivations: string[] = [];
     let batchTraits: string[] = [];
     let batchSocialLinks: string[] = [];
+    let batchUnitSizes: number[] = [];
 
     const flushBatch = async () => {
       if (batchNames.length === 0) return;
@@ -176,25 +182,27 @@ export async function prerenderWorldPopulation() {
         INSERT INTO population_demographics (
           settlement_id, home_cell_id, name, profession, species,
           is_null, spark_tier, attunement_level, chaos_attraction_index,
-          temper, instinct, motivation, traits, social_links, allegiance_status
+          temper, instinct, motivation, traits, social_links, allegiance_status, unit_size
         )
         SELECT
           u.settlement_id, u.home_cell_id, u.name, u.profession, u.species,
           u.is_null, u.spark_tier, u.attunement_level, u.chaos_attraction_index,
-          u.temper, u.instinct, u.motivation, u.traits::jsonb, u.social_links::jsonb, 'CIVILIAN'
+          u.temper, u.instinct, u.motivation, u.traits::jsonb, u.social_links::jsonb, 'CIVILIAN', u.unit_size
         FROM UNNEST(
           $1::int[], $2::int[], $3::text[], $4::text[], $5::text[],
           $6::boolean[], $7::varchar[], $8::float[], $9::float[],
-          $10::varchar[], $11::varchar[], $12::text[], $13::text[], $14::text[]
+          $10::varchar[], $11::varchar[], $12::text[], $13::text[], $14::text[],
+          $15::int[]
         ) AS u(
           settlement_id, home_cell_id, name, profession, species,
           is_null, spark_tier, attunement_level, chaos_attraction_index,
-          temper, instinct, motivation, traits, social_links
+          temper, instinct, motivation, traits, social_links, unit_size
         )
       `, [
         batchSettlementIds, batchCellIds, batchNames, batchProfessions, batchSpecies,
         batchIsNull, batchSparkTiers, batchAttunements, batchChaosIndices,
-        batchTempers, batchInstincts, batchMotivations, batchTraits, batchSocialLinks
+        batchTempers, batchInstincts, batchMotivations, batchTraits, batchSocialLinks,
+        batchUnitSizes
       ]);
 
       batchSettlementIds = [];
@@ -211,16 +219,63 @@ export async function prerenderWorldPopulation() {
       batchMotivations = [];
       batchTraits = [];
       batchSocialLinks = [];
+      batchUnitSizes = [];
     };
 
-    for (const burg of burgsRes.rows) {
-      // Citizen sample scale per burg based on urban tier
-      const tier = burg.urban_tier || 1;
-      const citizenCount = burg.is_capital ? 400 : (tier === 3 ? 250 : (tier === 2 ? 160 : 100));
+    // Clean previous population table
+    await client.query("DELETE FROM population_demographics");
+
+    const burgCount = burgsRes.rows.length;
+    for (let idx = 0; idx < burgCount; idx++) {
+      const burg = burgsRes.rows[idx];
+
+      // Realistic historical scaling:
+      // Top 10 Major Capitals: 35,000 – 75,000
+      // Next 35 Citadels & Provincial Hubs: 10,000 – 25,000
+      // Next 120 Walled Market Towns: 2,000 – 8,000
+      // Remaining 180 Hamlets, Garrisons & Camps: 300 – 1,500
+      let realPop = 0;
+      if (idx < 10) {
+        const ratio = 1 - (idx / 10);
+        realPop = Math.round(35000 + ratio * 40000);
+      } else if (idx < 45) {
+        const ratio = 1 - ((idx - 10) / 35);
+        realPop = Math.round(10000 + ratio * 15000);
+      } else if (idx < 165) {
+        const ratio = 1 - ((idx - 45) / 120);
+        realPop = Math.round(2000 + ratio * 6000);
+      } else {
+        const ratio = 1 - ((idx - 165) / 180);
+        realPop = Math.round(300 + ratio * 1200);
+      }
+
+      // Strictly ensure divisible by 12
+      realPop = Math.round(realPop / 12) * 12;
+      const citizenCount12to1 = realPop / 12;
+
+      // Urbanization Tier according to GEMINI.md:
+      // Village (< 1,200), Town (< 12,000), City (> 12,000)
+      const urbanTier = realPop >= 12000 ? 3 : (realPop >= 1200 ? 2 : 1);
+      const popNull = realPop / 2;
+      const popAttuned = realPop / 2;
+
+      // Update sim_burg_economy with realistic census
+      await client.query(`
+        UPDATE sim_burg_economy
+        SET pop_null = $1,
+            pop_attuned = $2,
+            urban_tier = $3,
+            food = GREATEST(food, $4),
+            raw_materials = GREATEST(raw_materials, $5)
+        WHERE burg_id = $6
+      `, [popNull, popAttuned, urbanTier, Math.round(realPop * 0.15), Math.round(realPop * 0.1), burg.burg_id]);
+
+      totalContinentalPop += realPop;
+      totalConsolidatedCitizens += citizenCount12to1;
 
       const burgCitizens: { name: string; species: string; profession: string }[] = [];
 
-      for (let i = 0; i < citizenCount; i++) {
+      for (let c = 0; c < citizenCount12to1; c++) {
         const species = resolveSpecies(burg.species_demographics);
         const firstList = FIRST_NAMES[species] || FIRST_NAMES["Human"] || ["Val"];
         const lastList = LAST_NAMES[species] || LAST_NAMES["Human"] || ["Thorne"];
@@ -231,11 +286,7 @@ export async function prerenderWorldPopulation() {
 
         // Strict Spark Distribution:
         // 50% True Null
-        // 50% Sparkborn:
-        //   - 50% of Sparkborn (25% total): Dormant Spark
-        //   - 35% of Sparkborn (17.5% total): Sensitive
-        //   - 14% of Sparkborn (7% total): Channeler
-        //   - 1% of Sparkborn (0.5% total): Adept
+        // 50% Sparkborn (25% Dormant, 17.5% Sensitive, 7% Channeler, 0.5% Adept)
         const sparkRoll = Math.random();
         let isNull = false;
         let sparkTier: "NULL" | "DORMANT_SPARK" | "SENSITIVE" | "CHANNELER" | "ADEPT";
@@ -277,13 +328,10 @@ export async function prerenderWorldPopulation() {
         const temper = pickRandom(TEMPERS, "STOIC");
         const instinct = pickRandom(INSTINCTS, "WARY");
         const motivation = generateMotivation(profession, temper, species, burg.name || `Burg #${burg.burg_id}`);
-
-        // Generate 2 traits
         const traits = [temper, instinct];
 
-        // Seed basic social links within burg populace
         const socialLinks: any[] = [];
-        if (burgCitizens.length > 2) {
+        if (burgCitizens.length > 2 && Math.random() < 0.35) {
           const target = pickRandom(burgCitizens, burgCitizens[0]!);
           socialLinks.push({
             name: target.name,
@@ -294,7 +342,6 @@ export async function prerenderWorldPopulation() {
 
         burgCitizens.push({ name, species, profession });
 
-        // Add to batch
         batchSettlementIds.push(burg.burg_id);
         batchCellIds.push(burg.cell_id);
         batchNames.push(name);
@@ -309,8 +356,7 @@ export async function prerenderWorldPopulation() {
         batchMotivations.push(motivation);
         batchTraits.push(JSON.stringify(traits));
         batchSocialLinks.push(JSON.stringify(socialLinks));
-
-        totalCitizens++;
+        batchUnitSizes.push(12);
 
         if (batchNames.length >= BATCH_SIZE) {
           await flushBatch();
@@ -318,16 +364,17 @@ export async function prerenderWorldPopulation() {
       }
     }
 
-    // Flush any remaining
     await flushBatch();
-
     await client.query("COMMIT");
-    console.log(`[Prerender] SUCCESS! Pre-rendered ${totalCitizens} persistent citizens across ${burgsRes.rows.length} burgs:`);
-    console.log(`  - True Nulls: ${totalNull} (${((totalNull / totalCitizens) * 100).toFixed(1)}%)`);
-    console.log(`  - Dormant Sparks: ${totalDormant} (${((totalDormant / totalCitizens) * 100).toFixed(1)}%)`);
-    console.log(`  - Sensitives: ${totalSensitive} (${((totalSensitive / totalCitizens) * 100).toFixed(1)}%)`);
-    console.log(`  - Channelers: ${totalChannelers} (${((totalChannelers / totalCitizens) * 100).toFixed(1)}%)`);
-    console.log(`  - Adepts (Top 1% of Sparkborn): ${totalAdepts} (${((totalAdepts / totalCitizens) * 100).toFixed(2)}%)`);
+
+    console.log(`[Prerender] SUCCESS! 12-to-1 Consolidated Population created:`);
+    console.log(`  - Total Realistic Continental Burg Population: ${totalContinentalPop.toLocaleString()}`);
+    console.log(`  - Total Persistent 12:1 Citizens in DB: ${totalConsolidatedCitizens.toLocaleString()}`);
+    console.log(`  - True Nulls: ${totalNull.toLocaleString()} (${((totalNull / totalConsolidatedCitizens) * 100).toFixed(1)}%)`);
+    console.log(`  - Dormant Sparks: ${totalDormant.toLocaleString()} (${((totalDormant / totalConsolidatedCitizens) * 100).toFixed(1)}%)`);
+    console.log(`  - Sensitives: ${totalSensitive.toLocaleString()} (${((totalSensitive / totalConsolidatedCitizens) * 100).toFixed(1)}%)`);
+    console.log(`  - Channelers: ${totalChannelers.toLocaleString()} (${((totalChannelers / totalConsolidatedCitizens) * 100).toFixed(1)}%)`);
+    console.log(`  - Adepts (Top 1% of Sparkborn): ${totalAdepts.toLocaleString()} (${((totalAdepts / totalConsolidatedCitizens) * 100).toFixed(2)}%)`);
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("[Prerender] FAILED with error:", err);
