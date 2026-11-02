@@ -1,14 +1,14 @@
 /**
  * mandateAgent.ts - Autonomous "Mandate of the Chain" Null Zealot Faction
  *
- * Born from the 50% Null population, the Mandate of the Chain zealously believes
- * that Sparks are the root source of planetary chaos. Armed with elemental chains,
- * they form warbands outside burgs to hunt hedge wizards, draining their sparks to the death.
- * In tragic irony, when they pilgrimage to Dragon Prisons to discharge this power,
- * they inadvertently reinforce and strengthen the ancient seals!
+ * Drawn strictly from the 50% Null population, these are real cobblers, stonemasons,
+ * and laborers embittered by chaos disasters or magical injustice. Their personalities
+ * (Vengeful, Devout, Bitter, Desperate) dictate their hunt ferocity as they bind and
+ * drain rogue sparkborn with elemental shackles, and then pilgrimage to the Dragon Prisons.
  */
 
 import { stepTowardCell, getNearestSacredGrove } from "./agentMovementHelper.js";
+import { recruitMandatePersona } from "./citizenPersonaHelper.js";
 
 export async function runMandateAgent(client: any, tick: number, loreDate: string) {
   // 1. Warband Formation outside Unrestful Burgs
@@ -26,28 +26,47 @@ export async function runMandateAgent(client: any, tick: number, loreDate: strin
     );
 
     if (existingWarband.rowCount === 0 && Math.random() < 0.25) {
+      const citizen = recruitMandatePersona(burg.name || `Burg #${burg.burg_id}`);
+
       await client.query(`
         INSERT INTO sim_agents (
-          name, role, sub_role, home_burg_id, location_cell_id,
+          name, citizen_name, profession, species, spark_tier,
+          personality_temper, personality_instinct, motivation,
+          role, sub_role, home_burg_id, location_cell_id,
           state, drained_power, age_ticks, active_plot
         ) VALUES (
-          $1, 'Chain_Zealot', 'Chain_Inquisitor', $2, $3,
-          'WITCH_HUNTING', 0, 0, 'Hunting hedge wizards with elemental dampening chains'
+          $1, $2, $3, $4, $5,
+          $6, $7, $8,
+          'Chain_Zealot', 'Chain_Inquisitor', $9, $10,
+          'WITCH_HUNTING', 0, 0, $11
         )
-      `, [`Inquisitors of the Chain (${burg.name || 'Hinterlands'})`, burg.burg_id, burg.cell_id]);
+      `, [
+        `Inquisitor ${citizen.citizenName} (${citizen.profession})`,
+        citizen.citizenName,
+        citizen.profession,
+        citizen.species,
+        citizen.sparkTier,
+        citizen.temper,
+        citizen.instinct,
+        citizen.motivation,
+        burg.burg_id,
+        burg.cell_id,
+        `Null crusade outside ${burg.name} [${citizen.temper}]: ${citizen.motivation}`
+      ]);
 
       if (Math.random() < 0.3) {
         await client.query(`
           INSERT INTO sim_events (tick, type, message, tier)
           VALUES ($1, 'CHAIN_WARBAND_FORGED', $2, 'BACKGROUND')
-        `, [tick, `Fanatical Nulls outside ${burg.name} have forged a chapter of the Mandate of the Chain, vowing to hunt sparkborn practitioners with elemental shackles.`]);
+        `, [tick, `Fanatical Nulls outside ${burg.name} banded together under ${citizen.citizenName}, a ${citizen.temper.toLowerCase()} former ${citizen.profession.toLowerCase()}, forging a chapter of the Mandate of the Chain.`]);
       }
     }
   }
 
   // 2. Process All Active Mandate of the Chain Warbands
   const warbandsRes = await client.query(`
-    SELECT id, name, sub_role, home_burg_id, location_cell_id, target_cell_id,
+    SELECT id, name, citizen_name, profession, personality_temper, personality_instinct,
+           spark_tier, sub_role, home_burg_id, location_cell_id, target_cell_id,
            target_grove_id, state, drained_power, age_ticks
     FROM sim_agents
     WHERE role = 'Chain_Zealot'
@@ -62,15 +81,19 @@ export async function runMandateAgent(client: any, tick: number, loreDate: strin
     let targetCellId = wb.target_cell_id;
     let targetGroveId = wb.target_grove_id;
     const burgId = wb.home_burg_id;
+    const temper = wb.personality_temper || 'FANATICAL';
+    const citizenName = wb.citizen_name || wb.name;
+    const profession = wb.profession || 'Laborer';
+
+    // Personality Multipliers
+    const ferocityMult = temper === 'VENGEFUL' ? 1.8 : temper === 'BITTER' ? 1.5 : 1.0;
 
     // --- PHASE A: WITCH-HUNTING OUTSIDE BURGS ---
     if (state === 'WITCH_HUNTING') {
-      // Hunt wandering hedge wizards and drain their spark essence
       if (Math.random() < 0.65) {
-        const stolenSpark = Math.floor(Math.random() * 15 + 15);
+        const stolenSpark = Math.round((Math.floor(Math.random() * 12 + 15)) * ferocityMult);
         drainedPower += stolenSpark;
 
-        // Drain 1 rogue sparkborn from the regional population & relieve fearful nulls
         if (burgId) {
           await client.query(`
             UPDATE sim_burg_economy
@@ -84,11 +107,11 @@ export async function runMandateAgent(client: any, tick: number, loreDate: strin
           await client.query(`
             INSERT INTO sim_events (tick, type, message, tier)
             VALUES ($1, 'WITCH_HUNT_EXECUTION', $2, 'BACKGROUND')
-          `, [tick, `The Mandate of the Chain captured a wild hedge wizard in the hinterlands, draining their spark into glowing elemental shackles.`]);
+          `, [tick, `${citizenName} (${profession}) and their chain-militia cornered a wild sparkborn in the outskirts, draining their power into humming null-iron shackles.`]);
         }
       }
 
-      // Check if shackles are saturated (ready for Dragon Prison Pilgrimage)
+      // Shackles Saturated Check
       if (drainedPower >= 50) {
         const nearestGrove = await getNearestSacredGrove(client, locCellId);
         if (nearestGrove) {
@@ -99,7 +122,7 @@ export async function runMandateAgent(client: any, tick: number, loreDate: strin
           await client.query(`
             INSERT INTO sim_events (tick, type, message, tier)
             VALUES ($1, 'CHAIN_PILGRIMAGE', $2, 'MINOR')
-          `, [tick, `Bearing chains humming with stolen spark essence, ${wb.name} has begun a holy pilgrimage to the Prison of ${nearestGrove.dragon_name} to "dispel the font of chaos."`]);
+          `, [tick, `Carrying shackles heavy with stolen spark power, ${citizenName} (${profession}) led their Mandate pilgrimage toward the Prison of ${nearestGrove.dragon_name} to cleanse the land.`]);
         }
       }
     }
@@ -122,7 +145,7 @@ export async function runMandateAgent(client: any, tick: number, loreDate: strin
       const dragonName = groveRes.rows[0]?.dragon_name || 'Chaos';
       const strengthBonus = Math.floor(Math.random() * 3 + 5); // +5 to +7 strength
 
-      // The Irony: They strengthen the seal!
+      // The Great Irony: Stolen sparks strengthen the cosmic wards!
       if (targetGroveId) {
         await client.query(`
           UPDATE sim_sacred_groves
@@ -131,11 +154,9 @@ export async function runMandateAgent(client: any, tick: number, loreDate: strin
         `, [strengthBonus, targetGroveId]);
       }
 
-      // Reset drained power
       drainedPower = 0;
       state = 'WITCH_HUNTING';
 
-      // Set target back to home burg cell
       if (burgId) {
         const homeCellRes = await client.query("SELECT cell_id FROM sim_burg_economy WHERE burg_id = $1", [burgId]);
         targetCellId = homeCellRes.rows[0]?.cell_id || locCellId;
@@ -144,7 +165,7 @@ export async function runMandateAgent(client: any, tick: number, loreDate: strin
       await client.query(`
         INSERT INTO sim_events (tick, type, message, tier)
         VALUES ($1, 'CHAIN_PURIFICATION_IRON', $2, 'MAJOR')
-      `, [tick, `⛓️ THE IRON REINFORCEMENT: The Mandate of the Chain discharged their glowing elemental shackles into the Prison of ${dragonName}! Convinced they purged an unholy font of corruption, their stolen spark energy has inadvertently supercharged the ancient wards (+${strengthBonus}% Seal Strength)!`]);
+      `, [tick, `⛓️ THE IRON REINFORCEMENT: ${citizenName} (${profession}) knelt before the Prison of ${dragonName}, discharging their glowing chains! Convinced they purged a demonic font, their stolen spark energy has reinforced the ancient cosmic seal (+${strengthBonus}% Seal Strength)!`]);
     }
 
     // Persist updated state

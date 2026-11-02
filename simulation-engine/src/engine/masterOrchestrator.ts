@@ -14,11 +14,15 @@ import { runBurgExpansionAgent } from "./agents/burgExpansionAgent";
 import { runTrophicEcologyAgent } from "./agents/trophicEcologyAgent";
 import { runNPCRoutineAgent } from "./agents/npcRoutineAgent";
 import { runChaosFlowAgent } from "./agents/chaosFlowAgent";
+import { backfillBlankPersonas } from "./agents/citizenPersonaHelper";
 
 export async function executeMasterTick(): Promise<{status: string, currentTick: number}> {
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
+        
+        // Ensure all active sim_agents retain living citizen personas
+        await backfillBlankPersonas(client);
         
         // Fetch current tick
         const calTickRes = await client.query('SELECT COALESCE(MAX(tick), 0) as t FROM sim_calendar');

@@ -135,3 +135,4 @@ export async function getNearestCultistCell(client: any, cellId: number): Promis
   if (cultistRes.rowCount === 0) return null;
   return cultistRes.rows[0];
 }
+
