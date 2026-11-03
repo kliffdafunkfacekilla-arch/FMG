@@ -10,6 +10,7 @@ import { runMandateAgent } from "./agents/mandateAgent";
 import { runEncounterAgent } from "./agents/encounterAgent";
 import { runChroniclerAgent } from "./agents/chroniclerAgent";
 import { runCartelAgent } from "./agents/cartelAgent";
+import { runGrindCanyonAgent } from "./agents/grindCanyonAgent";
 import { runBurgExpansionAgent } from "./agents/burgExpansionAgent";
 import { runTrophicEcologyAgent } from "./agents/trophicEcologyAgent";
 import { runNPCRoutineAgent } from "./agents/npcRoutineAgent";
@@ -66,8 +67,11 @@ export async function executeMasterTick(): Promise<{status: string, currentTick:
         // 7b. Mandate of the Chain (The Null Zealots)
         await runMandateAgent(client, tick, loreDate);
 
-        // 8. Underworld Cartels (Fringe Factions)
+        // 8. Underworld Cartels & Autonomous Syndicates
         await runCartelAgent(client, tick, loreDate);
+
+        // 8b. Grind Canyon Dynamic Chasms (Pre-Cruor Ruins & Dragonstone Diving)
+        await runGrindCanyonAgent(client, tick, loreDate);
 
         // 9. Encounters & NPC Routines
         await runEncounterAgent(client, tick);

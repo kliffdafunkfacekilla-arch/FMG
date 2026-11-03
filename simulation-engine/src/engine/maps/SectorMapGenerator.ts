@@ -74,6 +74,7 @@ function hashSeed(seedStr: string): () => number {
 // 12: Slag / Crater / Scorched Rock
 
 const SIZE = 256;
+const CENTER = 128;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. BURG URBAN CORE GENERATOR
@@ -1381,6 +1382,185 @@ export function generateCoralCrownSectorMap(cellId: number = 16777): SectorMapRe
     features: {
       isCoralCrown: true,
       factionOwner: "The Ocean Wardens",
+      cellId
+    }
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. DYNAMIC GRIND CANYON CHASM GENERATOR
+// ─────────────────────────────────────────────────────────────────────────────
+export function generateGrindCanyonSectorMap(
+  canyon: any,
+  cellId: number
+): SectorMapResult {
+  const rand = hashSeed(`canyon_${canyon.id}_${cellId}`);
+  const grid = new Uint8Array(SIZE * SIZE);
+  grid.fill(0); // Natural rugged terrain
+
+  const chasmName = canyon.name || `Grind Canyon #${canyon.id}`;
+  const domain = canyon.dragon_domain || "Tectonic";
+  const depth = canyon.depth_meters || 280;
+  const crewName = canyon.miner_crew_name || "Grind Canyon Corps - Sledge Crew";
+
+  // 1. Carve a colossal, jagged chasm down the center (void / cracked basalt slag)
+  let chasmCenterX = CENTER;
+  for (let y = 0; y < SIZE; y++) {
+    // Meander the chasm center jaggedly
+    if (y % 4 === 0) {
+      chasmCenterX += Math.floor((rand() - 0.5) * 4);
+      chasmCenterX = Math.max(80, Math.min(176, chasmCenterX));
+    }
+    const width = 12 + Math.floor(rand() * 8); // 12-20 tiles wide
+
+    for (let x = chasmCenterX - width; x <= chasmCenterX + width; x++) {
+      if (x >= 0 && x < SIZE) {
+        // Deep abyss edge vs scorched slag bottom
+        const distFromCenter = Math.abs(x - chasmCenterX);
+        if (distFromCenter < width - 2) {
+          grid[y * SIZE + x] = 12; // Scorched slag / deep abyss floor
+        } else {
+          grid[y * SIZE + x] = 5; // Jagged sheared basalt cliff ledge
+        }
+      }
+    }
+  }
+
+  // 2. Pre-Cruor Ruin Vault exposed by the rift (West Cliff-Face)
+  const rx = chasmCenterX - 18, ry = CENTER - 20;
+  for (let dy = -6; dy <= 6; dy++) {
+    for (let dx = -6; dx <= 6; dx++) {
+      const px = rx + dx, py = ry + dy;
+      if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) {
+        if (Math.abs(dx) === 6 || Math.abs(dy) === 6) {
+          grid[py * SIZE + px] = 5; // Ancient ruin stone wall
+        } else {
+          grid[py * SIZE + px] = 4; // Ancient flagstone vault floor
+        }
+      }
+    }
+  }
+
+  // 3. Delver Staging Encampment & Smelting Pit (East Cliff-Face)
+  const ex = chasmCenterX + 22, ey = CENTER + 15;
+  for (let dy = -8; dy <= 8; dy++) {
+    for (let dx = -8; dx <= 8; dx++) {
+      const px = ex + dx, py = ey + dy;
+      if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) {
+        if (Math.abs(dx) === 8 || Math.abs(dy) === 8) {
+          grid[py * SIZE + px] = 3; // Timber log palisade / decking
+        } else if (dx === 0 && dy === 0) {
+          grid[py * SIZE + px] = 8; // Roaring slag smelting fire
+        }
+      }
+    }
+  }
+
+  const props = [
+    {
+      id: `prop_grind_chasm_${canyon.id}`,
+      name: `The Yawning Grind Canyon Abyss (${chasmName})`,
+      pos: [chasmCenterX, CENTER] as [number, number],
+      tags: ["abyss", "chasm", "tectonic", "dragonstone", "dangerous", "unstable"],
+      hp: 50000,
+      maxHp: 50000,
+      description: `A terrifying tectonic fissure plunging ${depth}m into the planetary mantle. Roaring steam and grinding rock echo from the depths. Stability: ${canyon.stability_ticks_remaining} days remaining before bedrock crushes it shut.`
+    },
+    {
+      id: `prop_descent_winch_${canyon.id}`,
+      name: `Steam Cable Winch & Iron Diving Cage (${crewName})`,
+      pos: [chasmCenterX + 14, CENTER - 10] as [number, number],
+      tags: ["metal", "machinery", "winch", "cage", "heavy"],
+      hp: 350,
+      maxHp: 350,
+      description: "Counterweighted steel cable winches lowering iron cages of rugged delvers into the abyss to strip dragonstone before the rift seals."
+    },
+    {
+      id: `prop_dragonstone_vein_${canyon.id}`,
+      name: `Glistening Vein of ${domain} Dragonstone Crystals`,
+      pos: [chasmCenterX - 10, CENTER + 12] as [number, number],
+      tags: ["dragonstone", "mineral", "crystal", "valuable", "glowing"],
+      hp: 400,
+      maxHp: 400,
+      description: `Iridescent, humming cluster of pure ${domain} Dragonstone exposed on the basalt cliff ledge. Richness: ${canyon.dragonstone_richness} units.`
+    },
+    {
+      id: `prop_ancient_ruin_vault_${canyon.id}`,
+      name: "Exposed Pre-Cruor Ruin Vault Archway",
+      pos: [rx, ry] as [number, number],
+      tags: ["stone", "ancient", "ruin", "vault", "relic", "pre_cruor"],
+      hp: 800,
+      maxHp: 800,
+      description: `Shattered cyclopean masonry of a pre-Fall civilization sheared open by tectonic forces. Contains ${canyon.artifacts_remaining} intact ancient relics.`
+    },
+    {
+      id: `prop_pneumatic_rock_drill_${canyon.id}`,
+      name: "Pneumatic Core-Drill & Blasting Station",
+      pos: [ex, ey - 12] as [number, number],
+      tags: ["metal", "machinery", "explosive", "tools"],
+      hp: 180,
+      maxHp: 180,
+      description: "Steam-pressurized rock core-drills and volatile blasting cords used by delver crews to break apart adamantine strata."
+    }
+  ];
+
+  const npcs = [
+    {
+      id: `npc_canyon_winchmaster_${canyon.id}`,
+      name: "Torvald's Head Winchman (Grind Canyon Corps)",
+      role: "Lead Winch Engineer",
+      pos: [chasmCenterX + 16, CENTER - 8] as [number, number],
+      tags: ["outlaw", "miner", "engineer", "grind_canyon"],
+      faction: "The Grind Canyon Corps",
+      hp: 45,
+      maxHp: 45,
+      disposition: 0,
+      alive: true,
+      equippedWeapon: "Two-Handed Heavy Mining Sledge",
+      equippedArmor: "Hardened Basalt Smelter Apron",
+      statAffinity: "might",
+      memoryNotes: [
+        `Oversees the descent cables for ${chasmName}.`,
+        `Warns that the rift has ${canyon.stability_ticks_remaining} days before the bedrock collapses.`
+      ]
+    },
+    {
+      id: `npc_canyon_delver_${canyon.id}`,
+      name: "Veteran Chasm Diver (Grind Canyon Corps)",
+      role: "Deep Abyssal Delver",
+      pos: [chasmCenterX - 8, CENTER + 14] as [number, number],
+      tags: ["outlaw", "miner", "delver", "grind_canyon"],
+      faction: "The Grind Canyon Corps",
+      hp: 40,
+      maxHp: 40,
+      disposition: 0,
+      alive: true,
+      equippedWeapon: "Serrated Blasting Pick & Lantern",
+      equippedArmor: "Welded Scrap-Iron Cuirass",
+      statAffinity: "endurance",
+      inventory: ["Raw Dragonstone Chunks", "Pre-Cruor Bronze Gear Casing"],
+      memoryNotes: [
+        `Dives into ${depth}m depths to chip raw dragonstone from the cliff-face.`,
+        `Fiercely guards unrefined mineral hauls from claim jumpers.`
+      ]
+    }
+  ];
+
+  return {
+    grid,
+    compressed: zlib.gzipSync(Buffer.from(grid)),
+    props,
+    npcs,
+    poiType: "GRIND_CANYON_CHASM",
+    name: chasmName,
+    features: {
+      isGrindCanyon: true,
+      canyonId: canyon.id,
+      depthMeters: depth,
+      dragonDomain: domain,
+      stabilityDays: canyon.stability_ticks_remaining,
+      dragonstoneRichness: canyon.dragonstone_richness,
+      minerCrew: crewName,
       cellId
     }
   };

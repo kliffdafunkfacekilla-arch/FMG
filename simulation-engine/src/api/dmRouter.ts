@@ -6,6 +6,7 @@ import pool from '../db/pool.js';
 import { updateSectorNPCRoutines } from '../engine/agents/npcRoutineAgent.js';
 import { getActiveChaosFlows, evaluatePointChaosFlowProximity } from '../engine/agents/chaosFlowAgent.js';
 import { getLairPropDetails, ensureLairResidents } from '../engine/agents/outlawSyndicates.js';
+import { generateGrindCanyonSectorMap } from '../engine/maps/SectorMapGenerator.js';
 
 dotenv.config({ override: true });
 
@@ -760,6 +761,34 @@ router.post('/sector_load', async (req, res) => {
       console.warn('Could not query vault sectors in sector_load:', vaultErr);
     }
 
+    // Check if cell contains an active dynamic Grind Canyon Chasm
+    let activeGrindCanyon: any = null;
+    try {
+      const canyonRes = await pool.query(
+        `SELECT * FROM sim_grind_canyons
+         WHERE cell_id = $1 AND status IN ('OPEN', 'COLLAPSING')
+         LIMIT 1`,
+        [targetCellId]
+      );
+      if (canyonRes.rows.length > 0) {
+        activeGrindCanyon = canyonRes.rows[0];
+      }
+    } catch (canyonErr) {
+      console.warn('Error checking grind canyons:', canyonErr);
+    }
+
+    if (!preRenderedMap && activeGrindCanyon) {
+      const canyonMap = generateGrindCanyonSectorMap(activeGrindCanyon, targetCellId);
+      preRenderedMap = {
+        name: canyonMap.name,
+        poiType: canyonMap.poiType,
+        grid: Array.from(canyonMap.grid),
+        props: canyonMap.props,
+        npcs: canyonMap.npcs,
+        features: canyonMap.features
+      };
+    }
+
     // Merge vaulted props if present
     const finalProps: any[] = injected.props.map(p => ({
       id: p.id,
@@ -869,7 +898,19 @@ router.post('/sector_load', async (req, res) => {
       campaignState: concordiaGM.getStoryEngine().getCampaignState(),
       calendar,
       chaosFlow: flowProximity,
-      chaosSurge: (injected as any).activeBeat?.context?.activeSurge || null
+      chaosSurge: (injected as any).activeBeat?.context?.activeSurge || null,
+      grindCanyon: activeGrindCanyon ? {
+        id: activeGrindCanyon.id,
+        name: activeGrindCanyon.name,
+        dragonDomain: activeGrindCanyon.dragon_domain,
+        dragonName: activeGrindCanyon.dragon_name,
+        depthMeters: activeGrindCanyon.depth_meters,
+        dragonstoneRichness: activeGrindCanyon.dragonstone_richness,
+        artifactsRemaining: activeGrindCanyon.artifacts_remaining,
+        stabilityDays: activeGrindCanyon.stability_ticks_remaining,
+        status: activeGrindCanyon.status,
+        minerCrew: activeGrindCanyon.miner_crew_name
+      } : null
     });
   } catch (e: any) {
     console.error('Sector load error:', e);

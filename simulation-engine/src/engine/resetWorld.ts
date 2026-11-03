@@ -437,6 +437,28 @@ CREATE TABLE IF NOT EXISTS sim_world_landmarks (
 CREATE INDEX IF NOT EXISTS idx_landmarks_resource ON sim_world_landmarks(resource_type);
 CREATE INDEX IF NOT EXISTS idx_landmarks_cell ON sim_world_landmarks(cell_id);
 
+CREATE TABLE IF NOT EXISTS sim_grind_canyons (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(120) NOT NULL,
+    cell_id INT NOT NULL,
+    sector_x INT NOT NULL DEFAULT 112,
+    sector_y INT NOT NULL DEFAULT 112,
+    dragon_name VARCHAR(50) NOT NULL,
+    dragon_domain VARCHAR(50) NOT NULL,
+    depth_meters INT NOT NULL DEFAULT 250,
+    dragonstone_richness INT NOT NULL DEFAULT 120,
+    artifacts_remaining INT NOT NULL DEFAULT 3,
+    stability_ticks_remaining INT NOT NULL DEFAULT 8,
+    total_duration_ticks INT NOT NULL DEFAULT 8,
+    status VARCHAR(30) NOT NULL DEFAULT 'OPEN',
+    miner_crew_name VARCHAR(120) NOT NULL,
+    active_miners INT NOT NULL DEFAULT 12,
+    opened_tick INT NOT NULL DEFAULT 1,
+    closed_tick INT,
+    inventory JSONB DEFAULT '[]'::jsonb
+);
+CREATE INDEX IF NOT EXISTS idx_grind_canyons_cell_status ON sim_grind_canyons(cell_id, status);
+
 CREATE TABLE IF NOT EXISTS sim_global_events (
     id SERIAL PRIMARY KEY,
     layer VARCHAR(50),
