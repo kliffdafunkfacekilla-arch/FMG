@@ -685,8 +685,8 @@ router.post('/sector_load', async (req, res) => {
   try {
     const context = req.body.context || (req.body.cellId ? req.body : null);
     const targetCellId = Number(context?.cellId) || 13408;
-    const targetRx = Number(context?.rx) || 0;
-    const targetRy = Number(context?.ry) || 0;
+    const targetRx = context?.rx !== undefined ? Number(context.rx) : 112;
+    const targetRy = context?.ry !== undefined ? Number(context.ry) : 112;
     const rawPhase = (req.body.diurnalPhase || context?.diurnalPhase || 'MORNING').toUpperCase();
     const diurnalPhase: "MORNING" | "MIDDAY" | "EVENING" | "NIGHT" = rawPhase === 'NOON' ? 'MIDDAY' : (['MORNING', 'MIDDAY', 'EVENING', 'NIGHT'].includes(rawPhase) ? rawPhase as any : 'MORNING');
 
@@ -727,12 +727,22 @@ router.post('/sector_load', async (req, res) => {
     // Check if sector is pre-rendered in sim_world_vault_sectors
     let preRenderedMap: any = null;
     try {
-      const vaultRes = await pool.query(
+      let vaultRes = await pool.query(
         `SELECT name, poi_type, compressed_terrain, props, npcs, features
          FROM sim_world_vault_sectors
          WHERE cell_id = $1 AND rx = $2 AND ry = $3`,
         [targetCellId, targetRx, targetRy]
       );
+      if ((!vaultRes.rowCount || vaultRes.rowCount === 0) && (targetRx !== 112 || targetRy !== 112)) {
+        // Fallback to central burg core at (112, 112) if specific outlying sector not yet vaulted
+        vaultRes = await pool.query(
+          `SELECT name, poi_type, compressed_terrain, props, npcs, features
+           FROM sim_world_vault_sectors
+           WHERE cell_id = $1 AND rx = 112 AND ry = 112`,
+          [targetCellId]
+        );
+      }
+
       if (vaultRes.rowCount && vaultRes.rowCount > 0) {
         const v = vaultRes.rows[0];
         const decompressed = zlib.gunzipSync(v.compressed_terrain);
@@ -750,7 +760,7 @@ router.post('/sector_load', async (req, res) => {
     }
 
     // Merge vaulted props if present
-    const finalProps = injected.props.map(p => ({
+    const finalProps: any[] = injected.props.map(p => ({
       id: p.id,
       name: p.name,
       pos: p.pos,
@@ -779,6 +789,136 @@ router.post('/sector_load', async (req, res) => {
           existingNpcIds.add(vn.id);
         }
       }
+    }
+
+    // Dynamic Underworld Lairs & Syndicate Enforcers Injection
+    try {
+      const lairRes = await pool.query(`
+        SELECT l.id, l.faction_id, l.burg_id, l.lair_type, l.manpower, l.heat,
+               o.name AS cartel_name, o.type AS cartel_type
+        FROM sim_fringe_lairs l
+        JOIN sim_outlaw_factions o ON o.id = l.faction_id
+        WHERE l.cell_id = $1
+      `, [targetCellId]);
+
+      if (lairRes.rows.length > 0) {
+        for (let idx = 0; idx < lairRes.rows.length; idx++) {
+          const lair = lairRes.rows[idx];
+          const lairPropId = `prop_underworld_lair_${lair.id}`;
+          if (!existingPropIds.has(lairPropId)) {
+            const posX = 164 + (idx * 6);
+            const posY = 164 + (idx * 6);
+
+            let propName = `Hidden ${lair.lair_type.replace(/_/g, " ")} (${lair.cartel_name})`;
+            let propDesc = `A concealed underworld den operated by ${lair.cartel_name}.`;
+            let propTags = ["underworld", "secret", "outlaw", lair.lair_type.toLowerCase()];
+
+            switch (lair.lair_type) {
+              case "SHADOW_VAULT":
+                propName = `Gilded Shadow Vault & Safehouse (${lair.cartel_name})`;
+                propDesc = "Concealed heavy steel vault door behind an unassuming ledger archive, stashing illicit usury receipts and meridian gold.";
+                propTags = ["metal", "stone", "vault", "underworld", "locked", "shadow_vault"];
+                break;
+              case "USURY_HOUSE":
+                propName = `Back-Alley Usury House & Pawn Exchange (${lair.cartel_name})`;
+                propDesc = "Dimly lit parlor where desperate debtors pledge collateral under exorbitant interest rates.";
+                propTags = ["wood", "underworld", "usury", "desk", "ledger"];
+                break;
+              case "CONTRABAND_DOCK":
+                propName = `Hidden Contraband Slipway & Sky-Cache (${lair.cartel_name})`;
+                propDesc = "Camouflaged docking crane and smuggling crates marked with the Free Sky insignia, bypassing toll tariffs.";
+                propTags = ["wood", "contraband", "crane", "cargo", "underworld"];
+                break;
+              case "SKY_CORSAIR_CACHE":
+                propName = `Concealed Sky-Corsair Arms Cache (${lair.cartel_name})`;
+                propDesc = "Reinforced lockboxes containing grappling tether guns, gliding cloaks, and aerolith charge canisters.";
+                propTags = ["metal", "wood", "cache", "weapons", "underworld"];
+                break;
+              case "MERCENARY_GARRISON":
+                propName = `Devil's Choice Sellsword Strongpoint (${lair.cartel_name})`;
+                propDesc = "Fortified cellar barricade smelling of pitch, iron, and stale wine where brutal mercenaries await contracts.";
+                propTags = ["stone", "wood", "barricade", "garrison", "underworld", "weapons"];
+                break;
+              case "TOLL_BLOCKADE":
+                propName = `Ivory-Gate Toll Redoubt & Iron Gate (${lair.cartel_name})`;
+                propDesc = "Illegal fortified toll checkpoint extorting passage tariffs from merchant wagons and travelers.";
+                propTags = ["stone", "metal", "toll", "gate", "underworld"];
+                break;
+              case "ENFORCER_DEN":
+                propName = `Ivory-Gate Enforcer Den & Holding Cell (${lair.cartel_name})`;
+                propDesc = "Heavily fortified headquarters for legion debt collectors and martial enforcers.";
+                propTags = ["stone", "iron", "cell", "enforcer", "underworld"];
+                break;
+              case "RAIDER_REDOUBT":
+                propName = `Ghostwind Raider Redoubt & Stash (${lair.cartel_name})`;
+                propDesc = "Hidden enclave fortified with driftwood barriers, caches of coastal plunder, and signal flares.";
+                propTags = ["wood", "stone", "redoubt", "cache", "underworld"];
+                break;
+              case "SMUGGLER_COVE":
+                propName = `Clandestine Smuggler Cove & Cache (${lair.cartel_name})`;
+                propDesc = "Subterranean cavern tunnel connecting coastal channels directly to secret storehouses.";
+                propTags = ["stone", "water", "cave", "smuggler", "underworld"];
+                break;
+              case "BLACK_MARKET":
+                propName = `Secret Black Market Bazaar (${lair.cartel_name})`;
+                propDesc = "Shrouded bazaar of unlicensed goods, forged permits, and contraband potions.";
+                propTags = ["wood", "cloth", "underworld", "black_market"];
+                break;
+              case "VICE_DEN":
+                propName = `Illicit Vice Den & Speakeasy (${lair.cartel_name})`;
+                propDesc = "Smoky basement den dealing in forbidden concoctions, high-stakes dice, and hush money.";
+                propTags = ["wood", "underworld", "tavern", "vice"];
+                break;
+            }
+
+            finalProps.push({
+              id: lairPropId,
+              name: propName,
+              pos: [posX, posY],
+              tags: propTags,
+              hp: 150,
+              maxHp: 150,
+              isDestroyed: false,
+              description: propDesc
+            });
+            existingPropIds.add(lairPropId);
+
+            // Station 1-2 Underworld Enforcer NPCs
+            const enforcerId = `npc_outlaw_enforcer_${lair.id}`;
+            if (!existingNpcIds.has(enforcerId)) {
+              const weapon = lair.faction_id === 2 ? "Repeater Crossbow" :
+                             lair.faction_id === 3 ? "Spiked Morningstar" :
+                             lair.faction_id === 4 ? "Heavy Halberd" :
+                             lair.faction_id === 5 ? "Serrated Cutlass" : "Gilded Dagger";
+              const affinity = lair.faction_id === 2 ? "reflex" :
+                               lair.faction_id === 4 ? "endurance" : "might";
+
+              finalNPCs.push({
+                id: enforcerId,
+                name: `${lair.cartel_name} Veteran Enforcer`,
+                role: `Underworld Enforcer (${lair.lair_type.replace(/_/g, " ")})`,
+                pos: [posX + 2, posY + 1],
+                tags: ["outlaw", "enforcer", "underworld", "hostile_to_guards"],
+                faction: lair.cartel_name,
+                hp: 35,
+                maxHp: 35,
+                disposition: 0,
+                alive: true,
+                equippedWeapon: weapon,
+                equippedArmor: "Reinforced Boiled Leather",
+                statAffinity: affinity,
+                memoryNotes: [
+                  `Guards the ${propName}.`,
+                  `Local Heat: ${lair.heat}/100. Manpower garrison: ${lair.manpower}.`
+                ]
+              });
+              existingNpcIds.add(enforcerId);
+            }
+          }
+        }
+      }
+    } catch (lairErr) {
+      console.warn("Could not query fringe lairs in sector_load:", lairErr);
     }
 
     res.json({

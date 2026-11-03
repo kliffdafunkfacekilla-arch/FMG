@@ -81,7 +81,8 @@ export function generateBurgSectorMap(
   burg: any,
   factionName: string,
   cellId: number,
-  citizens: any[] = []
+  citizens: any[] = [],
+  lairs: any[] = []
 ): SectorMapResult {
   const rand = hashSeed(`burg_${burg.burg_id}_${cellId}`);
   const grid = new Uint8Array(SIZE * SIZE);
@@ -542,6 +543,117 @@ export function generateBurgSectorMap(
     statAffinity: "willpower",
     memoryNotes: [`Maintains the sacred wards at the Cathedral Altar.`]
   });
+
+  // H. Station Underworld Lairs & Syndicate Enforcers if present
+  if (Array.isArray(lairs) && lairs.length > 0) {
+    for (let idx = 0; idx < lairs.length; idx++) {
+      const lair = lairs[idx];
+      const posX = 164 + (idx * 6);
+      const posY = 164 + (idx * 6);
+      const lairPropId = `prop_underworld_lair_${lair.id}`;
+
+      let propName = `Hidden ${lair.lair_type.replace(/_/g, " ")} (${lair.cartel_name || "Syndicate"})`;
+      let propDesc = `A concealed underworld den operated by ${lair.cartel_name || "a local syndicate"}.`;
+      let propTags = ["underworld", "secret", "outlaw", lair.lair_type.toLowerCase()];
+
+      switch (lair.lair_type) {
+        case "SHADOW_VAULT":
+          propName = `Gilded Shadow Vault & Safehouse (${lair.cartel_name || "Gilded Compass"})`;
+          propDesc = "Concealed heavy steel vault door behind an unassuming ledger archive, stashing illicit usury receipts and meridian gold.";
+          propTags = ["metal", "stone", "vault", "underworld", "locked", "shadow_vault"];
+          break;
+        case "USURY_HOUSE":
+          propName = `Back-Alley Usury House & Pawn Exchange (${lair.cartel_name || "Gilded Compass"})`;
+          propDesc = "Dimly lit parlor where desperate debtors pledge collateral under exorbitant interest rates.";
+          propTags = ["wood", "underworld", "usury", "desk", "ledger"];
+          break;
+        case "CONTRABAND_DOCK":
+          propName = `Hidden Contraband Slipway & Sky-Cache (${lair.cartel_name || "Free Sky"})`;
+          propDesc = "Camouflaged docking crane and smuggling crates marked with the Free Sky insignia, bypassing toll tariffs.";
+          propTags = ["wood", "contraband", "crane", "cargo", "underworld"];
+          break;
+        case "SKY_CORSAIR_CACHE":
+          propName = `Concealed Sky-Corsair Arms Cache (${lair.cartel_name || "Free Sky"})`;
+          propDesc = "Reinforced lockboxes containing grappling tether guns, gliding cloaks, and aerolith charge canisters.";
+          propTags = ["metal", "wood", "cache", "weapons", "underworld"];
+          break;
+        case "MERCENARY_GARRISON":
+          propName = `Devil's Choice Sellsword Strongpoint (${lair.cartel_name || "Devil's Choice"})`;
+          propDesc = "Fortified cellar barricade smelling of pitch, iron, and stale wine where brutal mercenaries await contracts.";
+          propTags = ["stone", "wood", "barricade", "garrison", "underworld", "weapons"];
+          break;
+        case "TOLL_BLOCKADE":
+          propName = `Ivory-Gate Toll Redoubt & Iron Gate (${lair.cartel_name || "Ivory-Gate"})`;
+          propDesc = "Illegal fortified toll checkpoint extorting passage tariffs from merchant wagons and travelers.";
+          propTags = ["stone", "metal", "toll", "gate", "underworld"];
+          break;
+        case "ENFORCER_DEN":
+          propName = `Ivory-Gate Enforcer Den & Holding Cell (${lair.cartel_name || "Ivory-Gate"})`;
+          propDesc = "Heavily fortified headquarters for legion debt collectors and martial enforcers.";
+          propTags = ["stone", "iron", "cell", "enforcer", "underworld"];
+          break;
+        case "RAIDER_REDOUBT":
+          propName = `Ghostwind Raider Redoubt & Stash (${lair.cartel_name || "Ghostwind Raiders"})`;
+          propDesc = "Hidden enclave fortified with driftwood barriers, caches of coastal plunder, and signal flares.";
+          propTags = ["wood", "stone", "redoubt", "cache", "underworld"];
+          break;
+        case "SMUGGLER_COVE":
+          propName = `Clandestine Smuggler Cove & Cache (${lair.cartel_name || "Ghostwind Raiders"})`;
+          propDesc = "Subterranean cavern tunnel connecting coastal channels directly to secret storehouses.";
+          propTags = ["stone", "water", "cave", "smuggler", "underworld"];
+          break;
+        case "BLACK_MARKET":
+          propName = `Secret Black Market Bazaar (${lair.cartel_name || "Syndicate"})`;
+          propDesc = "Shrouded bazaar of unlicensed goods, forged permits, and contraband potions.";
+          propTags = ["wood", "cloth", "underworld", "black_market"];
+          break;
+        case "VICE_DEN":
+          propName = `Illicit Vice Den & Speakeasy (${lair.cartel_name || "Syndicate"})`;
+          propDesc = "Smoky basement den dealing in forbidden concoctions, high-stakes dice, and hush money.";
+          propTags = ["wood", "underworld", "tavern", "vice"];
+          break;
+      }
+
+      props.push({
+        id: lairPropId,
+        name: propName,
+        pos: [posX, posY],
+        tags: propTags,
+        hp: 150,
+        maxHp: 150,
+        description: propDesc
+      });
+
+      const enforcerId = `npc_outlaw_enforcer_${lair.id}`;
+      const cartelName = lair.cartel_name || "Syndicate";
+      const weapon = cartelName.includes("Free Sky") ? "Repeater Crossbow" :
+                     cartelName.includes("Devil's Choice") ? "Spiked Morningstar" :
+                     cartelName.includes("Ivory-Gate") ? "Heavy Halberd" :
+                     cartelName.includes("Ghostwind") ? "Serrated Cutlass" : "Gilded Dagger";
+      const affinity = cartelName.includes("Free Sky") ? "reflex" :
+                       cartelName.includes("Ivory-Gate") ? "endurance" : "might";
+
+      npcs.push({
+        id: enforcerId,
+        name: `${cartelName} Veteran Enforcer`,
+        role: `Underworld Enforcer (${lair.lair_type.replace(/_/g, " ")})`,
+        pos: [posX + 2, posY + 1],
+        tags: ["outlaw", "enforcer", "underworld", "hostile_to_guards"],
+        faction: cartelName,
+        hp: 35,
+        maxHp: 35,
+        disposition: 0,
+        alive: true,
+        equippedWeapon: weapon,
+        equippedArmor: "Reinforced Boiled Leather",
+        statAffinity: affinity,
+        memoryNotes: [
+          `Guards the ${propName}.`,
+          `Local Heat: ${lair.heat || 0}/100. Manpower garrison: ${lair.manpower || 50}.`
+        ]
+      });
+    }
+  }
 
   return {
     grid,
