@@ -969,19 +969,24 @@ router.get('/sector_layer', async (req, res) => {
       const burg = burgRes.rows[0];
       const factionName = burg.faction_name || "Provincial Sovereignty";
 
-      // Fetch authentic citizens
+      // Fetch authentic citizens from population_demographics
       const citRes = await pool.query(
-        `SELECT * FROM sim_npc_instances WHERE cell_id = $1 AND alive = true LIMIT 30`,
+        `SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation,
+                workplace_type, workplace_name, childhood_background, allegiance_status
+         FROM population_demographics
+         WHERE home_cell_id = $1 AND life_stage = 'ADULT'
+         ORDER BY citizen_id ASC
+         LIMIT 60`,
         [targetCellId]
       );
 
-      // Fetch lairs
+      // Fetch active fringe cartels & underworld lairs for this burg
       const lairRes = await pool.query(
-        `SELECT l.*, o.name AS cartel_name
+        `SELECT l.*, o.name AS cartel_name, o.type AS cartel_type, o.contraband_types
          FROM sim_fringe_lairs l
          JOIN sim_outlaw_factions o ON o.id = l.faction_id
-         WHERE l.cell_id = $1`,
-        [targetCellId]
+         WHERE l.burg_id = $1 OR l.cell_id = $2`,
+        [burg.burg_id, targetCellId]
       );
 
       const layers = generateBurgSectorLayers(burg, factionName, targetCellId, citRes.rows, lairRes.rows);

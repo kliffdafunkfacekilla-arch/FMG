@@ -86,6 +86,100 @@ export interface BurgSectorLayersResult {
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. BURG URBAN CORE GENERATOR (3 Synchronized Vertical Layers)
 // ─────────────────────────────────────────────────────────────────────────────
+interface ConcordiaStats {
+  [key: string]: number;
+  might: number;
+  endurance: number;
+  finesse: number;
+  reflex: number;
+  vitality: number;
+  fortitude: number;
+  knowledge: number;
+  logic: number;
+  awareness: number;
+  intuition: number;
+  charm: number;
+  willpower: number;
+}
+
+// Helper to calculate 12 Concordia attributes deterministically from citizen traits and profession
+function computeCitizenConcordiaStats(c: any, rand: () => number): ConcordiaStats {
+  const base = 10;
+  const stats: ConcordiaStats = {
+    might: base + Math.floor(rand() * 4),
+    endurance: base + Math.floor(rand() * 4),
+    finesse: base + Math.floor(rand() * 4),
+    reflex: base + Math.floor(rand() * 4),
+    vitality: base + Math.floor(rand() * 4),
+    fortitude: base + Math.floor(rand() * 4),
+    knowledge: base + Math.floor(rand() * 4),
+    logic: base + Math.floor(rand() * 4),
+    awareness: base + Math.floor(rand() * 4),
+    intuition: base + Math.floor(rand() * 4),
+    charm: base + Math.floor(rand() * 4),
+    willpower: base + Math.floor(rand() * 4)
+  };
+
+  const prof = (c.profession || "").toLowerCase();
+  if (prof.includes("smith") || prof.includes("armorer") || prof.includes("foundry") || prof.includes("miner")) {
+    stats.might += 4;
+    stats.endurance += 3;
+    stats.fortitude += 3;
+  } else if (prof.includes("guard") || prof.includes("sentry") || prof.includes("soldier") || prof.includes("watchman")) {
+    stats.might += 3;
+    stats.fortitude += 3;
+    stats.reflex += 2;
+  } else if (prof.includes("scribe") || prof.includes("scholar") || prof.includes("clerk")) {
+    stats.knowledge += 5;
+    stats.logic += 4;
+  } else if (prof.includes("apothecary") || prof.includes("herbalist") || prof.includes("healer")) {
+    stats.knowledge += 4;
+    stats.intuition += 4;
+  } else if (prof.includes("merchant") || prof.includes("trader") || prof.includes("governor")) {
+    stats.charm += 5;
+    stats.logic += 3;
+  } else if (prof.includes("weaver") || prof.includes("tailor") || prof.includes("clockmaker")) {
+    stats.finesse += 5;
+    stats.awareness += 3;
+  } else if (prof.includes("baker") || prof.includes("brewer") || prof.includes("farmer") || prof.includes("miller")) {
+    stats.endurance += 4;
+    stats.vitality += 3;
+  }
+
+  return stats;
+}
+
+interface WorkplaceSpec {
+  type: string;
+  title: string;
+  floorTile: number;
+  hasCellar: boolean;
+  hasUpper: boolean;
+  hasOven?: boolean;
+  hasAltar?: boolean;
+  propTag: string[];
+  propDesc: string;
+}
+
+const WORKPLACE_SPECS: Record<string, WorkplaceSpec> = {
+  BAKERY: { type: "BAKERY", title: "Communal Hearth Bakery", floorTile: 3, hasCellar: false, hasUpper: false, hasOven: true, propTag: ["bakery", "food", "fire", "crafting"], propDesc: "Blazing brick bread ovens, flour barrels, and cooling racks." },
+  FORGE: { type: "FORGE", title: "Armory & Blacksmith Forge", floorTile: 4, hasCellar: false, hasUpper: false, hasOven: true, propTag: ["forge", "metal", "fire", "crafting"], propDesc: "Heavy iron anvil, dual bellows, and a blazing coal furnace." },
+  BREWERY: { type: "BREWERY", title: "Cask & Fermentation Brewhouse", floorTile: 3, hasCellar: true, hasUpper: false, propTag: ["brewhouse", "food", "container", "crafting"], propDesc: "Copper mash tuns, fermentation vats, and aged oak kegs." },
+  CARPENTRY: { type: "CARPENTRY", title: "Timber Framing Workshop", floorTile: 3, hasCellar: false, hasUpper: false, propTag: ["carpentry", "wood", "crafting"], propDesc: "Adzes, broadaxes, sawhorses, and timber framing joints." },
+  TANNERY: { type: "TANNERY", title: "Leather Currying Tannery", floorTile: 3, hasCellar: false, hasUpper: false, propTag: ["tannery", "leather", "crafting"], propDesc: "Scraping frames, tanning vats, and cured leather hides." },
+  WEAVERY: { type: "WEAVERY", title: "Draper Loom Guildhouse", floorTile: 3, hasCellar: false, hasUpper: false, propTag: ["weaving", "cloth", "crafting"], propDesc: "Vertical timber looms, spinning distaffs, and wool bolts." },
+  POTTERY: { type: "POTTERY", title: "Clay Pottery & Brick Kiln", floorTile: 3, hasCellar: false, hasUpper: false, hasOven: true, propTag: ["pottery", "fire", "stone"], propDesc: "Domed brick kiln, turning wheels, and drying storage jars." },
+  BARRACKS: { type: "BARRACKS", title: "Sovereign Guard Barracks", floorTile: 4, hasCellar: false, hasUpper: true, propTag: ["barracks", "military", "weapon", "defense"], propDesc: "Weapon racks, iron footlockers, and muster yard equipment." },
+  FARMSTEAD: { type: "FARMSTEAD", title: "Agrarian Granary & Farmstead", floorTile: 3, hasCellar: true, hasUpper: false, propTag: ["farming", "food", "granary"], propDesc: "Threshed grain bins, seed sacks, and winnowing sieves." },
+  FISHERY: { type: "FISHERY", title: "Harbor Fishery & Smokehouse", floorTile: 3, hasCellar: false, hasUpper: false, propTag: ["fishery", "food", "water"], propDesc: "Salted herring casks, smoke racks, and drying seine nets." },
+  APOTHECARY: { type: "APOTHECARY", title: "Apothecary Herbarium & Dispensary", floorTile: 3, hasCellar: true, hasUpper: false, propTag: ["medical", "alchemy", "herbalism"], propDesc: "Drying healing mosses, glass alembics, and tincture flasks." },
+  TEMPLE: { type: "TEMPLE", title: "Sanctuary of the Dragon Seals", floorTile: 4, hasCellar: true, hasUpper: true, hasAltar: true, propTag: ["sacred", "holy", "altar", "relic"], propDesc: "Polished stone altar, runic leylines, and incense burners." },
+  REGISTRY: { type: "REGISTRY", title: "Municipal Registry & Town Hall", floorTile: 4, hasCellar: true, hasUpper: true, propTag: ["civic", "paper", "registry"], propDesc: "Magistrate desks, official provincial wax seals, and tax rolls." },
+  PRECISION_ATELIER: { type: "PRECISION_ATELIER", title: "Horological Atelier & Clocksmith", floorTile: 4, hasCellar: false, hasUpper: false, propTag: ["machinery", "clockwork", "crafting"], propDesc: "Brass gears, escapement wheels, and fine engraving loupes." },
+  MASONRY: { type: "MASONRY", title: "Stonemason Cutting Yard", floorTile: 4, hasCellar: false, hasUpper: false, propTag: ["stone", "masonry", "crafting"], propDesc: "Granite ashlar blocks, stone chisels, and plumb lines." },
+  MARKET_STALL: { type: "MARKET_STALL", title: "Central Trade Exchange Stalls", floorTile: 3, hasCellar: false, hasUpper: false, propTag: ["market", "commerce", "container"], propDesc: "Canopied market stalls heaped with regional produce and goods." }
+};
+
 export function generateBurgSectorLayers(
   burg: any,
   factionName: string,
@@ -94,766 +188,356 @@ export function generateBurgSectorLayers(
   lairs: any[] = []
 ): BurgSectorLayersResult {
   const rand = hashSeed(`burg_${burg.burg_id}_${cellId}`);
-  const grid = new Uint8Array(SIZE * SIZE);
-  grid.fill(0);
-
-  const tier = burg.urban_tier || (burg.pop_null > 12000 ? 3 : burg.pop_null > 1200 ? 2 : 1);
-  const isPort = Boolean(burg.port);
-  const hasCitadel = tier >= 2 || burg.wealth > 3000;
   const burgName = burg.name || `Burg #${burg.burg_id}`;
+  const tier = Number(burg.urban_tier) || (Number(burg.pop_null) > 12000 ? 3 : Number(burg.pop_null) > 1200 ? 2 : 1);
+  const isPort = Boolean(burg.port);
+  const hasWalls = tier >= 2;
 
-  const WALL_LEFT = tier === 3 ? 20 : 36;
-  const WALL_RIGHT = tier === 3 ? 236 : 220;
-  const WALL_TOP = tier === 3 ? 20 : 36;
-  const WALL_BOTTOM = tier === 3 ? 236 : 220;
+  const WALL_LEFT = tier >= 3 ? 24 : 44;
+  const WALL_RIGHT = tier >= 3 ? 232 : 212;
+  const WALL_TOP = tier >= 3 ? 24 : 44;
+  const WALL_BOTTOM = tier >= 3 ? 232 : 212;
   const CENTER = 128;
 
-  // 1. Outer Fortified Curtain Walls
-  for (let x = WALL_LEFT; x <= WALL_RIGHT; x++) {
-    grid[WALL_TOP * SIZE + x] = 5;
-    grid[(WALL_TOP + 1) * SIZE + x] = 5;
-    if (!isPort) {
-      grid[WALL_BOTTOM * SIZE + x] = 5;
-      grid[(WALL_BOTTOM - 1) * SIZE + x] = 5;
-    }
-  }
-  for (let y = WALL_TOP; y <= (isPort ? WALL_BOTTOM - 20 : WALL_BOTTOM); y++) {
-    grid[y * SIZE + WALL_LEFT] = 5;
-    grid[y * SIZE + WALL_LEFT + 1] = 5;
-    grid[y * SIZE + WALL_RIGHT] = 5;
-    grid[y * SIZE + WALL_RIGHT - 1] = 5;
-  }
+  // -------------------------------------------------------------------------
+  // LAYER 0: SURFACE GROUND LEVEL
+  // -------------------------------------------------------------------------
+  const grid0 = new Uint8Array(SIZE * SIZE);
+  grid0.fill(0); // Natural ground
 
-  // Corner Bastion Towers (8x8)
-  const drawBastion = (cx: number, cy: number) => {
-    for (let dy = -4; dy <= 4; dy++) {
-      for (let dx = -4; dx <= 4; dx++) {
-        const tx = cx + dx, ty = cy + dy;
-        if (tx >= 0 && tx < SIZE && ty >= 0 && ty < SIZE) grid[ty * SIZE + tx] = 5;
+  // 1. Fortified Walls (Only for Towns Tier 2, Cities Tier 3, and Capitals)
+  if (hasWalls) {
+    for (let x = WALL_LEFT; x <= WALL_RIGHT; x++) {
+      grid0[WALL_TOP * SIZE + x] = 5;
+      grid0[(WALL_TOP + 1) * SIZE + x] = 5;
+      if (!isPort) {
+        grid0[WALL_BOTTOM * SIZE + x] = 5;
+        grid0[(WALL_BOTTOM - 1) * SIZE + x] = 5;
       }
     }
-  };
-  drawBastion(WALL_LEFT, WALL_TOP);
-  drawBastion(WALL_RIGHT, WALL_TOP);
-  if (!isPort) {
-    drawBastion(WALL_LEFT, WALL_BOTTOM);
-    drawBastion(WALL_RIGHT, WALL_BOTTOM);
-  }
-
-  // 2. Cardinal Cobblestone Thoroughfares
-  const roadWidth = tier === 3 ? 4 : 3;
-  for (let y = 0; y < SIZE; y++) {
-    for (let dx = -roadWidth; dx <= roadWidth; dx++) {
-      const x = CENTER + dx;
-      if (x >= 0 && x < SIZE) grid[y * SIZE + x] = 4;
+    for (let y = WALL_TOP; y <= (isPort ? WALL_BOTTOM - 20 : WALL_BOTTOM); y++) {
+      grid0[y * SIZE + WALL_LEFT] = 5;
+      grid0[y * SIZE + WALL_LEFT + 1] = 5;
+      grid0[y * SIZE + WALL_RIGHT] = 5;
+      grid0[y * SIZE + WALL_RIGHT - 1] = 5;
     }
-  }
-  for (let x = 0; x < SIZE; x++) {
-    for (let dy = -roadWidth; dy <= roadWidth; dy++) {
-      const y = CENTER + dy;
-      if (y >= 0 && y < SIZE) grid[y * SIZE + x] = 4;
-    }
-  }
 
-  // 3. Central Grand Market Plaza (30x30 cobblestone)
-  const PLAZA_HALF = 18;
-  for (let y = CENTER - PLAZA_HALF; y <= CENTER + PLAZA_HALF; y++) {
-    for (let x = CENTER - PLAZA_HALF; x <= CENTER + PLAZA_HALF; x++) {
-      grid[y * SIZE + x] = 4;
-    }
-  }
-
-  // 4. Urban Districts & Residential Blocks
-  const districtStep = 24;
-  for (let y = WALL_TOP + 10; y < WALL_BOTTOM - 10; y += districtStep) {
-    for (let x = WALL_LEFT + 10; x < WALL_RIGHT - 10; x += districtStep) {
-      // Skip center plaza & main thoroughfares
-      if (Math.abs(x - CENTER) < 28 && Math.abs(y - CENTER) < 28) continue;
-
-      // Draw secondary street around block
-      for (let s = 0; s < districtStep; s++) {
-        if (y + s < SIZE && x < SIZE) grid[(y + s) * SIZE + x] = 3;
-        if (y < SIZE && x + s < SIZE) grid[y * SIZE + (x + s)] = 3;
-      }
-
-      // Draw buildings inside block
-      const bw = Math.min(14, districtStep - 6);
-      const bh = Math.min(14, districtStep - 6);
-      for (let by = 3; by < 3 + bh; by++) {
-        for (let bx = 3; bx < 3 + bw; bx++) {
-          const px = x + bx, py = y + by;
-          if (px < WALL_RIGHT - 4 && py < WALL_BOTTOM - 4) {
-            grid[py * SIZE + px] = 7; // Cottage/Building roof
+    // Corner Bastions (Tier 3/4 Cities only)
+    if (tier >= 3) {
+      const drawBastion = (cx: number, cy: number) => {
+        for (let dy = -4; dy <= 4; dy++) {
+          for (let dx = -4; dx <= 4; dx++) {
+            const tx = cx + dx, ty = cy + dy;
+            if (tx >= 0 && tx < SIZE && ty >= 0 && ty < SIZE) grid0[ty * SIZE + tx] = 5;
           }
         }
+      };
+      drawBastion(WALL_LEFT, WALL_TOP);
+      drawBastion(WALL_RIGHT, WALL_TOP);
+      if (!isPort) {
+        drawBastion(WALL_LEFT, WALL_BOTTOM);
+        drawBastion(WALL_RIGHT, WALL_BOTTOM);
       }
     }
   }
 
-  // 5. Citadel Keep (North-East Quarter)
-  if (hasCitadel) {
-    const kx = CENTER + 45, ky = CENTER - 45;
-    for (let y = ky - 18; y <= ky + 18; y++) {
-      for (let x = kx - 18; x <= kx + 18; x++) {
-        if (Math.abs(x - kx) === 18 || Math.abs(y - ky) === 18) {
-          grid[y * SIZE + x] = 5; // Citadel Inner Wall
-        } else {
-          grid[y * SIZE + x] = 4; // Stone courtyard
-        }
-      }
+  // 2. Cardinal Thoroughfares & Roads
+  const mainRoadWidth = tier >= 3 ? 3 : 2;
+  const roadTile = tier >= 2 ? 4 : 3; // Cobblestone for Towns/Cities, Dirt for Villages
+
+  // North-South Road
+  for (let y = 0; y < SIZE; y++) {
+    for (let dx = -mainRoadWidth; dx <= mainRoadWidth; dx++) {
+      const x = CENTER + dx;
+      if (x >= 0 && x < SIZE) grid0[y * SIZE + x] = roadTile;
     }
-    // High Keep Tower
-    for (let y = ky - 8; y <= ky + 8; y++) {
-      for (let x = kx - 8; x <= kx + 8; x++) grid[y * SIZE + x] = 5;
+  }
+  // East-West Road
+  for (let x = 0; x < SIZE; x++) {
+    for (let dy = -mainRoadWidth; dy <= mainRoadWidth; dy++) {
+      const y = CENTER + dy;
+      if (y >= 0 && y < SIZE) grid0[y * SIZE + x] = roadTile;
     }
   }
 
-  // 6. Coastal Port & Harbor Quays (if coastal/port)
+  // 3. Central Marketplace / Common Green
+  const plazaRadius = tier >= 3 ? 16 : tier === 2 ? 10 : 7;
+  const plazaTile = tier >= 2 ? 4 : 3;
+  for (let dy = -plazaRadius; dy <= plazaRadius; dy++) {
+    for (let dx = -plazaRadius; dx <= plazaRadius; dx++) {
+      const px = CENTER + dx, py = CENTER + dy;
+      if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) {
+        grid0[py * SIZE + px] = plazaTile;
+      }
+    }
+  }
+
+  // 4. Harbor Basin / Coastal Waterfront (If Port)
   if (isPort) {
     for (let y = WALL_BOTTOM - 14; y < SIZE; y++) {
-      for (let x = 0; x < SIZE; x++) grid[y * SIZE + x] = 2; // Ocean water
+      for (let x = 0; x < SIZE; x++) grid0[y * SIZE + x] = 2; // Water
     }
     // Wooden piers extending into the sea
-    const pierXs = [WALL_LEFT + 30, CENTER - 35, CENTER + 35, WALL_RIGHT - 30];
+    const pierXs = [CENTER - 30, CENTER, CENTER + 30];
     for (const px of pierXs) {
       for (let y = WALL_BOTTOM - 18; y < SIZE - 8; y++) {
-        for (let w = -2; w <= 2; w++) grid[y * SIZE + (px + w)] = 3; // Pier decking
+        for (let w = -2; w <= 2; w++) {
+          if (px + w >= 0 && px + w < SIZE) grid0[y * SIZE + (px + w)] = 3;
+        }
       }
     }
   }
 
-  // 4b. Dedicated Workplace Zones carved directly onto the grid
-  const drawWorkplaceBuilding = (cx: number, cy: number, w: number, h: number, floorTile: number = 3) => {
-    for (let dy = -h; dy <= h; dy++) {
-      for (let dx = -w; dx <= w; dx++) {
-        const px = cx + dx, py = cy + dy;
-        if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) {
-          if (Math.abs(dx) === w || Math.abs(dy) === h) {
-            grid[py * SIZE + px] = 5; // Stone exterior wall
-          } else {
-            grid[py * SIZE + px] = floorTile; // Interior floor
-          }
-        }
-      }
-    }
-  };
+  // 5. Dynamic Workplaces Derived from Actual Citizen Demographics
+  const citizensByWorkplace = new Map<string, any[]>();
+  for (const c of citizens) {
+    const wt = c.workplace_type || "FARMSTEAD";
+    if (!citizensByWorkplace.has(wt)) citizensByWorkplace.set(wt, []);
+    citizensByWorkplace.get(wt)!.push(c);
+  }
 
-  // 1. Communal Hearth Bakery (South-East Quarter)
-  drawWorkplaceBuilding(CENTER + 22, CENTER + 18, 6, 6, 3);
-  grid[(CENTER + 18) * SIZE + (CENTER + 24)] = 8; // Brick bread oven
+  let activeWorkplaceTypes = Array.from(citizensByWorkplace.keys());
+  if (activeWorkplaceTypes.length === 0) {
+    activeWorkplaceTypes = tier >= 2
+      ? ["FARMSTEAD", "BAKERY", "BARRACKS", "CARPENTRY", "MARKET_STALL"]
+      : ["FARMSTEAD", "BAKERY", "CARPENTRY"];
+  }
 
-  // 2. Master Armorer's Forge & Smithy (South-West Quarter)
-  drawWorkplaceBuilding(CENTER - 36, CENTER - 20, 7, 7, 4);
-  grid[(CENTER - 20) * SIZE + (CENTER - 36)] = 8; // Roaring coal forge
+  const candidatePlots: Array<{ cx: number; cy: number; w: number; h: number }> = [
+    { cx: CENTER - 26, cy: CENTER - 26, w: 7, h: 6 }, // NW Inner
+    { cx: CENTER + 26, cy: CENTER - 26, w: 7, h: 6 }, // NE Inner
+    { cx: CENTER - 26, cy: CENTER + 26, w: 7, h: 6 }, // SW Inner
+    { cx: CENTER + 26, cy: CENTER + 26, w: 7, h: 6 }, // SE Inner
+    { cx: CENTER - 48, cy: CENTER - 24, w: 7, h: 6 }, // NW Outer
+    { cx: CENTER + 48, cy: CENTER - 24, w: 7, h: 6 }, // NE Outer
+    { cx: CENTER - 48, cy: CENTER + 24, w: 7, h: 6 }, // SW Outer
+    { cx: CENTER + 48, cy: CENTER + 24, w: 7, h: 6 }, // SE Outer
+    { cx: CENTER - 24, cy: CENTER - 48, w: 6, h: 6 }, // North-West Far
+    { cx: CENTER + 24, cy: CENTER - 48, w: 6, h: 6 }, // North-East Far
+    { cx: CENTER - 24, cy: CENTER + 48, w: 6, h: 6 }, // South-West Far
+    { cx: CENTER + 24, cy: CENTER + 48, w: 6, h: 6 }  // South-East Far
+  ];
 
-  // 3. Sovereign Guard Barracks & Armory (North-West Quarter)
-  drawWorkplaceBuilding(CENTER - 32, CENTER - 32, 8, 8, 4);
+  interface PlacedBuilding {
+    spec: WorkplaceSpec;
+    cx: number;
+    cy: number;
+    w: number;
+    h: number;
+    citizens: any[];
+  }
+  const placedBuildings: PlacedBuilding[] = [];
 
-  // 4. Cask & Flagon Brewhouse (South-West Quarter)
-  drawWorkplaceBuilding(CENTER - 20, CENTER + 20, 6, 6, 3);
+  if (tier >= 2 && !activeWorkplaceTypes.includes("REGISTRY")) {
+    activeWorkplaceTypes.unshift("REGISTRY");
+  }
 
-  // 5. Draper Loom Guild Workshop (North-East Quarter)
-  drawWorkplaceBuilding(CENTER + 24, CENTER - 36, 6, 6, 3);
+  for (let i = 0; i < activeWorkplaceTypes.length && i < candidatePlots.length; i++) {
+    const wt = activeWorkplaceTypes[i]!;
+    const spec = WORKPLACE_SPECS[wt] || WORKPLACE_SPECS.FARMSTEAD!;
+    const plot = candidatePlots[i]!;
+    const assignedCitizens = citizensByWorkplace.get(wt) || [];
 
-  // 6. Leather Currier Tannery (South-West Fringe)
-  drawWorkplaceBuilding(CENTER - 38, CENTER + 36, 6, 6, 3);
+    placedBuildings.push({
+      spec,
+      cx: plot.cx,
+      cy: plot.cy,
+      w: plot.w,
+      h: plot.h,
+      citizens: assignedCitizens
+    });
+  }
 
-  // 7. Ceramics Pottery Kiln (North-West Fringe)
-  drawWorkplaceBuilding(CENTER - 24, CENTER - 38, 5, 5, 3);
-  grid[(CENTER - 38) * SIZE + (CENTER - 24)] = 8; // Pottery firing kiln
-
-  // 8. Apothecary Herbarium & Clinic (South-East Fringe)
-  drawWorkplaceBuilding(CENTER + 32, CENTER + 32, 6, 6, 3);
-
-  // 9. Town Hall Chancellery & Registry (North-East Civic)
-  drawWorkplaceBuilding(CENTER + 16, CENTER - 14, 7, 6, 4);
-
-  // 10. Cathedral Sanctuary of the Dragon Seals
-  drawWorkplaceBuilding(CENTER - 45, CENTER + 35, 9, 9, 4);
-  grid[(CENTER + 35) * SIZE + (CENTER - 45)] = 10; // Runic altar
-
-  // 7. Interactive Functional Props
-  const props = [
+  const props0: SectorMapResult["props"] = [
     {
-      id: `prop_well_${burg.burg_id}`,
-      name: `The Grand Public Fountain of ${burgName}`,
-      pos: [CENTER, CENTER] as [number, number],
+      id: `prop_fountain_${burg.burg_id}`,
+      name: tier >= 3 ? `Grand Public Fountain of ${burgName}` : `Central Well of ${burgName}`,
+      pos: [CENTER, CENTER],
       tags: ["stone", "water", "civic", "container", "fountain"],
       hp: 150,
       maxHp: 150,
-      description: `A masterwork tiered stone fountain providing clear spring water to the citizens of ${burgName}.`
-    },
-    {
-      id: `prop_market_${burg.burg_id}`,
-      name: "Guild Trade Stalls & Weigh Station",
-      pos: [CENTER - 8, CENTER + 6] as [number, number],
-      tags: ["wood", "market", "container", "cloth", "commerce"],
-      hp: 60,
-      maxHp: 60,
-      description: "Canopied market stalls heaped with regional produce, cured meats, iron ingots, and textiles."
-    },
-    {
-      id: `prop_bakery_${burg.burg_id}`,
-      name: `The Communal Hearth Bakery of ${burgName}`,
-      pos: [CENTER + 22, CENTER + 18] as [number, number],
-      tags: ["stone", "food", "fire", "bakery", "crafting"],
-      hp: 120,
-      maxHp: 120,
-      description: `A bustling stone bakery with blazing brick bread ovens, flour barrels, and bread cooling racks supplying ${burgName}'s daily bread.`
-    },
-    {
-      id: `prop_forge_${burg.burg_id}`,
-      name: "Master Armorer's Forge & Bellows",
-      pos: [CENTER - 36, CENTER - 20] as [number, number],
-      tags: ["stone", "metal", "fire", "forge", "crafting"],
-      hp: 200,
-      maxHp: 200,
-      description: "A blazing coal forge and dual-bellows furnace where provincial steel is beaten into armor and arms."
-    },
-    {
-      id: `prop_barracks_${burg.burg_id}`,
-      name: "Sovereign Guard Barracks & Muster Yard",
-      pos: [CENTER - 32, CENTER - 32] as [number, number],
-      tags: ["stone", "military", "barracks", "weapon", "defense"],
-      hp: 300,
-      maxHp: 300,
-      description: "Heavy stone barracks housing the sworn town guard, armor lockers, training pell dummies, and armory racks."
-    },
-    {
-      id: `prop_brewery_${burg.burg_id}`,
-      name: `The Cask & Flagon Brewhouse of ${burgName}`,
-      pos: [CENTER - 20, CENTER + 20] as [number, number],
-      tags: ["wood", "food", "brewhouse", "container", "crafting"],
-      hp: 140,
-      maxHp: 140,
-      description: "A fragrant brewhouse with copper mash tuns, fermentation barrels, and aged ale casks for the citizens."
-    },
-    {
-      id: `prop_weavery_${burg.burg_id}`,
-      name: "Draper Guild Loom Workshop",
-      pos: [CENTER + 24, CENTER - 36] as [number, number],
-      tags: ["wood", "cloth", "weaving", "crafting"],
-      hp: 100,
-      maxHp: 100,
-      description: "Vertical spinning looms and cloth drying racks turning raw sheep's wool and flax into garments."
-    },
-    {
-      id: `prop_tannery_${burg.burg_id}`,
-      name: "Leather Currier Tannery",
-      pos: [CENTER - 38, CENTER + 36] as [number, number],
-      tags: ["stone", "leather", "tannery", "container", "crafting"],
-      hp: 110,
-      maxHp: 110,
-      description: "Tanning vats and scraping frames where cured cattle and wolf hides are scraped and turned into boiled leather."
-    },
-    {
-      id: `prop_pottery_${burg.burg_id}`,
-      name: "Earthenware Pottery & Brick Kiln",
-      pos: [CENTER - 24, CENTER - 38] as [number, number],
-      tags: ["stone", "fire", "pottery", "crafting"],
-      hp: 150,
-      maxHp: 150,
-      description: "Domed brick kiln firing storage amphoras, roof tiles, and glazed cooking vessels."
-    },
-    {
-      id: `prop_apothecary_${burg.burg_id}`,
-      name: "Apothecary Herbarium & Dispensary",
-      pos: [CENTER + 32, CENTER + 32] as [number, number],
-      tags: ["stone", "medical", "alchemy", "reagents"],
-      hp: 100,
-      maxHp: 100,
-      description: "Bundles of dried nightshade, healing mosses, and glass alembics distilling tinctures for wounded citizens."
-    },
-    {
-      id: `prop_registry_${burg.burg_id}`,
-      name: "Town Hall Chancellery & Deed Registry",
-      pos: [CENTER + 16, CENTER - 14] as [number, number],
-      tags: ["stone", "civic", "paper", "registry"],
-      hp: 250,
-      maxHp: 250,
-      description: "Where municipal magistrates record citizen rights, trade tariffs, grain manifests, and royal decrees."
-    },
-    {
-      id: `prop_temple_${burg.burg_id}`,
-      name: "Cathedral Altar of the Dragon Seals",
-      pos: [CENTER - 45, CENTER + 35] as [number, number],
-      tags: ["stone", "sacred", "altar", "holy", "relic"],
-      hp: 300,
-      maxHp: 300,
-      description: "An ancient polished marble sanctuary dedicated to the Cosmic Order and the binding of Cruorbus."
-    },
-    {
-      id: `prop_notice_${burg.burg_id}`,
-      name: "Provincial Decree & Bounty Board",
-      pos: [CENTER + 8, CENTER - 8] as [number, number],
-      tags: ["wood", "paper", "civic", "interactive"],
-      hp: 40,
-      maxHp: 40,
-      description: `Official parchment proclamations, harvest tariffs, and monster bounties bearing the seal of ${factionName}.`
-    },
-    {
-      id: `prop_cellar_hatch_brewery_${burg.burg_id}`,
-      name: "Brewhouse Fermentation Cellar Hatch",
-      pos: [CENTER - 20, CENTER + 20] as [number, number],
-      tags: ["wood", "hatch", "down", "stairs_down", "cellar", "subterranean"],
-      hp: 60,
-      maxHp: 60,
-      description: "Heavy iron-strapped cellar hatch leading down to the deep fermentation vaults."
-    },
-    {
-      id: `prop_cellar_hatch_apothecary_${burg.burg_id}`,
-      name: "Apothecary Root Vault Hatch",
-      pos: [CENTER + 32, CENTER + 32] as [number, number],
-      tags: ["wood", "hatch", "down", "stairs_down", "cellar", "subterranean"],
-      hp: 50,
-      maxHp: 50,
-      description: "Subterranean root cellar trapdoor holding medicinal supplies and drying mosses."
-    },
-    {
-      id: `prop_cellar_hatch_cathedral_${burg.burg_id}`,
-      name: "Cathedral Crypt Stone Portal",
-      pos: [CENTER - 45, CENTER + 35] as [number, number],
-      tags: ["stone", "hatch", "down", "stairs_down", "crypt", "subterranean"],
-      hp: 150,
-      maxHp: 150,
-      description: "Carved marble trapdoor opening into the ancient ancestral crypt catacombs."
-    },
-    {
-      id: `prop_sewer_grate_${burg.burg_id}`,
-      name: "Municipal Plaza Sewer Grate",
-      pos: [CENTER, CENTER] as [number, number],
-      tags: ["metal", "iron", "grate", "down", "stairs_down", "sewer", "subterranean"],
-      hp: 180,
-      maxHp: 180,
-      description: "Heavy forged iron sewer grating granting descent into the municipal culvert network."
-    },
-    {
-      id: `prop_stairs_barracks_up_${burg.burg_id}`,
-      name: "Barracks Flight Stairs to Upper Ramparts",
-      pos: [CENTER - 32, CENTER - 32] as [number, number],
-      tags: ["wood", "stairs_up", "up", "ramparts", "elevated"],
-      hp: 100,
-      maxHp: 100,
-      description: "Sturdy wooden stair flight climbing to the guard tower and city wall battlements."
-    },
-    {
-      id: `prop_stairs_chancellery_up_${burg.burg_id}`,
-      name: "Chancellery Council Stairs Up",
-      pos: [CENTER + 16, CENTER - 14] as [number, number],
-      tags: ["wood", "stairs_up", "up", "elevated"],
-      hp: 90,
-      maxHp: 90,
-      description: "Polished oak stairs rising to the magistrate high council chambers."
-    },
-    {
-      id: `prop_wall_stairs_nw_${burg.burg_id}`,
-      name: "North-West Bastion Rampart Stairs Up",
-      pos: [WALL_LEFT + 4, WALL_TOP + 4] as [number, number],
-      tags: ["stone", "stairs_up", "up", "ramparts", "elevated"],
-      hp: 200,
-      maxHp: 200,
-      description: "Stone masonry steps ascending to the high corner watchtower and curtain wall walkway."
-    },
-    {
-      id: `prop_wall_stairs_ne_${burg.burg_id}`,
-      name: "North-East Bastion Rampart Stairs Up",
-      pos: [WALL_RIGHT - 4, WALL_TOP + 4] as [number, number],
-      tags: ["stone", "stairs_up", "up", "ramparts", "elevated"],
-      hp: 200,
-      maxHp: 200,
-      description: "Stone steps ascending to the north-east curtain wall."
+      description: `A communal stone water well providing clear drinking water to the citizens of ${burgName}.`
     }
   ];
 
-  if (isPort) {
-    props.push(
+  const npcs0: SectorMapResult["npcs"] = [];
+
+  for (const b of placedBuildings) {
+    const wallTile = tier === 1 ? 7 : 5; // Timber cottage wall for village, stone masonry for town/city
+    const floorTile = b.spec.floorTile;
+
+    for (let dy = -b.h; dy <= b.h; dy++) {
+      for (let dx = -b.w; dx <= b.w; dx++) {
+        const px = b.cx + dx, py = b.cy + dy;
+        if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) {
+          if (Math.abs(dx) === b.w || Math.abs(dy) === b.h) {
+            grid0[py * SIZE + px] = wallTile;
+          } else {
+            grid0[py * SIZE + px] = floorTile;
+          }
+        }
+      }
+    }
+    const doorX = b.cx + (b.cx < CENTER ? b.w : -b.w);
+    const doorY = b.cy;
+    grid0[doorY * SIZE + doorX] = floorTile;
+
+    if (b.spec.hasOven) {
+      grid0[(b.cy - b.h + 2) * SIZE + (b.cx - b.w + 2)] = 8;
+    }
+    if (b.spec.hasAltar) {
+      grid0[b.cy * SIZE + b.cx] = 10;
+    }
+
+    props0.push({
+      id: `prop_${b.spec.type.toLowerCase()}_${burg.burg_id}`,
+      name: `${b.spec.title} of ${burgName}`,
+      pos: [b.cx, b.cy],
+      tags: [...b.spec.propTag, "interactive"],
+      hp: 120,
+      maxHp: 120,
+      description: b.spec.propDesc
+    });
+
+    if (b.spec.hasCellar) {
+      props0.push({
+        id: `prop_cellar_hatch_${b.spec.type.toLowerCase()}_${burg.burg_id}`,
+        name: `${b.spec.title} Cellar Trapdoor`,
+        pos: [b.cx + 2, b.cy + 1],
+        tags: ["wood", "hatch", "down", "stairs_down", "cellar", "subterranean"],
+        hp: 60,
+        maxHp: 60,
+        description: `Iron-strapped oak trapdoor opening down into the ${b.spec.title.toLowerCase()} basement.`
+      });
+    }
+
+    if (b.spec.hasUpper) {
+      props0.push({
+        id: `prop_stairs_up_${b.spec.type.toLowerCase()}_${burg.burg_id}`,
+        name: `${b.spec.title} Upper Flight Stairs`,
+        pos: [b.cx - 2, b.cy - 1],
+        tags: ["wood", "stairs_up", "up", "elevated"],
+        hp: 80,
+        maxHp: 80,
+        description: `Stair flight ascending to the second floor of the ${b.spec.title.toLowerCase()}.`
+      });
+    }
+
+    for (let ci = 0; ci < b.citizens.length && ci < 2; ci++) {
+      const c = b.citizens[ci]!;
+      const stats = computeCitizenConcordiaStats(c, rand);
+
+      npcs0.push({
+        id: `npc_citizen_${c.citizen_id}`,
+        name: `${c.name} (${c.profession})`,
+        role: c.profession,
+        pos: [b.cx + (ci === 0 ? 0 : 1), b.cy + (ci === 0 ? 0 : -1)],
+        tags: [c.species ? c.species.toLowerCase() : "human", "civilian", c.workplace_type.toLowerCase()],
+        faction: factionName,
+        hp: 25,
+        maxHp: 25,
+        disposition: 1,
+        alive: true,
+        equippedWeapon: c.profession.includes("Smith") ? "Heavy Blacksmith Hammer" : c.profession.includes("Guard") ? "City Watch Spear" : "Carved Wooden Cudgel",
+        equippedArmor: c.profession.includes("Guard") ? "Studded Leather Cuirass" : "Woven Wool Tunic & Apron",
+        statAffinity: c.temper ? c.temper.toLowerCase() : "vitality",
+        memoryNotes: [
+          c.childhood_background || "Raised locally among the workshops of the province.",
+          c.motivation || "Devoted to their daily labor and community.",
+          `Employed at ${c.workplace_name || b.spec.title}.`
+        ],
+        stats
+      });
+    }
+  }
+
+  if (hasWalls) {
+    props0.push(
       {
-        id: `prop_harbor_${burg.burg_id}`,
-        name: "Deep-Water Quay Cargo Cranes & Warehouses",
-        pos: [CENTER, WALL_BOTTOM - 16] as [number, number],
-        tags: ["wood", "metal", "harbor", "crane", "cargo"],
+        id: `prop_wall_stairs_north_${burg.burg_id}`,
+        name: "North Curtain Wall Stairs Up",
+        pos: [WALL_LEFT + 4, WALL_TOP + 3],
+        tags: ["stone", "stairs_up", "up", "ramparts", "elevated"],
         hp: 180,
         maxHp: 180,
-        description: "Massive counterweighted timber cranes unloading trade galleons and coastal skiffs."
+        description: "Stone staircase rising to the north wall parapet walkway."
       },
       {
-        id: `prop_fishery_${burg.burg_id}`,
-        name: "Basin Fishery Quay & Smokehouse",
-        pos: [CENTER + 28, WALL_BOTTOM - 15] as [number, number],
-        tags: ["wood", "food", "fishery", "smokehouse"],
-        hp: 120,
-        maxHp: 120,
-        description: "Drying nets, salted herring barrels, and skiffs supplying fresh ocean catch to the city markets."
+        id: `prop_wall_stairs_south_${burg.burg_id}`,
+        name: "South Curtain Wall Stairs Up",
+        pos: [WALL_RIGHT - 4, WALL_BOTTOM - 3],
+        tags: ["stone", "stairs_up", "up", "ramparts", "elevated"],
+        hp: 180,
+        maxHp: 180,
+        description: "Stone staircase rising to the south wall parapet walkway."
       }
     );
   }
 
-  // 8. Purpose-Driven NPCs stationed at their authentic workplaces
-  const npcs: SectorMapResult["npcs"] = [];
-  const citizenByProf = new Map<string, any>();
-  for (const c of citizens) {
-    if (!citizenByProf.has(c.profession)) citizenByProf.set(c.profession, c);
-  }
-
-  // A. Governor / Magistrate at Grand Plaza
-  const primaryCitizen = citizens[0] || { name: "Lord Elden Vance", profession: "Governor", species: "Human", temper: "RESOLUTE" };
-  npcs.push({
-    id: `npc_burg_governor_${burg.burg_id}`,
-    name: `${primaryCitizen.name} (${primaryCitizen.profession})`,
-    role: "Burg Governor / High Magistrate",
-    pos: [CENTER + 4, CENTER + 4],
-    tags: ["leader", "civilian", primaryCitizen.species.toLowerCase(), "magistrate"],
-    faction: factionName,
-    hp: 25,
-    maxHp: 25,
-    disposition: 1,
-    alive: true,
-    equippedWeapon: "Ornate Gilded Rapier",
-    equippedArmor: "Fine Silk & Brocade Mantle",
-    statAffinity: "charm",
-    memoryNotes: [`Oversees ${burgName} for ${factionName}.`, `Temperament: ${primaryCitizen.temper}`]
-  });
-
-  // B. Town Baker at the Hearth Bakery
-  const baker = citizenByProf.get("Baker") || { name: "Kaelen Thorne", species: "Human", temper: "WARM" };
-  npcs.push({
-    id: `npc_baker_${burg.burg_id}`,
-    name: `${baker.name} (Town Baker)`,
-    role: "Town Baker",
-    pos: [CENTER + 22, CENTER + 17],
-    tags: ["artisan", "baker", "food", baker.species.toLowerCase()],
-    faction: factionName,
-    hp: 22,
-    maxHp: 22,
-    disposition: 1,
-    alive: true,
-    equippedWeapon: "Hardwood Baker's Peel",
-    equippedArmor: "Flour-Dusted Linen Apron",
-    statAffinity: "endurance",
-    memoryNotes: [`Bakes the daily bread rations for ${burgName} at the Communal Hearth Bakery.`]
-  });
-
-  // C. Master Smith at the Forge
-  const smith = citizenByProf.get("Blacksmith") || citizenByProf.get("Armorer") || citizenByProf.get("Foundry Worker") || { name: "Brogren Ironhand", species: "Human", temper: "STOIC" };
-  npcs.push({
-    id: `npc_smith_${burg.burg_id}`,
-    name: `${smith.name} (Master Armorer)`,
-    role: "Master Blacksmith",
-    pos: [CENTER - 34, CENTER - 18],
-    tags: ["artisan", "smith", "metal", smith.species.toLowerCase()],
-    faction: factionName,
-    hp: 32,
-    maxHp: 32,
-    disposition: 1,
-    alive: true,
-    equippedWeapon: "Heavy Sledgehammer",
-    equippedArmor: "Hardened Leather Apron",
-    statAffinity: "might",
-    memoryNotes: [`Runs the Armory & Smithy Forge of ${burgName}.`]
-  });
-
-  // D. Watch Captain at the Barracks
-  const guard = citizenByProf.get("City Watchman") || { name: "Captain Vaelen", species: "Human", temper: "VIGILANT" };
-  npcs.push({
-    id: `npc_guard_captain_${burg.burg_id}`,
-    name: `${guard.name} (Watch Captain)`,
-    role: "Watch Captain",
-    pos: [CENTER - 30, CENTER - 30],
-    tags: ["guard", "soldier", "military", guard.species.toLowerCase()],
-    faction: factionName,
-    hp: 36,
-    maxHp: 36,
-    disposition: 0,
-    alive: true,
-    equippedWeapon: "Steel Halberd & Shortsword",
-    equippedArmor: "Chainmail Hauberk & Steel Bascinet",
-    statAffinity: "endurance",
-    memoryNotes: [`Commands the city watch from the Sovereign Guard Barracks.`]
-  });
-
-  // E. Brewmaster at the Brewhouse
-  const brewer = citizenByProf.get("Brewmaster") || { name: "Aldous Stout", species: "Human", temper: "JOVIAL" };
-  npcs.push({
-    id: `npc_brewer_${burg.burg_id}`,
-    name: `${brewer.name} (Master Brewer)`,
-    role: "Brewmaster",
-    pos: [CENTER - 20, CENTER + 19],
-    tags: ["artisan", "brewer", "food", brewer.species.toLowerCase()],
-    faction: factionName,
-    hp: 24,
-    maxHp: 24,
-    disposition: 1,
-    alive: true,
-    equippedWeapon: "Copper Mash Paddle",
-    statAffinity: "vitality",
-    memoryNotes: [`Brews regional ale at the Cask & Flagon Brewhouse.`]
-  });
-
-  // F. Apothecary at the Herbarium
-  const herbalist = citizenByProf.get("Hedge Herbalist") || { name: "Alys Moss", species: "Human", temper: "COMPASSIONATE" };
-  npcs.push({
-    id: `npc_apothecary_${burg.burg_id}`,
-    name: `${herbalist.name} (Apothecary)`,
-    role: "Herbal Healer",
-    pos: [CENTER + 32, CENTER + 31],
-    tags: ["medical", "healer", "herbalist", herbalist.species.toLowerCase()],
-    faction: factionName,
-    hp: 20,
-    maxHp: 20,
-    disposition: 1,
-    alive: true,
-    equippedWeapon: "Bronze Mortar & Pestle",
-    statAffinity: "knowledge",
-    memoryNotes: [`Prepares healing draughts at the Apothecary Dispensary.`]
-  });
-
-  // G. Temple Priest at the Cathedral Altar
-  const priest = citizenByProf.get("Temple Acolyte") || { name: "Father Orson", species: "Human", temper: "DEVOUT" };
-  npcs.push({
-    id: `npc_priest_${burg.burg_id}`,
-    name: `${priest.name} (Temple Acolyte)`,
-    role: "High Priest of the Seals",
-    pos: [CENTER - 45, CENTER + 34],
-    tags: ["priest", "holy", "sacred", priest.species.toLowerCase()],
-    faction: factionName,
-    hp: 26,
-    maxHp: 26,
-    disposition: 1,
-    alive: true,
-    equippedWeapon: "Ceremonial Dragon Sigil",
-    statAffinity: "willpower",
-    memoryNotes: [`Maintains the sacred wards at the Cathedral Altar.`]
-  });
-
-  // H. Station Underworld Lairs & Unique Persistent Outlaw Operatives if present
-  if (Array.isArray(lairs) && lairs.length > 0) {
-    for (let idx = 0; idx < lairs.length; idx++) {
-      const lair = lairs[idx];
-      const posX = 164 + (idx * 6);
-      const posY = 164 + (idx * 6);
-      const lairPropId = `prop_underworld_lair_${lair.id}`;
-
-      const propDetails = getLairPropDetails(lair);
-      props.push({
-        id: lairPropId,
-        name: propDetails.name,
-        pos: [posX, posY],
-        tags: propDetails.tags,
-        hp: propDetails.hp,
-        maxHp: propDetails.maxHp,
-        description: propDetails.description
-      });
-
-      // Station 2 Unique Individuals for the lair
-      for (let slot = 0; slot < 2; slot++) {
-        const uniqueOperative = generateUniqueOutlawOperative(lair, slot);
-        npcs.push({
-          id: uniqueOperative.id,
-          name: uniqueOperative.name,
-          role: uniqueOperative.role,
-          pos: uniqueOperative.local_pos as [number, number],
-          tags: uniqueOperative.tags,
-          faction: uniqueOperative.faction,
-          hp: uniqueOperative.hp,
-          maxHp: uniqueOperative.max_hp,
-          disposition: uniqueOperative.disposition,
-          alive: uniqueOperative.alive,
-          equippedWeapon: uniqueOperative.equipped_weapon,
-          equippedArmor: uniqueOperative.equipped_armor,
-          statAffinity: uniqueOperative.stat_affinity,
-          memoryNotes: uniqueOperative.memory_notes
-        });
-      }
-    }
+  if (tier >= 3) {
+    props0.push({
+      id: `prop_sewer_grate_${burg.burg_id}`,
+      name: "Municipal Plaza Sewer Grate",
+      pos: [CENTER + 3, CENTER + 3],
+      tags: ["metal", "iron", "grate", "down", "stairs_down", "sewer", "subterranean"],
+      hp: 180,
+      maxHp: 180,
+      description: "Heavy forged iron grating offering descent into the city stormwater culvert system."
+    });
   }
 
   const layer0: SectorMapResult = {
-    grid,
-    compressed: zlib.gzipSync(Buffer.from(grid)),
-    props,
-    npcs,
-    poiType: tier === 3 ? "BURG_METROPOLIS" : tier === 2 ? "BURG_TOWN" : "BURG_VILLAGE",
+    grid: grid0,
+    compressed: zlib.gzipSync(Buffer.from(grid0)),
+    props: props0,
+    npcs: npcs0,
+    poiType: "BURG_CORE",
     name: `${burgName} (Surface Ground Level)`,
     features: {
       burgId: burg.burg_id,
       urbanTier: tier,
       isPort,
       wealth: burg.wealth,
-      food: burg.food,
       unrest: burg.unrest,
       factionName,
       zLayer: 0
     }
   };
 
-  // =========================================================================
-  // LAYER -1: SUBTERRANEAN (Cellars, Basements, Drainage Sewers & Tunnels)
-  // =========================================================================
+  // -------------------------------------------------------------------------
+  // LAYER -1: SUBTERRANEAN BASEMENTS & UNDERWORLD
+  // -------------------------------------------------------------------------
   const gridMinus1 = new Uint8Array(SIZE * SIZE);
-  gridMinus1.fill(5); // Default solid bedrock wall
+  gridMinus1.fill(5); // Default solid subterranean bedrock / earthen wall
 
-  const carveRoom = (targetGrid: Uint8Array, cx: number, cy: number, w: number, h: number, floorTile: number = 4) => {
-    for (let dy = -h; dy <= h; dy++) {
-      for (let dx = -w; dx <= w; dx++) {
-        const px = cx + dx, py = cy + dy;
-        if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) {
-          targetGrid[py * SIZE + px] = floorTile;
-        }
-      }
+  const propsMinus1: SectorMapResult["props"] = [];
+  const npcsMinus1: SectorMapResult["npcs"] = [];
+
+  // A. Municipal Sewer Canal (Only in Tier 3+ Cities)
+  if (tier >= 3) {
+    for (let x = WALL_LEFT; x <= WALL_RIGHT; x++) {
+      gridMinus1[(CENTER - 1) * SIZE + x] = 4;
+      gridMinus1[CENTER * SIZE + x] = 2;
+      gridMinus1[(CENTER + 1) * SIZE + x] = 4;
     }
-  };
-
-  // Basements aligned with Ground Buildings:
-  // 1. Brewhouse Deep Cellar (matching [CENTER - 20, CENTER + 20])
-  carveRoom(gridMinus1, CENTER - 20, CENTER + 20, 7, 7, 4);
-
-  // 2. Apothecary Cold Vault (matching [CENTER + 32, CENTER + 32])
-  carveRoom(gridMinus1, CENTER + 32, CENTER + 32, 6, 6, 4);
-
-  // 3. Cathedral Ancestral Crypt (matching [CENTER - 45, CENTER + 35])
-  carveRoom(gridMinus1, CENTER - 45, CENTER + 35, 9, 9, 4);
-
-  // 4. Guardhouse Sub-Dungeon Gaol (matching [CENTER - 32, CENTER - 32])
-  carveRoom(gridMinus1, CENTER - 32, CENTER - 32, 8, 8, 4);
-
-  // 5. Bakery Grain Sump (matching [CENTER + 22, CENTER + 18])
-  carveRoom(gridMinus1, CENTER + 22, CENTER + 18, 6, 6, 4);
-
-  // 6. Underworld Syndicate Vault (matching [164, 164])
-  carveRoom(gridMinus1, 164, 164, 8, 8, 4);
-
-  // Municipal Drainage Sewer Network
-  // East-West Main Sewer Channel
-  for (let x = 75; x <= 180; x++) {
-    gridMinus1[127 * SIZE + x] = 4; // North walkway
-    gridMinus1[128 * SIZE + x] = 2; // Water canal
-    gridMinus1[129 * SIZE + x] = 4; // South walkway
-  }
-  // North-South Main Sewer Channel
-  for (let y = 75; y <= 180; y++) {
-    gridMinus1[y * SIZE + 127] = 4; // West walkway
-    gridMinus1[y * SIZE + 128] = 2; // Water canal
-    gridMinus1[y * SIZE + 129] = 4; // East walkway
-  }
-
-  // Connecting Sewer Branches:
-  // Brewhouse Cellar to Sewer
-  for (let y = 129; y <= CENTER + 14; y++) {
-    gridMinus1[y * SIZE + (CENTER - 20)] = 4;
-  }
-  // Apothecary to Sewer
-  for (let y = 129; y <= CENTER + 26; y++) {
-    gridMinus1[y * SIZE + (CENTER + 32)] = 4;
-  }
-  // Guardhouse Dungeon to Sewer
-  for (let y = CENTER - 24; y <= 127; y++) {
-    gridMinus1[y * SIZE + (CENTER - 32)] = 4;
-  }
-
-  // Smuggler Escape Tunnel: Brewhouse Cellar -> Underworld Vault
-  for (let x = CENTER - 13; x <= 156; x++) {
-    gridMinus1[(CENTER + 20) * SIZE + x] = 3; // Secret dirt burrow tunnel
-  }
-  for (let y = CENTER + 20; y <= 164; y++) {
-    gridMinus1[y * SIZE + 156] = 3;
-  }
-
-  const propsMinus1: SectorMapResult["props"] = [
-    {
-      id: `prop_ladder_brewery_up_${burg.burg_id}`,
-      name: "Brewhouse Fermentation Cellar Ladder Up",
-      pos: [CENTER - 20, CENTER + 20],
-      tags: ["wood", "ladder", "up", "stairs_up", "surface"],
-      hp: 80,
-      maxHp: 80,
-      description: "Oak rungs bolted into masonry rising directly up to the Brewhouse taproom."
-    },
-    {
-      id: `prop_ladder_apothecary_up_${burg.burg_id}`,
-      name: "Apothecary Vault Ladder Up",
-      pos: [CENTER + 32, CENTER + 32],
-      tags: ["wood", "ladder", "up", "stairs_up", "surface"],
-      hp: 75,
-      maxHp: 75,
-      description: "Counterbalanced ladder climbing up into the apothecary clinic."
-    },
-    {
-      id: `prop_stairs_crypt_up_${burg.burg_id}`,
-      name: "Cathedral Crypt Stone Steps Up",
-      pos: [CENTER - 45, CENTER + 35],
-      tags: ["stone", "stairs_up", "up", "surface"],
-      hp: 180,
-      maxHp: 180,
-      description: "Worn limestone steps rising up beneath the altar of the Dragon Seals."
-    },
-    {
-      id: `prop_stairs_dungeon_up_${burg.burg_id}`,
-      name: "Guardhouse Turnkey Stairs Up",
-      pos: [CENTER - 32, CENTER - 32],
-      tags: ["stone", "stairs_up", "up", "surface"],
-      hp: 160,
-      maxHp: 160,
-      description: "Stone staircase climbing to the ground-floor barracks muster room."
-    },
-    {
-      id: `prop_sewer_grate_up_${burg.burg_id}`,
-      name: "Municipal Plaza Sewer Inspection Ladder Up",
-      pos: [CENTER, CENTER],
+    for (let y = WALL_TOP; y <= WALL_BOTTOM; y++) {
+      gridMinus1[y * SIZE + (CENTER - 1)] = 4;
+      gridMinus1[y * SIZE + CENTER] = 2;
+      gridMinus1[y * SIZE + (CENTER + 1)] = 4;
+    }
+    propsMinus1.push({
+      id: `prop_sewer_ladder_up_${burg.burg_id}`,
+      name: "Municipal Sewer Ladder Up to Plaza",
+      pos: [CENTER + 3, CENTER + 3],
       tags: ["metal", "iron", "ladder", "up", "surface"],
       hp: 120,
       maxHp: 120,
-      description: "Vertical iron climbing rungs leading up to the cobblestone plaza grating."
-    },
-    {
-      id: `prop_sub_cask_tun_${burg.burg_id}`,
-      name: "Imperial Winter-Malt Aging Tuns",
-      pos: [CENTER - 24, CENTER + 20],
-      tags: ["wood", "container", "valuable", "heavy"],
-      hp: 90,
-      maxHp: 90,
-      description: "Massive iron-hooped cedar casks aging vintage stout in the cool cellar damp."
-    },
-    {
-      id: `prop_sub_sarcophagus_${burg.burg_id}`,
-      name: "First Reeve Carved Sarcophagus",
-      pos: [CENTER - 45, CENTER + 38],
-      tags: ["stone", "ancient", "locked", "container"],
-      hp: 200,
-      maxHp: 200,
-      description: "Relief-carved marble tomb containing the sealed remains of the burg's founding reeve."
-    },
-    {
-      id: `prop_sub_sewer_sluice_${burg.burg_id}`,
-      name: "Central Municipal Sewer Floodgate Sluice",
-      pos: [CENTER + 15, CENTER],
-      tags: ["metal", "iron", "water", "mechanism", "heavy"],
-      hp: 220,
-      maxHp: 220,
-      description: "Turn-wheel ratchet mechanism regulating wastewater flow into the ocean canal."
-    }
-  ];
+      description: "Vertical iron climbing rungs ascending to the street plaza grating."
+    });
 
-  const npcsMinus1: SectorMapResult["npcs"] = [
-    {
-      id: `npc_burg_cellarer_${burg.burg_id}`,
-      name: "Jorik the Cask-Cooper",
-      role: "Subterranean Cellarer & Cooper",
-      pos: [CENTER - 18, CENTER + 20],
-      tags: ["human", "artisan", "civilian"],
-      faction: factionName,
-      hp: 32,
-      maxHp: 32,
-      disposition: 1,
-      alive: true,
-      equippedWeapon: "Heavy Cooper's Adze & Mallet",
-      equippedArmor: "Oiled Rawhide Apron",
-      statAffinity: "endurance",
-      memoryNotes: ["Maintains the aging tuns and knows how to navigate the sewer pipes without drowning."],
-      stats: { might: 14, endurance: 15, finesse: 12, reflex: 11, vitality: 14, fortitude: 13, knowledge: 10, logic: 11, awareness: 13, intuition: 13, charm: 10, willpower: 13 }
-    },
-    {
-      id: `npc_burg_sewer_creature_${burg.burg_id}`,
-      name: "Cavern Dire Rat",
+    npcsMinus1.push({
+      id: `npc_burg_sewer_beast_${burg.burg_id}`,
+      name: "Culvert Dire Rat",
       role: "Trophic Sewer Scavenger",
       pos: [CENTER + 5, CENTER + 2],
       tags: ["beast", "rodent", "trophic_scavenger"],
@@ -864,10 +548,119 @@ export function generateBurgSectorLayers(
       alive: true,
       equippedWeapon: "Infectious Disease Bite",
       statAffinity: "reflex",
-      memoryNotes: ["Nests in the municipal sewer culvert; stalks dropped market scraps."],
+      memoryNotes: ["Nests in the municipal drainage culverts, scavenging discarded food scraps."],
       stats: { might: 8, endurance: 11, finesse: 15, reflex: 16, vitality: 10, fortitude: 9, knowledge: 3, logic: 4, awareness: 15, intuition: 14, charm: 3, willpower: 10 }
+    });
+  }
+
+  // B. Basements Aligned Directly Beneath Surface Buildings That Have Cellars
+  for (const b of placedBuildings) {
+    if (!b.spec.hasCellar) continue;
+
+    for (let dy = -b.h + 1; dy <= b.h - 1; dy++) {
+      for (let dx = -b.w + 1; dx <= b.w - 1; dx++) {
+        const px = b.cx + dx, py = b.cy + dy;
+        if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) {
+          gridMinus1[py * SIZE + px] = 4; // Flagstone cellar floor
+        }
+      }
     }
-  ];
+
+    propsMinus1.push({
+      id: `prop_cellar_ladder_up_${b.spec.type.toLowerCase()}_${burg.burg_id}`,
+      name: `${b.spec.title} Cellar Ladder Up`,
+      pos: [b.cx + 2, b.cy + 1],
+      tags: ["wood", "ladder", "up", "surface"],
+      hp: 80,
+      maxHp: 80,
+      description: `Vertical wooden ladder climbing up to the ground-floor trapdoor.`
+    });
+
+    propsMinus1.push({
+      id: `prop_sub_storage_${b.spec.type.toLowerCase()}_${burg.burg_id}`,
+      name: `${b.spec.title} Storage Vault`,
+      pos: [b.cx - 1, b.cy - 1],
+      tags: ["wood", "container", "valuable"],
+      hp: 90,
+      maxHp: 90,
+      description: `Cool underground vault storing bulk casks, root crops, or sacramental archives.`
+    });
+  }
+
+  // C. Dynamic Underworld & Cartel Features (Driven EXCLUSIVELY by active sim_fringe_lairs)
+  if (lairs && lairs.length > 0) {
+    for (let li = 0; li < lairs.length; li++) {
+      const lair = lairs[li]!;
+      const cartelName = lair.cartel_name || "Underworld Syndicate";
+      const lairType = lair.lair_type || "VICE_DEN";
+
+      const lx = CENTER + (li % 2 === 0 ? -40 : 40);
+      const ly = CENTER + (li < 2 ? 40 : -40);
+
+      for (let dy = -4; dy <= 4; dy++) {
+        for (let dx = -5; dx <= 5; dx++) {
+          const px = lx + dx, py = ly + dy;
+          if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) gridMinus1[py * SIZE + px] = 3;
+        }
+      }
+
+      if (hasWalls && (lairType.includes("SMUGGLER") || lairType.includes("VAULT") || lairType.includes("CONTRABAND"))) {
+        const exitX = WALL_LEFT - 8;
+        for (let x = Math.min(lx - 5, exitX); x <= Math.max(lx - 5, exitX); x++) {
+          gridMinus1[ly * SIZE + x] = 3;
+        }
+        propsMinus1.push({
+          id: `prop_smuggler_escape_hatch_${burg.burg_id}_${lair.id}`,
+          name: `${cartelName} Wilderness Escape Flue`,
+          pos: [exitX, ly],
+          tags: ["wood", "hatch", "secret", "ladder", "up", "surface"],
+          hp: 100,
+          maxHp: 100,
+          description: "Camouflaged trapdoor burrowed under the outer wall opening into the wilderness brush."
+        });
+        props0.push({
+          id: `prop_surface_secret_hatch_${burg.burg_id}_${lair.id}`,
+          name: "Camouflaged Brush Trapdoor",
+          pos: [exitX, ly],
+          tags: ["wood", "hatch", "secret", "down", "stairs_down", "subterranean"],
+          hp: 80,
+          maxHp: 80,
+          description: "Concealed iron-ringed trapdoor overgrown with brambles outside the town wall."
+        });
+      }
+
+      propsMinus1.push({
+        id: `prop_cartel_cache_${burg.burg_id}_${lair.id}`,
+        name: `${cartelName} Contraband Cache (${lairType})`,
+        pos: [lx, ly],
+        tags: ["wood", "contraband", "valuable", "locked", "container"],
+        hp: 150,
+        maxHp: 150,
+        description: `Sealed lockboxes containing illicit contraband and ledger notes of ${cartelName}.`
+      });
+
+      npcsMinus1.push({
+        id: `npc_cartel_agent_${lair.id}`,
+        name: `${cartelName} Operative`,
+        role: "Syndicate Lair Master",
+        pos: [lx + 1, ly],
+        tags: ["humanoid", "outlaw", "criminal", "smuggler"],
+        faction: cartelName,
+        hp: 35,
+        maxHp: 35,
+        disposition: -1,
+        alive: true,
+        equippedWeapon: "Blackened Steel Kris & Hand Crossbow",
+        equippedArmor: "Darkened Muffled Leather Cuirass",
+        statAffinity: "finesse",
+        memoryNotes: [
+          `Oversees the ${lairType} for ${cartelName}.`,
+          `Manpower: ${lair.manpower || 50}, Heat: ${lair.heat || 0}.`
+        ],
+        stats: { might: 14, endurance: 13, finesse: 16, reflex: 15, vitality: 13, fortitude: 12, knowledge: 12, logic: 14, awareness: 16, intuition: 15, charm: 13, willpower: 14 }
+      });
+    }
+  }
 
   const layerMinus1: SectorMapResult = {
     grid: gridMinus1,
@@ -875,7 +668,7 @@ export function generateBurgSectorLayers(
     props: propsMinus1,
     npcs: npcsMinus1,
     poiType: "SUBTERRANEAN_SECTOR",
-    name: `${burgName} (Subterranean Cellars & Sewer Network)`,
+    name: `${burgName} (Subterranean Basements & Underworld)`,
     features: {
       burgId: burg.burg_id,
       urbanTier: tier,
@@ -887,177 +680,136 @@ export function generateBurgSectorLayers(
     }
   };
 
-  // =========================================================================
-  // LAYER +1: ELEVATED (Upper Floors, Wall Ramparts, Sky-Bridges, Catwalks)
-  // =========================================================================
+  // -------------------------------------------------------------------------
+  // LAYER +1: ELEVATED RAMPARTS & UPPER FLOORS
+  // -------------------------------------------------------------------------
   const gridPlus1 = new Uint8Array(SIZE * SIZE);
-  gridPlus1.fill(0); // Default open air / drop-off
+  gridPlus1.fill(0); // Default open air
 
-  // 1. City Curtain Wall Ramparts (Walkable stone path on high wall)
-  for (let x = WALL_LEFT; x <= WALL_RIGHT; x++) {
-    gridPlus1[WALL_TOP * SIZE + x] = 5; // Outer parapet/crenellation
-    gridPlus1[(WALL_TOP + 1) * SIZE + x] = 4; // Stone rampart walkway
-    gridPlus1[(WALL_TOP + 2) * SIZE + x] = 4; // Stone rampart walkway
-    if (!isPort) {
-      gridPlus1[(WALL_BOTTOM - 2) * SIZE + x] = 4;
-      gridPlus1[(WALL_BOTTOM - 1) * SIZE + x] = 4;
-      gridPlus1[WALL_BOTTOM * SIZE + x] = 5;
+  const propsPlus1: SectorMapResult["props"] = [];
+  const npcsPlus1: SectorMapResult["npcs"] = [];
+
+  // A. Curtain Wall Ramparts (Only if town has walls)
+  if (hasWalls) {
+    for (let x = WALL_LEFT; x <= WALL_RIGHT; x++) {
+      gridPlus1[WALL_TOP * SIZE + x] = 5;
+      gridPlus1[(WALL_TOP + 1) * SIZE + x] = 4;
+      if (!isPort) {
+        gridPlus1[(WALL_BOTTOM - 1) * SIZE + x] = 4;
+        gridPlus1[WALL_BOTTOM * SIZE + x] = 5;
+      }
     }
-  }
-  for (let y = WALL_TOP; y <= (isPort ? WALL_BOTTOM - 20 : WALL_BOTTOM); y++) {
-    gridPlus1[y * SIZE + WALL_LEFT] = 5;
-    gridPlus1[y * SIZE + WALL_LEFT + 1] = 4;
-    gridPlus1[y * SIZE + WALL_LEFT + 2] = 4;
-    gridPlus1[y * SIZE + WALL_RIGHT - 2] = 4;
-    gridPlus1[y * SIZE + WALL_RIGHT - 1] = 4;
-    gridPlus1[y * SIZE + WALL_RIGHT] = 5;
+    for (let y = WALL_TOP; y <= (isPort ? WALL_BOTTOM - 20 : WALL_BOTTOM); y++) {
+      gridPlus1[y * SIZE + WALL_LEFT] = 5;
+      gridPlus1[y * SIZE + WALL_LEFT + 1] = 4;
+      gridPlus1[y * SIZE + WALL_RIGHT] = 5;
+      gridPlus1[y * SIZE + WALL_RIGHT - 1] = 4;
+    }
+
+    propsPlus1.push(
+      {
+        id: `prop_wall_stairs_north_down_${burg.burg_id}`,
+        name: "North Curtain Wall Steps Down",
+        pos: [WALL_LEFT + 4, WALL_TOP + 3],
+        tags: ["stone", "stairs_down", "down", "surface"],
+        hp: 180,
+        maxHp: 180,
+        description: "Stone staircase descending from the parapet walkway to street level."
+      },
+      {
+        id: `prop_wall_stairs_south_down_${burg.burg_id}`,
+        name: "South Curtain Wall Steps Down",
+        pos: [WALL_RIGHT - 4, WALL_BOTTOM - 3],
+        tags: ["stone", "stairs_down", "down", "surface"],
+        hp: 180,
+        maxHp: 180,
+        description: "Stone staircase descending from the battlements to street level."
+      }
+    );
+
+    npcsPlus1.push({
+      id: `npc_rampart_sentry_${burg.burg_id}`,
+      name: `${burgName} Rampart Sentry`,
+      role: "Wall Watchman",
+      pos: [WALL_LEFT + 12, WALL_TOP + 1],
+      tags: ["human", "guard", "military"],
+      faction: factionName,
+      hp: 34,
+      maxHp: 34,
+      disposition: 1,
+      alive: true,
+      equippedWeapon: "Reinforced Yew Longbow & Quiver",
+      equippedArmor: "Hardened Leather & Iron Sallet",
+      statAffinity: "awareness",
+      memoryNotes: [`Scans the surrounding horizon from the battlements of ${burgName}.`],
+      stats: { might: 13, endurance: 14, finesse: 16, reflex: 15, vitality: 13, fortitude: 13, knowledge: 10, logic: 11, awareness: 17, intuition: 14, charm: 10, willpower: 13 }
+    });
   }
 
-  // 4 Corner Bastion High Platforms (8x8)
-  const drawBastionPlatform = (cx: number, cy: number) => {
-    for (let dy = -4; dy <= 4; dy++) {
-      for (let dx = -4; dx <= 4; dx++) {
-        const tx = cx + dx, ty = cy + dy;
-        if (tx >= 0 && tx < SIZE && ty >= 0 && ty < SIZE) {
-          if (Math.abs(dx) === 4 || Math.abs(dy) === 4) gridPlus1[ty * SIZE + tx] = 5;
-          else gridPlus1[ty * SIZE + tx] = 4;
+  // B. Upper Floors Aligned Directly Above Surface Buildings With hasUpper
+  for (const b of placedBuildings) {
+    if (!b.spec.hasUpper) continue;
+
+    for (let dy = -b.h + 1; dy <= b.h - 1; dy++) {
+      for (let dx = -b.w + 1; dx <= b.w - 1; dx++) {
+        const px = b.cx + dx, py = b.cy + dy;
+        if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) {
+          gridPlus1[py * SIZE + px] = 4;
         }
       }
     }
-    gridPlus1[cy * SIZE + cx] = 8; // High signal beacon brazier
-  };
-  drawBastionPlatform(WALL_LEFT, WALL_TOP);
-  drawBastionPlatform(WALL_RIGHT, WALL_TOP);
-  if (!isPort) {
-    drawBastionPlatform(WALL_LEFT, WALL_BOTTOM);
-    drawBastionPlatform(WALL_RIGHT, WALL_BOTTOM);
-  }
 
-  // 2. Upper Floors of Buildings:
-  // Guard Captain's Quarters (matching [CENTER - 32, CENTER - 32])
-  carveRoom(gridPlus1, CENTER - 32, CENTER - 32, 6, 6, 4);
-
-  // Chancellery High Council Chamber (matching [CENTER + 16, CENTER - 14])
-  carveRoom(gridPlus1, CENTER + 16, CENTER - 14, 5, 5, 4);
-
-  // Cathedral High Belltower (matching [CENTER - 45, CENTER + 35])
-  carveRoom(gridPlus1, CENTER - 45, CENTER + 35, 6, 6, 4);
-
-  // Tavern 2nd Floor Guest Chambers (matching [CENTER - 20, CENTER + 20])
-  carveRoom(gridPlus1, CENTER - 20, CENTER + 20, 5, 5, 4);
-
-  // 3. Elevated Connecting Sky-Bridges & Catwalks:
-  // North Timber Sky-Bridge: Barracks Upper Floor to North Wall Ramparts
-  for (let y = WALL_TOP + 3; y <= CENTER - 38; y++) {
-    gridPlus1[y * SIZE + (CENTER - 32)] = 3; // Timber bridge decking
-  }
-  // Chancellery Walkway: Council Chamber to West Terrace
-  for (let x = CENTER + 3; x <= CENTER + 10; x++) {
-    gridPlus1[(CENTER - 14) * SIZE + x] = 3;
-  }
-
-  const propsPlus1: SectorMapResult["props"] = [
-    {
-      id: `prop_stairs_barracks_down_${burg.burg_id}`,
-      name: "Barracks Flight Stairs Down to Ground",
-      pos: [CENTER - 32, CENTER - 32],
+    propsPlus1.push({
+      id: `prop_upper_stairs_down_${b.spec.type.toLowerCase()}_${burg.burg_id}`,
+      name: `${b.spec.title} Flight Stairs Down`,
+      pos: [b.cx - 2, b.cy - 1],
       tags: ["wood", "stairs_down", "down", "surface"],
-      hp: 100,
-      maxHp: 100,
-      description: "Timber stairs descending into the main guardhouse muster hall."
-    },
-    {
-      id: `prop_stairs_chancellery_down_${burg.burg_id}`,
-      name: "Chancellery Council Stairs Down",
-      pos: [CENTER + 16, CENTER - 14],
-      tags: ["wood", "stairs_down", "down", "surface"],
-      hp: 90,
-      maxHp: 90,
-      description: "Polished oak stairs descending to the ground-floor registry office."
-    },
-    {
-      id: `prop_wall_stairs_nw_down_${burg.burg_id}`,
-      name: "North-West Bastion Rampart Steps Down",
-      pos: [WALL_LEFT + 4, WALL_TOP + 4],
-      tags: ["stone", "stairs_down", "down", "surface"],
-      hp: 200,
-      maxHp: 200,
-      description: "Stone staircase descending from the curtain wall parapet to the courtyard."
-    },
-    {
-      id: `prop_wall_stairs_ne_down_${burg.burg_id}`,
-      name: "North-East Bastion Rampart Steps Down",
-      pos: [WALL_RIGHT - 4, WALL_TOP + 4],
-      tags: ["stone", "stairs_down", "down", "surface"],
-      hp: 200,
-      maxHp: 200,
-      description: "Stone staircase descending from the eastern battlements."
-    },
-    {
-      id: `prop_elevated_ballista_${burg.burg_id}`,
-      name: "Rampart Heavy Swivel Ballista",
-      pos: [WALL_LEFT + 12, WALL_TOP + 1],
-      tags: ["wood", "metal", "siege", "weapon", "heavy"],
-      hp: 180,
-      maxHp: 180,
-      description: "Pivoting steel-reinforced timber ballista loaded with an iron-tipped bolt overlooking the outer road."
-    },
-    {
-      id: `prop_elevated_bell_${burg.burg_id}`,
-      name: "Cathedral Great Bronze Tolling Bell",
-      pos: [CENTER - 45, CENTER + 35],
-      tags: ["metal", "bronze", "sacred", "alarm", "heavy"],
-      hp: 250,
-      maxHp: 250,
-      description: "Enormous inscribed bell cast from dragon-slag, tolling liturgical hours and martial alarms."
-    },
-    {
-      id: `prop_elevated_council_table_${burg.burg_id}`,
-      name: "Magistrate High Council Table & Heraldry",
-      pos: [CENTER + 16, CENTER - 14],
-      tags: ["wood", "civic", "paper", "furniture"],
-      hp: 70,
-      maxHp: 70,
-      description: "Inlaid walnut round table draped with provincial maps and tax seals."
-    }
-  ];
+      hp: 80,
+      maxHp: 80,
+      description: `Wooden staircase descending to the ground floor.`
+    });
 
-  const npcsPlus1: SectorMapResult["npcs"] = [
-    {
-      id: `npc_burg_rampart_sentinel_${burg.burg_id}`,
-      name: "Sergeant Vane the Hawk-Eyed",
-      role: "Rampart Watch Captain",
-      pos: [WALL_LEFT + 8, WALL_TOP + 1],
-      tags: ["human", "guard", "military"],
-      faction: factionName,
-      hp: 38,
-      maxHp: 38,
-      disposition: 1,
-      alive: true,
-      equippedWeapon: "Reinforced Yew Longbow & Broadhead Quiver",
-      equippedArmor: "Hardened Cuirboulli & Steel Sallet",
-      statAffinity: "awareness",
-      memoryNotes: ["Vigilantly scans the outer plains for raiders and wild chaos surges."],
-      stats: { might: 13, endurance: 14, finesse: 16, reflex: 15, vitality: 13, fortitude: 13, knowledge: 11, logic: 12, awareness: 17, intuition: 15, charm: 11, willpower: 14 }
-    },
-    {
-      id: `npc_burg_councillor_${burg.burg_id}`,
-      name: "High Scribe Morwen",
-      role: "Municipal Councillor & Archivist",
-      pos: [CENTER + 17, CENTER - 13],
-      tags: ["human", "leader", "civilian"],
-      faction: factionName,
-      hp: 26,
-      maxHp: 26,
-      disposition: 1,
-      alive: true,
-      equippedWeapon: "Engraved Ceremonial Dagger",
-      equippedArmor: "Velvet Robes & Gold Seal Chain",
-      statAffinity: "knowledge",
-      memoryNotes: ["Drafts official civic decrees and balances the burg's trade tariffs."],
-      stats: { might: 9, endurance: 11, finesse: 12, reflex: 11, vitality: 11, fortitude: 10, knowledge: 17, logic: 16, awareness: 14, intuition: 15, charm: 15, willpower: 14 }
+    if (b.spec.type === "REGISTRY") {
+      propsPlus1.push({
+        id: `prop_council_chamber_${burg.burg_id}`,
+        name: `${burgName} High Council Chamber Table`,
+        pos: [b.cx, b.cy],
+        tags: ["wood", "civic", "paper", "furniture"],
+        hp: 70,
+        maxHp: 70,
+        description: "Walnut round table draped with official maps, sovereign charters, and provincial tax rolls."
+      });
+    } else if (b.spec.type === "TEMPLE") {
+      propsPlus1.push({
+        id: `prop_temple_bell_${burg.burg_id}`,
+        name: "Great Sanctuary Tolling Bell",
+        pos: [b.cx, b.cy],
+        tags: ["metal", "bronze", "sacred", "alarm", "heavy"],
+        hp: 250,
+        maxHp: 250,
+        description: "Enormous inscribed bronze bell tolling liturgical hours and martial alarms."
+      });
     }
-  ];
+  }
+
+  // C. Free Sky-Baron Contraband Rooftop Gantry (If Sky-Barons operate in this burg)
+  if (lairs && lairs.some(l => (l.cartel_name || "").includes("Sky-Baron") || l.lair_type === "CONTRABAND_DOCK")) {
+    const gx = WALL_LEFT + 20, gy = WALL_TOP + 10;
+    for (let dy = -3; dy <= 3; dy++) {
+      for (let dx = -3; dx <= 3; dx++) {
+        gridPlus1[(gy + dy) * SIZE + (gx + dx)] = 3;
+      }
+    }
+    propsPlus1.push({
+      id: `prop_skybaron_gantry_${burg.burg_id}`,
+      name: "Concealed Sky-Baron Rooftop Winch Crane",
+      pos: [gx, gy],
+      tags: ["wood", "aviation", "contraband", "crane", "mechanism"],
+      hp: 140,
+      maxHp: 140,
+      description: "Counterweighted timber crane and concealed landing platform for high-altitude contraband drops."
+    });
+  }
 
   const layerPlus1: SectorMapResult = {
     grid: gridPlus1,
