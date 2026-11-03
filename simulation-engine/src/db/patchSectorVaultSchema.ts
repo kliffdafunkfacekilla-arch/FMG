@@ -24,3 +24,4 @@ if (process.argv[1] && process.argv[1].includes("patchSectorVaultSchema")) {
       process.exit(1);
     });
 }
+

@@ -212,7 +212,57 @@ export function generateBurgSectorMap(
     }
   }
 
-  // 7. Interactive Props
+  // 4b. Dedicated Workplace Zones carved directly onto the grid
+  const drawWorkplaceBuilding = (cx: number, cy: number, w: number, h: number, floorTile: number = 3) => {
+    for (let dy = -h; dy <= h; dy++) {
+      for (let dx = -w; dx <= w; dx++) {
+        const px = cx + dx, py = cy + dy;
+        if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) {
+          if (Math.abs(dx) === w || Math.abs(dy) === h) {
+            grid[py * SIZE + px] = 5; // Stone exterior wall
+          } else {
+            grid[py * SIZE + px] = floorTile; // Interior floor
+          }
+        }
+      }
+    }
+  };
+
+  // 1. Communal Hearth Bakery (South-East Quarter)
+  drawWorkplaceBuilding(CENTER + 22, CENTER + 18, 6, 6, 3);
+  grid[(CENTER + 18) * SIZE + (CENTER + 24)] = 8; // Brick bread oven
+
+  // 2. Master Armorer's Forge & Smithy (South-West Quarter)
+  drawWorkplaceBuilding(CENTER - 36, CENTER - 20, 7, 7, 4);
+  grid[(CENTER - 20) * SIZE + (CENTER - 36)] = 8; // Roaring coal forge
+
+  // 3. Sovereign Guard Barracks & Armory (North-West Quarter)
+  drawWorkplaceBuilding(CENTER - 32, CENTER - 32, 8, 8, 4);
+
+  // 4. Cask & Flagon Brewhouse (South-West Quarter)
+  drawWorkplaceBuilding(CENTER - 20, CENTER + 20, 6, 6, 3);
+
+  // 5. Draper Loom Guild Workshop (North-East Quarter)
+  drawWorkplaceBuilding(CENTER + 24, CENTER - 36, 6, 6, 3);
+
+  // 6. Leather Currier Tannery (South-West Fringe)
+  drawWorkplaceBuilding(CENTER - 38, CENTER + 36, 6, 6, 3);
+
+  // 7. Ceramics Pottery Kiln (North-West Fringe)
+  drawWorkplaceBuilding(CENTER - 24, CENTER - 38, 5, 5, 3);
+  grid[(CENTER - 38) * SIZE + (CENTER - 24)] = 8; // Pottery firing kiln
+
+  // 8. Apothecary Herbarium & Clinic (South-East Fringe)
+  drawWorkplaceBuilding(CENTER + 32, CENTER + 32, 6, 6, 3);
+
+  // 9. Town Hall Chancellery & Registry (North-East Civic)
+  drawWorkplaceBuilding(CENTER + 16, CENTER - 14, 7, 6, 4);
+
+  // 10. Cathedral Sanctuary of the Dragon Seals
+  drawWorkplaceBuilding(CENTER - 45, CENTER + 35, 9, 9, 4);
+  grid[(CENTER + 35) * SIZE + (CENTER - 45)] = 10; // Runic altar
+
+  // 7. Interactive Functional Props
   const props = [
     {
       id: `prop_well_${burg.burg_id}`,
@@ -233,6 +283,15 @@ export function generateBurgSectorMap(
       description: "Canopied market stalls heaped with regional produce, cured meats, iron ingots, and textiles."
     },
     {
+      id: `prop_bakery_${burg.burg_id}`,
+      name: `The Communal Hearth Bakery of ${burgName}`,
+      pos: [CENTER + 22, CENTER + 18] as [number, number],
+      tags: ["stone", "food", "fire", "bakery", "crafting"],
+      hp: 120,
+      maxHp: 120,
+      description: `A bustling stone bakery with blazing brick bread ovens, flour barrels, and bread cooling racks supplying ${burgName}'s daily bread.`
+    },
+    {
       id: `prop_forge_${burg.burg_id}`,
       name: "Master Armorer's Forge & Bellows",
       pos: [CENTER - 36, CENTER - 20] as [number, number],
@@ -242,13 +301,67 @@ export function generateBurgSectorMap(
       description: "A blazing coal forge and dual-bellows furnace where provincial steel is beaten into armor and arms."
     },
     {
-      id: `prop_notice_${burg.burg_id}`,
-      name: "Provincial Decree & Bounty Board",
-      pos: [CENTER + 8, CENTER - 8] as [number, number],
-      tags: ["wood", "paper", "civic", "interactive"],
-      hp: 40,
-      maxHp: 40,
-      description: `Official parchment proclamations, harvest tariffs, and monster bounties bearing the seal of ${factionName}.`
+      id: `prop_barracks_${burg.burg_id}`,
+      name: "Sovereign Guard Barracks & Muster Yard",
+      pos: [CENTER - 32, CENTER - 32] as [number, number],
+      tags: ["stone", "military", "barracks", "weapon", "defense"],
+      hp: 300,
+      maxHp: 300,
+      description: "Heavy stone barracks housing the sworn town guard, armor lockers, training pell dummies, and armory racks."
+    },
+    {
+      id: `prop_brewery_${burg.burg_id}`,
+      name: `The Cask & Flagon Brewhouse of ${burgName}`,
+      pos: [CENTER - 20, CENTER + 20] as [number, number],
+      tags: ["wood", "food", "brewhouse", "container", "crafting"],
+      hp: 140,
+      maxHp: 140,
+      description: "A fragrant brewhouse with copper mash tuns, fermentation barrels, and aged ale casks for the citizens."
+    },
+    {
+      id: `prop_weavery_${burg.burg_id}`,
+      name: "Draper Guild Loom Workshop",
+      pos: [CENTER + 24, CENTER - 36] as [number, number],
+      tags: ["wood", "cloth", "weaving", "crafting"],
+      hp: 100,
+      maxHp: 100,
+      description: "Vertical spinning looms and cloth drying racks turning raw sheep's wool and flax into garments."
+    },
+    {
+      id: `prop_tannery_${burg.burg_id}`,
+      name: "Leather Currier Tannery",
+      pos: [CENTER - 38, CENTER + 36] as [number, number],
+      tags: ["stone", "leather", "tannery", "container", "crafting"],
+      hp: 110,
+      maxHp: 110,
+      description: "Tanning vats and scraping frames where cured cattle and wolf hides are scraped and turned into boiled leather."
+    },
+    {
+      id: `prop_pottery_${burg.burg_id}`,
+      name: "Earthenware Pottery & Brick Kiln",
+      pos: [CENTER - 24, CENTER - 38] as [number, number],
+      tags: ["stone", "fire", "pottery", "crafting"],
+      hp: 150,
+      maxHp: 150,
+      description: "Domed brick kiln firing storage amphoras, roof tiles, and glazed cooking vessels."
+    },
+    {
+      id: `prop_apothecary_${burg.burg_id}`,
+      name: "Apothecary Herbarium & Dispensary",
+      pos: [CENTER + 32, CENTER + 32] as [number, number],
+      tags: ["stone", "medical", "alchemy", "reagents"],
+      hp: 100,
+      maxHp: 100,
+      description: "Bundles of dried nightshade, healing mosses, and glass alembics distilling tinctures for wounded citizens."
+    },
+    {
+      id: `prop_registry_${burg.burg_id}`,
+      name: "Town Hall Chancellery & Deed Registry",
+      pos: [CENTER + 16, CENTER - 14] as [number, number],
+      tags: ["stone", "civic", "paper", "registry"],
+      hp: 250,
+      maxHp: 250,
+      description: "Where municipal magistrates record citizen rights, trade tariffs, grain manifests, and royal decrees."
     },
     {
       id: `prop_temple_${burg.burg_id}`,
@@ -258,77 +371,177 @@ export function generateBurgSectorMap(
       hp: 300,
       maxHp: 300,
       description: "An ancient polished marble sanctuary dedicated to the Cosmic Order and the binding of Cruorbus."
+    },
+    {
+      id: `prop_notice_${burg.burg_id}`,
+      name: "Provincial Decree & Bounty Board",
+      pos: [CENTER + 8, CENTER - 8] as [number, number],
+      tags: ["wood", "paper", "civic", "interactive"],
+      hp: 40,
+      maxHp: 40,
+      description: `Official parchment proclamations, harvest tariffs, and monster bounties bearing the seal of ${factionName}.`
     }
   ];
 
   if (isPort) {
-    props.push({
-      id: `prop_harbor_${burg.burg_id}`,
-      name: "Deep-Water Quay Cargo Cranes & Warehouses",
-      pos: [CENTER, WALL_BOTTOM - 16] as [number, number],
-      tags: ["wood", "metal", "harbor", "crane", "cargo"],
-      hp: 180,
-      maxHp: 180,
-      description: "Massive counterweighted timber cranes unloading trade galleons and coastal skiffs."
-    });
+    props.push(
+      {
+        id: `prop_harbor_${burg.burg_id}`,
+        name: "Deep-Water Quay Cargo Cranes & Warehouses",
+        pos: [CENTER, WALL_BOTTOM - 16] as [number, number],
+        tags: ["wood", "metal", "harbor", "crane", "cargo"],
+        hp: 180,
+        maxHp: 180,
+        description: "Massive counterweighted timber cranes unloading trade galleons and coastal skiffs."
+      },
+      {
+        id: `prop_fishery_${burg.burg_id}`,
+        name: "Basin Fishery Quay & Smokehouse",
+        pos: [CENTER + 28, WALL_BOTTOM - 15] as [number, number],
+        tags: ["wood", "food", "fishery", "smokehouse"],
+        hp: 120,
+        maxHp: 120,
+        description: "Drying nets, salted herring barrels, and skiffs supplying fresh ocean catch to the city markets."
+      }
+    );
   }
 
-  // 8. NPCs: Use actual persistent citizens from population_demographics if available
+  // 8. Purpose-Driven NPCs stationed at their authentic workplaces
   const npcs: SectorMapResult["npcs"] = [];
-  const primaryCitizen = citizens[0] || { name: "Lord Elden Vance", profession: "Governor", species: "Human", temper: "RESOLUTE" };
-  const guardCitizen = citizens[1] || { name: "Captain Vaelen", profession: "Watch Captain", species: "Human", temper: "VIGILANT" };
-  const smithCitizen = citizens[2] || { name: "Brogren Ironhand", profession: "Blacksmith", species: "Human", temper: "STOIC" };
+  const citizenByProf = new Map<string, any>();
+  for (const c of citizens) {
+    if (!citizenByProf.has(c.profession)) citizenByProf.set(c.profession, c);
+  }
 
-  npcs.push(
-    {
-      id: `npc_burg_governor_${burg.burg_id}`,
-      name: `${primaryCitizen.name} (${primaryCitizen.profession})`,
-      role: "Burg Governor / High Magistrate",
-      pos: [CENTER + 5, CENTER + 5],
-      tags: ["leader", "civilian", primaryCitizen.species.toLowerCase(), "magistrate"],
-      faction: factionName,
-      hp: 25,
-      maxHp: 25,
-      disposition: 1,
-      alive: true,
-      equippedWeapon: "Ornate Gilded Rapier",
-      equippedArmor: "Fine Silk & Brocade Mantle",
-      statAffinity: "charm",
-      memoryNotes: [`Oversees ${burgName} for ${factionName}.`, `Temperament: ${primaryCitizen.temper}`]
-    },
-    {
-      id: `npc_burg_captain_${burg.burg_id}`,
-      name: `${guardCitizen.name} (${guardCitizen.profession})`,
-      role: "Watch Captain",
-      pos: [CENTER, WALL_TOP + 4],
-      tags: ["guard", "soldier", "armed", guardCitizen.species.toLowerCase()],
-      faction: factionName,
-      hp: 35,
-      maxHp: 35,
-      disposition: 0,
-      alive: true,
-      equippedWeapon: "Steel Halberd",
-      equippedArmor: "Chainmail Hauberk & Steel Bascinet",
-      statAffinity: "endurance",
-      memoryNotes: [`Guards the main gate of ${burgName}.`]
-    },
-    {
-      id: `npc_burg_smith_${burg.burg_id}`,
-      name: `${smithCitizen.name} (${smithCitizen.profession})`,
-      role: "Master Artisan",
-      pos: [CENTER - 34, CENTER - 18],
-      tags: ["artisan", "smith", smithCitizen.species.toLowerCase()],
-      faction: factionName,
-      hp: 30,
-      maxHp: 30,
-      disposition: 1,
-      alive: true,
-      equippedWeapon: "Heavy Sledgehammer",
-      equippedArmor: "Hardened Leather Apron",
-      statAffinity: "might",
-      memoryNotes: [`Master craftsman producing tools and weapons for ${burgName}.`]
-    }
-  );
+  // A. Governor / Magistrate at Grand Plaza
+  const primaryCitizen = citizens[0] || { name: "Lord Elden Vance", profession: "Governor", species: "Human", temper: "RESOLUTE" };
+  npcs.push({
+    id: `npc_burg_governor_${burg.burg_id}`,
+    name: `${primaryCitizen.name} (${primaryCitizen.profession})`,
+    role: "Burg Governor / High Magistrate",
+    pos: [CENTER + 4, CENTER + 4],
+    tags: ["leader", "civilian", primaryCitizen.species.toLowerCase(), "magistrate"],
+    faction: factionName,
+    hp: 25,
+    maxHp: 25,
+    disposition: 1,
+    alive: true,
+    equippedWeapon: "Ornate Gilded Rapier",
+    equippedArmor: "Fine Silk & Brocade Mantle",
+    statAffinity: "charm",
+    memoryNotes: [`Oversees ${burgName} for ${factionName}.`, `Temperament: ${primaryCitizen.temper}`]
+  });
+
+  // B. Town Baker at the Hearth Bakery
+  const baker = citizenByProf.get("Baker") || { name: "Kaelen Thorne", species: "Human", temper: "WARM" };
+  npcs.push({
+    id: `npc_baker_${burg.burg_id}`,
+    name: `${baker.name} (Town Baker)`,
+    role: "Town Baker",
+    pos: [CENTER + 22, CENTER + 17],
+    tags: ["artisan", "baker", "food", baker.species.toLowerCase()],
+    faction: factionName,
+    hp: 22,
+    maxHp: 22,
+    disposition: 1,
+    alive: true,
+    equippedWeapon: "Hardwood Baker's Peel",
+    equippedArmor: "Flour-Dusted Linen Apron",
+    statAffinity: "endurance",
+    memoryNotes: [`Bakes the daily bread rations for ${burgName} at the Communal Hearth Bakery.`]
+  });
+
+  // C. Master Smith at the Forge
+  const smith = citizenByProf.get("Blacksmith") || citizenByProf.get("Armorer") || citizenByProf.get("Foundry Worker") || { name: "Brogren Ironhand", species: "Human", temper: "STOIC" };
+  npcs.push({
+    id: `npc_smith_${burg.burg_id}`,
+    name: `${smith.name} (Master Armorer)`,
+    role: "Master Blacksmith",
+    pos: [CENTER - 34, CENTER - 18],
+    tags: ["artisan", "smith", "metal", smith.species.toLowerCase()],
+    faction: factionName,
+    hp: 32,
+    maxHp: 32,
+    disposition: 1,
+    alive: true,
+    equippedWeapon: "Heavy Sledgehammer",
+    equippedArmor: "Hardened Leather Apron",
+    statAffinity: "might",
+    memoryNotes: [`Runs the Armory & Smithy Forge of ${burgName}.`]
+  });
+
+  // D. Watch Captain at the Barracks
+  const guard = citizenByProf.get("City Watchman") || { name: "Captain Vaelen", species: "Human", temper: "VIGILANT" };
+  npcs.push({
+    id: `npc_guard_captain_${burg.burg_id}`,
+    name: `${guard.name} (Watch Captain)`,
+    role: "Watch Captain",
+    pos: [CENTER - 30, CENTER - 30],
+    tags: ["guard", "soldier", "military", guard.species.toLowerCase()],
+    faction: factionName,
+    hp: 36,
+    maxHp: 36,
+    disposition: 0,
+    alive: true,
+    equippedWeapon: "Steel Halberd & Shortsword",
+    equippedArmor: "Chainmail Hauberk & Steel Bascinet",
+    statAffinity: "endurance",
+    memoryNotes: [`Commands the city watch from the Sovereign Guard Barracks.`]
+  });
+
+  // E. Brewmaster at the Brewhouse
+  const brewer = citizenByProf.get("Brewmaster") || { name: "Aldous Stout", species: "Human", temper: "JOVIAL" };
+  npcs.push({
+    id: `npc_brewer_${burg.burg_id}`,
+    name: `${brewer.name} (Master Brewer)`,
+    role: "Brewmaster",
+    pos: [CENTER - 20, CENTER + 19],
+    tags: ["artisan", "brewer", "food", brewer.species.toLowerCase()],
+    faction: factionName,
+    hp: 24,
+    maxHp: 24,
+    disposition: 1,
+    alive: true,
+    equippedWeapon: "Copper Mash Paddle",
+    statAffinity: "vitality",
+    memoryNotes: [`Brews regional ale at the Cask & Flagon Brewhouse.`]
+  });
+
+  // F. Apothecary at the Herbarium
+  const herbalist = citizenByProf.get("Hedge Herbalist") || { name: "Alys Moss", species: "Human", temper: "COMPASSIONATE" };
+  npcs.push({
+    id: `npc_apothecary_${burg.burg_id}`,
+    name: `${herbalist.name} (Apothecary)`,
+    role: "Herbal Healer",
+    pos: [CENTER + 32, CENTER + 31],
+    tags: ["medical", "healer", "herbalist", herbalist.species.toLowerCase()],
+    faction: factionName,
+    hp: 20,
+    maxHp: 20,
+    disposition: 1,
+    alive: true,
+    equippedWeapon: "Bronze Mortar & Pestle",
+    statAffinity: "knowledge",
+    memoryNotes: [`Prepares healing draughts at the Apothecary Dispensary.`]
+  });
+
+  // G. Temple Priest at the Cathedral Altar
+  const priest = citizenByProf.get("Temple Acolyte") || { name: "Father Orson", species: "Human", temper: "DEVOUT" };
+  npcs.push({
+    id: `npc_priest_${burg.burg_id}`,
+    name: `${priest.name} (Temple Acolyte)`,
+    role: "High Priest of the Seals",
+    pos: [CENTER - 45, CENTER + 34],
+    tags: ["priest", "holy", "sacred", priest.species.toLowerCase()],
+    faction: factionName,
+    hp: 26,
+    maxHp: 26,
+    disposition: 1,
+    alive: true,
+    equippedWeapon: "Ceremonial Dragon Sigil",
+    statAffinity: "willpower",
+    memoryNotes: [`Maintains the sacred wards at the Cathedral Altar.`]
+  });
 
   return {
     grid,

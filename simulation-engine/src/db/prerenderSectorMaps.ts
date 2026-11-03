@@ -80,9 +80,9 @@ export async function prerenderAllSectorMaps() {
       });
     };
 
-    // Pre-fetch top 3 citizen personas for each cell to make civic NPCs authentic
+    // Pre-fetch diverse citizen personas for each cell to populate authentic workplaces
     const citizensRes = await client.query(`
-      SELECT home_cell_id, name, profession, species, temper, instinct, motivation, spark_tier
+      SELECT home_cell_id, name, profession, species, temper, instinct, motivation, spark_tier, workplace_type, workplace_name
       FROM population_demographics
       WHERE life_stage = 'ADULT'
       ORDER BY citizen_id ASC
@@ -91,7 +91,7 @@ export async function prerenderAllSectorMaps() {
     for (const c of citizensRes.rows) {
       if (!citizenMap.has(c.home_cell_id)) citizenMap.set(c.home_cell_id, []);
       const arr = citizenMap.get(c.home_cell_id)!;
-      if (arr.length < 3) arr.push(c);
+      if (arr.length < 25) arr.push(c);
     }
 
     console.log("Pre-rendering 346 Burgs and their 4 Outlying Sectors (Hamlets, Farms, Timber, Watchtowers)...");
