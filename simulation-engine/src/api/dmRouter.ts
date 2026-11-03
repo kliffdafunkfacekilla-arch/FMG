@@ -989,7 +989,15 @@ router.get('/sector_layer', async (req, res) => {
         [burg.burg_id, targetCellId]
       );
 
-      const layers = generateBurgSectorLayers(burg, factionName, targetCellId, citRes.rows, lairRes.rows);
+      // Fetch active Paragons for this burg (Civic Leader, Security Commander, and active Cartel Bosses)
+      const paragonRes = await pool.query(
+        `SELECT * FROM sim_paragons 
+         WHERE burg_id = $1 
+            OR outlaw_id IN (SELECT faction_id FROM sim_fringe_lairs WHERE burg_id = $1 OR cell_id = $2)`,
+        [burg.burg_id, targetCellId]
+      );
+
+      const layers = generateBurgSectorLayers(burg, factionName, targetCellId, citRes.rows, lairRes.rows, paragonRes.rows);
 
       // Persist all 3 layers to sim_sector_layers
       await pool.query(

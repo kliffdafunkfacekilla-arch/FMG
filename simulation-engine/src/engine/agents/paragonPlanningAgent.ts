@@ -35,12 +35,29 @@ export async function runLocalParagonAgent(client: any, tick: number) {
 
         // 4. Action Execution (Each Paragon takes their turn)
         for (const p of myParagons) {
-            // Apply their specific trait multipliers
-            const effSurvival = baseSurvival * p.survival_mult;
-            const effProtection = baseProtection * p.protection_mult;
-            const effPleasure = basePleasure * p.pleasure_mult;
+            const domain = p.domain || (p.title?.includes("Commander") || p.title?.includes("Marshal") || p.title?.includes("Captain") || p.title?.includes("Warden") ? 'Security' : 'Civil');
+            let survMult = 1.0;
+            let protMult = 1.0;
+            let pleasMult = 1.0;
+            try {
+                const traits = typeof p.traits === 'string' ? JSON.parse(p.traits) : p.traits;
+                if (Array.isArray(traits)) {
+                    for (const t of traits) {
+                        const name = (t.name || "").toLowerCase();
+                        const mod = Math.abs(t.modifier || 0.2);
+                        if (name.includes("paranoid") || name.includes("vigilant")) protMult += mod;
+                        if (name.includes("greedy") || name.includes("harsh")) pleasMult -= mod;
+                        if (name.includes("agrarian") || name.includes("stoic") || name.includes("generous")) survMult += mod;
+                    }
+                }
+            } catch (e) {}
 
-            if (p.domain === 'Civil') {
+            // Apply their specific trait multipliers
+            const effSurvival = baseSurvival * (p.survival_mult || survMult);
+            const effProtection = baseProtection * (p.protection_mult || protMult);
+            const effPleasure = basePleasure * (p.pleasure_mult || pleasMult);
+
+            if (domain === 'Civil') {
                 if (effSurvival > 80) {
                     foodDelta += Math.floor(pop * 0.1); 
                 } else if (effProtection > 80) {
@@ -50,7 +67,7 @@ export async function runLocalParagonAgent(client: any, tick: number) {
                     wealthDelta += 20; 
                 }
             } 
-            else if (p.domain === 'Security') {
+            else if (domain === 'Security') {
                 if (effSurvival > 90) {
                     foodDelta += Math.floor(pop * 0.15);
                     unrestDelta += 5; 
@@ -59,7 +76,7 @@ export async function runLocalParagonAgent(client: any, tick: number) {
                     crimeDelta -= 10;
                 }
             }
-            else if (p.domain === 'Social') {
+            else if (domain === 'Social') {
                 if (effSurvival > 90) {
                     foodDelta += Math.floor(pop * 0.05);
                     healthDelta += 2;
