@@ -28,6 +28,7 @@ export interface SectorMapResult {
     equippedArmor?: string;
     statAffinity?: string;
     memoryNotes?: string[];
+    stats?: Record<string, number>;
   }>;
   poiType: string;
   name: string;
@@ -76,16 +77,22 @@ function hashSeed(seedStr: string): () => number {
 const SIZE = 256;
 const CENTER = 128;
 
+export interface BurgSectorLayersResult {
+  layerMinus1: SectorMapResult; // Subterranean: Basements, Sewers, Tunnels
+  layer0: SectorMapResult;      // Surface: Ground Level Streets, Plazas, Buildings
+  layerPlus1: SectorMapResult;  // Elevated: Upper Floors, Ramparts, Sky-Bridges
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. BURG URBAN CORE GENERATOR
+// 1. BURG URBAN CORE GENERATOR (3 Synchronized Vertical Layers)
 // ─────────────────────────────────────────────────────────────────────────────
-export function generateBurgSectorMap(
+export function generateBurgSectorLayers(
   burg: any,
   factionName: string,
   cellId: number,
   citizens: any[] = [],
   lairs: any[] = []
-): SectorMapResult {
+): BurgSectorLayersResult {
   const rand = hashSeed(`burg_${burg.burg_id}_${cellId}`);
   const grid = new Uint8Array(SIZE * SIZE);
   grid.fill(0);
@@ -383,6 +390,78 @@ export function generateBurgSectorMap(
       hp: 40,
       maxHp: 40,
       description: `Official parchment proclamations, harvest tariffs, and monster bounties bearing the seal of ${factionName}.`
+    },
+    {
+      id: `prop_cellar_hatch_brewery_${burg.burg_id}`,
+      name: "Brewhouse Fermentation Cellar Hatch",
+      pos: [CENTER - 20, CENTER + 20] as [number, number],
+      tags: ["wood", "hatch", "down", "stairs_down", "cellar", "subterranean"],
+      hp: 60,
+      maxHp: 60,
+      description: "Heavy iron-strapped cellar hatch leading down to the deep fermentation vaults."
+    },
+    {
+      id: `prop_cellar_hatch_apothecary_${burg.burg_id}`,
+      name: "Apothecary Root Vault Hatch",
+      pos: [CENTER + 32, CENTER + 32] as [number, number],
+      tags: ["wood", "hatch", "down", "stairs_down", "cellar", "subterranean"],
+      hp: 50,
+      maxHp: 50,
+      description: "Subterranean root cellar trapdoor holding medicinal supplies and drying mosses."
+    },
+    {
+      id: `prop_cellar_hatch_cathedral_${burg.burg_id}`,
+      name: "Cathedral Crypt Stone Portal",
+      pos: [CENTER - 45, CENTER + 35] as [number, number],
+      tags: ["stone", "hatch", "down", "stairs_down", "crypt", "subterranean"],
+      hp: 150,
+      maxHp: 150,
+      description: "Carved marble trapdoor opening into the ancient ancestral crypt catacombs."
+    },
+    {
+      id: `prop_sewer_grate_${burg.burg_id}`,
+      name: "Municipal Plaza Sewer Grate",
+      pos: [CENTER, CENTER] as [number, number],
+      tags: ["metal", "iron", "grate", "down", "stairs_down", "sewer", "subterranean"],
+      hp: 180,
+      maxHp: 180,
+      description: "Heavy forged iron sewer grating granting descent into the municipal culvert network."
+    },
+    {
+      id: `prop_stairs_barracks_up_${burg.burg_id}`,
+      name: "Barracks Flight Stairs to Upper Ramparts",
+      pos: [CENTER - 32, CENTER - 32] as [number, number],
+      tags: ["wood", "stairs_up", "up", "ramparts", "elevated"],
+      hp: 100,
+      maxHp: 100,
+      description: "Sturdy wooden stair flight climbing to the guard tower and city wall battlements."
+    },
+    {
+      id: `prop_stairs_chancellery_up_${burg.burg_id}`,
+      name: "Chancellery Council Stairs Up",
+      pos: [CENTER + 16, CENTER - 14] as [number, number],
+      tags: ["wood", "stairs_up", "up", "elevated"],
+      hp: 90,
+      maxHp: 90,
+      description: "Polished oak stairs rising to the magistrate high council chambers."
+    },
+    {
+      id: `prop_wall_stairs_nw_${burg.burg_id}`,
+      name: "North-West Bastion Rampart Stairs Up",
+      pos: [WALL_LEFT + 4, WALL_TOP + 4] as [number, number],
+      tags: ["stone", "stairs_up", "up", "ramparts", "elevated"],
+      hp: 200,
+      maxHp: 200,
+      description: "Stone masonry steps ascending to the high corner watchtower and curtain wall walkway."
+    },
+    {
+      id: `prop_wall_stairs_ne_${burg.burg_id}`,
+      name: "North-East Bastion Rampart Stairs Up",
+      pos: [WALL_RIGHT - 4, WALL_TOP + 4] as [number, number],
+      tags: ["stone", "stairs_up", "up", "ramparts", "elevated"],
+      hp: 200,
+      maxHp: 200,
+      description: "Stone steps ascending to the north-east curtain wall."
     }
   ];
 
@@ -588,13 +667,13 @@ export function generateBurgSectorMap(
     }
   }
 
-  return {
+  const layer0: SectorMapResult = {
     grid,
     compressed: zlib.gzipSync(Buffer.from(grid)),
     props,
     npcs,
     poiType: tier === 3 ? "BURG_METROPOLIS" : tier === 2 ? "BURG_TOWN" : "BURG_VILLAGE",
-    name: burgName,
+    name: `${burgName} (Surface Ground Level)`,
     features: {
       burgId: burg.burg_id,
       urbanTier: tier,
@@ -602,9 +681,418 @@ export function generateBurgSectorMap(
       wealth: burg.wealth,
       food: burg.food,
       unrest: burg.unrest,
-      factionName
+      factionName,
+      zLayer: 0
     }
   };
+
+  // =========================================================================
+  // LAYER -1: SUBTERRANEAN (Cellars, Basements, Drainage Sewers & Tunnels)
+  // =========================================================================
+  const gridMinus1 = new Uint8Array(SIZE * SIZE);
+  gridMinus1.fill(5); // Default solid bedrock wall
+
+  const carveRoom = (targetGrid: Uint8Array, cx: number, cy: number, w: number, h: number, floorTile: number = 4) => {
+    for (let dy = -h; dy <= h; dy++) {
+      for (let dx = -w; dx <= w; dx++) {
+        const px = cx + dx, py = cy + dy;
+        if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) {
+          targetGrid[py * SIZE + px] = floorTile;
+        }
+      }
+    }
+  };
+
+  // Basements aligned with Ground Buildings:
+  // 1. Brewhouse Deep Cellar (matching [CENTER - 20, CENTER + 20])
+  carveRoom(gridMinus1, CENTER - 20, CENTER + 20, 7, 7, 4);
+
+  // 2. Apothecary Cold Vault (matching [CENTER + 32, CENTER + 32])
+  carveRoom(gridMinus1, CENTER + 32, CENTER + 32, 6, 6, 4);
+
+  // 3. Cathedral Ancestral Crypt (matching [CENTER - 45, CENTER + 35])
+  carveRoom(gridMinus1, CENTER - 45, CENTER + 35, 9, 9, 4);
+
+  // 4. Guardhouse Sub-Dungeon Gaol (matching [CENTER - 32, CENTER - 32])
+  carveRoom(gridMinus1, CENTER - 32, CENTER - 32, 8, 8, 4);
+
+  // 5. Bakery Grain Sump (matching [CENTER + 22, CENTER + 18])
+  carveRoom(gridMinus1, CENTER + 22, CENTER + 18, 6, 6, 4);
+
+  // 6. Underworld Syndicate Vault (matching [164, 164])
+  carveRoom(gridMinus1, 164, 164, 8, 8, 4);
+
+  // Municipal Drainage Sewer Network
+  // East-West Main Sewer Channel
+  for (let x = 75; x <= 180; x++) {
+    gridMinus1[127 * SIZE + x] = 4; // North walkway
+    gridMinus1[128 * SIZE + x] = 2; // Water canal
+    gridMinus1[129 * SIZE + x] = 4; // South walkway
+  }
+  // North-South Main Sewer Channel
+  for (let y = 75; y <= 180; y++) {
+    gridMinus1[y * SIZE + 127] = 4; // West walkway
+    gridMinus1[y * SIZE + 128] = 2; // Water canal
+    gridMinus1[y * SIZE + 129] = 4; // East walkway
+  }
+
+  // Connecting Sewer Branches:
+  // Brewhouse Cellar to Sewer
+  for (let y = 129; y <= CENTER + 14; y++) {
+    gridMinus1[y * SIZE + (CENTER - 20)] = 4;
+  }
+  // Apothecary to Sewer
+  for (let y = 129; y <= CENTER + 26; y++) {
+    gridMinus1[y * SIZE + (CENTER + 32)] = 4;
+  }
+  // Guardhouse Dungeon to Sewer
+  for (let y = CENTER - 24; y <= 127; y++) {
+    gridMinus1[y * SIZE + (CENTER - 32)] = 4;
+  }
+
+  // Smuggler Escape Tunnel: Brewhouse Cellar -> Underworld Vault
+  for (let x = CENTER - 13; x <= 156; x++) {
+    gridMinus1[(CENTER + 20) * SIZE + x] = 3; // Secret dirt burrow tunnel
+  }
+  for (let y = CENTER + 20; y <= 164; y++) {
+    gridMinus1[y * SIZE + 156] = 3;
+  }
+
+  const propsMinus1: SectorMapResult["props"] = [
+    {
+      id: `prop_ladder_brewery_up_${burg.burg_id}`,
+      name: "Brewhouse Fermentation Cellar Ladder Up",
+      pos: [CENTER - 20, CENTER + 20],
+      tags: ["wood", "ladder", "up", "stairs_up", "surface"],
+      hp: 80,
+      maxHp: 80,
+      description: "Oak rungs bolted into masonry rising directly up to the Brewhouse taproom."
+    },
+    {
+      id: `prop_ladder_apothecary_up_${burg.burg_id}`,
+      name: "Apothecary Vault Ladder Up",
+      pos: [CENTER + 32, CENTER + 32],
+      tags: ["wood", "ladder", "up", "stairs_up", "surface"],
+      hp: 75,
+      maxHp: 75,
+      description: "Counterbalanced ladder climbing up into the apothecary clinic."
+    },
+    {
+      id: `prop_stairs_crypt_up_${burg.burg_id}`,
+      name: "Cathedral Crypt Stone Steps Up",
+      pos: [CENTER - 45, CENTER + 35],
+      tags: ["stone", "stairs_up", "up", "surface"],
+      hp: 180,
+      maxHp: 180,
+      description: "Worn limestone steps rising up beneath the altar of the Dragon Seals."
+    },
+    {
+      id: `prop_stairs_dungeon_up_${burg.burg_id}`,
+      name: "Guardhouse Turnkey Stairs Up",
+      pos: [CENTER - 32, CENTER - 32],
+      tags: ["stone", "stairs_up", "up", "surface"],
+      hp: 160,
+      maxHp: 160,
+      description: "Stone staircase climbing to the ground-floor barracks muster room."
+    },
+    {
+      id: `prop_sewer_grate_up_${burg.burg_id}`,
+      name: "Municipal Plaza Sewer Inspection Ladder Up",
+      pos: [CENTER, CENTER],
+      tags: ["metal", "iron", "ladder", "up", "surface"],
+      hp: 120,
+      maxHp: 120,
+      description: "Vertical iron climbing rungs leading up to the cobblestone plaza grating."
+    },
+    {
+      id: `prop_sub_cask_tun_${burg.burg_id}`,
+      name: "Imperial Winter-Malt Aging Tuns",
+      pos: [CENTER - 24, CENTER + 20],
+      tags: ["wood", "container", "valuable", "heavy"],
+      hp: 90,
+      maxHp: 90,
+      description: "Massive iron-hooped cedar casks aging vintage stout in the cool cellar damp."
+    },
+    {
+      id: `prop_sub_sarcophagus_${burg.burg_id}`,
+      name: "First Reeve Carved Sarcophagus",
+      pos: [CENTER - 45, CENTER + 38],
+      tags: ["stone", "ancient", "locked", "container"],
+      hp: 200,
+      maxHp: 200,
+      description: "Relief-carved marble tomb containing the sealed remains of the burg's founding reeve."
+    },
+    {
+      id: `prop_sub_sewer_sluice_${burg.burg_id}`,
+      name: "Central Municipal Sewer Floodgate Sluice",
+      pos: [CENTER + 15, CENTER],
+      tags: ["metal", "iron", "water", "mechanism", "heavy"],
+      hp: 220,
+      maxHp: 220,
+      description: "Turn-wheel ratchet mechanism regulating wastewater flow into the ocean canal."
+    }
+  ];
+
+  const npcsMinus1: SectorMapResult["npcs"] = [
+    {
+      id: `npc_burg_cellarer_${burg.burg_id}`,
+      name: "Jorik the Cask-Cooper",
+      role: "Subterranean Cellarer & Cooper",
+      pos: [CENTER - 18, CENTER + 20],
+      tags: ["human", "artisan", "civilian"],
+      faction: factionName,
+      hp: 32,
+      maxHp: 32,
+      disposition: 1,
+      alive: true,
+      equippedWeapon: "Heavy Cooper's Adze & Mallet",
+      equippedArmor: "Oiled Rawhide Apron",
+      statAffinity: "endurance",
+      memoryNotes: ["Maintains the aging tuns and knows how to navigate the sewer pipes without drowning."],
+      stats: { might: 14, endurance: 15, finesse: 12, reflex: 11, vitality: 14, fortitude: 13, knowledge: 10, logic: 11, awareness: 13, intuition: 13, charm: 10, willpower: 13 }
+    },
+    {
+      id: `npc_burg_sewer_creature_${burg.burg_id}`,
+      name: "Cavern Dire Rat",
+      role: "Trophic Sewer Scavenger",
+      pos: [CENTER + 5, CENTER + 2],
+      tags: ["beast", "rodent", "trophic_scavenger"],
+      faction: "Wild Fauna",
+      hp: 16,
+      maxHp: 16,
+      disposition: -1,
+      alive: true,
+      equippedWeapon: "Infectious Disease Bite",
+      statAffinity: "reflex",
+      memoryNotes: ["Nests in the municipal sewer culvert; stalks dropped market scraps."],
+      stats: { might: 8, endurance: 11, finesse: 15, reflex: 16, vitality: 10, fortitude: 9, knowledge: 3, logic: 4, awareness: 15, intuition: 14, charm: 3, willpower: 10 }
+    }
+  ];
+
+  const layerMinus1: SectorMapResult = {
+    grid: gridMinus1,
+    compressed: zlib.gzipSync(Buffer.from(gridMinus1)),
+    props: propsMinus1,
+    npcs: npcsMinus1,
+    poiType: "SUBTERRANEAN_SECTOR",
+    name: `${burgName} (Subterranean Cellars & Sewer Network)`,
+    features: {
+      burgId: burg.burg_id,
+      urbanTier: tier,
+      isPort,
+      wealth: burg.wealth,
+      unrest: burg.unrest,
+      factionName,
+      zLayer: -1
+    }
+  };
+
+  // =========================================================================
+  // LAYER +1: ELEVATED (Upper Floors, Wall Ramparts, Sky-Bridges, Catwalks)
+  // =========================================================================
+  const gridPlus1 = new Uint8Array(SIZE * SIZE);
+  gridPlus1.fill(0); // Default open air / drop-off
+
+  // 1. City Curtain Wall Ramparts (Walkable stone path on high wall)
+  for (let x = WALL_LEFT; x <= WALL_RIGHT; x++) {
+    gridPlus1[WALL_TOP * SIZE + x] = 5; // Outer parapet/crenellation
+    gridPlus1[(WALL_TOP + 1) * SIZE + x] = 4; // Stone rampart walkway
+    gridPlus1[(WALL_TOP + 2) * SIZE + x] = 4; // Stone rampart walkway
+    if (!isPort) {
+      gridPlus1[(WALL_BOTTOM - 2) * SIZE + x] = 4;
+      gridPlus1[(WALL_BOTTOM - 1) * SIZE + x] = 4;
+      gridPlus1[WALL_BOTTOM * SIZE + x] = 5;
+    }
+  }
+  for (let y = WALL_TOP; y <= (isPort ? WALL_BOTTOM - 20 : WALL_BOTTOM); y++) {
+    gridPlus1[y * SIZE + WALL_LEFT] = 5;
+    gridPlus1[y * SIZE + WALL_LEFT + 1] = 4;
+    gridPlus1[y * SIZE + WALL_LEFT + 2] = 4;
+    gridPlus1[y * SIZE + WALL_RIGHT - 2] = 4;
+    gridPlus1[y * SIZE + WALL_RIGHT - 1] = 4;
+    gridPlus1[y * SIZE + WALL_RIGHT] = 5;
+  }
+
+  // 4 Corner Bastion High Platforms (8x8)
+  const drawBastionPlatform = (cx: number, cy: number) => {
+    for (let dy = -4; dy <= 4; dy++) {
+      for (let dx = -4; dx <= 4; dx++) {
+        const tx = cx + dx, ty = cy + dy;
+        if (tx >= 0 && tx < SIZE && ty >= 0 && ty < SIZE) {
+          if (Math.abs(dx) === 4 || Math.abs(dy) === 4) gridPlus1[ty * SIZE + tx] = 5;
+          else gridPlus1[ty * SIZE + tx] = 4;
+        }
+      }
+    }
+    gridPlus1[cy * SIZE + cx] = 8; // High signal beacon brazier
+  };
+  drawBastionPlatform(WALL_LEFT, WALL_TOP);
+  drawBastionPlatform(WALL_RIGHT, WALL_TOP);
+  if (!isPort) {
+    drawBastionPlatform(WALL_LEFT, WALL_BOTTOM);
+    drawBastionPlatform(WALL_RIGHT, WALL_BOTTOM);
+  }
+
+  // 2. Upper Floors of Buildings:
+  // Guard Captain's Quarters (matching [CENTER - 32, CENTER - 32])
+  carveRoom(gridPlus1, CENTER - 32, CENTER - 32, 6, 6, 4);
+
+  // Chancellery High Council Chamber (matching [CENTER + 16, CENTER - 14])
+  carveRoom(gridPlus1, CENTER + 16, CENTER - 14, 5, 5, 4);
+
+  // Cathedral High Belltower (matching [CENTER - 45, CENTER + 35])
+  carveRoom(gridPlus1, CENTER - 45, CENTER + 35, 6, 6, 4);
+
+  // Tavern 2nd Floor Guest Chambers (matching [CENTER - 20, CENTER + 20])
+  carveRoom(gridPlus1, CENTER - 20, CENTER + 20, 5, 5, 4);
+
+  // 3. Elevated Connecting Sky-Bridges & Catwalks:
+  // North Timber Sky-Bridge: Barracks Upper Floor to North Wall Ramparts
+  for (let y = WALL_TOP + 3; y <= CENTER - 38; y++) {
+    gridPlus1[y * SIZE + (CENTER - 32)] = 3; // Timber bridge decking
+  }
+  // Chancellery Walkway: Council Chamber to West Terrace
+  for (let x = CENTER + 3; x <= CENTER + 10; x++) {
+    gridPlus1[(CENTER - 14) * SIZE + x] = 3;
+  }
+
+  const propsPlus1: SectorMapResult["props"] = [
+    {
+      id: `prop_stairs_barracks_down_${burg.burg_id}`,
+      name: "Barracks Flight Stairs Down to Ground",
+      pos: [CENTER - 32, CENTER - 32],
+      tags: ["wood", "stairs_down", "down", "surface"],
+      hp: 100,
+      maxHp: 100,
+      description: "Timber stairs descending into the main guardhouse muster hall."
+    },
+    {
+      id: `prop_stairs_chancellery_down_${burg.burg_id}`,
+      name: "Chancellery Council Stairs Down",
+      pos: [CENTER + 16, CENTER - 14],
+      tags: ["wood", "stairs_down", "down", "surface"],
+      hp: 90,
+      maxHp: 90,
+      description: "Polished oak stairs descending to the ground-floor registry office."
+    },
+    {
+      id: `prop_wall_stairs_nw_down_${burg.burg_id}`,
+      name: "North-West Bastion Rampart Steps Down",
+      pos: [WALL_LEFT + 4, WALL_TOP + 4],
+      tags: ["stone", "stairs_down", "down", "surface"],
+      hp: 200,
+      maxHp: 200,
+      description: "Stone staircase descending from the curtain wall parapet to the courtyard."
+    },
+    {
+      id: `prop_wall_stairs_ne_down_${burg.burg_id}`,
+      name: "North-East Bastion Rampart Steps Down",
+      pos: [WALL_RIGHT - 4, WALL_TOP + 4],
+      tags: ["stone", "stairs_down", "down", "surface"],
+      hp: 200,
+      maxHp: 200,
+      description: "Stone staircase descending from the eastern battlements."
+    },
+    {
+      id: `prop_elevated_ballista_${burg.burg_id}`,
+      name: "Rampart Heavy Swivel Ballista",
+      pos: [WALL_LEFT + 12, WALL_TOP + 1],
+      tags: ["wood", "metal", "siege", "weapon", "heavy"],
+      hp: 180,
+      maxHp: 180,
+      description: "Pivoting steel-reinforced timber ballista loaded with an iron-tipped bolt overlooking the outer road."
+    },
+    {
+      id: `prop_elevated_bell_${burg.burg_id}`,
+      name: "Cathedral Great Bronze Tolling Bell",
+      pos: [CENTER - 45, CENTER + 35],
+      tags: ["metal", "bronze", "sacred", "alarm", "heavy"],
+      hp: 250,
+      maxHp: 250,
+      description: "Enormous inscribed bell cast from dragon-slag, tolling liturgical hours and martial alarms."
+    },
+    {
+      id: `prop_elevated_council_table_${burg.burg_id}`,
+      name: "Magistrate High Council Table & Heraldry",
+      pos: [CENTER + 16, CENTER - 14],
+      tags: ["wood", "civic", "paper", "furniture"],
+      hp: 70,
+      maxHp: 70,
+      description: "Inlaid walnut round table draped with provincial maps and tax seals."
+    }
+  ];
+
+  const npcsPlus1: SectorMapResult["npcs"] = [
+    {
+      id: `npc_burg_rampart_sentinel_${burg.burg_id}`,
+      name: "Sergeant Vane the Hawk-Eyed",
+      role: "Rampart Watch Captain",
+      pos: [WALL_LEFT + 8, WALL_TOP + 1],
+      tags: ["human", "guard", "military"],
+      faction: factionName,
+      hp: 38,
+      maxHp: 38,
+      disposition: 1,
+      alive: true,
+      equippedWeapon: "Reinforced Yew Longbow & Broadhead Quiver",
+      equippedArmor: "Hardened Cuirboulli & Steel Sallet",
+      statAffinity: "awareness",
+      memoryNotes: ["Vigilantly scans the outer plains for raiders and wild chaos surges."],
+      stats: { might: 13, endurance: 14, finesse: 16, reflex: 15, vitality: 13, fortitude: 13, knowledge: 11, logic: 12, awareness: 17, intuition: 15, charm: 11, willpower: 14 }
+    },
+    {
+      id: `npc_burg_councillor_${burg.burg_id}`,
+      name: "High Scribe Morwen",
+      role: "Municipal Councillor & Archivist",
+      pos: [CENTER + 17, CENTER - 13],
+      tags: ["human", "leader", "civilian"],
+      faction: factionName,
+      hp: 26,
+      maxHp: 26,
+      disposition: 1,
+      alive: true,
+      equippedWeapon: "Engraved Ceremonial Dagger",
+      equippedArmor: "Velvet Robes & Gold Seal Chain",
+      statAffinity: "knowledge",
+      memoryNotes: ["Drafts official civic decrees and balances the burg's trade tariffs."],
+      stats: { might: 9, endurance: 11, finesse: 12, reflex: 11, vitality: 11, fortitude: 10, knowledge: 17, logic: 16, awareness: 14, intuition: 15, charm: 15, willpower: 14 }
+    }
+  ];
+
+  const layerPlus1: SectorMapResult = {
+    grid: gridPlus1,
+    compressed: zlib.gzipSync(Buffer.from(gridPlus1)),
+    props: propsPlus1,
+    npcs: npcsPlus1,
+    poiType: "ELEVATED_SECTOR",
+    name: `${burgName} (Upper Floors, Ramparts & Sky-Bridges)`,
+    features: {
+      burgId: burg.burg_id,
+      urbanTier: tier,
+      isPort,
+      wealth: burg.wealth,
+      unrest: burg.unrest,
+      factionName,
+      zLayer: 1
+    }
+  };
+
+  return {
+    layerMinus1,
+    layer0,
+    layerPlus1
+  };
+}
+
+export function generateBurgSectorMap(
+  burg: any,
+  factionName: string,
+  cellId: number,
+  citizens: any[] = [],
+  lairs: any[] = []
+): SectorMapResult {
+  const layers = generateBurgSectorLayers(burg, factionName, cellId, citizens, lairs);
+  return layers.layer0;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

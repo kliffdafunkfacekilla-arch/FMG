@@ -9,6 +9,26 @@ export type InteriorType =
   | "WIZARD_LAB"
   | "CHASM_DEPTHS";
 
+export interface PointOfEntryConfig {
+  poiId?: string | undefined;
+  parentCellId: number;
+  parentRx: number;
+  parentRy: number;
+  entryPropId: string;
+  entryPropName?: string | undefined;
+  entryPropTags?: string[] | undefined;
+  subMapType?: InteriorType | undefined;
+  parameters?: {
+    depthLevels?: number | undefined;
+    architecturalStyle?: string | undefined;
+    dangerRating?: number | undefined;
+    elementalAffinity?: string | undefined;
+    factionOwnerId?: number | undefined;
+    factionName?: string | undefined;
+    trophicFaunaType?: string | undefined;
+  } | undefined;
+}
+
 export interface InteriorMapResult {
   subMapId?: number;
   parentCellId: number;
@@ -757,4 +777,57 @@ export function generateInteriorSubMap(
       tags: exitTags
     }
   };
+}
+
+/**
+ * Procedurally generates a standalone Point of Entry (POI) sub-map encoded with simulation/story parameters.
+ */
+export function generatePOISubMap(config: PointOfEntryConfig): InteriorMapResult {
+  const chosenType = config.subMapType || detectInteriorType(config.entryPropId, config.entryPropName, config.entryPropTags);
+  const result = generateInteriorSubMap(
+    config.parentCellId,
+    config.parentRx,
+    config.parentRy,
+    config.entryPropId,
+    config.entryPropName || "Wilderness Point of Entry",
+    config.entryPropTags || ["door", "poi"],
+    chosenType
+  );
+
+  // Apply encoded parameters:
+  if (config.parameters?.elementalAffinity) {
+    const elem = config.parameters.elementalAffinity;
+    result.name += ` [${elem} Resonance]`;
+    result.props.push({
+      id: `prop_poi_elemental_seal_${config.parentCellId}`,
+      name: `Elemental Seal of ${elem}`,
+      pos: [CENTER, 172],
+      tags: ["stone", "magic", "elemental", "dragon_seal", elem.toLowerCase()],
+      hp: 250,
+      maxHp: 250,
+      description: `Ancient consecrated monolith pulsing with raw ${elem} energy.`
+    });
+  }
+
+  if (config.parameters?.trophicFaunaType) {
+    const faunaName = config.parameters.trophicFaunaType;
+    result.npcs.push({
+      id: `npc_poi_trophic_${config.parentCellId}`,
+      name: faunaName,
+      role: "Native Subterranean Predator",
+      pos: [CENTER + 3, 175],
+      tags: ["beast", "trophic_predator"],
+      faction: "Wild Fauna",
+      hp: 35,
+      maxHp: 35,
+      disposition: -1,
+      alive: true,
+      equippedWeapon: "Predatory Claws & Fangs",
+      statAffinity: "might",
+      memoryNotes: [`Dominant subterranean predator adapted to this sector.`],
+      stats: { might: 16, endurance: 15, finesse: 13, reflex: 14, vitality: 15, fortitude: 14, knowledge: 4, logic: 5, awareness: 16, intuition: 15, charm: 4, willpower: 13 }
+    });
+  }
+
+  return result;
 }

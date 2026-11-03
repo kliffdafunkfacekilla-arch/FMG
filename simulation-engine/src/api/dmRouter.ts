@@ -6,7 +6,7 @@ import pool from '../db/pool.js';
 import { updateSectorNPCRoutines } from '../engine/agents/npcRoutineAgent.js';
 import { getActiveChaosFlows, evaluatePointChaosFlowProximity } from '../engine/agents/chaosFlowAgent.js';
 import { getLairPropDetails, ensureLairResidents } from '../engine/agents/outlawSyndicates.js';
-import { generateGrindCanyonSectorMap } from '../engine/maps/SectorMapGenerator.js';
+import { generateGrindCanyonSectorMap, generateBurgSectorLayers } from '../engine/maps/SectorMapGenerator.js';
 import { getOrGenerateInteriorSubMap } from '../engine/subMapEngine.js';
 
 dotenv.config({ override: true });
@@ -920,11 +920,119 @@ router.post('/sector_load', async (req, res) => {
 });
 
 /**
+ * GET /sector_layer - Loads or generates a specific vertical layer (z = -1, 0, 1) for a sector
+ */
+router.get('/sector_layer', async (req, res) => {
+  try {
+    const targetCellId = Number(req.query.cellId) || 13408;
+    const targetRx = req.query.rx !== undefined ? Number(req.query.rx) : 112;
+    const targetRy = req.query.ry !== undefined ? Number(req.query.ry) : 112;
+    const targetZ = req.query.z !== undefined ? Number(req.query.z) : 0;
+
+    // 1. Try to load layer from sim_sector_layers
+    const layerRes = await pool.query(
+      `SELECT * FROM sim_sector_layers
+       WHERE cell_id = $1 AND rx = $2 AND ry = $3 AND z_layer = $4
+       LIMIT 1`,
+      [targetCellId, targetRx, targetRy, targetZ]
+    );
+
+    if (layerRes.rows.length > 0) {
+      const row = layerRes.rows[0];
+      const unzipped = zlib.gunzipSync(row.compressed_terrain);
+      const grid = new Uint8Array(unzipped.buffer, unzipped.byteOffset, unzipped.byteLength);
+      return res.json({
+        success: true,
+        cellId: targetCellId,
+        rx: targetRx,
+        ry: targetRy,
+        z: targetZ,
+        name: row.layer_name,
+        grid: Array.from(grid),
+        props: row.props || [],
+        npcs: row.npcs || [],
+        features: row.features || {}
+      });
+    }
+
+    // 2. If not stored, check if this is a burg cell and generate all 3 layers
+    const burgRes = await pool.query(
+      `SELECT b.*, f.name AS faction_name
+       FROM sim_burg_economy b
+       LEFT JOIN sim_cells c ON c.id = b.cell_id
+       LEFT JOIN sim_factions f ON f.id = c.faction_id
+       WHERE b.cell_id = $1 LIMIT 1`,
+      [targetCellId]
+    );
+
+    if (burgRes.rows.length > 0) {
+      const burg = burgRes.rows[0];
+      const factionName = burg.faction_name || "Provincial Sovereignty";
+
+      // Fetch authentic citizens
+      const citRes = await pool.query(
+        `SELECT * FROM sim_npc_instances WHERE cell_id = $1 AND alive = true LIMIT 30`,
+        [targetCellId]
+      );
+
+      // Fetch lairs
+      const lairRes = await pool.query(
+        `SELECT l.*, o.name AS cartel_name
+         FROM sim_fringe_lairs l
+         JOIN sim_outlaw_factions o ON o.id = l.faction_id
+         WHERE l.cell_id = $1`,
+        [targetCellId]
+      );
+
+      const layers = generateBurgSectorLayers(burg, factionName, targetCellId, citRes.rows, lairRes.rows);
+
+      // Persist all 3 layers to sim_sector_layers
+      await pool.query(
+        `INSERT INTO sim_sector_layers (cell_id, rx, ry, z_layer, layer_name, compressed_terrain, props, npcs, features)
+         VALUES
+         ($1, $2, $3, -1, $4, $5, $6, $7, $8),
+         ($1, $2, $3, 0, $9, $10, $11, $12, $13),
+         ($1, $2, $3, 1, $14, $15, $16, $17, $18)
+         ON CONFLICT (cell_id, rx, ry, z_layer) DO UPDATE SET
+           compressed_terrain = EXCLUDED.compressed_terrain,
+           props = EXCLUDED.props,
+           npcs = EXCLUDED.npcs;`,
+        [
+          targetCellId, targetRx, targetRy,
+          layers.layerMinus1.name, layers.layerMinus1.compressed, JSON.stringify(layers.layerMinus1.props), JSON.stringify(layers.layerMinus1.npcs), JSON.stringify(layers.layerMinus1.features),
+          layers.layer0.name, layers.layer0.compressed, JSON.stringify(layers.layer0.props), JSON.stringify(layers.layer0.npcs), JSON.stringify(layers.layer0.features),
+          layers.layerPlus1.name, layers.layerPlus1.compressed, JSON.stringify(layers.layerPlus1.props), JSON.stringify(layers.layerPlus1.npcs), JSON.stringify(layers.layerPlus1.features)
+        ]
+      );
+
+      const chosen = targetZ === -1 ? layers.layerMinus1 : targetZ === 1 ? layers.layerPlus1 : layers.layer0;
+      return res.json({
+        success: true,
+        cellId: targetCellId,
+        rx: targetRx,
+        ry: targetRy,
+        z: targetZ,
+        name: chosen.name,
+        grid: Array.from(chosen.grid),
+        props: chosen.props,
+        npcs: chosen.npcs,
+        features: chosen.features
+      });
+    }
+
+    return res.status(404).json({ error: "Sector layers not found for this cell." });
+  } catch (e: any) {
+    console.error("Sector layer error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
  * POST /interior/enter - Enters or creates an authentic 256x256 interior or dungeon sub-map
  */
 router.post('/interior/enter', async (req, res) => {
   try {
-    const { cellId, rx, ry, propId, propName, propTags, forcedType } = req.body;
+    const { cellId, rx, ry, propId, propName, propTags, forcedType, parameters } = req.body;
     const targetCellId = Number(cellId) || 13408;
     const targetRx = rx !== undefined ? Number(rx) : 112;
     const targetRy = ry !== undefined ? Number(ry) : 112;
@@ -939,7 +1047,8 @@ router.post('/interior/enter', async (req, res) => {
       targetPropId,
       targetPropName,
       targetPropTags,
-      forcedType
+      forcedType,
+      parameters
     );
 
     res.json({

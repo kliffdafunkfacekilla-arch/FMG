@@ -109,6 +109,7 @@ export default function App() {
     parentNPCs: InjectedNPC[];
   }
   const [activeInterior, setActiveInterior] = useState<ActiveInteriorState | null>(null);
+  const [currentZLayer, setCurrentZLayer] = useState<-1 | 0 | 1>(0);
 
   // Spatial Hash Grid Partitioning (O(1) Proximity & Collision on 16x16 Buckets)
   const npcSpatialGridRef = useRef<SpatialHashGrid<InjectedNPC>>(new SpatialHashGrid<InjectedNPC>(16));
@@ -802,6 +803,7 @@ export default function App() {
           if (data.worldPos.lx && data.worldPos.ly) {
             setLocalPos({ lx: data.worldPos.lx, ly: data.worldPos.ly });
           }
+          setCurrentZLayer(0);
           await fetchSectorState(data.worldPos.rx, data.worldPos.ry);
         }
         setShowLoadModal(false);
@@ -953,6 +955,7 @@ export default function App() {
               setCurrentCellId(nextCellId);
               setRegionalPos({ rx: nextRx, ry: nextRy });
               setLocalPos({ lx: nx, ly: ny });
+              setCurrentZLayer(0);
               await fetch(`http://localhost:3000/api/regional/start/${nextCellId}`, { method: 'POST' });
               await fetchSectorState(nextRx, nextRy, nextCellId);
               setMessages(prev => [
@@ -973,6 +976,7 @@ export default function App() {
         audioManager.playStep();
         setRegionalPos({ rx: nr_x, ry: nr_y });
         setLocalPos({ lx: nx, ly: ny });
+        setCurrentZLayer(0);
         fetchSectorState(nr_x, nr_y);
         triggerAutoSave('AutoSave - Regional Border');
       } else if (nx !== localPos.lx || ny !== localPos.ly) {
@@ -1143,6 +1147,54 @@ export default function App() {
     }
   };
 
+  // Switch Synchronized Vertical Sector Layer (z = -1 Subterranean, 0 Surface, +1 Elevated)
+  const handleSwitchSectorLayer = async (targetZ: -1 | 0 | 1) => {
+    try {
+      audioManager.playSfx('door');
+      const res = await fetch(`http://localhost:3000/api/dm/sector_layer?cellId=${currentCellId}&rx=${regionalPos.rx}&ry=${regionalPos.ry}&z=${targetZ}`);
+      if (!res.ok) throw new Error(`Layer ${targetZ} not available for this sector`);
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Failed to switch layer');
+
+      setTilemap({ grid: new Uint8Array(data.grid), size: 256 });
+      setInjectedProps(data.props || []);
+      setInjectedNPCs(data.npcs || []);
+      setCurrentZLayer(targetZ);
+      setEncounterTarget(null);
+
+      const layerTitle = targetZ === -1
+        ? 'Subterranean Basements & Sewers'
+        : targetZ === 1
+        ? 'Elevated Ramparts & Upper Floors'
+        : 'Surface Ground Level';
+
+      if (targetZ === -1) {
+        audioManager.playBattleMusic();
+      } else {
+        audioManager.playExplorationMusic();
+      }
+
+      setMessages(prev => [
+        ...prev,
+        {
+          sender: 'Tactical Grid',
+          text: `🪜 VERTICAL TRANSITION: Shifted to ${data.name || layerTitle} (Layer ${targetZ > 0 ? '+' + targetZ : targetZ}) at [${localPos.lx}, ${localPos.ly}].`,
+          type: 'narrative'
+        }
+      ]);
+    } catch (err: any) {
+      console.error('Error switching layer:', err);
+      setMessages(prev => [
+        ...prev,
+        {
+          sender: 'Tactical Grid',
+          text: `⚠️ Vertical transition failed: ${err.message}`,
+          type: 'error'
+        }
+      ]);
+    }
+  };
+
   // Mouse Click-to-Target on Battlegrid
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!canvasRef.current) return;
@@ -1305,7 +1357,7 @@ export default function App() {
         });
       }
 
-      // Sub-Map Interior: Egress / Ingress Options
+      // Vertical Sector Layers & Sub-Map Options
       if (activeInterior && (
         pTags.some(t => ['exit', 'stairs_up', 'ladder', 'surface'].includes(t)) ||
         clickedProp.id === 'prop_interior_exit' ||
@@ -1321,27 +1373,65 @@ export default function App() {
           description: 'Ascend back to overworld sector surface',
           action: () => handleExitInterior()
         });
-      } else if (!activeInterior && (
-        pTags.some(t => ['door', 'gate', 'portcullis', 'hatch', 'cellar', 'vault', 'dungeon', 'stairs_down', 'crypt', 'catacomb', 'winch', 'shaft', 'underworld', 'lair', 'entrance'].includes(t)) ||
-        pNameLower.includes('hatch') ||
-        pNameLower.includes('cellar') ||
-        pNameLower.includes('vault') ||
-        pNameLower.includes('portcullis') ||
-        pNameLower.includes('dungeon') ||
-        pNameLower.includes('crypt') ||
-        pNameLower.includes('catacomb') ||
-        pNameLower.includes('winch') ||
-        pNameLower.includes('shaft') ||
-        pNameLower.includes('lair')
-      )) {
-        opts.unshift({
-          id: 'enter_submap',
-          label: 'ENTER SUB-MAP',
-          icon: '🚪',
-          color: 'bg-purple-900 border-purple-400 text-purple-100 hover:bg-purple-800',
-          description: 'Enter interior sub-map or dungeon level',
-          action: () => handleEnterInterior(clickedProp)
-        });
+      } else if (!activeInterior) {
+        // 1. Vertical Sector Layer Transitions (Synchronized Z-Layers)
+        if (currentZLayer === 0) {
+          if (pTags.includes('subterranean') || pTags.includes('cellar') || pTags.includes('sewer') || pTags.includes('hatch') || pNameLower.includes('cellar') || pNameLower.includes('hatch') || pNameLower.includes('sewer')) {
+            opts.unshift({
+              id: 'descend_sector_layer',
+              label: 'DESCEND TO BASEMENT (Z: -1)',
+              icon: '🪜',
+              color: 'bg-amber-900 border-amber-500 text-amber-100 hover:bg-amber-800',
+              description: 'Descend to Subterranean Layer -1 (Cellars, Sewers & Tunnels)',
+              action: () => handleSwitchSectorLayer(-1)
+            });
+          }
+          if (pTags.includes('elevated') || pTags.includes('ramparts') || pTags.includes('stairs_up') || pNameLower.includes('rampart') || pNameLower.includes('stairs up')) {
+            opts.unshift({
+              id: 'ascend_sector_layer',
+              label: 'ASCEND TO RAMPARTS (Z: +1)',
+              icon: '🪜',
+              color: 'bg-indigo-900 border-indigo-400 text-indigo-100 hover:bg-indigo-800',
+              description: 'Ascend to Elevated Layer +1 (Ramparts & 2nd Floors)',
+              action: () => handleSwitchSectorLayer(1)
+            });
+          }
+        } else if (currentZLayer === -1) {
+          if (pTags.includes('surface') || pTags.includes('ladder') || pTags.includes('up') || pTags.includes('stairs_up') || pNameLower.includes('up') || pNameLower.includes('surface')) {
+            opts.unshift({
+              id: 'surface_sector_layer',
+              label: 'ASCEND TO STREET LEVEL (Z: 0)',
+              icon: '🪜',
+              color: 'bg-emerald-800 border-emerald-400 text-emerald-100 hover:bg-emerald-700',
+              description: 'Ascend back to Surface Street Level',
+              action: () => handleSwitchSectorLayer(0)
+            });
+          }
+        } else if (currentZLayer === 1) {
+          if (pTags.includes('surface') || pTags.includes('stairs_down') || pTags.includes('down') || pNameLower.includes('down') || pNameLower.includes('surface')) {
+            opts.unshift({
+              id: 'surface_sector_layer',
+              label: 'DESCEND TO STREET LEVEL (Z: 0)',
+              icon: '🪜',
+              color: 'bg-emerald-800 border-emerald-400 text-emerald-100 hover:bg-emerald-700',
+              description: 'Descend back to Surface Street Level',
+              action: () => handleSwitchSectorLayer(0)
+            });
+          }
+        }
+
+        // 2. Standalone Wilderness Points of Entry (Crypts, Dungeons, Ruins, Shafts)
+        if (pTags.some(t => ['dungeon', 'crypt', 'catacomb', 'winch', 'shaft', 'underworld', 'lair', 'ancient'].includes(t)) ||
+            pNameLower.includes('crypt') || pNameLower.includes('dungeon') || pNameLower.includes('shaft') || pNameLower.includes('winch') || pNameLower.includes('lair')) {
+          opts.unshift({
+            id: 'enter_submap',
+            label: 'ENTER SUB-MAP',
+            icon: '🚪',
+            color: 'bg-purple-900 border-purple-400 text-purple-100 hover:bg-purple-800',
+            description: 'Enter standalone POI sub-map or dungeon level',
+            action: () => handleEnterInterior(clickedProp)
+          });
+        }
       }
       if (pTags.includes('wood') || pTags.includes('flammable') || pTags.includes('dry')) {
         opts.push({
@@ -3284,6 +3374,7 @@ export default function App() {
     const targetRy = Math.min(224, Math.max(0, Math.floor((targetCell.p?.[1] || targetCell.center_y || 740) / 6.6)));
     setRegionalPos({ rx: targetRx, ry: targetRy });
     setLocalPos({ lx: 128, ly: 128 });
+    setCurrentZLayer(0);
     fetchSectorState(targetRx, targetRy, targetCell.id);
     setActiveCenterTab('battlegrid');
     setMessages(prev => [
@@ -3384,6 +3475,7 @@ export default function App() {
       setCurrentCellId(targetCellId);
       setRegionalPos({ rx: targetRx, ry: targetRy });
       setLocalPos({ lx: targetLx, ly: targetLy });
+      setCurrentZLayer(0);
       await fetch(`http://localhost:3000/api/regional/start/${targetCellId}`, { method: 'POST' });
       await fetchSectorState(targetRx, targetRy, targetCellId);
       setActiveCenterTab('battlegrid');
@@ -3518,6 +3610,34 @@ export default function App() {
                     >
                       <span>🪜</span>
                       <span>ASCEND TO SURFACE</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Active Synchronized Vertical Layer Indicator & Transition Control */}
+                {currentZLayer !== 0 && !activeInterior && (
+                  <div className="absolute top-2 left-2 right-2 z-20 flex items-center justify-between px-3 py-2 rounded-lg bg-slate-950/95 border border-amber-500/80 shadow-2xl backdrop-blur-md font-mono text-xs text-amber-200">
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-base">{currentZLayer === -1 ? '🕳️' : '🏰'}</span>
+                      <div>
+                        <div className="font-bold text-amber-300 flex items-center gap-2">
+                          <span>{currentZLayer === -1 ? 'Subterranean Network (Cellars, Sewers & Tunnels)' : 'Elevated Ramparts & Upper Floors'}</span>
+                          <span className="px-1.5 py-0.5 rounded bg-amber-900/80 text-[10px] text-amber-200 border border-amber-600/50">
+                            LAYER {currentZLayer > 0 ? `+${currentZLayer}` : currentZLayer}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-gray-300 mt-0.5">
+                          Synchronized Sector Grid • Position: [{localPos.lx}, {localPos.ly}]
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchSectorLayer(0)}
+                      className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs rounded shadow transition-colors flex items-center gap-1.5"
+                      title="Return to Street Level (Layer 0)"
+                    >
+                      <span>{currentZLayer === -1 ? '🪜 ASCEND TO STREET' : '🪜 DESCEND TO STREET'}</span>
                     </button>
                   </div>
                 )}

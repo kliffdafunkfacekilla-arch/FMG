@@ -1,6 +1,6 @@
 import pool from "../db/pool";
 import zlib from "zlib";
-import { generateInteriorSubMap, detectInteriorType, InteriorMapResult, InteriorType } from "./maps/InteriorMapGenerator";
+import { generateInteriorSubMap, generatePOISubMap, detectInteriorType, InteriorMapResult, InteriorType, PointOfEntryConfig } from "./maps/InteriorMapGenerator";
 
 export interface SubMapParameters {
   localId?: number;
@@ -13,6 +13,7 @@ export interface SubMapParameters {
   mapType?: string;
   width?: number;
   height?: number;
+  parameters?: PointOfEntryConfig["parameters"];
 }
 
 /**
@@ -25,7 +26,8 @@ export async function getOrGenerateInteriorSubMap(
   parentPropId: string,
   parentPropName: string = "Sub-Surface Chamber",
   parentPropTags: string[] = [],
-  forcedType?: InteriorType
+  forcedType?: InteriorType,
+  parameters?: PointOfEntryConfig["parameters"]
 ): Promise<InteriorMapResult> {
   try {
     // 1. Check if sub-map already exists for this parent cell & prop
@@ -47,7 +49,16 @@ export async function getOrGenerateInteriorSubMap(
         gridBuffer = zlib.inflateSync(row.grid_data);
       } else {
         // Fallback: regenerate if grid_data was empty
-        const fresh = generateInteriorSubMap(parentCellId, parentRx, parentRy, parentPropId, parentPropName, parentPropTags, forcedType);
+        const fresh = generatePOISubMap({
+          parentCellId,
+          parentRx,
+          parentRy,
+          entryPropId: parentPropId,
+          entryPropName: parentPropName,
+          entryPropTags: parentPropTags,
+          subMapType: forcedType,
+          parameters
+        });
         await pool.query(
           `UPDATE interior_sub_maps
            SET grid_data = $1, props = $2, npcs = $3, interior_type = $4, name = $5
@@ -82,16 +93,17 @@ export async function getOrGenerateInteriorSubMap(
       };
     }
 
-    // 2. Generate authentic procedural interior sub-map
-    const interior = generateInteriorSubMap(
+    // 2. Generate authentic procedural interior sub-map or POI
+    const interior = generatePOISubMap({
       parentCellId,
       parentRx,
       parentRy,
-      parentPropId,
-      parentPropName,
-      parentPropTags,
-      forcedType
-    );
+      entryPropId: parentPropId,
+      entryPropName: parentPropName,
+      entryPropTags: parentPropTags,
+      subMapType: forcedType,
+      parameters
+    });
 
     // 3. Persist to Postgres database
     const insertRes = await pool.query(

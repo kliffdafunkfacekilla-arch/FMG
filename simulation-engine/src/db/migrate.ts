@@ -474,6 +474,21 @@ CREATE TABLE IF NOT EXISTS sim_world_vault_sectors (
 );
 CREATE INDEX IF NOT EXISTS idx_vault_coords ON sim_world_vault_sectors(cell_id, rx, ry);
 
+CREATE TABLE IF NOT EXISTS sim_sector_layers (
+    cell_id INT NOT NULL,
+    rx INT NOT NULL,
+    ry INT NOT NULL,
+    z_layer INT NOT NULL, -- -1: Subterranean, 0: Surface, 1: Elevated
+    layer_name VARCHAR(128) NOT NULL,
+    compressed_terrain BYTEA NOT NULL,
+    props JSONB DEFAULT '[]'::jsonb,
+    npcs JSONB DEFAULT '[]'::jsonb,
+    features JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (cell_id, rx, ry, z_layer)
+);
+CREATE INDEX IF NOT EXISTS idx_sector_layers_lookup ON sim_sector_layers(cell_id, rx, ry, z_layer);
+
 CREATE TABLE IF NOT EXISTS sim_world_landmarks (
     id SERIAL PRIMARY KEY,
     name VARCHAR(120) NOT NULL,
