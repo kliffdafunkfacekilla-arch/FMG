@@ -1,30 +1,11 @@
 import { PoolClient } from "pg";
+import { getCartelLairType, ensureLairResidents } from "./outlawSyndicates";
 
-export function getCartelLairType(cartel: any): string {
-    const id = Number(cartel.id);
-    const name = String(cartel.name || "");
-
-    if (id === 1 || name.includes("Gilded Compass")) {
-        return Math.random() < 0.5 ? "SHADOW_VAULT" : "USURY_HOUSE";
-    }
-    if (id === 2 || name.includes("Free Sky")) {
-        return Math.random() < 0.5 ? "CONTRABAND_DOCK" : "SKY_CORSAIR_CACHE";
-    }
-    if (id === 3 || name.includes("Devil's Choice")) {
-        return "MERCENARY_GARRISON";
-    }
-    if (id === 4 || name.includes("Ivory-Gate")) {
-        return Math.random() < 0.5 ? "TOLL_BLOCKADE" : "ENFORCER_DEN";
-    }
-    if (id === 5 || name.includes("Ghostwind")) {
-        return Math.random() < 0.5 ? "RAIDER_REDOUBT" : "SMUGGLER_COVE";
-    }
-    return cartel.type === "SMUGGLER" ? "BLACK_MARKET" : "VICE_DEN";
-}
+export { getCartelLairType };
 
 export async function runCartelAgent(client: PoolClient, tick: number, loreDate: string) {
-    // 1. Fetch Cartels (Fringe Factions)
-    const cartelsRes = await client.query("SELECT * FROM sim_outlaw_factions");
+    // 1. Fetch Cartels (All 10 Outlaw Syndicates)
+    const cartelsRes = await client.query("SELECT * FROM sim_outlaw_factions ORDER BY id ASC");
     
     // Self-healing: Ensure every cartel has worker_groups initialized and an Underworld Paragon
     for (const cartel of cartelsRes.rows) {
@@ -124,11 +105,14 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
                 );
                 
                 if (existingLair.rows.length === 0) {
-                    await client.query(
+                    const inserted = await client.query(
                         `INSERT INTO sim_fringe_lairs (faction_id, cell_id, burg_id, lair_type, manpower, heat)
-                         VALUES ($1, $2, $3, $4, $5, 10)`,
+                         VALUES ($1, $2, $3, $4, $5, 10) RETURNING *`,
                         [cartel.id, lairBurg.cell_id, lairBurg.burg_id, lairType, 50]
                     );
+                    const newLair = inserted.rows[0];
+                    await ensureLairResidents(client, { ...newLair, cartel_name: cartel.name, cartel_type: cartel.type });
+
                     await client.query(
                         `INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
                          VALUES ($1, 'LAIR_ESTABLISHED', $2, 'MINOR', $3, $4, $5)`,
@@ -139,12 +123,21 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
                     const attackerPower = Number(cartel.manpower || 100);
                     const defenderPower = Number(defender.manpower || 50);
                     if (attackerPower >= defenderPower) {
-                        await client.query(`DELETE FROM sim_fringe_lairs WHERE id = $1`, [defender.id]);
+                        // Mark defender resident NPCs as displaced
                         await client.query(
+                            `UPDATE sim_npc_instances SET alive = false, role = 'Displaced ' || role, updated_at = NOW() WHERE id LIKE 'npc_outlaw_' || $1 || '_%'`,
+                            [defender.id]
+                        );
+                        await client.query(`DELETE FROM sim_fringe_lairs WHERE id = $1`, [defender.id]);
+
+                        const inserted = await client.query(
                             `INSERT INTO sim_fringe_lairs (faction_id, cell_id, burg_id, lair_type, manpower, heat)
-                             VALUES ($1, $2, $3, $4, $5, 30)`,
+                             VALUES ($1, $2, $3, $4, $5, 30) RETURNING *`,
                             [cartel.id, lairBurg.cell_id, lairBurg.burg_id, lairType, Math.floor(attackerPower * 0.7)]
                         );
+                        const newLair = inserted.rows[0];
+                        await ensureLairResidents(client, { ...newLair, cartel_name: cartel.name, cartel_type: cartel.type });
+
                         await client.query(
                             `INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
                              VALUES ($1, 'TURF_WAR', $2, 'MAJOR', $3, $4, $5)`,
@@ -200,7 +193,11 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
         if (currentHeat >= 75) {
             const raidSuccess = Math.random() < 0.5;
             if (raidSuccess) {
-                // City Watch raids and dismantles the lair
+                // City Watch raids and dismantles the lair: arrest resident operatives
+                await client.query(
+                    `UPDATE sim_npc_instances SET alive = false, role = 'Arrested ' || role, updated_at = NOW() WHERE id LIKE 'npc_outlaw_' || $1 || '_%'`,
+                    [lair.id]
+                );
                 await client.query(`DELETE FROM sim_fringe_lairs WHERE id = $1`, [lair.id]);
                 await client.query(
                     `UPDATE sim_outlaw_factions SET manpower = GREATEST(0, manpower - 20) WHERE id = $1`,
@@ -211,7 +208,7 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
                      VALUES ($1, 'CITY_WATCH_RAID', $2, 'MAJOR', $3, $4, $5)`,
                     [
                         tick,
-                        `The City Watch of Burg ${lair.burg_name || lair.burg_id} stormed and dismantled the hidden ${lair.lair_type} operated by ${lair.cartel_name}, arresting 20 syndicate thugs!`,
+                        `The City Watch of Burg ${lair.burg_name || lair.burg_id} stormed and dismantled the hidden ${lair.lair_type} operated by ${lair.cartel_name}, arresting their syndicate operatives!`,
                         lair.faction_id,
                         lair.burg_id,
                         loreDate
