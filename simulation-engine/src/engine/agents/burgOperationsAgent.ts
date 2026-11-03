@@ -84,6 +84,26 @@ function resolveSpecies(demographicsStr: string): string {
     return "Human";
 }
 
+function getWorkplaceForProfession(profession: string, burgName: string): { type: string; name: string } {
+    if (profession === "Baker") return { type: "BAKERY", name: `${burgName} Communal Hearth Bakery` };
+    if (["Blacksmith", "Armorer", "Foundry Worker"].includes(profession)) return { type: "FORGE", name: `${burgName} Armory & Smithy` };
+    if (["Brewmaster", "Brewer"].includes(profession)) return { type: "BREWERY", name: `${burgName} Brewhouse & Tavern` };
+    if (profession === "Carpenter") return { type: "CARPENTRY", name: `${burgName} Woodcraft Atelier` };
+    if (profession === "Tanner") return { type: "TANNERY", name: `${burgName} Currier Tannery` };
+    if (profession === "Weaver") return { type: "WEAVERY", name: `${burgName} Draper Loom Guild` };
+    if (profession === "Potter") return { type: "POTTERY", name: `${burgName} Pottery Kiln Shed` };
+    if (["City Watchman", "Guard"].includes(profession)) return { type: "BARRACKS", name: `${burgName} City Watch Barracks` };
+    if (["Farmer", "Laborer", "Disenfranchised Laborer"].includes(profession)) return { type: "FARMSTEAD", name: `${burgName} Outlying Granary & Fields` };
+    if (profession === "Fisherman") return { type: "FISHERY", name: `${burgName} Basin Fishery Quay` };
+    if (["Hedge Herbalist", "Apothecary"].includes(profession)) return { type: "APOTHECARY", name: `${burgName} Herbal Dispensary` };
+    if (["Temple Acolyte", "Priest"].includes(profession)) return { type: "TEMPLE", name: `${burgName} Sanctuary of the Seals` };
+    if (["Merchant Trader", "Caravan Drover"].includes(profession)) return { type: "MARKET_STALL", name: `${burgName} Central Market Stalls` };
+    if (["Town Scribe", "Magistrate"].includes(profession)) return { type: "REGISTRY", name: `${burgName} Chancellery & Registry` };
+    if (profession === "Clockmaker") return { type: "PRECISION_ATELIER", name: `${burgName} Horologist Atelier` };
+    if (profession === "Stonemason") return { type: "MASONRY", name: `${burgName} Stonecutting Yard` };
+    return { type: "CIVIC_GUILD", name: `${burgName} Provincial Guild` };
+}
+
 async function spawnImmigrant(client: any, burg: any) {
     const isExotic = Math.random() < 0.15;
     const ALL_SPECIES = ["Human", "Avian", "Bear-Folk", "Wolf-Kin", "Felid", "Saurian", "Plant-Folk"];
@@ -99,24 +119,27 @@ async function spawnImmigrant(client: any, burg: any) {
     const temper = pickRandom(["GREEDY", "FANATICAL", "DESPERATE", "SCHOLARLY", "STOIC", "VENGEFUL", "COMPASSIONATE", "BITTER"], "CURIOUS");
     const instinct = pickRandom(["WARY", "CURIOUS", "AGGRESSIVE", "FEARFUL", "DEVOUT"], "WARY");
     const motiv = `Relocated to ${burg.name || 'town'} seeking new trade opportunities and stability.`;
+    const wp = getWorkplaceForProfession(profession, burg.name || "Town");
 
     await client.query(`
         INSERT INTO population_demographics (
             settlement_id, home_cell_id, name, profession, species,
             is_null, spark_tier, attunement_level, chaos_attraction_index,
             temper, instinct, motivation, traits, social_links, allegiance_status,
-            unit_size, life_stage, age, childhood_background, is_immigrant
+            unit_size, life_stage, age, childhood_background, is_immigrant,
+            workplace_type, workplace_name
         ) VALUES (
             $1, $2, $3, $4, $5,
             $6, $7, $8, $9,
             $10, $11, $12, $13::jsonb, '[]'::jsonb, 'CIVILIAN',
-            12, 'ADULT', $14, $15, TRUE
+            12, 'ADULT', $14, $15, TRUE,
+            $16, $17
         )
     `, [
         burg.burg_id, burg.cell_id, name, profession, species,
         isNull, sparkTier, isNull ? 0 : 0.3, isNull ? 0 : 2.0,
         temper, instinct, motiv, JSON.stringify([temper, instinct]),
-        age, childhood
+        age, childhood, wp.type, wp.name
     ]);
 }
 
@@ -181,40 +204,74 @@ export async function runBurgOperationsAgent(client: any, tick: number) {
         "dragon_stone_shard": { refined: "dragon_core", crafted: "airship_engine" }
     };
     
+    // Map to accumulate hierarchical shipments from downstream hamlets/villages/towns
+    const incomingTributes = new Map<number, { food: number; wealth: number }>();
+
     for (const burg of burgRes.rows) {
         const pop = burg.pop_null || 0;
         let urbanTier = burg.urban_tier || 1;
         const gatherRate = 1 + urbanTier;
 
         const totalWorkers = Math.floor(pop / 10);
-        
-        let wFood = 0, wMats = 0, wLux = 0, wCivil = 0, wSec = 0, wSoc = 0;
-        
         const fullBlocks = Math.floor(totalWorkers / 12);
-        wFood += fullBlocks * 6;
-        wMats += fullBlocks * 2;
-        wLux += fullBlocks * 1;
-        wCivil += fullBlocks * 1;
-        wSec += fullBlocks * 1;
-        wSoc += fullBlocks * 1;
         
-        const remainder = totalWorkers % 12;
-        let r = remainder;
-        
-        const rFood = Math.min(r, 6); wFood += rFood; r -= rFood;
-        const rMats = Math.min(r, 2); wMats += rMats; r -= rMats;
-        const rLux = Math.min(r, 1); wLux += rLux; r -= rLux;
-        const rCivil = Math.min(r, 1); wCivil += rCivil; r -= rCivil;
-        const rSec = Math.min(r, 1); wSec += rSec; r -= rSec;
-        const rSoc = Math.min(r, 1); wSoc += rSoc; r -= rSoc;
-        
-        // Generic Simulation Math
-        // Each food worker feeds their unit block of 10-12 plus municipal surplus
+        // --- PURPOSE-DRIVEN WORKFORCE: DEDICATED CIVIC OVERHEAD VS PRODUCTIVE CRAFTING ---
+        // Each settlement size requires dedicated civic operational population:
+        // Hamlet: 5%, Village: 15%, Town: 25%, City: 35%, Capital: 45%
+        const civicRatio = Number(burg.dedicated_civic_ratio) || (burg.is_capital ? 0.45 : burg.urban_tier >= 3 ? 0.35 : burg.urban_tier === 2 ? 0.25 : burg.parent_burg_id ? 0.05 : 0.15);
+        const civicWorkers = Math.max(1, Math.floor(totalWorkers * civicRatio));
+        const productiveWorkers = Math.max(0, totalWorkers - civicWorkers);
+
+        let wCivil = Math.floor(civicWorkers * 0.34);
+        let wSec = Math.floor(civicWorkers * 0.33);
+        let wSoc = Math.max(0, civicWorkers - wCivil - wSec);
+
+        let wFood = 0, wMats = 0, wLux = 0;
+        if (burg.urban_tier <= 1 || burg.parent_burg_id) {
+            // Hamlets & Villages focus on primary extraction (grain, livestock, ore, wood)
+            wFood = Math.floor(productiveWorkers * 0.65);
+            wMats = Math.floor(productiveWorkers * 0.25);
+            wLux = Math.max(0, productiveWorkers - wFood - wMats);
+        } else if (burg.urban_tier === 2) {
+            // Towns: balanced regional aggregation, trade, secondary refining
+            wFood = Math.floor(productiveWorkers * 0.40);
+            wMats = Math.floor(productiveWorkers * 0.30);
+            wLux = Math.max(0, productiveWorkers - wFood - wMats);
+        } else {
+            // Cities & Capitals: advanced manufacturing, luxury goods, high craftsmanship
+            wFood = Math.floor(productiveWorkers * 0.20);
+            wMats = Math.floor(productiveWorkers * 0.25);
+            wLux = Math.max(0, productiveWorkers - wFood - wMats);
+        }
+
         const foodYieldPerWorker = 22 + (urbanTier * 4);
         let foodProduced = Math.floor(wFood * foodYieldPerWorker);
         let luxProduced = Math.floor(wLux * (3 + urbanTier * 2));
         
-        let foodDelta = foodProduced - pop; 
+        let foodDelta = foodProduced - pop;
+
+        // Hierarchical resource shipments to upstream hub
+        if (burg.upstream_burg_id) {
+            const shipRate = burg.parent_burg_id ? 0.25 : (urbanTier === 1 ? 0.20 : (urbanTier === 2 ? 0.15 : 0.10));
+            const foodShipment = foodDelta > 0 ? Math.floor(foodDelta * shipRate) : 0;
+            const wealthShipment = luxProduced > 0 ? Math.floor(luxProduced * shipRate) : 0;
+
+            if (foodShipment > 0 || wealthShipment > 0) {
+                foodDelta -= foodShipment;
+                luxProduced -= wealthShipment;
+                const existing = incomingTributes.get(burg.upstream_burg_id) || { food: 0, wealth: 0 };
+                existing.food += foodShipment;
+                existing.wealth += wealthShipment;
+                incomingTributes.set(burg.upstream_burg_id, existing);
+            }
+        }
+
+        // Incorporate incoming shipments from downstream tributaries
+        const receivedTribute = incomingTributes.get(burg.burg_id);
+        if (receivedTribute) {
+            foodDelta += receivedTribute.food;
+            luxProduced += receivedTribute.wealth;
+        } 
 
         // MILITARY POPULATION & CONSUMPTION
         
@@ -488,12 +545,14 @@ export async function runBurgOperationsAgent(client: any, tick: number) {
                     const adultTrade = ADULT_TRADE_MAP[child.profession] || "Laborer";
                     const newAdultMotiv = `Having come of age in ${burg.name || 'their hometown'}, they carry forward the lessons of their childhood: ${child.childhood_background || 'faithful labor'}`;
 
-                    // Promote child to adult
+                    // Promote child to adult with assigned workplace
+                    const wp = getWorkplaceForProfession(adultTrade, burg.name || "Town");
                     await client.query(`
                         UPDATE population_demographics
-                        SET life_stage = 'ADULT', age = 16, profession = $1, motivation = $2
-                        WHERE citizen_id = $3
-                    `, [adultTrade, newAdultMotiv, child.citizen_id]);
+                        SET life_stage = 'ADULT', age = 16, profession = $1, motivation = $2,
+                            workplace_type = $3, workplace_name = $4
+                        WHERE citizen_id = $5
+                    `, [adultTrade, newAdultMotiv, wp.type, wp.name, child.citizen_id]);
 
                     // Spawn replacement infant/child in the cradle to replace them
                     const replacementFirst = pickRandom(FIRST_NAMES[child.species] || FIRST_NAMES["Human"] || ["Val"], "Val");
