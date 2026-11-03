@@ -125,7 +125,7 @@ function computeCitizenConcordiaStats(c: any, rand: () => number): ConcordiaStat
     stats.might += 4;
     stats.endurance += 3;
     stats.fortitude += 3;
-  } else if (prof.includes("guard") || prof.includes("sentry") || prof.includes("soldier") || prof.includes("watchman")) {
+  } else if (prof.includes("guard") || prof.includes("sentry") || prof.includes("soldier") || prof.includes("watchman") || prof.includes("commander")) {
     stats.might += 3;
     stats.fortitude += 3;
     stats.reflex += 2;
@@ -135,7 +135,7 @@ function computeCitizenConcordiaStats(c: any, rand: () => number): ConcordiaStat
   } else if (prof.includes("apothecary") || prof.includes("herbalist") || prof.includes("healer")) {
     stats.knowledge += 4;
     stats.intuition += 4;
-  } else if (prof.includes("merchant") || prof.includes("trader") || prof.includes("governor")) {
+  } else if (prof.includes("merchant") || prof.includes("trader") || prof.includes("governor") || prof.includes("mayor")) {
     stats.charm += 5;
     stats.logic += 3;
   } else if (prof.includes("weaver") || prof.includes("tailor") || prof.includes("clockmaker")) {
@@ -185,7 +185,8 @@ export function generateBurgSectorLayers(
   factionName: string,
   cellId: number,
   citizens: any[] = [],
-  lairs: any[] = []
+  lairs: any[] = [],
+  paragons: any[] = []
 ): BurgSectorLayersResult {
   const rand = hashSeed(`burg_${burg.burg_id}_${cellId}`);
   const burgName = burg.name || `Burg #${burg.burg_id}`;
@@ -243,16 +244,14 @@ export function generateBurgSectorLayers(
 
   // 2. Cardinal Thoroughfares & Roads
   const mainRoadWidth = tier >= 3 ? 3 : 2;
-  const roadTile = tier >= 2 ? 4 : 3; // Cobblestone for Towns/Cities, Dirt for Villages
+  const roadTile = tier >= 2 ? 4 : 3;
 
-  // North-South Road
   for (let y = 0; y < SIZE; y++) {
     for (let dx = -mainRoadWidth; dx <= mainRoadWidth; dx++) {
       const x = CENTER + dx;
       if (x >= 0 && x < SIZE) grid0[y * SIZE + x] = roadTile;
     }
   }
-  // East-West Road
   for (let x = 0; x < SIZE; x++) {
     for (let dy = -mainRoadWidth; dy <= mainRoadWidth; dy++) {
       const y = CENTER + dy;
@@ -277,7 +276,6 @@ export function generateBurgSectorLayers(
     for (let y = WALL_BOTTOM - 14; y < SIZE; y++) {
       for (let x = 0; x < SIZE; x++) grid0[y * SIZE + x] = 2; // Water
     }
-    // Wooden piers extending into the sea
     const pierXs = [CENTER - 30, CENTER, CENTER + 30];
     for (const px of pierXs) {
       for (let y = WALL_BOTTOM - 18; y < SIZE - 8; y++) {
@@ -304,8 +302,8 @@ export function generateBurgSectorLayers(
   }
 
   const candidatePlots: Array<{ cx: number; cy: number; w: number; h: number }> = [
-    { cx: CENTER - 26, cy: CENTER - 26, w: 7, h: 6 }, // NW Inner
-    { cx: CENTER + 26, cy: CENTER - 26, w: 7, h: 6 }, // NE Inner
+    { cx: CENTER - 26, cy: CENTER - 26, w: 7, h: 6 }, // NW Inner (Often Barracks)
+    { cx: CENTER + 26, cy: CENTER - 26, w: 7, h: 6 }, // NE Inner (Often Town Hall/Registry)
     { cx: CENTER - 26, cy: CENTER + 26, w: 7, h: 6 }, // SW Inner
     { cx: CENTER + 26, cy: CENTER + 26, w: 7, h: 6 }, // SE Inner
     { cx: CENTER - 48, cy: CENTER - 24, w: 7, h: 6 }, // NW Outer
@@ -361,9 +359,123 @@ export function generateBurgSectorLayers(
   ];
 
   const npcs0: SectorMapResult["npcs"] = [];
+  const npcsPlus1: SectorMapResult["npcs"] = [];
 
+  // A. STATION CIVIC PARAGON (Mayor / Reeve) in Registry / Town Hall
+  const civicParagon = paragons.find(p => !p.outlaw_id && (p.title.includes("Mayor") || p.title.includes("Reeve") || p.title.includes("Headman") || p.title.includes("Burgomaster")));
+  const registryBuilding = placedBuildings.find(b => b.spec.type === "REGISTRY") || placedBuildings[0];
+
+  if (civicParagon) {
+    const pPos: [number, number] = registryBuilding ? [registryBuilding.cx, registryBuilding.cy] : [CENTER + 4, CENTER - 4];
+    npcs0.push({
+      id: `npc_paragon_${civicParagon.id}`,
+      name: `${civicParagon.name} (${civicParagon.title})`,
+      role: civicParagon.title,
+      pos: pPos,
+      tags: ["leader", "civilian", "paragon", "authority"],
+      faction: factionName,
+      hp: 35,
+      maxHp: 35,
+      disposition: 1,
+      alive: true,
+      equippedWeapon: "Gilded Ceremonial Rapier",
+      equippedArmor: "Velvet Robes & Gold Seal Chain",
+      statAffinity: "charm",
+      memoryNotes: [
+        `Sovereign Civic Leader of ${burgName}.`,
+        `Title: ${civicParagon.title}. Corruption Score: ${civicParagon.corruption_score || 0}.`
+      ],
+      stats: { might: 11, endurance: 12, finesse: 13, reflex: 12, vitality: 12, fortitude: 11, knowledge: 16, logic: 16, awareness: 14, intuition: 15, charm: 17, willpower: 15 }
+    });
+  }
+
+  // B. STATION SECURITY PARAGON (Watch Commander) in Barracks
+  const securityParagon = paragons.find(p => !p.outlaw_id && (p.title.includes("Commander") || p.title.includes("Marshal") || p.title.includes("Captain") || p.title.includes("Warden")));
+  const barracksBuilding = placedBuildings.find(b => b.spec.type === "BARRACKS") || placedBuildings[1];
+
+  if (securityParagon) {
+    const bPos: [number, number] = barracksBuilding ? [barracksBuilding.cx, barracksBuilding.cy] : [CENTER - 4, CENTER - 4];
+    npcs0.push({
+      id: `npc_paragon_${securityParagon.id}`,
+      name: `${securityParagon.name} (${securityParagon.title})`,
+      role: securityParagon.title,
+      pos: bPos,
+      tags: ["military", "soldier", "paragon", "commander"],
+      faction: factionName,
+      hp: 42,
+      maxHp: 42,
+      disposition: 0,
+      alive: true,
+      equippedWeapon: "Masterwork Steel Greatsword & Heavy Crossbow",
+      equippedArmor: "Full Steel Plate & Plumed Sallet",
+      statAffinity: "might",
+      memoryNotes: [
+        `Supreme Military Garrison Commander of ${burgName}.`,
+        `Title: ${securityParagon.title}.`
+      ],
+      stats: { might: 17, endurance: 16, finesse: 14, reflex: 14, vitality: 15, fortitude: 16, knowledge: 12, logic: 13, awareness: 15, intuition: 14, charm: 13, willpower: 15 }
+    });
+  }
+
+  // C. MILITARY UNITS IN GROUPS OF 12 (from burg.military_forces)
+  let militaryUnits: any = {};
+  try {
+    if (burg.military_forces) {
+      militaryUnits = typeof burg.military_forces === 'string' ? JSON.parse(burg.military_forces) : burg.military_forces;
+    }
+  } catch (e) {}
+
+  if (!militaryUnits || Object.keys(militaryUnits).length === 0) {
+    militaryUnits = { militia: 12 };
+  }
+
+  for (const [unitType, count] of Object.entries(militaryUnits)) {
+    const totalCount = Number(count) || 0;
+    if (totalCount > 0) {
+      const squadCount = Math.max(1, Math.floor(totalCount / 12));
+      const uTypeLower = unitType.toLowerCase();
+      const isArcher = uTypeLower.includes("archer") || uTypeLower.includes("ranged");
+      const isCavalry = uTypeLower.includes("cavalry") || uTypeLower.includes("mounted");
+      const isAirship = uTypeLower.includes("airship");
+
+      for (let sq = 0; sq < squadCount && sq < 3; sq++) {
+        const squadPos: [number, number] = isArcher && hasWalls
+          ? [WALL_LEFT + 25 + sq * 35, WALL_TOP + 1]
+          : [CENTER - 28 + sq * 4, CENTER - 20 + sq * 3];
+
+        const squadNpc = {
+          id: `npc_mil_squad_${burg.burg_id}_${unitType}_${sq}`,
+          name: `${burgName} ${unitType.toUpperCase()} Squad #${sq + 1} (Unit of 12)`,
+          role: `${unitType} Detachment`,
+          pos: squadPos,
+          tags: ["military", "soldier", uTypeLower, "patrol"],
+          faction: factionName,
+          hp: 36,
+          maxHp: 36,
+          disposition: 0,
+          alive: true,
+          equippedWeapon: isArcher ? "Composite Recurve Bow & Bodkin Quiver" : isCavalry ? "Cavalry Lance & Broadsword" : isAirship ? "Dragonstone Harpoon Cannon" : "Steel Halberd & Tower Shield",
+          equippedArmor: isCavalry || !isArcher ? "Chainmail Hauberk & Steel Kettle Helm" : "Boiled Leather Gambeson & Archer Coif",
+          statAffinity: isArcher ? "awareness" : isCavalry ? "reflex" : "fortitude",
+          memoryNotes: [
+            `Active ${unitType} military detachment defending ${burgName}.`,
+            `Operational strength: 12 sworn combatants under sovereign banner of ${factionName}.`
+          ],
+          stats: { might: 14, endurance: 14, finesse: 13, reflex: 14, vitality: 14, fortitude: 14, knowledge: 10, logic: 11, awareness: 14, intuition: 13, charm: 10, willpower: 13 }
+        };
+
+        if (isArcher && hasWalls) {
+          npcsPlus1.push(squadNpc);
+        } else {
+          npcs0.push(squadNpc);
+        }
+      }
+    }
+  }
+
+  // D. STATION LIVING CITIZENS FROM POPULATION_DEMOGRAPHICS IN WORKPLACES
   for (const b of placedBuildings) {
-    const wallTile = tier === 1 ? 7 : 5; // Timber cottage wall for village, stone masonry for town/city
+    const wallTile = tier === 1 ? 7 : 5;
     const floorTile = b.spec.floorTile;
 
     for (let dy = -b.h; dy <= b.h; dy++) {
@@ -432,7 +544,7 @@ export function generateBurgSectorLayers(
         name: `${c.name} (${c.profession})`,
         role: c.profession,
         pos: [b.cx + (ci === 0 ? 0 : 1), b.cy + (ci === 0 ? 0 : -1)],
-        tags: [c.species ? c.species.toLowerCase() : "human", "civilian", c.workplace_type.toLowerCase()],
+        tags: [c.species ? c.species.toLowerCase() : "human", "civilian", c.workplace_type ? c.workplace_type.toLowerCase() : "trade"],
         faction: factionName,
         hp: 25,
         maxHp: 25,
@@ -508,7 +620,7 @@ export function generateBurgSectorLayers(
   // LAYER -1: SUBTERRANEAN BASEMENTS & UNDERWORLD
   // -------------------------------------------------------------------------
   const gridMinus1 = new Uint8Array(SIZE * SIZE);
-  gridMinus1.fill(5); // Default solid subterranean bedrock / earthen wall
+  gridMinus1.fill(5);
 
   const propsMinus1: SectorMapResult["props"] = [];
   const npcsMinus1: SectorMapResult["npcs"] = [];
@@ -561,7 +673,7 @@ export function generateBurgSectorLayers(
       for (let dx = -b.w + 1; dx <= b.w - 1; dx++) {
         const px = b.cx + dx, py = b.cy + dy;
         if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) {
-          gridMinus1[py * SIZE + px] = 4; // Flagstone cellar floor
+          gridMinus1[py * SIZE + px] = 4;
         }
       }
     }
@@ -639,15 +751,20 @@ export function generateBurgSectorLayers(
         description: `Sealed lockboxes containing illicit contraband and ledger notes of ${cartelName}.`
       });
 
+      // Link directly to Outlaw Paragon if active in this syndicate
+      const outlawParagon = paragons.find(p => p.outlaw_id === lair.faction_id);
+      const opName = outlawParagon ? `${outlawParagon.name} (${outlawParagon.title})` : `${cartelName} Lair Overseer`;
+      const opRole = outlawParagon ? outlawParagon.title : "Syndicate Lair Master";
+
       npcsMinus1.push({
         id: `npc_cartel_agent_${lair.id}`,
-        name: `${cartelName} Operative`,
-        role: "Syndicate Lair Master",
+        name: opName,
+        role: opRole,
         pos: [lx + 1, ly],
-        tags: ["humanoid", "outlaw", "criminal", "smuggler"],
+        tags: ["humanoid", "outlaw", "criminal", "smuggler", "paragon"],
         faction: cartelName,
-        hp: 35,
-        maxHp: 35,
+        hp: 38,
+        maxHp: 38,
         disposition: -1,
         alive: true,
         equippedWeapon: "Blackened Steel Kris & Hand Crossbow",
@@ -687,7 +804,6 @@ export function generateBurgSectorLayers(
   gridPlus1.fill(0); // Default open air
 
   const propsPlus1: SectorMapResult["props"] = [];
-  const npcsPlus1: SectorMapResult["npcs"] = [];
 
   // A. Curtain Wall Ramparts (Only if town has walls)
   if (hasWalls) {

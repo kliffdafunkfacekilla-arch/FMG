@@ -1,30 +1,73 @@
-# Aetheria Simulation Engine
-Welcome to the Aetheria Simulation Engine. This project simulates an extremely complex, interconnected 8-layer reality, processing economics, geopolitics, weather, demographics, and anomalous events across 266 burgs and a 10,000-cell hexagonal map.
+# Aetheria Simulation Engine (`simulation-engine`)
 
-## Architecture: The 9-Step Pipeline
-The engine executes a rigid turn-based system defined in `src/engine/masterOrchestrator.ts`. Every execution of `/api/observer/tick` runs this exact sequence:
+The **Aetheria Simulation Engine** is the independent backend macro- and meso-layer of the Aetheria / Ostraka world simulation. It runs as an autonomous Node.js service backed by PostgreSQL.
 
-1. **Calendar Agent** (`calendarAgent.ts`): Advances time, determining years, 16-month calendar cycles, and the 5 phases of the Broken Moon (Cruorbus).
-2. **Weather Agent** (`weatherAgent.ts`): Generates anomalous weather fronts (blizzards, droughts) and manages the Lunar Chaos Loop (Void Drain, Chaos Flow).
-3. **Burg Operations** (`burgOperationsAgent.ts`): Calculates the 10:1 population-to-worker ratio, generating raw materials, food, and complex industrial stockpiles for all 266 burgs.
-4. **Local Paragon AI** (`paragonPlanningAgent.ts`): Executes the Base-12 trait multiplier AI for local burg leaders. Calculates crisis scores (Survival, Protection, Pleasure) and modifies the raw output of Burg Operations (e.g. enacting martial law to prevent starvation).
-5. **Faction Planning** (`factionPlanningAgent.ts`): The State and Underworld Macro-Layer. 
-   - **Intel Filter:** Counselors skew objective data based on their traits.
-   - **Economy:** Factions collect gross income and pay upkeep for their standing armies (Infantry, Ranged, Mounted, Airships, Mages).
-   - **Ruler Priorities:** Rulers issue 1 Civil, 1 Security, and 1 Social action per tick based on their Faction's perceived economy and defense stats.
-6. **Warden Agent** (`wardenAgent.ts`): Spawns Wardens from the Sparkborn population to hunt anomalies and Cultists.
-7. **Cultist Agent** (`cultistAgent.ts`): Spawns Cultists from high-unrest populations to disrupt the 12 Seals.
-8. **Encounter Agent** (`encounterAgent.ts`): Moves beasts, outlaws, and localized anomalies across the map.
-9. **Chronicler Agent** (`chroniclerAgent.ts`): Logs major events and outputs the final tick state.
+---
 
-## Military & Factions
-*   **Army Formula:** Burgs generate military based on size `S` ($S$ Infantry, $S-1$ Ranged, $S-2$ Mounted, $S-3$ Airships).
-*   **Combat State:** Unit effectiveness is driven by tactical posture (Moving, Stationary, Attacking, Defending) and Terrain (Urban, High Ground).
-*   **Underworld (The 5 Fringes):** The Gilded Compass, Sky Barons, Ghostwind Raiders, Ivory Fleet, and Syndicate operate independent Cartel networks led by 60 autonomous Underworld Bosses.
+## 1. What the Engine Does
 
-## Directory Structure
-*   `src/engine/agents/` - Contains the 9 discrete step logic controllers.
-*   `src/engine/masterOrchestrator.ts` - The transaction wrapper that runs the pipeline.
-*   `src/api/` - The Express routers serving the UI.
-*   `src/db/` - Database connection and schema migration logic.
-*   `_archive/legacy_scripts/` - All the obsolete v1.0 and temporary scaffolding scripts.
+1. **Simulates 1 Day per Tick**:
+   - The master orchestrator (`src/engine/masterOrchestrator.ts`) advances time by 1 in-game day per tick across the 541-day Ostraka cosmic year.
+2. **Economic & Demographics Processing**:
+   - Manages 352 unique burgs across 10,000+ hexagonal cells.
+   - Populates and computes wealth, food, and unrest for over 207,000 citizens organized into a strict **12-to-1 worker ratio** (`unit_size = 12`) in `population_demographics`.
+   - Tracks a 3-tiered crafting economy: raw materials (wood, ore, fiber), refined goods (lumber, steel, textiles), and regional trade inventories.
+3. **The 714 Paragons**:
+   - 337 Civic Paragons (Mayors, Town Reeves, Headmen).
+   - 337 Security Paragons (Watch Commanders, Marshals, Wardens).
+   - Autonomous Underworld Crime Lords (e.g. Master of the Cloud Fleet, Corsair Queen Lyra Ghostwind).
+   - Paragons apply localized trait multipliers (Agrarian, Corrupt, Disciplined, Industrialist) that directly alter economic yields, unrest, and law enforcement.
+4. **Underworld Cartels & Fringe Factions**:
+   - Independent syndicates (The Obsidian Cartel, The Otter Mafia, The Ghostwind Raiders, The Free Sky-Barons, The Gilded Compass, and the Ivory Fleet) siphon unrest and manpower from failing burgs.
+   - Cartels establish subterranean lairs (`sim_fringe_lairs`): Vice Dens, Smuggler Caches, and Black Markets.
+   - Turf wars erupt when rival cartels contest the same burg, resolved by comparing cartel manpower.
+   - Grind Canyon Corps and Hedge Wizards operate unsanctioned delves and illicit charm markets.
+5. **Faction Utility AI**:
+   - Macro factions evaluate 40+ strategic options (Declare War, Commission Wonders, Form Alliances, Trade Embargos) using dynamic utility scoring.
+   - Grand strategy runs on staggered bureaucratic turns (`tick % 10`) to allow markets to settle.
+6. **3-Layer Sector & Sub-Map Generator**:
+   - Synthesizes 256x256 tactical maps on demand:
+     - `Layer -1`: Underworld, cellars, storm drains, smuggler flues, cartel dens.
+     - `Layer 0`: Surface ground level, streets, plaza, workshops, barracks, docks.
+     - `Layer +1`: Upper level, ramparts, catwalks, second-story lofts, watchtowers.
+   - All NPCs rendered in sectors are authentic individuals: zero generic spawns.
+
+---
+
+## 2. Pipeline Execution Sequence
+
+Every execution of `/api/observer/tick` runs this exact agentic sequence:
+
+1. **`calendarAgent.ts`**: Advances the 541-day calendar, 12 Dragon Months, and Cruorbus lunar phases.
+2. **`weatherAgent.ts`**: Computes temperature, precipitation, and chaos radiation fronts across the hex grid.
+3. **`burgOperationsAgent.ts`**: Computes production, food consumption, unrest, and wealth using bulk SQL operations.
+4. **`paragonPlanningAgent.ts`**: Executes personality-driven trait modifiers for local burg leaders.
+5. **`factionPlanningAgent.ts`**: Evaluates faction military, treasury, and geopolitical goals.
+6. **`cartelAgent.ts`**: Grows criminal syndicates, establishes subterranean lairs, and triggers turf wars.
+7. **`wardenAgent.ts` & `cultistAgent.ts`**: Metaphysical actors fighting over the 12 Dragon Seals.
+8. **`encounterAgent.ts`**: Roaming predators, prey herds, wayfarer caravans, and anomaly migrations.
+9. **`chroniclerAgent.ts`**: Commits historical milestones to `sim_events`.
+
+---
+
+## 3. Key Endpoints
+
+- `GET /api/observer/state`: Returns the live global world state (tick, date, weather, faction metrics).
+- `POST /api/observer/tick`: Triggers a 1-day simulation step.
+- `GET /api/observer/map`: Returns the macro Voronoi cell geometry, biomes, and borders.
+- `GET /api/dm/sector_layer?cellId=...&rx=...&ry=...&z=...`: Generates and retrieves the 256x256 tactical map layer with authentic citizens, military squads of 12, underworld lairs, and paragons.
+
+---
+
+## 4. Development & Build Scripts
+
+```bash
+# Compile TypeScript server
+npm run build:server
+
+# Start the simulation server (port 3000)
+node dist/server.js
+
+# Hard reset database and resync from Okasha.json
+npm run reset-world
+```
