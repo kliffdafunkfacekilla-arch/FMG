@@ -4,7 +4,7 @@ import { getCartelLairType, ensureLairResidents } from "./outlawSyndicates";
 export { getCartelLairType };
 
 export async function runCartelAgent(client: PoolClient, tick: number, loreDate: string) {
-    // 1. Fetch Cartels (All 10 Outlaw Syndicates)
+    // 1. Fetch Cartels (All 10 Autonomous Outlaw Syndicates)
     const cartelsRes = await client.query("SELECT * FROM sim_outlaw_factions ORDER BY id ASC");
     
     // Self-healing: Ensure every cartel has worker_groups initialized and an Underworld Paragon
@@ -29,8 +29,14 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
         cartel.paragon = paragon;
     }
 
-    // 2. Hustle & Recruit Logic (Paragon deploys workers)
-    const targetBurgsRes = await client.query("SELECT burg_id, cell_id, name, unrest, pop_null, wealth, health FROM sim_burg_economy ORDER BY RANDOM() LIMIT 50");
+    // 2. Hustle, Drain & Recruit Logic (Operating Independently Across All Factions)
+    const targetBurgsRes = await client.query(`
+        SELECT b.burg_id, b.cell_id, b.name, b.unrest, b.pop_null, b.wealth, b.health,
+               b.food, b.raw_materials, b.refined_goods, c.faction_id
+        FROM sim_burg_economy b
+        JOIN sim_cells c ON c.id = b.cell_id
+        ORDER BY RANDOM() LIMIT 50
+    `);
     const burgs = targetBurgsRes.rows;
 
     for (const cartel of cartelsRes.rows) {
@@ -40,41 +46,79 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
         let successfulRecruits = 0;
         let hustleWealth = 0;
 
-        // Deploy workers to specific tasks: 30% to recruiting, 70% to hustling
+        // Deploy workers: 30% recruiting, 70% draining resources & distributing contraband
         let recruiters = Math.floor(availableWorkers * 0.3) + 1;
         let hustlers = availableWorkers - recruiters;
 
-        // --- RECRUITING PHASE ---
+        // --- RECRUITING PHASE (Specifically Targeting Poor, High-Unrest Burgs) ---
         for (let i = 0; i < recruiters; i++) {
-            const target = burgs.find(b => b.unrest > 40 && b.pop_null >= 12);
+            // Desperate, impoverished peasants in rioting burgs eagerly seek outlaw shelter
+            const target = burgs.find(b => b.unrest >= 35 && (b.wealth < 350 || b.health < 70) && b.pop_null >= 12);
             if (target) {
-                const successChance = (target.unrest / 100) + (cartel.paragon?.traits?.includes("Ruthless") ? 0.2 : 0);
+                const successChance = (target.unrest / 100) + (cartel.paragon?.traits?.some((t: any) => t.name === "Ruthless" || t.name === "Intimidating") ? 0.25 : 0.1);
                 if (Math.random() < successChance) {
                     successfulRecruits++;
-                    target.pop_null -= 12; // Siphon a group of 12 workers from the disenfranchised
+                    target.pop_null -= 12; // Absorb a unit of 12 starving laborers into the syndicate
                     await client.query(`UPDATE sim_burg_economy SET pop_null = pop_null - 12 WHERE burg_id = $1`, [target.burg_id]);
                 }
             }
         }
 
-        // --- HUSTLING PHASE (Specialized Illicit Operations) ---
+        // --- HUSTLING PHASE (Draining Faction Resources & Supplying Contraband to Citizens) ---
         for (let i = 0; i < hustlers; i++) {
-            const target = burgs.find(b => b.wealth > 100);
+            const target = burgs.find(b => b.wealth > 60);
             if (target) {
-                const haul = 50 + Math.floor(Math.random() * 50);
-                hustleWealth += haul;
-                target.wealth -= haul;
+                const goldHaul = 35 + Math.floor(Math.random() * 45);
+                const foodHaul = 20 + Math.floor(Math.random() * 30);
+                const rawHaul = 15 + Math.floor(Math.random() * 25);
+                const refinedHaul = 10 + Math.floor(Math.random() * 20);
+
+                hustleWealth += goldHaul;
+                target.wealth = Math.max(0, target.wealth - goldHaul);
+                target.food = Math.max(0, (target.food || 1000) - foodHaul);
+                target.raw_materials = Math.max(0, (target.raw_materials || 1000) - rawHaul);
+                target.refined_goods = Math.max(0, (target.refined_goods || 1000) - refinedHaul);
                 target.health = Math.max(0, target.health - 1);
-                
-                await client.query(
-                    `UPDATE sim_burg_economy SET wealth = CASE WHEN wealth - $1 < 0 THEN 0 ELSE wealth - $1 END, health = CASE WHEN health - 1 < 0 THEN 0 ELSE health - 1 END WHERE burg_id = $2`,
-                    [haul, target.burg_id]
-                );
+
+                // Distinct contraband effects on the local populace:
+                let unrestDelta = 0;
+                let heatDelta = 3;
+
+                if (cartel.id === 10) {
+                    // Hedge Wizards: Supply unsanctioned magic charms, healing poultices & wards
+                    // Citizens gain relief from disease and dragon omens, lowering unrest
+                    unrestDelta = -3;
+                    heatDelta = 5; // Inquisitors and Mandate zealots are furious at visible heresy
+                } else if (cartel.id === 7) {
+                    // Otter Mafia: Distribute smuggled eel-wine & gambling dice
+                    unrestDelta = 1;
+                    heatDelta = 3;
+                } else if (cartel.id === 6) {
+                    // Obsidian Cartel: Sells black-glass daggers & chaos shards to dissidents
+                    unrestDelta = 2;
+                    heatDelta = 4;
+                } else if (cartel.id === 9) {
+                    // Grind Canyon Corps: Trades raw dragonstone chips and ancient relics
+                    unrestDelta = 0;
+                    heatDelta = 3;
+                }
+
+                await client.query(`
+                    UPDATE sim_burg_economy
+                    SET wealth = GREATEST(0, wealth - $1),
+                        food = GREATEST(0, food - $2),
+                        raw_materials = GREATEST(0, raw_materials - $3),
+                        refined_goods = GREATEST(0, refined_goods - $4),
+                        unrest = LEAST(100, GREATEST(0, unrest + $5)),
+                        health = GREATEST(0, health - 1),
+                        crime_rate = LEAST(1.0, crime_rate + 0.02)
+                    WHERE burg_id = $6
+                `, [goldHaul, foodHaul, rawHaul, refinedHaul, unrestDelta, target.burg_id]);
 
                 // Hustling in a burg where this cartel holds a lair increases local heat
                 await client.query(
-                    `UPDATE sim_fringe_lairs SET heat = LEAST(100, heat + 3) WHERE burg_id = $1 AND faction_id = $2`,
-                    [target.burg_id, cartel.id]
+                    `UPDATE sim_fringe_lairs SET heat = LEAST(100, heat + $1) WHERE burg_id = $2 AND faction_id = $3`,
+                    [heatDelta, target.burg_id, cartel.id]
                 );
             }
         }
@@ -89,14 +133,14 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
             if (successfulRecruits >= 5) {
                 await client.query(
                     `INSERT INTO sim_events (tick, type, message, tier, faction_id, lore_date) VALUES ($1, 'CARTEL_EXPANSION', $2, 'MINOR', $3, $4)`, 
-                    [tick, `${cartel.paragon.name} deployed underworld recruiters to absorb ${successfulRecruits * 12} disenfranchised laborers into ${cartel.name}!`, cartel.id, loreDate]
+                    [tick, `${cartel.paragon.name} deployed underworld recruiters into impoverished rioting slums, absorbing ${successfulRecruits * 12} desperate laborers into ${cartel.name}!`, cartel.id, loreDate]
                 );
             }
         }
 
         // --- LAIR ESTABLISHMENT & TURF WARS ---
         if (Number(cartel.wealth || 0) >= 500 && (Number(cartel.manpower || 0) >= 100 || Number(cartel.worker_groups || 0) >= 2)) {
-            const lairBurg = burgs.find((b: any) => (b.wealth || 0) >= 200);
+            const lairBurg = burgs.find((b: any) => (b.wealth || 0) >= 180);
             if (lairBurg && Math.random() < 0.2) {
                 const lairType = getCartelLairType(cartel);
                 const existingLair = await client.query(
@@ -116,7 +160,7 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
                     await client.query(
                         `INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
                          VALUES ($1, 'LAIR_ESTABLISHED', $2, 'MINOR', $3, $4, $5)`,
-                        [tick, `${cartel.name} established a hidden ${lairType} in Burg ${lairBurg.name || lairBurg.burg_id} to expand illicit operations!`, cartel.id, lairBurg.burg_id, loreDate]
+                        [tick, `${cartel.name} established an independent ${lairType} in Burg ${lairBurg.name || lairBurg.burg_id} to siphon resources and traffic contraband!`, cartel.id, lairBurg.burg_id, loreDate]
                     );
                 } else if (existingLair.rows[0].faction_id !== cartel.id) {
                     const defender = existingLair.rows[0];
@@ -149,7 +193,71 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
         }
     }
 
-    // 3. Heat Resolution, Bribery & City Watch Raids
+    // 3. Unofficial Mercenary Sabotage Contracts (Factions Covertly Disrupting Rivals)
+    if (tick % 2 === 0) {
+        const hiringFactionsRes = await client.query(`
+            SELECT id, name, treasury FROM sim_factions
+            WHERE id > 0 AND treasury > 6000 AND trait_aggression >= 4
+            ORDER BY RANDOM() LIMIT 2
+        `);
+
+        for (const hiringFaction of hiringFactionsRes.rows) {
+            // Find an enemy target faction
+            const targetFactionRes = await client.query(`
+                SELECT id, name FROM sim_factions
+                WHERE id > 0 AND id != $1
+                ORDER BY RANDOM() LIMIT 1
+            `, [hiringFaction.id]);
+
+            if (targetFactionRes.rows.length > 0) {
+                const targetFaction = targetFactionRes.rows[0];
+                const victimBurgRes = await client.query(`
+                    SELECT b.burg_id, b.name, b.wealth, b.food
+                    FROM sim_burg_economy b
+                    JOIN sim_cells c ON c.id = b.cell_id
+                    WHERE c.faction_id = $1 AND b.wealth > 100
+                    ORDER BY RANDOM() LIMIT 1
+                `, [targetFaction.id]);
+
+                if (victimBurgRes.rows.length > 0) {
+                    const victimBurg = victimBurgRes.rows[0];
+                    // Pick an independent mercenary syndicate (Devil's Choice, Ivory-Gate, or Ghostwind Raiders)
+                    const mercId = [3, 4, 5][Math.floor(Math.random() * 3)]!;
+                    const mercRes = await client.query(`SELECT id, name FROM sim_outlaw_factions WHERE id = $1`, [mercId]);
+                    const merc = mercRes.rows[0];
+
+                    if (merc) {
+                        const fee = 400;
+                        await client.query(`UPDATE sim_factions SET treasury = treasury - $1 WHERE id = $2`, [fee, hiringFaction.id]);
+                        await client.query(`UPDATE sim_outlaw_factions SET wealth = wealth + $1 WHERE id = $2`, [fee, merc.id]);
+
+                        // Inflict covert sabotage on the rival burg
+                        await client.query(`
+                            UPDATE sim_burg_economy
+                            SET wealth = GREATEST(0, wealth - 160),
+                                food = GREATEST(0, food - 120),
+                                unrest = LEAST(100, unrest + 16),
+                                crime_rate = LEAST(1.0, crime_rate + 0.05)
+                            WHERE burg_id = $1
+                        `, [victimBurg.burg_id]);
+
+                        await client.query(`
+                            INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
+                            VALUES ($1, 'COVERT_MERCENARY_SABOTAGE', $2, 'MAJOR', $3, $4, $5)
+                        `, [
+                            tick,
+                            `🕵️ COVERT SABOTAGE: Contracted under the table by a rival court, ${merc.name} operatives ambushed food shipments and burned granaries in Burg ${victimBurg.name} (${targetFaction.name}), sowing civil panic!`,
+                            merc.id,
+                            victimBurg.burg_id,
+                            loreDate
+                        ]);
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Heat Resolution, Bribery & City Watch Raids
     const allLairsRes = await client.query(`
         SELECT l.id, l.faction_id, l.cell_id, l.burg_id, l.lair_type, l.manpower, l.heat,
                o.name AS cartel_name, o.wealth AS cartel_wealth,
