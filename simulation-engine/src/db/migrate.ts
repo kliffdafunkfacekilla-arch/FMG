@@ -160,11 +160,22 @@ CREATE TABLE IF NOT EXISTS campaign_event_logs (
 CREATE TABLE IF NOT EXISTS interior_sub_maps (
     sub_map_id SERIAL PRIMARY KEY,
     local_id INT REFERENCES local_cells(local_id) ON DELETE CASCADE,
-    map_type TEXT NOT NULL,
-    grid_width INT NOT NULL,
-    grid_height INT NOT NULL,
-    layout_data JSONB NOT NULL
+    parent_cell_id INT,
+    parent_rx INT DEFAULT 112,
+    parent_ry INT DEFAULT 112,
+    parent_prop_id VARCHAR(150),
+    interior_type VARCHAR(64),
+    name VARCHAR(150),
+    grid_width INT NOT NULL DEFAULT 256,
+    grid_height INT NOT NULL DEFAULT 256,
+    grid_data BYTEA,
+    props JSONB DEFAULT '[]'::jsonb,
+    npcs JSONB DEFAULT '[]'::jsonb,
+    map_type TEXT NULL,
+    layout_data JSONB NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+CREATE INDEX IF NOT EXISTS idx_interior_sub_maps_parent ON interior_sub_maps(parent_cell_id, parent_prop_id);
 
 -- =========================================================================
 -- 7. DELTA-STATE TEMPORAL STORAGE
@@ -519,6 +530,18 @@ CREATE TABLE IF NOT EXISTS sim_player_mutations (
     acquired_source VARCHAR(100) NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_player_mutations_pid ON sim_player_mutations(player_id);
+
+ALTER TABLE interior_sub_maps ADD COLUMN IF NOT EXISTS parent_cell_id INT;
+ALTER TABLE interior_sub_maps ADD COLUMN IF NOT EXISTS parent_rx INT DEFAULT 112;
+ALTER TABLE interior_sub_maps ADD COLUMN IF NOT EXISTS parent_ry INT DEFAULT 112;
+ALTER TABLE interior_sub_maps ADD COLUMN IF NOT EXISTS parent_prop_id VARCHAR(150);
+ALTER TABLE interior_sub_maps ADD COLUMN IF NOT EXISTS interior_type VARCHAR(64);
+ALTER TABLE interior_sub_maps ADD COLUMN IF NOT EXISTS name VARCHAR(150);
+ALTER TABLE interior_sub_maps ADD COLUMN IF NOT EXISTS grid_data BYTEA;
+ALTER TABLE interior_sub_maps ADD COLUMN IF NOT EXISTS props JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE interior_sub_maps ADD COLUMN IF NOT EXISTS npcs JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE interior_sub_maps ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+CREATE INDEX IF NOT EXISTS idx_interior_sub_maps_parent ON interior_sub_maps(parent_cell_id, parent_prop_id);
 `;
 
 async function migrate() {

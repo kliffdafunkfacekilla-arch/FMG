@@ -94,6 +94,22 @@ export default function App() {
   const [isCrossingSubmitting, setIsCrossingSubmitting] = useState<boolean>(false);
   const [activeChaosSurge, setActiveChaosSurge] = useState<any | null>(null);
 
+  // Sub-Map Interior & Dungeon State
+  interface ActiveInteriorState {
+    subMapId: number;
+    name: string;
+    interiorType: string;
+    parentCellId: number;
+    parentRx: number;
+    parentRy: number;
+    parentLocalPos: { lx: number; ly: number };
+    parentPropId: string;
+    parentTilemap: { grid: Uint8Array; size: number };
+    parentProps: InjectedProp[];
+    parentNPCs: InjectedNPC[];
+  }
+  const [activeInterior, setActiveInterior] = useState<ActiveInteriorState | null>(null);
+
   // Spatial Hash Grid Partitioning (O(1) Proximity & Collision on 16x16 Buckets)
   const npcSpatialGridRef = useRef<SpatialHashGrid<InjectedNPC>>(new SpatialHashGrid<InjectedNPC>(16));
   const propSpatialGridRef = useRef<SpatialHashGrid<InjectedProp>>(new SpatialHashGrid<InjectedProp>(16));
@@ -887,22 +903,29 @@ export default function App() {
       let crossedCellBoundary = false;
       let cellDir = '';
 
-      // Screen transition (Zelda style border crossing)
-      if (nx < 0) { nx = 255; nr_x -= 1; changedRegion = true; }
-      if (nx > 255) { nx = 0; nr_x += 1; changedRegion = true; }
-      if (ny < 0) { ny = 255; nr_y -= 1; changedRegion = true; }
-      if (ny > 255) { ny = 0; nr_y += 1; changedRegion = true; }
-
-      // Check if regional sector crossed global cell boundaries (0 to 224)
-      if (nr_x < 0) { cellDir = 'W'; crossedCellBoundary = true; }
-      else if (nr_x >= 225) { cellDir = 'E'; crossedCellBoundary = true; }
-      else if (nr_y < 0) { cellDir = 'N'; crossedCellBoundary = true; }
-      else if (nr_y >= 225) { cellDir = 'S'; crossedCellBoundary = true; }
-
-      // Collision check
-      if (!changedRegion) {
+      if (activeInterior) {
+        // Confine movement to interior room boundaries and prevent Zelda overworld border transitions
+        if (nx < 80 || nx > 176 || ny < 110 || ny > 240) return;
         const tileType = tilemap.grid[ny * tilemap.size + nx];
-        if (tileType === 1 || tileType === 2) return; // Tree or deep water
+        if (tileType === 5 || tileType === 12 || tileType === 1 || tileType === 2) return; // Wall, deep pit, tree, water
+      } else {
+        // Screen transition (Zelda style border crossing)
+        if (nx < 0) { nx = 255; nr_x -= 1; changedRegion = true; }
+        if (nx > 255) { nx = 0; nr_x += 1; changedRegion = true; }
+        if (ny < 0) { ny = 255; nr_y -= 1; changedRegion = true; }
+        if (ny > 255) { ny = 0; nr_y += 1; changedRegion = true; }
+
+        // Check if regional sector crossed global cell boundaries (0 to 224)
+        if (nr_x < 0) { cellDir = 'W'; crossedCellBoundary = true; }
+        else if (nr_x >= 225) { cellDir = 'E'; crossedCellBoundary = true; }
+        else if (nr_y < 0) { cellDir = 'N'; crossedCellBoundary = true; }
+        else if (nr_y >= 225) { cellDir = 'S'; crossedCellBoundary = true; }
+
+        // Collision check
+        if (!changedRegion) {
+          const tileType = tilemap.grid[ny * tilemap.size + nx];
+          if (tileType === 1 || tileType === 2 || tileType === 5) return; // Tree, deep water, or wall
+        }
       }
 
       if (crossedCellBoundary) {
@@ -1002,7 +1025,123 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [localPos, regionalPos, tilemap, injectedNPCs, injectedProps, character, encounterTarget, inStartMenu, showCharModal, showSaveModal, showLoadModal, combatState]);
+  }, [localPos, regionalPos, tilemap, injectedNPCs, injectedProps, character, encounterTarget, inStartMenu, showCharModal, showSaveModal, showLoadModal, combatState, activeInterior]);
+
+  // Handle Entering an Interior Sub-Map or Dungeon
+  const handleEnterInterior = async (prop: InjectedProp) => {
+    try {
+      setMessages(prev => [
+        ...prev,
+        {
+          sender: 'The Chronicler',
+          text: `🚪 TRANSITION: Stepping through ${prop.name}... Descending into sub-map interior.`,
+          type: 'narrative'
+        }
+      ]);
+      audioManager.playSfx('door');
+
+      const res = await fetch('http://localhost:3000/api/dm/interior/enter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cellId: currentCellId,
+          rx: regionalPos.rx,
+          ry: regionalPos.ry,
+          propId: prop.id,
+          propName: prop.name,
+          propTags: Array.isArray(prop.tags) ? prop.tags : []
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error(`Failed to enter interior: ${res.statusText}`);
+      }
+
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to generate interior');
+      }
+
+      // Preserve previous overworld state
+      setActiveInterior({
+        subMapId: data.subMapId,
+        name: data.name,
+        interiorType: data.interiorType,
+        parentCellId: currentCellId,
+        parentRx: regionalPos.rx,
+        parentRy: regionalPos.ry,
+        parentLocalPos: { lx: localPos.lx, ly: localPos.ly },
+        parentPropId: prop.id,
+        parentTilemap: tilemap!,
+        parentProps: injectedProps,
+        parentNPCs: injectedNPCs
+      });
+
+      // Load new interior grid, props, and NPCs
+      setTilemap({ grid: new Uint8Array(data.grid), size: 256 });
+      setInjectedProps(data.props || []);
+      setInjectedNPCs(data.npcs || []);
+      setLocalPos({ lx: data.playerSpawn[0], ly: data.playerSpawn[1] });
+      setEncounterTarget(null);
+
+      // Transition background track to dungeon/cave/cellar
+      if (['DUNGEON_PRISON', 'ANCIENT_CRYPT', 'CHASM_DEPTHS'].includes(data.interiorType)) {
+        audioManager.playBattleMusic();
+      } else {
+        audioManager.playExplorationMusic();
+      }
+
+      setMessages(prev => [
+        ...prev,
+        {
+          sender: 'Tactical Grid',
+          text: `📍 ENTERED: ${data.name}. Ambient: Sub-surface structure. Exit ladder/door at [${data.exitProp?.pos?.[0] ?? 128}, ${data.exitProp?.pos?.[1] ?? 228}].`,
+          type: 'narrative'
+        }
+      ]);
+    } catch (err: any) {
+      console.error('Error entering interior:', err);
+      setMessages(prev => [
+        ...prev,
+        {
+          sender: 'The Chronicler',
+          text: `⚠️ Could not enter interior: ${err.message}`,
+          type: 'error'
+        }
+      ]);
+    }
+  };
+
+  // Handle Exiting an Interior Sub-Map back to Overworld Sector
+  const handleExitInterior = async () => {
+    if (!activeInterior) return;
+    try {
+      audioManager.playSfx('door');
+      // Restore overworld sector state
+      setTilemap(activeInterior.parentTilemap);
+      setInjectedProps(activeInterior.parentProps);
+      setInjectedNPCs(activeInterior.parentNPCs);
+      setLocalPos(activeInterior.parentLocalPos);
+      setEncounterTarget(null);
+
+      const interiorName = activeInterior.name;
+      setActiveInterior(null);
+
+      // Restore overworld exploration ambient audio
+      audioManager.playExplorationMusic();
+
+      setMessages(prev => [
+        ...prev,
+        {
+          sender: 'The Chronicler',
+          text: `🪜 ASCENDED: Climbed out of ${interiorName} back to the surface sector!`,
+          type: 'narrative'
+        }
+      ]);
+    } catch (err: any) {
+      console.error('Error exiting interior:', err);
+    }
+  };
 
   // Mouse Click-to-Target on Battlegrid
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -1163,6 +1302,45 @@ export default function App() {
           color: 'bg-yellow-900/90 border-yellow-500 text-yellow-200 hover:bg-yellow-800',
           description: 'Unlock / Open',
           action: () => triggerAction(`I open ${clickedProp.name}`)
+        });
+      }
+
+      // Sub-Map Interior: Egress / Ingress Options
+      if (activeInterior && (
+        pTags.some(t => ['exit', 'stairs_up', 'ladder', 'surface'].includes(t)) ||
+        clickedProp.id === 'prop_interior_exit' ||
+        pNameLower.includes('exit') ||
+        pNameLower.includes('surface') ||
+        pNameLower.includes('ladder')
+      )) {
+        opts.unshift({
+          id: 'exit_submap',
+          label: 'ASCEND / EXIT',
+          icon: '🪜',
+          color: 'bg-emerald-800 border-emerald-400 text-emerald-100 hover:bg-emerald-700',
+          description: 'Ascend back to overworld sector surface',
+          action: () => handleExitInterior()
+        });
+      } else if (!activeInterior && (
+        pTags.some(t => ['door', 'gate', 'portcullis', 'hatch', 'cellar', 'vault', 'dungeon', 'stairs_down', 'crypt', 'catacomb', 'winch', 'shaft', 'underworld', 'lair', 'entrance'].includes(t)) ||
+        pNameLower.includes('hatch') ||
+        pNameLower.includes('cellar') ||
+        pNameLower.includes('vault') ||
+        pNameLower.includes('portcullis') ||
+        pNameLower.includes('dungeon') ||
+        pNameLower.includes('crypt') ||
+        pNameLower.includes('catacomb') ||
+        pNameLower.includes('winch') ||
+        pNameLower.includes('shaft') ||
+        pNameLower.includes('lair')
+      )) {
+        opts.unshift({
+          id: 'enter_submap',
+          label: 'ENTER SUB-MAP',
+          icon: '🚪',
+          color: 'bg-purple-900 border-purple-400 text-purple-100 hover:bg-purple-800',
+          description: 'Enter interior sub-map or dungeon level',
+          action: () => handleEnterInterior(clickedProp)
         });
       }
       if (pTags.includes('wood') || pTags.includes('flammable') || pTags.includes('dry')) {
@@ -3314,6 +3492,35 @@ export default function App() {
                   className="bg-black block cursor-crosshair"
                   title="Click any prop or NPC to target directly"
                 />
+
+                {/* Active Interior Sub-Map Indicator & Egress Control */}
+                {activeInterior && (
+                  <div className="absolute top-2 left-2 right-2 z-20 flex items-center justify-between px-3 py-2 rounded-lg bg-indigo-950/95 border border-purple-500/80 shadow-2xl backdrop-blur-md font-mono text-xs text-purple-200">
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-base animate-pulse">🏰</span>
+                      <div>
+                        <div className="font-bold text-amber-300 flex items-center gap-2">
+                          <span>{activeInterior.name}</span>
+                          <span className="px-1.5 py-0.5 rounded bg-purple-900/80 text-[10px] text-purple-300 border border-purple-700/50">
+                            SUB-MAP ({activeInterior.interiorType})
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-gray-300 mt-0.5">
+                          Subterranean Level • Parent Cell: {activeInterior.parentCellId} • Entrance: {activeInterior.parentPropId}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleExitInterior}
+                      className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs rounded shadow transition-colors flex items-center gap-1.5"
+                      title="Ascend stairs or ladder back to overworld surface"
+                    >
+                      <span>🪜</span>
+                      <span>ASCEND TO SURFACE</span>
+                    </button>
+                  </div>
+                )}
 
                 {/* Primordial Chaos Flow Hazard & Crossing HUD Overlay */}
                 {chaosFlowTelemetry && (chaosFlowTelemetry.intersected || chaosFlowTelemetry.nearNarrowSpot || chaosFlowTelemetry.distToFlow <= 60) && (

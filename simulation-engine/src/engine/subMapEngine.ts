@@ -1,116 +1,142 @@
-import pool from '../db/pool';
-import { createNoise2D } from 'simplex-noise';
+import pool from "../db/pool";
+import zlib from "zlib";
+import { generateInteriorSubMap, detectInteriorType, InteriorMapResult, InteriorType } from "./maps/InteriorMapGenerator";
 
-interface SubMapParameters {
-  localId: number;
-  mapType?: string; // Optional override, otherwise derives from DB
-  width: number;
-  height: number;
+export interface SubMapParameters {
+  localId?: number;
+  cellId?: number;
+  rx?: number;
+  ry?: number;
+  propId?: string;
+  propName?: string;
+  propTags?: string[];
+  mapType?: string;
+  width?: number;
+  height?: number;
 }
 
-export async function generateSubMapInterior(params: SubMapParameters) {
+/**
+ * Loads an existing interior sub-map or generates and persists a new 256x256 interior battlegrid.
+ */
+export async function getOrGenerateInteriorSubMap(
+  parentCellId: number,
+  parentRx: number,
+  parentRy: number,
+  parentPropId: string,
+  parentPropName: string = "Sub-Surface Chamber",
+  parentPropTags: string[] = [],
+  forcedType?: InteriorType
+): Promise<InteriorMapResult> {
   try {
-    let finalMapType = params.mapType || 'GRASSLAND';
-    let isOcean = false;
-
-    // Try to derive biome from regional cell if localId exists
-    const localRes = await pool.query('SELECT regional_id, elevation FROM local_cells WHERE local_id = $1', [params.localId]);
-    if (localRes.rows.length > 0) {
-        const regionalId = localRes.rows[0].regional_id;
-        const elevation = localRes.rows[0].elevation;
-        const regRes = await pool.query('SELECT biome_id, temperature, moisture FROM regional_cells WHERE regional_id = $1', [regionalId]);
-        if (regRes.rows.length > 0) {
-            const reg = regRes.rows[0];
-            // Infer biome based on elevation and typical FMG data if biome_id is generic
-            if (elevation < 0) {
-                isOcean = true;
-                if (elevation < -0.8) finalMapType = 'DEEP_OCEAN';
-                else if (reg.temperature > 20) finalMapType = 'CORAL_REEF';
-                else if (reg.temperature < 0) finalMapType = 'FROZEN_OCEAN';
-                else finalMapType = 'KELP_FOREST';
-            } else {
-                if (elevation > 0.8) finalMapType = 'MOUNTAIN';
-                else if (reg.temperature < 0) finalMapType = 'SNOW';
-                else if (reg.temperature > 30 && reg.moisture < 0.2) finalMapType = 'DESERT';
-                else if (reg.temperature > 25 && reg.moisture > 0.7) finalMapType = 'JUNGLE';
-                else if (reg.moisture > 0.8) finalMapType = 'SWAMP';
-                else if (reg.moisture > 0.5) finalMapType = 'FOREST';
-                else finalMapType = 'GRASSLAND';
-            }
-        }
-    }
-
-    const noise2D = createNoise2D();
-    const gridSquares = [];
-    const scale = 0.15; // Noise frequency
-
-    for (let x = 0; x < params.width; x++) {
-      for (let y = 0; y < params.height; y++) {
-        // Map edges are more likely to be open if wilderness, but let's just do organic scattering
-        const noiseVal = noise2D(x * scale + params.localId, y * scale + params.localId); // Use localId as seed offset
-        
-        let terrain = 'FLOOR';
-        
-        if (finalMapType === 'DUNGEON' || finalMapType === 'CAVE') {
-            const isEdge = (x === 0 || x === params.width - 1 || y === 0 || y === params.height - 1);
-            if (isEdge || noiseVal > 0.4) terrain = 'WALL';
-        } else {
-            // Wilderness organic obstacles (trees, rocks, coral, kelp)
-            if (noiseVal > 0.35) terrain = 'WALL';
-        }
-
-        gridSquares.push({
-          x,
-          y,
-          terrain,
-          cover: terrain === 'WALL' ? 2 : 0
-        });
-      }
-    }
-
-    const result = await pool.query(
-      `INSERT INTO interior_sub_maps (local_id, map_type, grid_width, grid_height, layout_data)
-       VALUES ($1, $2, $3, $4, $5) RETURNING sub_map_id;`,
-      [params.localId, finalMapType, params.width, params.height, JSON.stringify(gridSquares)]
+    // 1. Check if sub-map already exists for this parent cell & prop
+    const existingRes = await pool.query(
+      `SELECT sub_map_id, parent_cell_id, parent_rx, parent_ry, parent_prop_id,
+              interior_type, name, grid_data, props, npcs
+       FROM interior_sub_maps
+       WHERE parent_cell_id = $1 AND parent_prop_id = $2
+       LIMIT 1`,
+      [parentCellId, parentPropId]
     );
 
-    const subMapId = result.rows[0].sub_map_id;
+    if (existingRes.rows.length > 0) {
+      const row = existingRes.rows[0];
+      let gridBuffer: Buffer;
 
-    // Phase 7: Spawn Procedural Entities
-    const numNpcs = Math.floor(Math.random() * 3) + 1; // Spawn 1-3 NPCs
-    const enemyTypes = {
-      'DUNGEON': 'Skeleton Guard',
-      'CORAL_REEF': 'Razorfin Shark',
-      'FROZEN_OCEAN': 'Abyssal Ghoul',
-      'KELP_FOREST': 'Triton Hunter',
-      'DEEP_OCEAN': 'Kraken Spawn',
-      'DESERT': 'Sandworm Hatchling',
-      'JUNGLE': 'Jaguar Warrior',
-      'SWAMP': 'Bog Hag',
-      'FOREST': 'Dire Wolf',
-      'MOUNTAIN': 'Stone Golem',
-      'SNOW': 'Frost Troll',
-      'GRASSLAND': 'Bandit Scout',
-      'CAVE': 'Cave Spider'
-    };
-    const npcName = enemyTypes[finalMapType as keyof typeof enemyTypes] || 'Wandering Monster';
+      if (row.grid_data) {
+        // Inflate compressed terrain
+        gridBuffer = zlib.inflateSync(row.grid_data);
+      } else {
+        // Fallback: regenerate if grid_data was empty
+        const fresh = generateInteriorSubMap(parentCellId, parentRx, parentRy, parentPropId, parentPropName, parentPropTags, forcedType);
+        await pool.query(
+          `UPDATE interior_sub_maps
+           SET grid_data = $1, props = $2, npcs = $3, interior_type = $4, name = $5
+           WHERE sub_map_id = $6`,
+          [fresh.compressed, JSON.stringify(fresh.props), JSON.stringify(fresh.npcs), fresh.interiorType, fresh.name, row.sub_map_id]
+        );
+        fresh.subMapId = row.sub_map_id;
+        return fresh;
+      }
 
-    for (let i = 0; i < numNpcs; i++) {
-      let nx = Math.floor(Math.random() * (params.width - 4)) + 2;
-      let ny = Math.floor(Math.random() * (params.height - 4)) + 2;
-      // Note: we don't strictly check if nx,ny is a WALL here for simplicity of the prototype, 
-      // but in a perfect world we would.
-      await pool.query(
-        `INSERT INTO npc_entities (sub_map_id, name, hp_current, hp_max, grid_x, grid_y, behavior_type)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [subMapId, npcName + ' ' + (i+1), 30, 30, nx, ny, 'HOSTILE']
-      );
+      const grid = new Uint8Array(gridBuffer.buffer, gridBuffer.byteOffset, gridBuffer.byteLength);
+
+      return {
+        subMapId: row.sub_map_id,
+        parentCellId: row.parent_cell_id,
+        parentRx: row.parent_rx ?? 112,
+        parentRy: row.parent_ry ?? 112,
+        parentPropId: row.parent_prop_id,
+        name: row.name || "Subterranean Interior",
+        interiorType: (row.interior_type as InteriorType) || "CELLAR",
+        grid,
+        compressed: row.grid_data,
+        props: Array.isArray(row.props) ? row.props : [],
+        npcs: Array.isArray(row.npcs) ? row.npcs : [],
+        playerSpawn: [128, 226],
+        exitProp: {
+          id: "prop_interior_exit",
+          name: "Ascending Stairs to Surface",
+          pos: [128, 228],
+          tags: ["door", "exit", "stairs_up", "surface"]
+        }
+      };
     }
 
-    console.log(`Generated organic map (${finalMapType}) with ID: ${subMapId} and ${numNpcs} NPCs.`);
-    return subMapId;
+    // 2. Generate authentic procedural interior sub-map
+    const interior = generateInteriorSubMap(
+      parentCellId,
+      parentRx,
+      parentRy,
+      parentPropId,
+      parentPropName,
+      parentPropTags,
+      forcedType
+    );
+
+    // 3. Persist to Postgres database
+    const insertRes = await pool.query(
+      `INSERT INTO interior_sub_maps (
+         parent_cell_id, parent_rx, parent_ry, parent_prop_id,
+         interior_type, name, grid_width, grid_height,
+         grid_data, props, npcs, layout_data, map_type
+       ) VALUES ($1, $2, $3, $4, $5, $6, 256, 256, $7, $8, $9, '{}'::jsonb, $10)
+       RETURNING sub_map_id;`,
+      [
+        parentCellId,
+        parentRx,
+        parentRy,
+        parentPropId,
+        interior.interiorType,
+        interior.name,
+        interior.compressed,
+        JSON.stringify(interior.props),
+        JSON.stringify(interior.npcs),
+        interior.interiorType
+      ]
+    );
+
+    interior.subMapId = insertRes.rows[0].sub_map_id;
+    return interior;
   } catch (error) {
-    console.error('Failed to generate interior sub-map:', error);
+    console.error("Error in getOrGenerateInteriorSubMap:", error);
     throw error;
   }
+}
+
+/**
+ * Legacy compatibility wrapper for sub-map generation
+ */
+export async function generateSubMapInterior(params: SubMapParameters): Promise<number> {
+  const cellId = params.cellId || params.localId || 13408;
+  const propId = params.propId || `prop_legacy_${Date.now()}`;
+  const interior = await getOrGenerateInteriorSubMap(
+    cellId,
+    params.rx ?? 112,
+    params.ry ?? 112,
+    propId,
+    params.propName || "Sub-Map Chamber",
+    params.propTags || ["door", "interior"],
+    params.mapType as InteriorType
+  );
+  return interior.subMapId!;
 }
