@@ -94,16 +94,30 @@ export async function prerenderAllSectorMaps() {
       if (arr.length < 25) arr.push(c);
     }
 
+    // Pre-fetch active fringe and cartel lairs
+    const lairsRes = await client.query(`
+      SELECT l.id, l.faction_id, l.cell_id, l.burg_id, l.lair_type, l.manpower, l.heat,
+             o.name AS cartel_name, o.type AS cartel_type
+      FROM sim_fringe_lairs l
+      JOIN sim_outlaw_factions o ON o.id = l.faction_id
+    `);
+    const lairsByBurg = new Map<number, any[]>();
+    for (const l of lairsRes.rows) {
+      if (!lairsByBurg.has(l.burg_id)) lairsByBurg.set(l.burg_id, []);
+      lairsByBurg.get(l.burg_id)!.push(l);
+    }
+
     console.log("Pre-rendering 346 Burgs and their 4 Outlying Sectors (Hamlets, Farms, Timber, Watchtowers)...");
     for (const burg of burgsRes.rows) {
       const burgCitizens = citizenMap.get(burg.cell_id) || [];
+      const burgLairs = lairsByBurg.get(burg.burg_id) || [];
       const factionName = burg.faction_name || "Provincial Sovereignty";
       const cellId = burg.cell_id;
       const biomeId = Number(burg.biome) || 6;
       const elevation = Number(burg.elevation) || 50;
 
       // A. Center Burg Core (rx: 112, ry: 112)
-      const coreMap = generateBurgSectorMap(burg, factionName, cellId, burgCitizens);
+      const coreMap = generateBurgSectorMap(burg, factionName, cellId, burgCitizens, burgLairs);
       addSector(cellId, 112, 112, biomeId, elevation, coreMap);
 
       // B. Outlying Sectors around the burg:
