@@ -1,3 +1,5 @@
+import { tagBurgCitizens, tagSectorEnvironment } from "./citizenPersonaHelper";
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  Weather & Chaos Agent
 //  One tick = one day. Fronts travel, apply real effects, and chaos syncs to
@@ -71,41 +73,63 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
         // We stored burg cell_id; we need the cell x/y. Use a simple bounding check on geometry centroid.
         // For now: apply to a random sample of burgs weighted by probability — real geo join is Phase 2.
         const affectedBurgs = await client.query(
-            `SELECT burg_id, food, unrest, health, pop_null FROM sim_burg_economy ORDER BY RANDOM() LIMIT $1`,
+            `SELECT burg_id, name, cell_id, food, unrest, health, pop_null FROM sim_burg_economy ORDER BY RANDOM() LIMIT $1`,
             [Math.max(1, Math.floor(front.radius / 20))] // more burgs hit by bigger fronts
         );
 
         for (const burg of affectedBurgs.rows) {
             let foodDelta = 0, unrestDelta = 0, healthDelta = 0, popDelta = 0;
             let eventMsg: string | null = null;
+            let weatherTags: string[] = [];
 
             if (front.type === "BLIZZARD") {
                 foodDelta  = -Math.floor(burg.pop_null * 0.8);  // heavy food loss
                 healthDelta = -5;
                 unrestDelta = +8;
-                if (Math.random() < 0.15) eventMsg = `A brutal blizzard has buried the roads around Burg ${burg.burg_id}, cutting off supply lines and starving the populace.`;
+                weatherTags = ["#BlizzardGrounded", "#FrozenSupplyLine"];
+                if (Math.random() < 0.25) {
+                    eventMsg = `A brutal blizzard has buried the roads around ${burg.name}, cutting off supply lines and freezing the populace.`;
+                    await tagBurgCitizens(client, burg.burg_id, ['#FrostbittenPeasant', '#SnowboundForager'], 'DESPERATE', `Trapped inside ${burg.name} by howling snowdrifts and sub-zero blizzard gales.`, null, 3);
+                }
             } else if (front.type === "DROUGHT") {
                 foodDelta  = -Math.floor(burg.pop_null * 0.5);
                 healthDelta = -3;
                 unrestDelta = +5;
-                if (Math.random() < 0.12) eventMsg = `Drought has cracked the earth around Burg ${burg.burg_id}. The harvest is dust.`;
+                weatherTags = ["#DroughtStricken", "#BarrenHarvest"];
+                if (Math.random() < 0.22) {
+                    eventMsg = `Parched drought has cracked the earth around ${burg.name}. Wellsprings ran dry and crops withered to ash.`;
+                    await tagBurgCitizens(client, burg.burg_id, ['#ThirstyLaborer', '#DustBowlRefugee'], 'BITTER', `Enduring scorching heat and water rations in drought-stricken ${burg.name}.`, null, 3);
+                }
             } else if (front.type === "HURRICANE") {
                 foodDelta   = -Math.floor(burg.pop_null * 0.4);
                 healthDelta = -4;
                 unrestDelta = +6;
                 popDelta    = -Math.floor(burg.pop_null * 0.01); // small direct deaths
-                if (Math.random() < 0.2) eventMsg = `A massive hurricane tore through Burg ${burg.burg_id}, destroying homes and killing ${-popDelta} souls.`;
+                weatherTags = ["#HurricaneGales", "#FloodedTerrain"];
+                if (Math.random() < 0.25) {
+                    eventMsg = `A massive hurricane tore through ${burg.name}, destroying timber roofs and drowning surrounding lowlands.`;
+                    await tagBurgCitizens(client, burg.burg_id, ['#StormDisplaced', '#FloodedSurvivor'], 'DESPERATE', `Rebuilding flooded homes and salvaging ruined timber after a hurricane struck ${burg.name}.`, null, 3);
+                }
             } else if (front.type === "CHAOS_STORM") {
                 // Chaos storms: random, wild, terrifying
                 foodDelta   = -Math.floor(burg.pop_null * (0.3 + Math.random() * 0.7));
                 healthDelta = -Math.floor(5 + Math.random() * 10);
                 unrestDelta = +Math.floor(10 + Math.random() * 20);
                 popDelta    = -Math.floor(burg.pop_null * 0.02 * Math.random());
-                if (Math.random() < 0.3) eventMsg = `A Chaos Storm — born from the Broken Moon Cruorbus — has erupted over Burg ${burg.burg_id}. Reality itself warps. The sky bleeds crimson.`;
+                weatherTags = ["#ChaosStormRift", "#RealityWarped", "#CrimsonAtmosphere"];
+                if (Math.random() < 0.35) {
+                    eventMsg = `A Chaos Storm — vomited from the Broken Moon Cruorbus — erupted over ${burg.name}. Gravity stutters, shadows detach, and crimson rain falls upwards.`;
+                    await tagBurgCitizens(client, burg.burg_id, ['#AetherStormSurvivor', '#VoidTouchedMind'], 'FANATICAL', `Witnessed reality warp during a Cruorbus chaos storm over ${burg.name}.`, null, 3);
+                }
             } else { // generic STORM
                 foodDelta  = -Math.floor(burg.pop_null * 0.2);
                 unrestDelta = +3;
-                if (Math.random() < 0.08) eventMsg = `Violent storms battered Burg ${burg.burg_id} for days, damaging crops and morale.`;
+                weatherTags = ["#HeavyRainfall", "#MuddyHighways"];
+                if (Math.random() < 0.12) eventMsg = `Violent rainstorms battered ${burg.name} for days, washing out roads and flooding cellars.`;
+            }
+
+            if (burg.cell_id && weatherTags.length > 0) {
+                await tagSectorEnvironment(client, burg.cell_id, weatherTags, 0);
             }
 
             await client.query(
@@ -120,8 +144,8 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
 
             if (eventMsg) {
                 await client.query(
-                    `INSERT INTO sim_events (tick, type, message, tier, lore_date) VALUES ($1, $2, $3, 'MAJOR', $4)`,
-                    [tick, front.type, eventMsg, loreDate]
+                    `INSERT INTO sim_events (tick, type, message, tier, burg_id, lore_date) VALUES ($1, $2, $3, 'MAJOR', $4, $5)`,
+                    [tick, front.type, eventMsg, burg.burg_id, loreDate]
                 );
             }
         }

@@ -98,7 +98,7 @@ interface ObserverState {
   economy: any[];
 }
 
-type MainTab = "MAP" | "SECTORS" | "FRINGE" | "EVENTS";
+type MainTab = "MAP" | "SECTORS" | "FRINGE" | "ECOLOGY_CHAOS" | "EVENTS";
 type ViewMode = "Political" | "Biome" | "Ecology" | "Unrest";
 type SectorCategory = "ALL_BURGS" | "PRISONS" | "CONVERGENCE";
 
@@ -285,6 +285,11 @@ export function Dashboard() {
   const [tierFilter, setTierFilter] = useState<string>("ALL");
   const [burgCitizens, setBurgCitizens] = useState<any[]>([]);
 
+  // Ecology & Chaos Flows State
+  const [ecologyData, setEcologyData] = useState<any>(null);
+  const [chaosFlowsData, setChaosFlowsData] = useState<any>(null);
+  const [selectedFlow, setSelectedFlow] = useState<any>(null);
+
   // Fetch core simulation state
   const fetchState = useCallback(async () => {
     if (!hasFetchedMap) {
@@ -441,6 +446,19 @@ export function Dashboard() {
     loadFringeEvents();
   }, [selectedFringe, state?.calendar?.tick]);
 
+  // Fetch Ecology and Chaos Flows telemetry
+  useEffect(() => {
+    if (activeTab === "ECOLOGY_CHAOS") {
+      fetch("/api/observer/ecology").then(r => r.json()).then(d => setEcologyData(d)).catch(() => {});
+      fetch("/api/observer/chaos_flows").then(r => r.json()).then(d => {
+        setChaosFlowsData(d);
+        if (d.flows && d.flows.length > 0 && !selectedFlow) {
+          setSelectedFlow(d.flows[0]);
+        }
+      }).catch(() => {});
+    }
+  }, [activeTab, state?.calendar?.tick]);
+
   // Controls: Step 1 Tick
   const runSingleTick = async () => {
     if (isBatchRunning) return;
@@ -539,6 +557,12 @@ export function Dashboard() {
             style={{ padding: "6px 14px", border: "none", borderRadius: 6, background: activeTab === "FRINGE" ? "#1e293b" : "transparent", color: activeTab === "FRINGE" ? "#f43f5e" : "#94a3b8", cursor: "pointer", fontWeight: 600, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}
           >
             <span>🌑</span> Fringe Factions
+          </button>
+          <button
+            onClick={() => setActiveTab("ECOLOGY_CHAOS")}
+            style={{ padding: "6px 14px", border: "none", borderRadius: 6, background: activeTab === "ECOLOGY_CHAOS" ? "#1e293b" : "transparent", color: activeTab === "ECOLOGY_CHAOS" ? "#10b981" : "#94a3b8", cursor: "pointer", fontWeight: 600, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}
+          >
+            <span>🌿</span> Flora, Fauna & Chaos
           </button>
           <button
             onClick={() => setActiveTab("MAP")}
@@ -1062,6 +1086,218 @@ export function Dashboard() {
               ) : (
                 <div style={{ padding: 40, color: "#64748b", textAlign: "center" }}>Select a fringe faction on the left.</div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* ------------------------------------------------------------- */}
+        {/* TAB 4: FLORA, FAUNA & CHAOS FLOWS                             */}
+        {/* ------------------------------------------------------------- */}
+        {activeTab === "ECOLOGY_CHAOS" && (
+          <div style={{ flex: 1, display: "flex", overflow: "hidden", background: "#0a0f18" }}>
+            {/* Left Column: 12 Primordial Chaos Flows */}
+            <div style={{ width: 340, borderRight: "1px solid #1e293b", display: "flex", flexDirection: "column", background: "#0d1522" }}>
+              <div style={{ padding: "12px 14px", borderBottom: "1px solid #1e293b", background: "#0a101b" }}>
+                <h3 style={{ margin: 0, fontSize: 13, color: "#10b981", textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: 6 }}>
+                  <span>🌀</span> 12 Primordial Chaos Flows
+                </h3>
+                <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
+                  Active Month: <strong style={{ color: "#38bdf8" }}>{chaosFlowsData?.calendar?.month_name || "Metrion"}</strong> ({chaosFlowsData?.calendar?.moon_phase || "Cruorbus"})
+                </div>
+              </div>
+
+              <div style={{ flex: 1, overflowY: "auto", padding: "8px 10px" }}>
+                {(chaosFlowsData?.flows || []).map((flow: any) => {
+                  const isSelected = selectedFlow?.flow_id === flow.flow_id;
+                  const isSurging = flow.is_surging;
+                  const isFlooding = flow.is_flooding;
+                  return (
+                    <div
+                      key={flow.flow_id}
+                      onClick={() => setSelectedFlow(flow)}
+                      style={{
+                        padding: "10px 12px",
+                        marginBottom: 6,
+                        borderRadius: 6,
+                        background: isSelected ? "#1e293b" : "#0f172a",
+                        borderLeft: `4px solid ${isFlooding ? "#ef4444" : isSurging ? "#f59e0b" : "#10b981"}`,
+                        cursor: "pointer",
+                        transition: "all 0.15s"
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontWeight: 700, fontSize: 12, color: isSelected ? "#38bdf8" : "#f1f5f9" }}>{flow.name}</span>
+                        <span style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          padding: "1px 6px",
+                          borderRadius: 4,
+                          background: isFlooding ? "rgba(239, 68, 68, 0.2)" : isSurging ? "rgba(245, 158, 11, 0.2)" : "rgba(16, 185, 129, 0.15)",
+                          color: isFlooding ? "#f87171" : isSurging ? "#fbbf24" : "#34d399",
+                          border: `1px solid ${isFlooding ? "#ef4444" : isSurging ? "#f59e0b" : "#10b981"}`
+                        }}>
+                          {flow.current_surge}x {isFlooding ? "FLOOD" : isSurging ? "SURGE" : "EBB"}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4, fontSize: 11, color: "#94a3b8" }}>
+                        <span>Dragon: <strong style={{ color: "#e2e8f0" }}>{flow.dragon_name}</strong></span>
+                        <span>Power: <strong style={{ color: "#a78bfa" }}>{flow.elemental_power}</strong></span>
+                      </div>
+                      <div style={{ marginTop: 6, width: "100%", height: 4, background: "#1e293b", borderRadius: 2, overflow: "hidden" }}>
+                        <div style={{
+                          width: `${Math.min(100, (Number(flow.current_surge) / 2.5) * 100)}%`,
+                          height: "100%",
+                          background: isFlooding ? "#ef4444" : isSurging ? "#f59e0b" : "#10b981",
+                          borderRadius: 2
+                        }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Middle Column: Selected Flow Waypoints, Crossing Spot & Continental Ecology Gauges */}
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", overflowY: "auto", padding: 16 }}>
+              {/* Continental Trophic & Botanical Telemetry Cards */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
+                <div style={{ background: "#0d1522", border: "1px solid #1e293b", borderRadius: 8, padding: 12 }}>
+                  <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", fontWeight: 700 }}>🌿 Flora Coverage</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: "#10b981", marginTop: 4 }}>
+                    {ecologyData?.averages?.avg_plants ?? "—"} <span style={{ fontSize: 12, color: "#64748b" }}>/ 100</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Botanical carrying capacity</div>
+                </div>
+
+                <div style={{ background: "#0d1522", border: "1px solid #1e293b", borderRadius: 8, padding: 12 }}>
+                  <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", fontWeight: 700 }}>🦌 Herbivore Prey</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: "#38bdf8", marginTop: 4 }}>
+                    {ecologyData?.averages?.avg_prey ?? "—"} <span style={{ fontSize: 12, color: "#64748b" }}>/ 100</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Wild ungulate & grazer herds</div>
+                </div>
+
+                <div style={{ background: "#0d1522", border: "1px solid #1e293b", borderRadius: 8, padding: 12 }}>
+                  <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", fontWeight: 700 }}>🐺 Predator Threat</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: "#f59e0b", marginTop: 4 }}>
+                    {ecologyData?.averages?.avg_predators ?? "—"} <span style={{ fontSize: 12, color: "#64748b" }}>/ 60</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Dire packs & carnivores</div>
+                </div>
+
+                <div style={{ background: "#0d1522", border: "1px solid #1e293b", borderRadius: 8, padding: 12 }}>
+                  <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", fontWeight: 700 }}>☠️ Eco-Blight Index</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: "#ec4899", marginTop: 4 }}>
+                    {ecologyData?.averages?.avg_blight ?? "—"} <span style={{ fontSize: 12, color: "#64748b" }}>/ 100</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Dragon seal decay miasma</div>
+                </div>
+              </div>
+
+              {/* Selected Flow River Dossier */}
+              {selectedFlow && (
+                <div style={{ background: "#0d1522", border: "1px solid #1e293b", borderRadius: 8, padding: 14, marginBottom: 16 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #1e293b", paddingBottom: 10, marginBottom: 12 }}>
+                    <div>
+                      <h2 style={{ margin: 0, fontSize: 16, color: "#f8fafc", fontWeight: 700 }}>{selectedFlow.name}</h2>
+                      <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>
+                        Origin: Outer Perimeter Angle {selectedFlow.source_angle}° ➔ Void Sink ({selectedFlow.current_width}m channel width)
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <span style={{ fontSize: 11, color: "#64748b" }}>Primordial Domain:</span>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#a855f7" }}>{selectedFlow.dragon_name} ({selectedFlow.elemental_power})</div>
+                    </div>
+                  </div>
+
+                  {/* Narrow Crossing Ford */}
+                  <h4 style={{ margin: "0 0 8px 0", fontSize: 12, color: "#38bdf8", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    📍 Natural Narrow Crossing Point (Glass-Rock Ford)
+                  </h4>
+                  {(selectedFlow.narrow_spots || []).map((spot: any, idx: number) => (
+                    <div key={idx} style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 6, padding: 10, marginBottom: 8 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontWeight: 700, fontSize: 12, color: "#e2e8f0" }}>Glass-Rock Constriction #{idx + 1}</span>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <span style={{ fontSize: 11, background: "rgba(56, 189, 248, 0.15)", color: "#38bdf8", padding: "1px 6px", borderRadius: 4 }}>Pinch: {spot.widthMeters}m</span>
+                          <span style={{ fontSize: 11, background: "rgba(239, 68, 68, 0.15)", color: "#f87171", padding: "1px 6px", borderRadius: 4 }}>Crossing DC: {spot.crossingDC}</span>
+                        </div>
+                      </div>
+                      <p style={{ margin: "6px 0 0 0", fontSize: 11, color: "#94a3b8", lineHeight: 1.4 }}>{spot.description}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Hotspot Grids: Starving Predators & Mutated Chaos Flora */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                {/* Starving Predator Hotspots */}
+                <div style={{ background: "#0d1522", border: "1px solid #1e293b", borderRadius: 8, padding: 12 }}>
+                  <h4 style={{ margin: "0 0 10px 0", fontSize: 12, color: "#f59e0b", textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: 6 }}>
+                    <span>🐺</span> Starving Predator Hotspots
+                  </h4>
+                  {(ecologyData?.predatorHotspots || []).map((h: any) => (
+                    <div key={h.cell_id} style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 6, padding: "8px 10px", marginBottom: 6 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontWeight: 700, fontSize: 12, color: "#f8fafc" }}>Sector #{h.cell_id}</span>
+                        <span style={{ fontSize: 11, color: "#f59e0b", fontWeight: 700 }}>Pred: {h.eco_predators} / Prey: {h.eco_prey}</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
+                        Nearby Threat: <strong style={{ color: "#e2e8f0" }}>{h.nearby_burg || "Outlying Wilderness"}</strong>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Mutated Flora Hotspots */}
+                <div style={{ background: "#0d1522", border: "1px solid #1e293b", borderRadius: 8, padding: 12 }}>
+                  <h4 style={{ margin: "0 0 10px 0", fontSize: 12, color: "#10b981", textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: 6 }}>
+                    <span>🌿</span> Chaos Flora Hotspots
+                  </h4>
+                  {(ecologyData?.chaosFloraHotspots || []).map((h: any) => (
+                    <div key={h.cell_id} style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 6, padding: "8px 10px", marginBottom: 6 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontWeight: 700, fontSize: 12, color: "#f8fafc" }}>Sector #{h.cell_id}</span>
+                        <span style={{ fontSize: 11, color: "#10b981", fontWeight: 700 }}>Flora: {h.eco_plants}</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: "#a78bfa", marginTop: 2 }}>
+                        Ley Intensity: <strong>{h.intensity}%</strong> ({h.chaos_type})
+                      </div>
+                      <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 1 }}>
+                        Nearby Burg: <strong style={{ color: "#e2e8f0" }}>{h.nearby_burg || "Wild Flora Ley"}</strong>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column: Live Ecological & Chaos Event Chronicle */}
+            <div style={{ width: 380, borderLeft: "1px solid #1e293b", display: "flex", flexDirection: "column", background: "#0d1522" }}>
+              <div style={{ padding: "12px 14px", borderBottom: "1px solid #1e293b", background: "#0a101b" }}>
+                <h3 style={{ margin: 0, fontSize: 13, color: "#fbbf24", textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: 6 }}>
+                  <span>📜</span> Ecological & Chaos Incidents
+                </h3>
+              </div>
+              <div style={{ flex: 1, overflowY: "auto", padding: "8px 10px" }}>
+                {(ecologyData?.recentEvents || []).map((ev: any) => {
+                  const isFlora = ev.type === "FLORA_MUTAGENESIS";
+                  const isBeast = ev.type === "CHAOS_BEAST_MUTATION";
+                  const isPredator = ev.type === "STARVING_PREDATOR_MIGRATION";
+                  const isCrop = ev.type === "HERBIVORE_CROP_RAID";
+                  const badgeColor = isFlora ? "#10b981" : isBeast ? "#ec4899" : isPredator ? "#f59e0b" : isCrop ? "#38bdf8" : "#a855f7";
+                  return (
+                    <div key={ev.id} style={{ background: "#0f172a", border: "1px solid #1e293b", borderLeft: `3px solid ${badgeColor}`, borderRadius: 6, padding: "8px 10px", marginBottom: 6 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: badgeColor, textTransform: "uppercase" }}>{ev.type.replace(/_/g, " ")}</span>
+                        <span style={{ fontSize: 10, color: "#64748b" }}>Tick {ev.tick}</span>
+                      </div>
+                      <p style={{ margin: "4px 0 0 0", fontSize: 11, color: "#cbd5e1", lineHeight: 1.4 }}>{ev.message}</p>
+                      {ev.lore_date && <div style={{ fontSize: 9, color: "#64748b", marginTop: 4 }}>{ev.lore_date}</div>}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}

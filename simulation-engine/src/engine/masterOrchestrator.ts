@@ -38,7 +38,14 @@ export async function executeMasterTick(): Promise<{status: string, currentTick:
 
         // 2. Weather & Trophic Ecology
         await runWeatherAgent(client, tick, cal.season, cal.dayOfMonth, loreDate, cal.isShadowWeek);
-        await runTrophicEcologyAgent(client, tick, cal.season, loreDate);
+        await runTrophicEcologyAgent(client, tick, cal.season, loreDate, {
+            month: cal.month,
+            monthName: cal.monthName,
+            activeDragon: cal.activeFlow?.dragon,
+            activeDomain: cal.activeFlow?.domain,
+            cruorbusPhase: cal.cruorbusPhase,
+            isShadowWeek: cal.isShadowWeek
+        });
 
         // 2b. Primordial Chaos Flows (12 Meandering Ebb/Flow Rivers)
         await runChaosFlowAgent(client, tick, {

@@ -250,6 +250,81 @@ observerRouter.get("/filtered_events", async (req, res) => {
   }
 });
 
+// Comprehensive Trophic Ecology telemetry: flora, fauna, predator-prey balance, and active anomalies
+observerRouter.get("/ecology", async (req, res) => {
+  try {
+    const statsRes = await pool.query(`
+      SELECT 
+        ROUND(AVG(eco_plants)::numeric, 1) as avg_plants,
+        ROUND(AVG(eco_prey)::numeric, 1) as avg_prey,
+        ROUND(AVG(eco_predators)::numeric, 1) as avg_predators,
+        ROUND(AVG(COALESCE(eco_apex, 5.0))::numeric, 1) as avg_apex,
+        ROUND(AVG(COALESCE(eco_blight, 0.0))::numeric, 1) as avg_blight
+      FROM sim_cells
+    `);
+
+    const predatorHotspots = await pool.query(`
+      SELECT c.id as cell_id, c.eco_predators, c.eco_prey, b.name as nearby_burg
+      FROM sim_cells c
+      LEFT JOIN sim_burg_economy b ON ABS(b.cell_id - c.id) <= 6
+      WHERE c.eco_predators > (c.eco_prey * 1.2) AND c.eco_predators >= 15
+      ORDER BY c.eco_predators DESC
+      LIMIT 5
+    `);
+
+    const chaosFloraHotspots = await pool.query(`
+      SELECT c.id as cell_id, c.eco_plants, z.intensity, z.type as chaos_type, b.name as nearby_burg
+      FROM sim_cells c
+      JOIN sim_chaos_zones z ON c.id = z.cell_id
+      LEFT JOIN sim_burg_economy b ON ABS(b.cell_id - c.id) <= 6
+      WHERE z.intensity >= 30
+      ORDER BY z.intensity DESC
+      LIMIT 5
+    `);
+
+    const eventsRes = await pool.query(`
+      SELECT * FROM sim_events
+      WHERE type IN ('FLORA_MUTAGENESIS', 'HERBIVORE_CROP_RAID', 'STARVING_PREDATOR_MIGRATION', 'CHAOS_BEAST_MUTATION', 'TROPHIC_DISRUPTION')
+      ORDER BY id DESC
+      LIMIT 20
+    `);
+
+    res.json({
+      averages: statsRes.rows[0],
+      predatorHotspots: predatorHotspots.rows,
+      chaosFloraHotspots: chaosFloraHotspots.rows,
+      recentEvents: eventsRes.rows
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// The 12 Primordial Chaos Flows & Narrow Crossings
+observerRouter.get("/chaos_flows", async (req, res) => {
+  try {
+    const flowsRes = await pool.query(`SELECT * FROM sim_chaos_flows ORDER BY flow_id ASC`);
+    const calRes = await pool.query(`SELECT * FROM sim_calendar ORDER BY id DESC LIMIT 1`);
+    const zonesSummary = await pool.query(`SELECT COUNT(*) as total_zones, ROUND(AVG(intensity)::numeric, 1) as avg_intensity FROM sim_chaos_zones`);
+
+    const flows = flowsRes.rows.map(f => ({
+      ...f,
+      waypoints: typeof f.waypoints === "string" ? JSON.parse(f.waypoints) : f.waypoints,
+      narrow_spots: typeof f.narrow_spots === "string" ? JSON.parse(f.narrow_spots) : f.narrow_spots,
+      is_surging: Number(f.current_surge) >= 1.8,
+      is_flooding: Number(f.current_surge) >= 2.4
+    }));
+
+    res.json({
+      flows,
+      calendar: calRes.rows[0] || null,
+      zonesSummary: zonesSummary.rows[0]
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Get notable citizens in a burg, highlighting their active narrative tags and emotional states
 observerRouter.get("/burg_citizens", async (req, res) => {
   try {
