@@ -562,6 +562,42 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
             await tagBurgCitizens(client, burg.burg_id, ['#CurfewEnforcer', '#VigilantGuard'], 'WARY', `Patrolling the avenues of ${burg.name} under martial law curfews.`, '%watch%', 4);
         }
 
+        // Bandit Activity Emergence (Driven strictly by extreme famine, starvation, or anti-government unrest)
+        if (starvationDeaths > 3 || (newFood === 0 && foodDelta < -150) || newUnrest >= 60) {
+            if ((tick + burg.burg_id) % 5 === 0) {
+                burgEvents.push({
+                    tick,
+                    type: 'BANDIT_RAIDERS_EMERGE',
+                    message: `Exiled outlaws and starving refugees driven out of ${burg.name} have formed a desperate highwayman band in the surrounding wilderness!`,
+                    tier: 'MINOR',
+                    burg_id: burg.burg_id,
+                    lore_date: loreDate
+                });
+                await tagBurgCitizens(client, burg.burg_id, ['#WildernessBandit', '#DeserterOutlaw'], 'DESPERATE', `Fled the famine and watch oppression in ${burg.name} to survive as a highwayman in the hills.`, '%laborer%', 3);
+
+                // Displaced highwaymen ambush passing supply caravans along the outskirts
+                if (Math.random() < 0.45) {
+                    burgEvents.push({
+                        tick,
+                        type: 'CARAVAN_AMBUSH',
+                        message: `CARAVAN AMBUSH: Desperate famine-refugee bandits from ${burg.name} ambushed a supply wagon along the outskirts, looting food provisions!`,
+                        tier: 'MINOR',
+                        burg_id: burg.burg_id,
+                        lore_date: loreDate
+                    });
+                }
+            }
+        } else if (newFood > 15000 && newUnrest < 25 && (burg.unrest || 0) >= 35 && (tick + burg.burg_id) % 8 === 0) {
+            burgEvents.push({
+                tick,
+                type: 'BANDIT_AMNESTY',
+                message: `Order restored in ${burg.name}: abundant granary reserves persuaded starving wilderness outlaws to surrender their arms in exchange for food rations.`,
+                tier: 'MINOR',
+                burg_id: burg.burg_id,
+                lore_date: loreDate
+            });
+        }
+
         if (receivedTribute && (receivedTribute.food > 50 || receivedTribute.wealth > 20) && (tick + burg.burg_id) % 7 === 0) {
             burgEvents.push({
                 tick,

@@ -1,5 +1,6 @@
 import { resolveCombat } from '../combatEngine';
 import { FACTION_ACTIONS, FactionState, FactionAction } from '../ai/factionActions';
+import { tagBurgCitizens } from "./citizenPersonaHelper";
 
 export async function runFactionPlanningAgent(client: any, tick: number, loreDate: string) {
     const factionRes = await client.query("SELECT * FROM sim_factions");
@@ -165,6 +166,8 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
         if (defRemaining < 1 && aggRemaining > 0) {
             await client.query("UPDATE sim_cells SET faction_id = $1 WHERE id = $2", [aggressorId, targetBurg.cell_id]);
             events.push({ tick, type: 'SIEGE_WON', message: `The forces of ${aggFaction?.name || 'Faction '+aggressorId} crushed the defenders at Burg ${targetBurg.burg_id} and OCCUPIED the city!`, tier: 'MAJOR', faction_id: aggressorId, burg_id: targetBurg.burg_id, lore_date: loreDate });
+            events.push({ tick, type: 'WAR_REFUGEES_DISPLACED', message: `Devastation in Burg ${targetBurg.burg_id}: displaced war refugees and surviving garrison deserters fled into the border wilderness, turning to desperate highway banditry!`, tier: 'MINOR', faction_id: aggressorId, burg_id: targetBurg.burg_id, lore_date: loreDate });
+            await tagBurgCitizens(client, targetBurg.burg_id, ['#WarRefugee', '#WildernessBandit'], 'DESPERATE', `Displaced into the wilderness following the fall of Burg ${targetBurg.burg_id}, turning to banditry.`, null, 4);
         } else {
             const atkLosses = (result.difference > 0 && result.winner === 'DEFENDER') ? Math.floor(result.difference/100) : 0;
             const defLosses = (result.difference > 0 && result.winner === 'ATTACKER') ? Math.floor(result.difference/100) : 0;
