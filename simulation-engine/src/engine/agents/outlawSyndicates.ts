@@ -37,32 +37,32 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
     bossTitle: "Archon of the Meridian Ledger",
     bossTraits: [
       { name: "Calculated", modifier: 0.3 },
-      { name: "Usurious", modifier: 0.4 },
-      { name: "Bribery_Master", modifier: 0.5 },
-      { name: "Greedy", modifier: 0.2 }
+      { name: "Hippo_Admiral", modifier: 0.5 },
+      { name: "Bribery_Master", modifier: 0.4 },
+      { name: "Market_Manipulator", modifier: 0.4 }
     ],
-    description: "A formidable armed merchant fleet and naval privateers who dominate maritime commerce, escort high-value merchant convoys, or deploy lethal privateer warships when contract rates surge.",
-    contrabandTypes: ["Forged Sovereign Bonds", "Clipped Meridian Bullion", "Mortgaged Land Deeds", "Blackmail Ledgers"],
-    lairTypes: ["SHADOW_VAULT", "USURY_HOUSE"],
-    speciesDistribution: [{ species: "Human", weight: 0.6 }, { species: "Penguin", weight: 0.2 }, { species: "Walrus", weight: 0.2 }],
+    description: "Formidable armed merchant fleet and naval privateers always captained by Hippo-Kin. Establishes public, unhidden trade yards in foreign territories near major trade routes, offers commercial freight and passenger transport, enforces naval policing and customs inspections, and blockades trade routes to manipulate market flow.",
+    contrabandTypes: ["Impounded Foreign Cargo", "Forged Sovereign Letters of Marque", "Clipped Meridian Bullion", "Price-Fixed Grain Manifests"],
+    lairTypes: ["PUBLIC_TRADE_YARD", "SHIPPING_DEPOT"],
+    speciesDistribution: [{ species: "Hippo", weight: 0.8 }, { species: "Walrus", weight: 0.1 }, { species: "Human", weight: 0.1 }],
     uniqueRoles: [
       {
-        role: "Shadow Usury Clerk",
-        weapon: "Weighted Steel Abacus & Concealed Bodkin",
-        armor: "Ermine-Trimmed Velvet Doublet",
-        affinity: "logic",
-        inventory: ["Mortgaged Estate Deeds", "Gilded Balance Scales", "Pouch of 85 Meridian Gold"],
-        instinct: "CALCULATED",
-        temper: "COLD"
+        role: "Hippo Fleet Captain",
+        weapon: "Heavy Gold-Embossed Broadsword & Marine Flintlock",
+        armor: "Gilded Naval Scale-Cuirass",
+        affinity: "might",
+        inventory: ["Letter of Reprisal", "Brass Meridian Sextant", "Pouch of 120 Gold Sovereign Coins"],
+        instinct: "AUTHORITATIVE",
+        temper: "CALCULATED"
       },
       {
-        role: "Vault Debt Collector",
-        weapon: "Heavy Iron-Banded Truncheon",
-        armor: "Reinforced Boiled Leather",
-        affinity: "might",
-        inventory: ["Promissory Writs", "Iron Keyring to Defaulted Warehouses", "Pouch of 40 Silver Coins"],
-        instinct: "INTIMIDATING",
-        temper: "STOIC"
+        role: "Meridian Trade Factor",
+        weapon: "Concealed Bodkin & Weighted Steel Abacus",
+        armor: "Velvet Doublet with Hidden Mail",
+        affinity: "logic",
+        inventory: ["Shipping Manifest Ledger", "Price-Fixing Writs", "Pouch of 75 Silver"],
+        instinct: "METICULOUS",
+        temper: "COLD"
       }
     ]
   },
@@ -78,71 +78,71 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
     bossTraits: [
       { name: "Daring", modifier: 0.4 },
       { name: "Smuggler", modifier: 0.5 },
-      { name: "Airship_Ace", modifier: 0.3 },
-      { name: "Ruthless", modifier: 0.3 }
+      { name: "Airship_Ace", modifier: 0.4 },
+      { name: "Cloud_Stalker", modifier: 0.4 }
     ],
-    description: "High-altitude corsairs and cloud-skiff runners who smuggle illicit cargo for the Obsidian Cartel or anyone with coin, and double as aerial pirates and privateers.",
-    contrabandTypes: ["Unrefined Aerolith Charges", "Smuggled Feather-Silk", "Barred Navigational Charts", "Untaxed Dragon-Wine"],
-    lairTypes: ["CONTRABAND_DOCK", "SKY_CORSAIR_CACHE"],
+    description: "High-altitude corsairs and independent airship captains operating from secret aeries. Offers stealth transport for goods and passengers beneath cloud ceilings, ambushes rival airships when holding tactical advantage, and brands prospected recruits on their core drive at the Verge Sky Dock.",
+    contrabandTypes: ["Branded Core-Drive Cells", "Smuggled Aerolith Charges", "Barred Flight Charts", "Clandestine Passenger Manifests"],
+    lairTypes: ["SECRET_AERIE_YARD", "VERGE_SKY_DOCK"],
     speciesDistribution: [{ species: "Human", weight: 0.4 }, { species: "Avian", weight: 0.4 }, { species: "Felid", weight: 0.2 }],
     uniqueRoles: [
       {
-        role: "Airship Rigging Ace",
-        weapon: "Pneumatic Grapple Pistol & Dagger",
-        armor: "Feather-Light Sky-Leathers",
+        role: "Prospected Sky Captain (Branded Core)",
+        weapon: "Pneumatic Harpoon Rifle & Cutlass",
+        armor: "Branded Cloud-Leather Coat",
         affinity: "reflex",
-        inventory: ["Smuggled Navigational Astrolabe", "Aerolith Spark Canister", "Pouch of 55 Sovereign Marks"],
+        inventory: ["Branded Core-Drive Key", "High-Altitude Goggles", "Pouch of 65 Sky-Marks"],
         instinct: "DARING",
         temper: "RECKLESS"
       },
       {
-        role: "Cloud-Runner Smuggler",
+        role: "Stealth Cloud-Skiff Helmsman",
         weapon: "Twin Repeating Hand-Crossbows",
-        armor: "Padded Wind-Silk Jerkin",
+        armor: "Muffled Wind-Silk Jerkin",
         affinity: "finesse",
-        inventory: ["Forged Flight Manifests", "Gliding Tether Harness", "Vial of Cloud-Condensate"],
+        inventory: ["Cloud-Compass", "Muffled Aether Dampener", "Pouch of 45 Silver"],
         instinct: "ELUSIVE",
-        temper: "SARDONIC"
+        temper: "VIGILANT"
       }
     ]
   },
   {
     id: 3,
-    name: "The Devil's Choice",
-    type: "MERCENARY",
+    name: "The Legion",
+    type: "MERCENARY_TRADE_CORP",
     originBurgId: 53, // Shravhiek
     originCellId: 27072,
     originFactionId: 26,
-    bossName: "Captain Malakor Dread",
-    bossTitle: "Condottiere of the Blood Company",
+    bossName: "High Commander Malakor Dread",
+    bossTitle: "Warlord of the Twin Peaks",
     bossTraits: [
-      { name: "Mercenary", modifier: 0.5 },
-      { name: "Brutal", modifier: 0.4 },
-      { name: "Disciplined", modifier: 0.3 },
-      { name: "Veteran", modifier: 0.3 }
+      { name: "Mercenary_Master", modifier: 0.5 },
+      { name: "Drillmaster", modifier: 0.5 },
+      { name: "Market_Strongarm", modifier: 0.4 },
+      { name: "Iron_Discipline", modifier: 0.4 }
     ],
-    description: "Brutal sellswords, deserter legionnaires, and heavy strike-squads taking illegal privateer contracts and crushing civic resistance.",
-    contrabandTypes: ["Black-Market Arms Caches", "Military Halberds", "Stolen Siege Munitions", "Blood Contract Tokens"],
-    lairTypes: ["MERCENARY_GARRISON"],
+    description: "Elite mercenary and armed trade corporation headquartered on two coastal mountain peaks. Recruits anyone willing and drills them into fighting machines; establishes forward trade bastions where unaccepted, strong-arms markets, and sells pure loyal martial muscle.",
+    contrabandTypes: ["Confiscated Merchant Tithes", "Unregistered Legion Pikes", "Heavy Catapult Munitions", "Blood Contract Seals"],
+    lairTypes: ["COASTAL_PEAK_YARD", "MERC_TRADE_BASTION"],
     speciesDistribution: [{ species: "Human", weight: 0.5 }, { species: "Wolf-Kin", weight: 0.3 }, { species: "Saurian", weight: 0.2 }],
     uniqueRoles: [
       {
-        role: "Company Shock Trooper",
-        weapon: "Serrated Flamberge & Spiked Cestus",
-        armor: "Dented Black-Iron Plate",
+        role: "Legion Drill Centurion",
+        weapon: "Barbed Halberd & Heavy Iron Pavise",
+        armor: "Reinforced Full Steel Plate",
         affinity: "might",
-        inventory: ["Blood-Stained Mercenary Token", "Flask of Heavy Rye Spirits", "Pouch of 60 Gold Crowns"],
-        instinct: "AGGRESSIVE",
-        temper: "BRUTAL"
+        inventory: ["Legion Drill Whistle", "Drill Training Manual", "Pouch of 90 Heavy Denarii"],
+        instinct: "UNFLINCHING",
+        temper: "DISCIPLINED"
       },
       {
-        role: "Disciplined Sellsword Veteran",
-        weapon: "Barbed Halberd & Heavy Pavise",
-        armor: "Reinforced Chain Hauberk",
+        role: "Heavy Trade Shock-Trooper",
+        weapon: "Two-Handed Cleaver & Spiked Cestus",
+        armor: "Heavy Iron-Studded Banded Mail",
         affinity: "endurance",
-        inventory: ["Unsanctioned Bounty Writs", "Whetstone & Gunpowder Horn", "Pouch of 35 Silver"],
-        instinct: "TACTICAL",
-        temper: "STOIC"
+        inventory: ["Market Extortion Token", "Iron Wrist-Manacles", "Pouch of 50 Silver"],
+        instinct: "INTIMIDATING",
+        temper: "BRUTAL"
       }
     ]
   },
@@ -194,35 +194,35 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
     originCellId: 24364,
     originFactionId: 18,
     bossName: "Corsair Queen Lyra Ghostwind",
-    bossTitle: "Terror of the Sunder Channel",
+    bossTitle: "Commander of the Covert Fleet",
     bossTraits: [
-      { name: "Sea_Wolf", modifier: 0.5 },
-      { name: "Cunning", modifier: 0.4 },
+      { name: "Guerrilla_Sympathizer", modifier: 0.5 },
+      { name: "Covert_Aeronaut", modifier: 0.5 },
       { name: "Reaver", modifier: 0.4 },
-      { name: "Elusive", modifier: 0.3 }
+      { name: "Elusive", modifier: 0.4 }
     ],
-    description: "Ruthless sellsword reavers and iron privateers who take covert military contracts to raid trade arteries, burn rival granaries, and shatter fortifications.",
-    contrabandTypes: ["Plundered Spices", "Salvaged Ship Timber", "Pirate Flag Emblems", "Barrels of Stolen Port Rum"],
-    lairTypes: ["RAIDER_REDOUBT", "SMUGGLER_COVE"],
+    description: "Secret airship fleet operating under mercenary sellsword cover, covertly serving as the aerial fleet of the Guerrilla Clans. Executes devastating strikes for coin while secretly routing plundered munitions and gold to Clan territory.",
+    contrabandTypes: ["Covert Aerial Torpedoes", "Stolen Sovereign War-Flags", "Disguised Airship Hull Plates", "Smuggled Arms for Guerrilla Clans"],
+    lairTypes: ["SECRET_AIRSHIP_HANGAR", "CLAN_COVERT_REDOUBT"],
     speciesDistribution: [{ species: "Human", weight: 0.4 }, { species: "Seal", weight: 0.3 }, { species: "Otter", weight: 0.3 }],
     uniqueRoles: [
       {
-        role: "Channel Boarding Reaver",
-        weapon: "Dual Serrated Boarding Cutlasses",
-        armor: "Salt-Crusted Sharkskin Jerkin",
+        role: "Guerrilla Sky-Reaver",
+        weapon: "Dual Serrated Boarding Sabres",
+        armor: "Oilcloth & Hidden Chain Jerkin",
         affinity: "reflex",
-        inventory: ["Pillaged Merchant Cargo Receipt", "Brass Nautical Spyglass", "Pouch of 65 Plundered Gold"],
+        inventory: ["Concealed Guerrilla Clan Sigil", "Boarding Grapple", "Pouch of 60 Plundered Gold"],
         instinct: "FEROCIOUS",
-        temper: "RECKLESS"
+        temper: "DEVOUT"
       },
       {
-        role: "Cove Flume Lookout",
-        weapon: "Long-Barreled Harpoon Musket",
-        armor: "Oilcloth Weather Mantle",
+        role: "Covert Airship Bombardier",
+        weapon: "Repeating Pyrotechnic Sling & Dagger",
+        armor: "Fireproof Leather Smock",
         affinity: "awareness",
-        inventory: ["Signal Flares", "Telescopic Rangefinder", "Flask of High-Proof Sunder Rum"],
-        instinct: "VIGILANT",
-        temper: "SARDONIC"
+        inventory: ["Aerial Incendiary Bombs", "Telescopic Rangefinder", "Pouch of 40 Silver"],
+        instinct: "TACTICAL",
+        temper: "STOIC"
       }
     ]
   },
@@ -236,32 +236,32 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
     bossName: "Baroness Vespera Blackglass",
     bossTitle: "Matron of the Deep Veins",
     bossTraits: [
-      { name: "Shadow_Miner", modifier: 0.5 },
-      { name: "Cold_Blooded", modifier: 0.4 },
-      { name: "Smuggler", modifier: 0.4 },
-      { name: "Obsidian_Artificer", modifier: 0.5 }
+      { name: "Drug_Kingpin", modifier: 0.5 },
+      { name: "Oligarch_Allied", modifier: 0.4 },
+      { name: "Tunnel_Master", modifier: 0.5 },
+      { name: "Cold_Blooded", modifier: 0.4 }
     ],
-    description: "The premier underworld shadow cartel: traffics illegal contraband, establishes subterranean vice dens and black markets, and brokers lethal contract killings across major burgs.",
-    contrabandTypes: ["Raw Obsidian Shards", "Volcanic Void-Glass Kris", "Crackling Chaos-Resonant Gems", "Scorched Blast-Powder"],
-    lairTypes: ["OBSIDIAN_VAULT", "BLACK_GLASS_FOUNDRY"],
-    speciesDistribution: [{ species: "Human", weight: 0.3 }, { species: "Saurian", weight: 0.4 }, { species: "Armadillo", weight: 0.3 }],
+    description: "Premier underworld crime syndicate of drug pushers, black-market weapons dealers, and contract assassination brokers. Operates behind legitimate burg fronts, digs subterranean smuggling tunnels, bribes gate guards, arms rioters for profit, and maintains high respect among municipal oligarchs.",
+    contrabandTypes: ["Euphoric Void-Lotus Narcotics", "Unregistered Black-Glass Arms", "Assassination Contracts", "Magistrate Bribe Ledgers"],
+    lairTypes: ["BUSINESS_FRONT", "SUBTERRANEAN_TUNNEL_FLUE", "BRIBED_GATE_VAULT"],
+    speciesDistribution: [{ species: "Human", weight: 0.4 }, { species: "Saurian", weight: 0.3 }, { species: "Armadillo", weight: 0.3 }],
     uniqueRoles: [
       {
-        role: "Master Void-Glass Lapidary",
-        weapon: "Fine-Edged Obsidian Scalpel & Hammer",
-        armor: "Asbestos-Weave Smelter Apron",
-        affinity: "finesse",
-        inventory: ["Pouch of Cut Obsidian Gemstones", "Diamond-Tipped Etching Chisel", "Pouch of 95 Caldera Gold"],
-        instinct: "METICULOUS",
-        temper: "COLD"
+        role: "Cartel Front Merchant (Magistrate's Confidant)",
+        weapon: "Concealed Obsidian Stiletto & Ring-Blade",
+        armor: "Tailored Silk Robe with Secret Pockets",
+        affinity: "charm",
+        inventory: ["Apothecary Shop Deed", "Bribed Magistrate Letter", "Pouch of 110 Caldera Gold"],
+        instinct: "CALCULATED",
+        temper: "SUAVE"
       },
       {
-        role: "Trench Shadow-Miner",
-        weapon: "Two-Handed Heavy Mining Pick",
-        armor: "Hardened Basalt-Plate Breastplate",
+        role: "Subterranean Tunnel Sapper",
+        weapon: "Serrated Trench Pick & Heavy Mattock",
+        armor: "Heavy Basalt Miner's Apron",
         affinity: "might",
-        inventory: ["Unrefined Black-Glass Cluster", "Glow-Lichen Lantern", "Pouch of 45 Silver"],
-        instinct: "STUBBORN",
+        inventory: ["Smuggling Tunnel Map", "Gatehouse Skeleton Key", "Pouch of 45 Silver"],
+        instinct: "STEALTHY",
         temper: "STOIC"
       }
     ]
@@ -389,40 +389,40 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
   {
     id: 10,
     name: "The Hedge Wizards",
-    type: "UNBOUND_COVEN",
+    type: "NOMAD_HEDGE_WIZARDS",
     originBurgId: 241, // Vulpus-Prime
     originCellId: 14380,
     originFactionId: 14, // Canopy Clans
-    bossName: "Arch-Hedge Master Malidore Thorn-Weaver",
-    bossTitle: "Keeper of the Unshackled Flame",
+    bossName: "Malidore Thorn-Weaver",
+    bossTitle: "Nomadic Sparkborn Wanderer",
     bossTraits: [
       { name: "Wild_Spark", modifier: 0.5 },
-      { name: "Unbound", modifier: 0.5 },
-      { name: "Heretic_Alchemist", modifier: 0.4 },
+      { name: "Solitary_Nomad", modifier: 0.5 },
+      { name: "Charm_Peddler", modifier: 0.4 },
       { name: "Elusive", modifier: 0.4 }
     ],
-    description: "An outlaw circle of unsanctioned magic users, hedge herbalists, and wild sparkborn fleeing the Mandate's null-iron shackles and inquisition fires.",
-    contrabandTypes: ["Unsealed Wild-Spark Scrolls", "Ward-Breaker Infusions", "Glowing Aether Concoctions", "Forbidden Runic Talismans"],
-    lairTypes: ["UNBOUND_SANCTUM", "WILD_SPARK_ALCHEMICAL_LAB"],
-    speciesDistribution: [{ species: "Plant-Folk", weight: 0.4 }, { species: "Human", weight: 0.4 }, { species: "Peacock", weight: 0.2 }],
+    description: "Solitary nomadic wanderers moving burg to burg across rural territories peddling charms (ranging from useless junk and useful remedies to chaotic wild surges and backfiring disasters). Never recruit or group up in covens; new wizards emerge when starving sparkborn learn survival on the road.",
+    contrabandTypes: ["Unsealed Wild-Spark Charms", "Curative Bramble Poultices", "Faulty Luck-Pebbles", "Unstable Arcane Alembics"],
+    lairTypes: ["ROADSIDE_HEDGE_WAGON", "WILD_BRAMBLE_CAMP"],
+    speciesDistribution: [{ species: "Human", weight: 0.5 }, { species: "Plant-Folk", weight: 0.3 }, { species: "Peacock", weight: 0.2 }],
     uniqueRoles: [
       {
-        role: "Unbound Wild-Spark Alchemist",
-        weapon: "Gnarled Rowan Wand & Acidic Glass Flasks",
-        armor: "Patchwork Runic Alchemical Robes",
-        affinity: "logic",
-        inventory: ["Phial of Unstable Spark-Essence", "Null-Breaking Herb Poultice", "Pouch of 75 Moon-Silver Shillings"],
-        instinct: "DEFIANT",
+        role: "Solitary Wandering Hedge Wizard",
+        weapon: "Carved Rowan Walking Staff & Flint Dagger",
+        armor: "Patchwork Travel Cloak & Burlap Pack",
+        affinity: "intuition",
+        inventory: ["Sack of Peddled Charms (Junk & Remedies)", "Wild Spark Flint", "Pouch of 25 Copper & Silver"],
+        instinct: "ELUSIVE",
         temper: "ECCENTRIC"
       },
       {
-        role: "Hedge Coven Apothecary",
-        weapon: "Carved Antler Dagger & Herbal Sprayer",
-        armor: "Tallow-Treated Woodland Mantle",
-        affinity: "intuition",
-        inventory: ["Forbidden Runic Grimoire Fragment", "Dried Spark-Thistle Herbs", "Pouch of 50 Gold"],
-        instinct: "CURIOUS",
-        temper: "COMPASSIONATE"
+        role: "Starving Spark-Nomad",
+        weapon: "Sharpened Ash Wand & Slingshot",
+        armor: "Threadbare Woolen Rags",
+        affinity: "reflex",
+        inventory: ["Handful of Painted Luck Pebbles", "Crust of Hardtack", "Pouch of 12 Copper Coins"],
+        instinct: "SURVIVALIST",
+        temper: "DESPERATE"
       }
     ]
   }
@@ -451,6 +451,110 @@ export function getLairPropDetails(lair: any) {
   const lairType = lair.lair_type || "BLACK_MARKET";
 
   switch (lairType) {
+    case "PUBLIC_TRADE_YARD":
+      return {
+        name: `Gilded Compass Public Trade Yard (${cartelName})`,
+        tags: ["wood", "stone", "harbor", "trade_yard", "public", "gilded_compass"],
+        hp: 240,
+        maxHp: 240,
+        description: "Sprawling open-air public trade yard and wharf equipped with merchant cranes, weigh-scales, and armed Hippo-Kin marines."
+      };
+    case "SHIPPING_DEPOT":
+      return {
+        name: `Meridian Freight Shipping Depot (${cartelName})`,
+        tags: ["wood", "stone", "depot", "cargo", "public"],
+        hp: 200,
+        maxHp: 200,
+        description: "Authorized commercial cargo transfer depot with weighing stations and public merchant offices."
+      };
+    case "SECRET_AERIE_YARD":
+      return {
+        name: `Secret Sky-Baron Aerie Yard (${cartelName})`,
+        tags: ["wood", "airship", "secret", "smuggler", "underworld"],
+        hp: 170,
+        maxHp: 170,
+        description: "Camouflaged cliffside airship mooring and cargo gantry hidden within cloud formations."
+      };
+    case "VERGE_SKY_DOCK":
+      return {
+        name: `The Verge Capital Sky Dock & Core Forge (${cartelName})`,
+        tags: ["metal", "airship", "capital_dock", "core_drive", "sky_dock"],
+        hp: 300,
+        maxHp: 300,
+        description: "A decommissioned dreadnought airship turned permanent sky dock near the Verge, featuring an aether branding forge for recruited captains."
+      };
+    case "COASTAL_PEAK_YARD":
+      return {
+        name: `Legion Twin-Peak Coastal Bastion & Capital Yard (${cartelName})`,
+        tags: ["stone", "metal", "fortress", "coastal", "mountain", "legion"],
+        hp: 350,
+        maxHp: 350,
+        description: "Imposing twin mountain-peak fortress overlooking coastal trade lanes, bristling with heavy ballistas, training grounds, and armed merchant docks."
+      };
+    case "MERC_TRADE_BASTION":
+      return {
+        name: `Legion Armed Forward Trade Bastion (${cartelName})`,
+        tags: ["stone", "metal", "trade_yard", "bastion", "mercenary"],
+        hp: 260,
+        maxHp: 260,
+        description: "Heavily fortified forward trade bastion established without municipal consent, defended by disciplined legion shock-troopers."
+      };
+    case "SECRET_AIRSHIP_HANGAR":
+      return {
+        name: `Covert Ghostwind Airship Hangar (${cartelName})`,
+        tags: ["stone", "airship", "hangar", "secret", "guerrilla"],
+        hp: 220,
+        maxHp: 220,
+        description: "Subterranean cliff hangar housing silent black-sailed airships secretly flying for the Guerrilla Clans."
+      };
+    case "CLAN_COVERT_REDOUBT":
+      return {
+        name: `Guerrilla Clan Hidden Redoubt (${cartelName})`,
+        tags: ["wood", "stone", "guerrilla", "secret", "mercenary"],
+        hp: 180,
+        maxHp: 180,
+        description: "Clandestine weapon depot and staging post routing mercenary spoils directly to Guerrilla Clan fighters."
+      };
+    case "BUSINESS_FRONT":
+      return {
+        name: `Obsidian Cartel Legitimate Business Front (${cartelName})`,
+        tags: ["wood", "stone", "shop", "front", "legitimate", "underworld"],
+        hp: 190,
+        maxHp: 190,
+        description: "High-end licensed apothecary and spice emporium masking subterranean narcotic laboratories and magistrate meeting rooms."
+      };
+    case "SUBTERRANEAN_TUNNEL_FLUE":
+      return {
+        name: `Subterranean Smuggling Tunnel & Gate Bypass (${cartelName})`,
+        tags: ["stone", "tunnel", "subterranean", "smuggler", "locked"],
+        hp: 180,
+        maxHp: 180,
+        description: "Reinforced underground flue burrowed beneath burg fortifications to smuggle weapons, narcotics, and assassins."
+      };
+    case "BRIBED_GATE_VAULT":
+      return {
+        name: `Bribed Municipal Gatehouse Safehouse (${cartelName})`,
+        tags: ["metal", "gate", "bribe", "vault", "underworld"],
+        hp: 200,
+        maxHp: 200,
+        description: "Hidden storehouse directly adjacent to the city gates, secured by paid-off watch sergeants."
+      };
+    case "ROADSIDE_HEDGE_WAGON":
+      return {
+        name: `Solitary Hedge Wizard Roadside Wagon (${cartelName})`,
+        tags: ["wood", "cloth", "wagon", "nomad", "arcane", "peddler"],
+        hp: 110,
+        maxHp: 110,
+        description: "Weather-worn gypsy wagon smelling of dried bramble and wild spark-smoke, peddling dubious charms to passing commoners."
+      };
+    case "WILD_BRAMBLE_CAMP":
+      return {
+        name: `Wandering Sparkborn Bramble Camp (${cartelName})`,
+        tags: ["wood", "nature", "camp", "nomad", "solitary"],
+        hp: 90,
+        maxHp: 90,
+        description: "A simple roadside lean-to where an unsanctioned hedge wizard rests between rural burgs."
+      };
     case "OBSIDIAN_VAULT":
       return {
         name: `Obsidian Cartel Deep Vault & Shard Cache (${cartelName})`,
@@ -680,13 +784,18 @@ export function generateUniqueOutlawOperative(lair: any, slotIndex: number): any
 
   // Species selection from syndicate distribution
   let species = "Human";
-  const roll = Math.random();
-  let cumulative = 0;
-  for (const s of def.speciesDistribution) {
-    cumulative += s.weight;
-    if (roll <= cumulative) {
-      species = s.species;
-      break;
+  if (cartelId === 1 && (slotIndex === 0 || lair.lair_type.includes("TRADE_YARD"))) {
+    // The Gilded Compass is ALWAYS captained by a Hippo
+    species = "Hippo";
+  } else {
+    const roll = Math.random();
+    let cumulative = 0;
+    for (const s of def.speciesDistribution) {
+      cumulative += s.weight;
+      if (roll <= cumulative) {
+        species = s.species;
+        break;
+      }
     }
   }
 
