@@ -337,3 +337,61 @@ export async function tagBurgCitizens(
     return 0;
   }
 }
+
+/**
+ * Turns a vulnerable or disgruntled citizen inside a burg into a Syndicate Inside Man
+ */
+export async function recruitInsideMan(
+  client: any,
+  settlementId: number,
+  cartelName: string,
+  burgName: string
+): Promise<{ name: string; profession: string } | null> {
+  try {
+    const candidateRes = await client.query(`
+      SELECT citizen_id, name, profession, temper
+      FROM population_demographics
+      WHERE settlement_id = $1
+        AND allegiance_status = 'CIVILIAN'
+        AND NOT (traits::text LIKE '%#InsideMan%')
+        AND (
+          temper IN ('DESPERATE', 'BITTER', 'GREEDY', 'VENGEFUL')
+          OR profession IN ('Disenfranchised Laborer', 'Gate Sentry', 'City Watchman', 'Merchant Trader', 'Blacksmith')
+        )
+      ORDER BY (CASE WHEN temper = 'DESPERATE' THEN 1 WHEN temper = 'GREEDY' THEN 2 ELSE 3 END), RANDOM()
+      LIMIT 1
+    `, [settlementId]);
+
+    if (candidateRes.rows.length === 0) return null;
+    const c = candidateRes.rows[0];
+
+    const tags = ['#InsideMan', '#SyndicateOperative', '#ContrabandContact'];
+    if (c.profession.includes('Sentry') || c.profession.includes('Watch')) {
+      tags.push('#BribedGateKeeper');
+    } else if (c.profession.includes('Merchant') || c.profession.includes('Trader')) {
+      tags.push('#FencedGoodsDealer');
+    }
+
+    const motiv = `Acting as the secret inside man for ${cartelName} in ${burgName}, facilitating smuggling flues and reporting watch patrol schedules.`;
+    const tagsJson = JSON.stringify(tags);
+
+    await client.query(`
+      UPDATE population_demographics
+      SET traits = (
+          SELECT jsonb_agg(DISTINCT elem)
+          FROM (
+              SELECT jsonb_array_elements_text(COALESCE(traits, '[]'::jsonb)) AS elem
+              UNION
+              SELECT jsonb_array_elements_text($1::jsonb) AS elem
+          ) t
+      ),
+      temper = 'COMPLICIT',
+      motivation = $2
+      WHERE citizen_id = $3
+    `, [tagsJson, motiv, c.citizen_id]);
+
+    return { name: c.name, profession: c.profession };
+  } catch (err) {
+    return null;
+  }
+}

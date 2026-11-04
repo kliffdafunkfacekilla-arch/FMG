@@ -1,5 +1,6 @@
 import { PoolClient } from "pg";
 import { getCartelLairType, ensureLairResidents } from "./outlawSyndicates";
+import { recruitInsideMan } from "./citizenPersonaHelper";
 
 export { getCartelLairType };
 
@@ -50,16 +51,34 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
         let recruiters = Math.floor(availableWorkers * 0.3) + 1;
         let hustlers = availableWorkers - recruiters;
 
-        // --- RECRUITING PHASE (Specifically Targeting Poor, High-Unrest Burgs) ---
+        // --- RECRUITING PHASE (Targeting Vulnerable, Impoverished or High-Unrest Burgs) ---
         for (let i = 0; i < recruiters; i++) {
-            // Desperate, impoverished peasants in rioting burgs eagerly seek outlaw shelter
-            const target = burgs.find(b => b.unrest >= 35 && (b.wealth < 350 || b.health < 70) && b.pop_null >= 12);
+            // Desperate, impoverished or hungry citizens seek outlaw coin and contraband shelter
+            const target = burgs.find(b => (b.unrest >= 5 || b.wealth < 1200 || b.health < 80 || b.food < (b.pop_null || 100) * 5) && (b.pop_null || 0) >= 12);
             if (target) {
-                const successChance = (target.unrest / 100) + (cartel.paragon?.traits?.some((t: any) => t.name === "Ruthless" || t.name === "Intimidating") ? 0.25 : 0.1);
+                const baseChance = target.unrest > 0 ? (target.unrest / 100) : 0.25;
+                const pTraitsStr = typeof cartel.paragon?.traits === 'string' ? cartel.paragon.traits : JSON.stringify(cartel.paragon?.traits || []);
+                const hasRuthless = pTraitsStr.includes("Ruthless") || pTraitsStr.includes("Intimidating");
+                const successChance = baseChance + (hasRuthless ? 0.25 : 0.15);
                 if (Math.random() < successChance) {
                     successfulRecruits++;
                     target.pop_null -= 12; // Absorb a unit of 12 starving laborers into the syndicate
                     await client.query(`UPDATE sim_burg_economy SET pop_null = pop_null - 12 WHERE burg_id = $1`, [target.burg_id]);
+
+                    // Turn an authentic receptive citizen in this burg into a Syndicate Inside Man
+                    const insideMan = await recruitInsideMan(client, target.burg_id, cartel.name, target.name || 'the province');
+                    if (insideMan) {
+                        await client.query(`
+                            INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
+                            VALUES ($1, 'CARTEL_INSIDE_MAN_RECRUITED', $2, 'MINOR', $3, $4, $5)
+                        `, [
+                            tick,
+                            `${cartel.name} established a covert foothold in ${target.name}: turned ${insideMan.name} (${insideMan.profession}) into an inside man!`,
+                            cartel.id,
+                            target.burg_id,
+                            loreDate
+                        ]);
+                    }
                 }
             }
         }
@@ -157,10 +176,18 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
                     const newLair = inserted.rows[0];
                     await ensureLairResidents(client, { ...newLair, cartel_name: cartel.name, cartel_type: cartel.type });
 
+                    const insideManRes = await client.query(
+                        `SELECT name, profession FROM population_demographics WHERE settlement_id = $1 AND traits::text LIKE '%#InsideMan%' LIMIT 1`,
+                        [lairBurg.burg_id]
+                    );
+                    const insideText = insideManRes.rows.length > 0 
+                        ? ` aided by inside operative ${insideManRes.rows[0].name} (${insideManRes.rows[0].profession}) who unlocked the cellar flues,`
+                        : '';
+
                     await client.query(
                         `INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
                          VALUES ($1, 'LAIR_ESTABLISHED', $2, 'MINOR', $3, $4, $5)`,
-                        [tick, `${cartel.name} established an independent ${lairType} in Burg ${lairBurg.name || lairBurg.burg_id} to siphon resources and traffic contraband!`, cartel.id, lairBurg.burg_id, loreDate]
+                        [tick, `${cartel.name} established an independent ${lairType} in Burg ${lairBurg.name || lairBurg.burg_id}${insideText} to siphon resources and traffic contraband!`, cartel.id, lairBurg.burg_id, loreDate]
                     );
                 } else if (existingLair.rows[0].faction_id !== cartel.id) {
                     const defender = existingLair.rows[0];
