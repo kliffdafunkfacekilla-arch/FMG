@@ -18,7 +18,7 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
   const activeWardensRes = await client.query("SELECT COUNT(*) as total FROM sim_agents WHERE role = 'Warden'");
   const wardenCount = parseInt(activeWardensRes.rows[0].total) || 0;
 
-  if (wardenCount < 7 && Math.random() < 0.35) {
+  if (wardenCount < 16 && Math.random() < 0.35) {
     // Query pre-rendered citizen pool for civilian Channelers, Adepts, or Sensitives
     const recruitRes = await client.query(`
       SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation
@@ -118,6 +118,15 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
 
     // --- PHASE B: TRAVELING OUTWARD TO SACRED GROVE ---
     else if (state === 'TRAVELING_TO_SEAL' || state === 'RETURNING_TO_SPIRE') {
+      if (state === 'TRAVELING_TO_SEAL' && (!targetCellId || !targetGroveId)) {
+        const endangeredGrove = await getWeakestSacredGrove(client);
+        if (endangeredGrove) {
+          targetGroveId = endangeredGrove.id;
+          targetCellId = endangeredGrove.cell_id;
+        } else {
+          targetCellId = CONVERGENCE_SPIRE_CELL;
+        }
+      }
       const dest = state === 'RETURNING_TO_SPIRE' ? CONVERGENCE_SPIRE_CELL : targetCellId;
       if (dest) {
         const moveResult = await stepTowardCell(client, locCellId, dest, 70);

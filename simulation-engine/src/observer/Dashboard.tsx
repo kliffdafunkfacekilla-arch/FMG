@@ -6,6 +6,7 @@ interface Faction {
   name: string;
   color: string;
   wealth?: number;
+  trait_aggression?: number;
 }
 
 interface FringeFaction {
@@ -115,11 +116,12 @@ const BIOME_COLORS: Record<number, string> = {
 // -------------------------------------------------------------
 // 1. MAP CANVAS COMPONENT
 // -------------------------------------------------------------
-function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCellId }: any) {
+function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCellId, selectedFactionId }: any) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const isDragging = useRef(false);
+  const dragStart = useRef({ x: 0, y: 0 });
   const lastMouse = useRef({ x: 0, y: 0 });
   const bounds = useRef({ minX: 0, maxX: 100, minY: 0, maxY: 100, baseScale: 1, baseOffX: 0, baseOffY: 0 });
 
@@ -170,15 +172,20 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCe
     cells.forEach((cell: Cell) => {
       if (!cell.geometry?.coordinates?.[0]) return;
       const coords = cell.geometry.coordinates[0];
+      const actualFactionId = economy[cell.id]?.faction_id || cell.faction_id;
+      const isSelectedFaction = selectedFactionId && actualFactionId === selectedFactionId;
 
       if (cell.elevation < 20) {
         ctx.fillStyle = "#0c182b";
       } else if (viewMode === "Biome") {
         ctx.fillStyle = BIOME_COLORS[cell.biome] || "#222";
       } else if (viewMode === "Political") {
-        const actualFactionId = economy[cell.id]?.faction_id || cell.faction_id;
         const f = actualFactionId ? factions[actualFactionId] : null;
-        ctx.fillStyle = f ? f.color + "cc" : "#1e2a1e";
+        if (selectedFactionId && !isSelectedFaction) {
+          ctx.fillStyle = f ? f.color + "33" : "#0d1420";
+        } else {
+          ctx.fillStyle = f ? f.color + "cc" : "#1e2a1e";
+        }
       } else if (viewMode === "Ecology") {
         const total = (cell.eco_plants || 0) + (cell.eco_prey || 0) + (cell.eco_predators || 0);
         ctx.fillStyle = `rgb(${Math.min(255, total)}, ${Math.min(255, (cell.eco_plants || 0) * 2)}, 50)`;
@@ -198,10 +205,14 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCe
       ctx.closePath();
       ctx.fill();
 
-      // Highlight selected cell
+      // Highlight selected cell or faction border
       if (cell.id === selectedCellId) {
-        ctx.strokeStyle = "#fbbf24";
+        ctx.strokeStyle = "#38bdf8";
         ctx.lineWidth = 3;
+        ctx.stroke();
+      } else if (isSelectedFaction) {
+        ctx.strokeStyle = "#fbbf24";
+        ctx.lineWidth = 1.5;
         ctx.stroke();
       } else {
         ctx.strokeStyle = "rgba(0, 0, 0, 0.25)";
@@ -211,7 +222,7 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCe
     });
 
     ctx.restore();
-  }, [cells, factions, viewMode, economy, zoom, offset, selectedCellId]);
+  }, [cells, factions, viewMode, economy, zoom, offset, selectedCellId, selectedFactionId]);
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
@@ -221,6 +232,7 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCe
 
   const handleMouseDown = (e: React.MouseEvent) => {
     isDragging.current = true;
+    dragStart.current = { x: e.clientX, y: e.clientY };
     lastMouse.current = { x: e.clientX, y: e.clientY };
   };
 
@@ -232,7 +244,38 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCe
     setOffset(o => ({ x: o.x + dx, y: o.y + dy }));
   };
 
-  const handleMouseUp = () => { isDragging.current = false; };
+  const handleMouseUp = (e: React.MouseEvent) => {
+    const moved = Math.hypot(e.clientX - dragStart.current.x, e.clientY - dragStart.current.y);
+    isDragging.current = false;
+
+    // Detect click if mouse barely moved
+    if (moved < 5 && onCellClick && canvasRef.current && bounds.current.baseScale) {
+      const canvas = canvasRef.current;
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      const worldX = (mouseX - canvas.width / 2 - offset.x) / zoom + canvas.width / 2;
+      const worldY = (mouseY - canvas.height / 2 - offset.y) / zoom + canvas.height / 2;
+      const mapX = (worldX - bounds.current.baseOffX) / bounds.current.baseScale;
+      const mapY = (worldY - bounds.current.baseOffY) / bounds.current.baseScale;
+
+      let nearestCell: any = null;
+      let minDist = Infinity;
+      for (const c of cells) {
+        if (c.center_x && c.center_y) {
+          const d = (c.center_x - mapX) ** 2 + (c.center_y - mapY) ** 2;
+          if (d < minDist) {
+            minDist = d;
+            nearestCell = c;
+          }
+        }
+      }
+      if (nearestCell && Math.sqrt(minDist) < 80) {
+        onCellClick(nearestCell.id);
+      }
+    }
+  };
 
   return (
     <div style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden" }}>
@@ -245,7 +288,7 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCe
         style={{ width: "100%", height: "100%", display: "block", cursor: "grab" }}
       />
       <div style={{ position: "absolute", bottom: 12, right: 12, background: "rgba(0,0,0,0.75)", padding: "4px 8px", borderRadius: 4, fontSize: 11, color: "#94a3b8" }}>
-        Pan: Click & Drag • Zoom: Wheel ({zoom.toFixed(1)}x)
+        Pan: Drag • Zoom: Wheel ({zoom.toFixed(1)}x) • Click Cell to Inspect
       </div>
     </div>
   );
@@ -264,6 +307,7 @@ export function Dashboard() {
   const [viewMode, setViewMode] = useState<ViewMode>("Political");
   const [isPlaying, setIsPlaying] = useState(false);
   const [isBatchRunning, setIsBatchRunning] = useState(false);
+  const [selectedFactionId, setSelectedFactionId] = useState<number | null>(null);
 
   // Sector Division State
   const [burgs, setBurgs] = useState<BurgItem[]>([]);
@@ -1329,15 +1373,46 @@ export function Dashboard() {
                 </select>
               </div>
 
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#64748b", borderBottom: "1px solid #1e293b", paddingBottom: 6, marginBottom: 8 }}>
-                Sovereign Factions ({state?.factions?.length || 0})
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#64748b", borderBottom: "1px solid #1e293b", paddingBottom: 6, marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>Sovereign Factions ({state?.factions?.length || 0})</span>
+                {selectedFactionId && (
+                  <button
+                    onClick={() => setSelectedFactionId(null)}
+                    style={{ background: "transparent", border: "none", color: "#38bdf8", fontSize: 10, cursor: "pointer", textDecoration: "underline" }}
+                  >
+                    Clear Filter
+                  </button>
+                )}
               </div>
-              {(state?.factions || []).map(f => (
-                <div key={f.id} style={{ padding: "6px 8px", borderRadius: 4, marginBottom: 4, background: "#0f172a", borderLeft: `4px solid ${f.color}`, fontSize: 12 }}>
-                  <div style={{ fontWeight: 700, color: "#f1f5f9" }}>{f.name}</div>
-                  <div style={{ fontSize: 10, color: "#64748b" }}>Treasury: {f.wealth?.toLocaleString() || 0} Wealth</div>
-                </div>
-              ))}
+              {(state?.factions || []).map(f => {
+                const isSelected = f.id === selectedFactionId;
+                const factionBurgs = burgs.filter(b => b.faction_id === f.id);
+                return (
+                  <div
+                    key={f.id}
+                    onClick={() => setSelectedFactionId(isSelected ? null : f.id)}
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: 6,
+                      marginBottom: 6,
+                      background: isSelected ? "rgba(56, 189, 248, 0.15)" : "#0f172a",
+                      borderLeft: `4px solid ${f.color}`,
+                      border: isSelected ? "1px solid #38bdf8" : "1px solid #1e293b",
+                      cursor: "pointer",
+                      transition: "all 0.15s ease"
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontWeight: 700, color: isSelected ? "#38bdf8" : "#f1f5f9", fontSize: 12 }}>{f.name}</span>
+                      <span style={{ fontSize: 10, color: "#64748b" }}>{factionBurgs.length} burgs</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2, display: "flex", justifyContent: "space-between" }}>
+                      <span>Treasury: <strong style={{ color: "#facc15" }}>{f.wealth?.toLocaleString() || 0}</strong></span>
+                      <span>Aggression: <strong style={{ color: "#f87171" }}>{f.trait_aggression || 5}</strong></span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
             <div style={{ flex: 1, position: "relative" }}>
@@ -1346,6 +1421,7 @@ export function Dashboard() {
                 factions={factionMap}
                 viewMode={viewMode}
                 economy={economyMap}
+                selectedFactionId={selectedFactionId}
                 onCellClick={(id: number) => {
                   const b = burgs.find(b => b.cell_id === id);
                   if (b) {

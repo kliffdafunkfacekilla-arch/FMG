@@ -425,21 +425,21 @@ export const FACTION_ACTIONS: FactionAction[] = [
         id: 'COMMISSION_WORLD_WONDER',
         name: 'Commission World Wonder',
         evaluate: (s) => {
-            if (s.treasury < 40000 || s.activeWars.length > 0) return { score: 0, reasoning: "" };
+            // World wonders are rare, legendary undertakings: must have immense treasury, 3+ cities, and tick >= 200
+            if (s.treasury < 60000 || s.activeWars.length > 0 || s.myBurgs.length < 3 || s.tick < 200) return { score: 0, reasoning: "" };
             const isAmbitious = s.leaderTraits.some(t => t.includes("AMBITIOUS") || t.includes("VAINGLORIOUS") || t.includes("MAGNIFICENT"));
+            if (!isAmbitious) return { score: 0, reasoning: "" };
 
-            let score = 25;
-            if (isAmbitious) score += 35;
+            // Can only trigger on rare epoch cadence
+            if (s.tick % 150 !== 0) return { score: 0, reasoning: "" };
 
-            const reasoning = isAmbitious 
-                ? "vainglorious ambition to etch their sovereign dynasty into eternity"
-                : "immense treasury surplus and unchallenged continental peace";
-
-            return { score: Math.max(0, score), reasoning };
+            let score = 35;
+            const reasoning = "vainglorious ambition to etch their sovereign dynasty into eternity with an epochal World Wonder";
+            return { score, reasoning };
         },
         execute: async (s, client, reasoning) => {
-            await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 10000) WHERE id = $1", [s.id]);
-            await client.query("UPDATE sim_burg_economy SET unrest = 0 WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b => b.burg_id)]);
+            await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 40000) WHERE id = $1", [s.id]);
+            await client.query("UPDATE sim_burg_economy SET unrest = GREATEST(0, unrest - 15) WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b => b.burg_id)]);
             return `🏛️ WORLD WONDER ERECTED: Driven by ${reasoning}, ${s.leaderTitle} ${s.leaderName} of ${s.name} completed an awe-inspiring World Wonder, permanently immortalizing their reign!`;
         }
     }

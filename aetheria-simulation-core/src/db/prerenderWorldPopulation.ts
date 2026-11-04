@@ -273,23 +273,28 @@ export async function prerenderWorldPopulation() {
     for (let idx = 0; idx < burgCount; idx++) {
       const burg = burgsRes.rows[idx];
 
+      const progress = burgCount > 1 ? idx / (burgCount - 1) : 0;
       let realPop = 0;
-      if (idx < 10) {
-        const ratio = 1 - (idx / 10);
-        realPop = Math.round(35000 + ratio * 40000);
-      } else if (idx < 45) {
-        const ratio = 1 - ((idx - 10) / 35);
-        realPop = Math.round(10000 + ratio * 15000);
-      } else if (idx < 165) {
-        const ratio = 1 - ((idx - 45) / 120);
-        realPop = Math.round(2000 + ratio * 6000);
+      if (progress < 0.15) {
+        // Top Tier Cities / Capitals: 35k - 75k
+        const t = progress / 0.15;
+        realPop = Math.round(75000 - t * 40000);
+      } else if (progress < 0.40) {
+        // Major Towns: 12k - 35k
+        const t = (progress - 0.15) / 0.25;
+        realPop = Math.round(35000 - t * 23000);
+      } else if (progress < 0.75) {
+        // Towns: 3k - 12k
+        const t = (progress - 0.40) / 0.35;
+        realPop = Math.round(12000 - t * 9000);
       } else {
-        const ratio = 1 - ((idx - 165) / 180);
-        realPop = Math.round(300 + ratio * 1200);
+        // Villages / Hamlets: 800 - 3k
+        const t = (progress - 0.75) / 0.25;
+        realPop = Math.round(3000 - t * 2200);
       }
 
-      // Strictly ensure divisible by 12
-      realPop = Math.round(realPop / 12) * 12;
+      // Strictly ensure divisible by 12 and positive
+      realPop = Math.max(120, Math.round(realPop / 12) * 12);
       const adultRecordCount = realPop / 12;
       // Exactly 1 child record for every 4 adult records (12 children for every 48 adults)
       const childRecordCount = Math.max(1, Math.floor(adultRecordCount / 4));

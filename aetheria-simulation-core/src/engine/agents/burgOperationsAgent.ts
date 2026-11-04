@@ -247,7 +247,7 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
             wLux = Math.max(0, productiveWorkers - wFood - wMats);
         }
 
-        const foodYieldPerWorker = 22 + (urbanTier * 4);
+        const foodYieldPerWorker = 48 + (urbanTier * 6);
         let foodProduced = Math.floor(wFood * foodYieldPerWorker);
         let luxProduced = Math.floor(wLux * (3 + urbanTier * 2));
         
@@ -287,17 +287,26 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
         } catch (e) {}
 
 
-        let milPopEquivalent = (military.infantry || 0) * 100 + 
-                               (military.ranged || 0) * 200 + 
-                               (military.mounted || 0) * 300 + 
-                               (military.airship || 0) * 400 + 
-                               (military.mage || 0) * 1200;
+        const milInfantry = (military.infantry || military.footmen || military.militia || 0);
+        const milRanged = (military.ranged || military.archers || 0);
+        const milMounted = (military.mounted || military.cavalry || 0);
+        const milAirship = (military.airship || 0);
+        const milMage = (military.mage || 0);
+
+        let milRationUpkeep = Math.round(
+            milInfantry * 1.2 +
+            milRanged * 1.2 +
+            milMounted * 2.0 +
+            milAirship * 2.5 +
+            milMage * 2.0
+        );
                                
-        foodDelta -= milPopEquivalent;
+        foodDelta -= milRationUpkeep;
         
-        let healthDelta = wCivil * 2;
-        let unrestDelta = -(wSoc * 2);
-        let crimeDelta = -(wSec * 2);
+        // Realistic civil equilibrium: dedicated civic workers soften unrest/crime without instantly nuking it to 0
+        let healthDelta = Math.min(2, Math.max(-2, Math.floor(wCivil * 0.08) - (pop > 8000 ? 1 : 0)));
+        let unrestDelta = Math.min(2, Math.max(-2, -Math.floor(wSoc * 0.08) + (pop > 10000 ? 1 : 0)));
+        let crimeDelta = Math.min(2, Math.max(-2, -Math.floor(wSec * 0.08) + (urbanTier >= 3 ? 1 : 0)));
         
         // Death and Desertion from Starvation
         let starvationDeaths = 0;
@@ -506,9 +515,22 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
             urbanTier += 1; // Upgrades to City / Metropolis
         }
 
-        // Apply Final Life/Death Diffs
-        const newFood = Math.floor(Math.max(0, (burg.food || 0) + foodDelta));
-        const newWealth = Math.floor(Math.max(0, (burg.wealth || 0) + luxProduced));
+        // Apply Final Life/Death Diffs with Granary Spoilage & Wealth Circulation
+        let newFood = Math.floor(Math.max(0, (burg.food || 0) + foodDelta));
+        let newWealth = Math.floor(Math.max(0, (burg.wealth || 0) + luxProduced));
+
+        // Granary Spoilage: Excess grain past 35 days reserves naturally rots
+        const maxGranary = Math.max(1200, pop * 30);
+        if (newFood > maxGranary) {
+            newFood -= Math.floor((newFood - maxGranary) * 0.04);
+        }
+
+        // Wealth Circulation: Currency circulates into imports, commerce maintenance, and wear
+        const maxCommercialReserves = Math.max(800, pop * 15);
+        if (newWealth > maxCommercialReserves) {
+            newWealth -= Math.floor((newWealth - maxCommercialReserves) * 0.03);
+        }
+
         const newHealth = Math.floor(Math.min(100, Math.max(0, (burg.health || 100) + healthDelta)));
         const newUnrest = Math.floor(Math.min(100, Math.max(0, (burg.unrest || 0) + unrestDelta)));
         const newCrime = Math.floor(Math.min(100, Math.max(0, (burg.crime_rate || 0) + crimeDelta)));
@@ -523,7 +545,9 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
                 burg_id: burg.burg_id,
                 lore_date: loreDate
             });
-            await tagBurgCitizens(client, burg.burg_id, ['#FamineStricken', '#DesperateRationing'], 'DESPERATE', `Desperately searching for grain in ${burg.name} after severe famine struck.`, null, 6);
+            if (tick % 5 === 0) {
+                await tagBurgCitizens(client, burg.burg_id, ['#FamineStricken', '#DesperateRationing'], 'DESPERATE', `Desperately searching for grain in ${burg.name} after severe famine struck.`, null, 6);
+            }
         } else if (newFood === 0 && (burg.food || 0) > 0) {
             burgEvents.push({
                 tick,
@@ -533,7 +557,9 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
                 burg_id: burg.burg_id,
                 lore_date: loreDate
             });
-            await tagBurgCitizens(client, burg.burg_id, ['#FamineStricken', '#BreadRioter'], 'ANGRY', `Threatening to storm the municipal granaries of ${burg.name} as bread supplies ran out.`, '%laborer%', 4);
+            if (tick % 5 === 0) {
+                await tagBurgCitizens(client, burg.burg_id, ['#FamineStricken', '#BreadRioter'], 'ANGRY', `Threatening to storm the municipal granaries of ${burg.name} as bread supplies ran out.`, '%laborer%', 4);
+            }
         }
 
         if (urbanTier > (burg.urban_tier || 1)) {

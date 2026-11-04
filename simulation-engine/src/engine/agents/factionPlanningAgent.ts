@@ -72,8 +72,8 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
         // Collect all active macro tags across the faction's territories
         const macroTagsSet = new Set<string>();
         for (const b of myBurgs) {
-            let size = 1; if (b.pop_null > 500) size = 2; if (b.pop_null > 2000) size = 3; if (b.pop_null >= 5000) size = 4 + Math.floor((b.pop_null - 5000) / 5000);
-            grossIncome += 200 * Math.pow(2, Math.min(size - 1, 6)) + (b.pop_null > 20000 ? Math.floor(b.pop_null / 10) : 0);
+            // Balanced provincial taxation: 10-60 gold per burg based on population & urban tier
+            grossIncome += Math.floor(12 + Math.min(80, (b.pop_null || 0) * 0.015));
             avgUnrest += b.unrest || 0;
             avgHealth += b.health || 100;
             avgCrime += b.crime_rate || 0;
@@ -89,11 +89,20 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
         }
 
         for (const u of myUnits) {
-            totalUpkeep += WAGES[u.unit_type] || 100;
+            totalUpkeep += Math.min(50, WAGES[u.unit_type] ? Math.floor(WAGES[u.unit_type] / 4) : 25);
         }
+
+        // Court & administrative bureaucracy overhead (scales with empire size)
+        totalUpkeep += myBurgs.length * 6;
 
         const netIncome = grossIncome - totalUpkeep;
         let newTreasury = Math.max(0, (Number(f.treasury) || 0) + netIncome);
+
+        // Empire administrative decay (prevents runaway treasury inflation beyond 50k)
+        if (newTreasury > 15000) {
+            const adminDecay = Math.floor((newTreasury - 15000) * 0.02);
+            newTreasury -= adminDecay;
+        }
 
         const myCounselors = paragons.filter((p: any) => p.faction_id === f.id && p.is_counselor);
         let avgSurv = 1.0, avgProt = 1.0;

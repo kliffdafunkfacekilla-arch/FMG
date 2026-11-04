@@ -13,6 +13,8 @@ export async function enhanceAllCriminalSyndicates() {
       ALTER TABLE sim_fringe_lairs ADD COLUMN IF NOT EXISTS resident_npc_ids TEXT[] DEFAULT '{}';
     `);
 
+    await client.query(`ALTER TABLE sim_npc_instances ALTER COLUMN role TYPE VARCHAR(120)`);
+
     // 2. Upsert all 10 Outlaw Syndicates
     console.log("Upserting 10 Criminal Syndicates into sim_outlaw_factions...");
     for (const syn of OUTLAW_SYNDICATES) {
@@ -31,7 +33,9 @@ export async function enhanceAllCriminalSyndicates() {
           type = EXCLUDED.type,
           origin_cell_id = EXCLUDED.origin_cell_id,
           description = EXCLUDED.description,
-          contraband_types = EXCLUDED.contraband_types
+          contraband_types = EXCLUDED.contraband_types,
+          manpower = EXCLUDED.manpower,
+          wealth = EXCLUDED.wealth
       `, [syn.id, syn.name, syn.type, actualCellId, syn.description, syn.contrabandTypes]);
 
       // Reset sequence if needed
