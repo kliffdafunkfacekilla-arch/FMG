@@ -250,6 +250,39 @@ observerRouter.get("/filtered_events", async (req, res) => {
   }
 });
 
+// Get notable citizens in a burg, highlighting their active narrative tags and emotional states
+observerRouter.get("/burg_citizens", async (req, res) => {
+  try {
+    const { burg_id, limit = 20 } = req.query;
+    if (!burg_id) {
+      return res.status(400).json({ error: "burg_id is required" });
+    }
+    const citizensRes = await pool.query(`
+      SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation, traits, life_stage, age
+      FROM population_demographics
+      WHERE settlement_id = $1 AND allegiance_status = 'CIVILIAN'
+      ORDER BY 
+        CASE WHEN traits::text LIKE '%#%' THEN 0 ELSE 1 END,
+        citizen_id ASC
+      LIMIT $2
+    `, [Number(burg_id), Math.min(Number(limit), 50)]);
+
+    const paragonsRes = await pool.query(`
+      SELECT id, name, title, traits, corruption_score
+      FROM sim_paragons
+      WHERE burg_id = $1
+    `, [Number(burg_id)]);
+
+    res.json({
+      burg_id: Number(burg_id),
+      citizens: citizensRes.rows,
+      paragons: paragonsRes.rows
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 observerRouter.post("/reset", async (req, res) => {
   if (tickInProgress) {
     return res.status(429).json({ error: "Cannot reset while a tick is in progress." });

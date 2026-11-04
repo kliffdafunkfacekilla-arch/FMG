@@ -152,5 +152,69 @@ export const FACTION_ACTIONS: FactionAction[] = [
         name: 'Declare Golden Age',
         evaluate: (s) => { if (s.treasury < 20000 || s.avgUnrest > 5 || s.avgHealth < 90) return 0; return 50; },
         execute: async (s, client) => { await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 15000) WHERE id = $1", [s.id]); await client.query("UPDATE sim_burg_economy SET wealth = wealth + 100, food = food + 1000 WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b=>b.burg_id)]); return `A flourishing renaissance of art and culture has begun! ${s.name} has entered a spectacular Golden Age!`; }
+    },
+
+    {
+        id: 'FORTIFY_BORDER_CITADEL',
+        name: 'Fortify Border Citadel',
+        evaluate: (s) => { return s.treasury > 1200 && s.perceivedDefense < 80 ? 45 + s.aggression : 0; },
+        execute: async (s, client) => {
+            await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 800) WHERE id = $1", [s.id]);
+            await client.query("UPDATE sim_burg_economy SET crime_rate = GREATEST(0, crime_rate - 10) WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b=>b.burg_id)]);
+            return `Sovereign ${s.leaderName} financed the fortification of stone ramparts and watch bastions along the frontier borders of ${s.name}.`;
+        }
+    },
+
+    {
+        id: 'EXPAND_SPY_NETWORK',
+        name: 'Expand Shadow Spy Network',
+        evaluate: (s) => { return s.validNeighbors.length > 0 && s.treasury > 800 ? 42 + Math.floor(Math.random() * 15) : 0; },
+        execute: async (s, client) => {
+            const targetId = s.validNeighbors[Math.floor(Math.random() * s.validNeighbors.length)];
+            await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 400) WHERE id = $1", [s.id]);
+            return `${s.leaderName} expanded their royal spy network, embedding covert shadow informers within the borders of Faction ${targetId}.`;
+        }
+    },
+
+    {
+        id: 'COMMISSION_ALCHEMICAL_STOCKPILE',
+        name: 'Commission Alchemical Stockpile',
+        evaluate: (s) => { return s.magic >= 5 && s.treasury > 1000 ? 46 : 0; },
+        execute: async (s, client) => {
+            await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 600) WHERE id = $1", [s.id]);
+            await client.query("UPDATE sim_burg_economy SET health = LEAST(100, health + 6) WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b=>b.burg_id)]);
+            return `${s.name} commissioned court alchemists to distill emergency stockpiles of dragon-fire pitch and curative draughts.`;
+        }
+    },
+
+    {
+        id: 'HOLD_CORONATION_JOUST',
+        name: 'Hold Grand Tourney and Joust',
+        evaluate: (s) => { return s.treasury > 1500 && s.avgUnrest < 35 && s.activeWars.length === 0 ? 38 + Math.floor(Math.random() * 20) : 0; },
+        execute: async (s, client) => {
+            await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 700) WHERE id = $1", [s.id]);
+            await client.query("UPDATE sim_burg_economy SET unrest = GREATEST(0, unrest - 12) WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b=>b.burg_id)]);
+            return `${s.leaderName} proclaimed a grand chivalric tournament and joust, inspiring knightly valor and courtly prestige across ${s.name}.`;
+        }
+    },
+
+    {
+        id: 'ENFORCE_INQUISITORIAL_EDICT',
+        name: 'Enforce Inquisitorial Edict',
+        evaluate: (s) => { return s.magic > 6 && s.avgUnrest > 20 ? 48 : 0; },
+        execute: async (s, client) => {
+            await client.query("UPDATE sim_burg_economy SET crime_rate = GREATEST(0, crime_rate - 8), unrest = LEAST(100, unrest + 5) WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b=>b.burg_id)]);
+            return `${s.leaderName} dispatched state inquisitors across ${s.name} to hunt rogue sorcerers and unregistered occult cults.`;
+        }
+    },
+
+    {
+        id: 'ROYAL_HIGHWAY_PATROL',
+        name: 'Royal Highway Patrol',
+        evaluate: (s) => { return s.activeWars.length === 0 ? 35 : 0; },
+        execute: async (s, client) => {
+            await client.query("UPDATE sim_burg_economy SET crime_rate = GREATEST(0, crime_rate - 5) WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b=>b.burg_id)]);
+            return `${s.leaderName} deployed mounted royal marshals to secure trade routes and deter bandits along the king's highways in ${s.name}.`;
+        }
     }
 ];

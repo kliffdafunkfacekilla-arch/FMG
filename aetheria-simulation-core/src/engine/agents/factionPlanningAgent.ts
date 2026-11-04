@@ -94,10 +94,7 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
         const state = factionStates.get(f.id);
         if (!state || state.myBurgs.length === 0) continue;
 
-        // Bureaucratic Delay (Only evaluate full Action Pool periodically)
-        if (tick % 3 !== f.id % 3) continue; 
-
-        // Evaluate all actions
+        // Evaluate all actions (every sovereign faction leader acts daily)
         const scoredActions: { action: FactionAction, score: number }[] = [];
         for (const action of FACTION_ACTIONS) {
             const score = action.evaluate(state);
