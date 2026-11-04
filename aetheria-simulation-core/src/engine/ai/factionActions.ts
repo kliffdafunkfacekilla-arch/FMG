@@ -28,193 +28,239 @@ export interface FactionAction {
 
 export const FACTION_ACTIONS: FactionAction[] = [
 
+    // ── 1. MILITARY MOBILIZATION & GARRISON RECRUITMENT ─────────────────────
     {
-        id: 'MINT_CURRENCY',
-        name: 'Mint Fiat Currency',
-        evaluate: (s) => { return s.treasury < 100 && s.economy > 5 ? 70 : 0; },
-        execute: async (s, client) => { await client.query("UPDATE sim_factions SET treasury = treasury + 1000 WHERE id = $1", [s.id]); await client.query("UPDATE sim_burg_economy SET unrest = LEAST(100, unrest + 10), wealth = GREATEST(0, wealth - 10) WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b=>b.burg_id)]); return `${s.leaderName} ordered the mass minting of fiat currency to save the treasury.`; }
-    },
-
-    {
-        id: 'TAX_RELIEF',
-        name: 'Tax Relief',
-        evaluate: (s) => { return s.treasury > 3000 && s.avgUnrest > 25 ? 60 + s.economy : 0; },
-        execute: async (s, client) => { await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 800) WHERE id = $1", [s.id]); await client.query("UPDATE sim_burg_economy SET unrest = GREATEST(0, unrest - 15) WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b=>b.burg_id)]); return `${s.leaderName} issued widespread tax relief, buying the adoration of the populace.`; }
-    },
-
-    {
-        id: 'SUBSIDIZE_AGRICULTURE',
-        name: 'Subsidize Agriculture',
-        evaluate: (s) => { return s.treasury > 500 && s.avgHealth < 70 ? 55 + (s.economy * 2) : 0; },
-        execute: async (s, client) => { await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 400) WHERE id = $1", [s.id]); await client.query("UPDATE sim_burg_economy SET food = food + 1000, health = LEAST(100, health + 10) WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b=>b.burg_id)]); return `${s.name} heavily subsidized the farming sector, flooding the markets with cheap food.`; }
-    },
-
-    {
-        id: 'FUND_PUBLIC_WORKS',
-        name: 'Fund Public Works',
-        evaluate: (s) => { return s.treasury > 2000 && s.economy > 6 && s.avgUnrest < 20 ? 50 : 0; },
-        execute: async (s, client) => { await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 1000) WHERE id = $1", [s.id]); await client.query("UPDATE sim_burg_economy SET wealth = wealth + 50, health = LEAST(100, health + 5) WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b=>b.burg_id)]); return `${s.name} initiated massive infrastructure and public works projects.`; }
-    },
-
-    {
-        id: 'MUSTER_MILITIA',
-        name: 'Muster Militia',
-        evaluate: (s) => { return s.activeWars.length > 0 && s.perceivedDefense < 5 && s.treasury > 1000 ? 80 : 0; },
-        execute: async (s, client) => { 
-            await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 1000) WHERE id = $1", [s.id]); 
-            await client.query(`
-                UPDATE sim_burg_economy 
-                SET military_forces = jsonb_set(COALESCE(military_forces, '{}'::jsonb), '{footmen}', (COALESCE((military_forces->>'footmen')::int, 0) + 100)::text::jsonb) 
-                WHERE burg_id = ANY($1::int[])`, [s.myBurgs.map(b=>b.burg_id)]); 
-            return `Desperate for defense, ${s.name} spent their treasury to muster thousands of peasant militia to the front lines.`; 
+        id: 'MUSTER_MILITARY_FORCES',
+        name: 'Muster Military Forces',
+        evaluate: (s) => {
+            // High priority if at war or military is low
+            if (s.activeWars.length > 0) return 85;
+            if (s.perceivedDefense < 40 && s.treasury > 1000) return 70 + s.aggression;
+            return s.treasury > 2000 && (s.tick + s.id) % 4 === 0 ? 55 + s.aggression : 0;
+        },
+        execute: async (s, client) => {
+            await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 600) WHERE id = $1", [s.id]);
+            const targetBurg = s.myBurgs[Math.floor(Math.random() * s.myBurgs.length)];
+            if (targetBurg) {
+                await client.query(`
+                    UPDATE sim_burg_economy
+                    SET military_forces = '{"footmen": 12, "archers": 6, "cavalry": 4}'
+                    WHERE burg_id = $1
+                `, [targetBurg.burg_id]);
+                return `🛡️ MOBILIZATION: ${s.name} recruited 22 combat detachments (armored footmen, archers, cavalry) to garrison the fortress at Burg ${targetBurg.name || targetBurg.burg_id}!`;
+            }
+            return null;
         }
     },
 
+    // ── 2. BORDER SKIRMISH & TENSION ESCALATION ─────────────────────────────
     {
-        id: 'ESTABLISH_TRADE_ARTERY',
-        name: 'Establish Trade Artery',
-        evaluate: (s) => { return s.economy >= 7 && s.treasury > 3000 && s.activeWars.length === 0 ? 60 : 0; },
-        execute: async (s, client) => { await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 1500) WHERE id = $1", [s.id]); await client.query("UPDATE sim_factions SET treasury = treasury + 2500 WHERE id = $1", [s.id]); return `${s.name} opened a massive, lucrative new trade artery with neighboring lands.`; }
+        id: 'BORDER_SKIRMISH',
+        name: 'Border Skirmish',
+        evaluate: (s) => {
+            if (s.validNeighbors.length === 0 || s.activeWars.length > 0) return 0;
+            return s.aggression >= 5 && (s.tick + s.id) % 3 === 0 ? 65 + s.aggression : 0;
+        },
+        execute: async (s, client) => {
+            const enemyId = s.validNeighbors[Math.floor(Math.random() * s.validNeighbors.length)];
+            const enemyFactionRes = await client.query("SELECT name FROM sim_factions WHERE id = $1", [enemyId]);
+            const enemyName = enemyFactionRes.rows[0]?.name || `Faction ${enemyId}`;
+
+            await client.query(`
+                INSERT INTO sim_diplomacy (faction_a_id, faction_b_id, status, tension)
+                VALUES ($1, $2, 'COLD_WAR', 75)
+                ON CONFLICT (faction_a_id, faction_b_id) DO UPDATE
+                SET tension = LEAST(100, sim_diplomacy.tension + 20),
+                    status = CASE WHEN sim_diplomacy.tension + 20 >= 100 THEN 'WAR' ELSE sim_diplomacy.status END
+            `, [s.id, enemyId]);
+
+            return `⚔️ BORDER SKIRMISH: Outriders of ${s.name} clashed with frontier patrols of ${enemyName} along contested border markers, sending tensions soaring!`;
+        }
     },
 
-    {
-        id: 'COMMISSION_WORLD_WONDER',
-        name: 'Commission World Wonder',
-        evaluate: (s) => { return s.treasury >= 15000 && s.activeWars.length === 0 ? 85 : 0; },
-        execute: async (s, client) => { await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 10000) WHERE id = $1", [s.id]); await client.query("UPDATE sim_burg_economy SET unrest = 0 WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b=>b.burg_id)]); return `${s.name} completed construction on a magnificent World Wonder, cementing their historical legacy.`; }
-    },
-
-    {
-        id: 'FOUND_RELIGION',
-        name: 'Found State Religion',
-        evaluate: (s) => { return s.magic >= 8 && s.avgUnrest > 30 && s.treasury > 2000 ? 65 : 0; },
-        execute: async (s, client) => { await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 1500) WHERE id = $1", [s.id]); await client.query("UPDATE sim_burg_economy SET unrest = GREATEST(0, unrest - 20), crime_rate = GREATEST(0, crime_rate - 15) WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b=>b.burg_id)]); return `${s.leaderName} formally established a new State Religion, unifying the spiritual identity of the faction.`; }
-    },
-
-    {
-        id: 'ARRANGE_ROYAL_MARRIAGE',
-        name: 'Arrange Royal Marriage',
-        evaluate: (s) => { return s.validNeighbors.length > 0 && s.treasury > 1000 && s.activeWars.length === 0 && Math.random() > 0.5 ? 55 : 0; },
-        execute: async (s, client) => { const enemyId = s.validNeighbors[Math.floor(Math.random() * s.validNeighbors.length)]; await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 800) WHERE id = $1", [s.id]); await client.query("INSERT INTO sim_diplomacy (faction_a_id, faction_b_id, status, tension) VALUES ($1, $2, 'PEACE', 0) ON CONFLICT (faction_a_id, faction_b_id) DO UPDATE SET tension = 0, status='PEACE'", [s.id, enemyId]); return `A grand Royal Marriage was arranged between ${s.name} and Faction ${enemyId}, forging a powerful diplomatic bond.`; }
-    },
-
-    {
-        id: 'HOST_GRAND_FEAST',
-        name: 'Host Grand Feast',
-        evaluate: (s) => { return s.treasury > 1500 && s.avgUnrest > 15 ? 45 : 0; },
-        execute: async (s, client) => { await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 1000) WHERE id = $1", [s.id]); await client.query("UPDATE sim_burg_economy SET unrest = GREATEST(0, unrest - 20) WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b=>b.burg_id)]); return `${s.leaderName} hosted a lavish Grand Feast for the nobility, greatly increasing their political capital.`; }
-    },
-
-    {
-        id: 'FABRICATE_CASUS_BELLI',
-        name: 'Fabricate Casus Belli',
-        evaluate: (s) => { return s.aggression > 5 && s.validNeighbors.length > 0 && s.activeWars.length === 0 && s.treasury > 800 ? 55 : 0; },
-        execute: async (s, client) => { const enemyId = s.validNeighbors[Math.floor(Math.random() * s.validNeighbors.length)]; await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 500) WHERE id = $1", [s.id]); await client.query("INSERT INTO sim_diplomacy (faction_a_id, faction_b_id, status, tension) VALUES ($1, $2, 'COLD_WAR', 80) ON CONFLICT (faction_a_id, faction_b_id) DO UPDATE SET tension = LEAST(100, sim_diplomacy.tension + 30)", [s.id, enemyId]); return `Diplomats from ${s.name} fabricated historical claims on the borders of Faction ${enemyId}, laying the groundwork for war.`; }
-    },
-
+    // ── 3. FORMAL ALL-OUT WAR DECLARATION ────────────────────────────────────
     {
         id: 'DECLARE_WAR',
         name: 'Declare War',
-        evaluate: (s) => { 
-            // Only declare war if highly aggressive, have money to fund it, AND have a strong military!
-            return s.aggression >= 7 && s.validNeighbors.length > 0 && s.activeWars.length === 0 && s.perceivedDefense > 50 && s.treasury > 2000 ? 70 : 0; 
+        evaluate: (s) => {
+            // Aggressive factions declare war when they have border neighbors and sufficient forces
+            if (s.validNeighbors.length === 0 || s.activeWars.length > 0) return 0;
+            return s.aggression >= 6 && s.perceivedDefense >= 20 && s.treasury > 1500 ? 75 + s.aggression : 0;
         },
-        execute: async (s, client) => { const enemyId = s.validNeighbors[Math.floor(Math.random() * s.validNeighbors.length)]; await client.query("INSERT INTO sim_diplomacy (faction_a_id, faction_b_id, status, tension) VALUES ($1, $2, 'WAR', 100) ON CONFLICT (faction_a_id, faction_b_id) DO UPDATE SET status = 'WAR', tension = 100", [s.id, enemyId]); return `${s.leaderName} felt confident in their military superiority and formally declared ALL-OUT WAR on Faction ${enemyId}!`; }
-    },
+        execute: async (s, client) => {
+            const enemyId = s.validNeighbors[Math.floor(Math.random() * s.validNeighbors.length)];
+            const enemyFactionRes = await client.query("SELECT name FROM sim_factions WHERE id = $1", [enemyId]);
+            const enemyName = enemyFactionRes.rows[0]?.name || `Faction ${enemyId}`;
 
-    {
-        id: 'SUE_FOR_PEACE',
-        name: 'Sue for Peace',
-        evaluate: (s) => { return s.activeWars.length > 0 && (s.treasury < 500 || s.perceivedDefense < 20 || s.avgUnrest > 40) ? 90 : 0; },
-        execute: async (s, client) => { 
-            const enemyId = s.activeWars[0];
-            await client.query("UPDATE sim_diplomacy SET status = 'PEACE', tension = 30 WHERE (faction_a_id = $1 AND faction_b_id = $2) OR (faction_a_id = $2 AND faction_b_id = $1)", [s.id, enemyId]);
-            return `Exhausted and battered by the ongoing conflict, ${s.name} officially sued for peace with Faction ${enemyId}, ending the war.`; 
+            await client.query(`
+                INSERT INTO sim_diplomacy (faction_a_id, faction_b_id, status, tension)
+                VALUES ($1, $2, 'WAR', 100)
+                ON CONFLICT (faction_a_id, faction_b_id) DO UPDATE
+                SET status = 'WAR', tension = 100
+            `, [s.id, enemyId]);
+
+            return `🚩 ALL-OUT WAR DECLARED: ${s.leaderName} of ${s.name} declared ALL-OUT WAR against ${enemyName}, ordering vanguard legions to march on the border!`;
         }
     },
 
+    // ── 4. MUTUAL DEFENSE ALLIANCE PACT ──────────────────────────────────────
+    {
+        id: 'FORM_ALLIANCE',
+        name: 'Sign Alliance Treaty',
+        evaluate: (s) => {
+            if (s.validNeighbors.length === 0 || s.activeWars.length > 0) return 0;
+            return s.economy >= 6 && (s.tick + s.id) % 4 === 0 ? 58 + s.economy : 0;
+        },
+        execute: async (s, client) => {
+            const allyId = s.validNeighbors[Math.floor(Math.random() * s.validNeighbors.length)];
+            const allyRes = await client.query("SELECT name FROM sim_factions WHERE id = $1", [allyId]);
+            const allyName = allyRes.rows[0]?.name || `Faction ${allyId}`;
+
+            await client.query(`
+                INSERT INTO sim_diplomacy (faction_a_id, faction_b_id, status, tension)
+                VALUES ($1, $2, 'ALLIANCE', 0)
+                ON CONFLICT (faction_a_id, faction_b_id) DO UPDATE
+                SET status = 'ALLIANCE', tension = 0
+            `, [s.id, allyId]);
+
+            return `🤝 DIPLOMATIC ALLIANCE: ${s.name} and ${allyName} ratified a Mutual Defense Treaty, guaranteeing joint military aid against foreign aggression!`;
+        }
+    },
+
+    // ── 5. TRADE EMBARGO & ECONOMIC BLOCKADE ─────────────────────────────────
     {
         id: 'TRADE_EMBARGO',
         name: 'Trade Embargo',
-        evaluate: (s) => { return s.economy >= 6 && s.validNeighbors.length > 0 && s.treasury > 1000 && s.aggression > 4 ? 40 : 0; },
-        execute: async (s, client) => { const enemyId = s.validNeighbors[Math.floor(Math.random() * s.validNeighbors.length)]; await client.query("UPDATE sim_burg_economy SET wealth = GREATEST(0, wealth - 30) WHERE cell_id IN (SELECT id FROM sim_cells WHERE faction_id = $1)", [enemyId]); return `${s.name} enacted a punishing Trade Embargo against Faction ${enemyId}, crippling their merchant class.`; }
+        evaluate: (s) => {
+            if (s.validNeighbors.length === 0) return 0;
+            return s.economy >= 5 && s.aggression >= 4 && (s.tick + s.id) % 5 === 0 ? 52 : 0;
+        },
+        execute: async (s, client) => {
+            const enemyId = s.validNeighbors[Math.floor(Math.random() * s.validNeighbors.length)];
+            const enemyRes = await client.query("SELECT name FROM sim_factions WHERE id = $1", [enemyId]);
+            const enemyName = enemyRes.rows[0]?.name || `Faction ${enemyId}`;
+
+            await client.query(`
+                UPDATE sim_burg_economy
+                SET wealth = GREATEST(0, wealth - 40)
+                WHERE cell_id IN (SELECT id FROM sim_cells WHERE faction_id = $1)
+            `, [enemyId]);
+
+            return `🚫 TRADE EMBARGO: ${s.name} enacted an iron commercial embargo against ${enemyName}, shutting trade corridors and seizing foreign merchant freight!`;
+        }
     },
 
+    // ── 6. COVERT SABOTAGE & INFILTRATION ────────────────────────────────────
     {
-        id: 'DEMAND_TRIBUTE',
-        name: 'Demand Tribute',
-        evaluate: (s) => { return s.aggression >= 8 && s.validNeighbors.length > 0 && s.perceivedDefense > 60 && s.treasury < 1000 ? 65 : 0; },
-        execute: async (s, client) => { const enemyId = s.validNeighbors[Math.floor(Math.random() * s.validNeighbors.length)]; await client.query("UPDATE sim_factions SET treasury = treasury + 500 WHERE id = $1", [s.id]); await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 500) WHERE id = $1", [enemyId]); return `Through sheer military intimidation, ${s.name} forced Faction ${enemyId} to pay a humiliating tribute.`; }
+        id: 'COVERT_SABOTAGE',
+        name: 'Covert Sabotage',
+        evaluate: (s) => {
+            if (s.validNeighbors.length === 0) return 0;
+            return s.treasury > 1000 && (s.tick + s.id) % 4 === 0 ? 50 + Math.floor(Math.random() * 15) : 0;
+        },
+        execute: async (s, client) => {
+            const enemyId = s.validNeighbors[Math.floor(Math.random() * s.validNeighbors.length)];
+            const enemyRes = await client.query("SELECT name FROM sim_factions WHERE id = $1", [enemyId]);
+            const enemyName = enemyRes.rows[0]?.name || `Faction ${enemyId}`;
+
+            await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 400) WHERE id = $1", [s.id]);
+
+            return `🕵️ COVERT SABOTAGE: ${s.name} shadow operatives infiltrated ${enemyName}, sabotaging border watchtowers and burning forward grain stores!`;
+        }
     },
 
+    // ── 7. SUE FOR PEACE ─────────────────────────────────────────────────────
     {
-        id: 'DECLARE_GOLDEN_AGE',
-        name: 'Declare Golden Age',
-        evaluate: (s) => { if (s.treasury < 20000 || s.avgUnrest > 5 || s.avgHealth < 90) return 0; return 50; },
-        execute: async (s, client) => { await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 15000) WHERE id = $1", [s.id]); await client.query("UPDATE sim_burg_economy SET wealth = wealth + 100, food = food + 1000 WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b=>b.burg_id)]); return `A flourishing renaissance of art and culture has begun! ${s.name} has entered a spectacular Golden Age!`; }
+        id: 'SUE_FOR_PEACE',
+        name: 'Sue for Peace',
+        evaluate: (s) => {
+            if (s.activeWars.length === 0) return 0;
+            return s.treasury < 1000 || s.perceivedDefense < 25 || s.avgUnrest > 35 ? 90 : 0;
+        },
+        execute: async (s, client) => {
+            const enemyId = s.activeWars[0];
+            const enemyRes = await client.query("SELECT name FROM sim_factions WHERE id = $1", [enemyId]);
+            const enemyName = enemyRes.rows[0]?.name || `Faction ${enemyId}`;
+
+            await client.query(`
+                UPDATE sim_diplomacy SET status = 'PEACE', tension = 25
+                WHERE (faction_a_id = $1 AND faction_b_id = $2) OR (faction_a_id = $2 AND faction_b_id = $1)
+            `, [s.id, enemyId]);
+
+            return `🕊️ PEACE ACCORD: Exhausted and battered by military losses, ${s.name} signed a formal peace armistice with ${enemyName}, ending the war!`;
+        }
     },
 
+    // ── 8. FORTIFY BORDER CITADEL ────────────────────────────────────────────
     {
         id: 'FORTIFY_BORDER_CITADEL',
         name: 'Fortify Border Citadel',
-        evaluate: (s) => { return s.treasury > 1200 && s.perceivedDefense < 80 ? 45 + s.aggression : 0; },
+        evaluate: (s) => {
+            return s.treasury > 1500 ? 48 + s.aggression : 0;
+        },
         execute: async (s, client) => {
-            await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 800) WHERE id = $1", [s.id]);
-            await client.query("UPDATE sim_burg_economy SET crime_rate = GREATEST(0, crime_rate - 10) WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b=>b.burg_id)]);
-            return `Sovereign ${s.leaderName} financed the fortification of stone ramparts and watch bastions along the frontier borders of ${s.name}.`;
+            await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 700) WHERE id = $1", [s.id]);
+            await client.query("UPDATE sim_burg_economy SET crime_rate = GREATEST(0, crime_rate - 8) WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b => b.burg_id)]);
+            return `🏰 CITADEL FORTIFICATION: Sovereign ${s.leaderName} financed heavy stone citadels and ballista bastions along the frontier borders of ${s.name}.`;
         }
     },
 
-    {
-        id: 'EXPAND_SPY_NETWORK',
-        name: 'Expand Shadow Spy Network',
-        evaluate: (s) => { return s.validNeighbors.length > 0 && s.treasury > 800 ? 42 + Math.floor(Math.random() * 15) : 0; },
-        execute: async (s, client) => {
-            const targetId = s.validNeighbors[Math.floor(Math.random() * s.validNeighbors.length)];
-            await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 400) WHERE id = $1", [s.id]);
-            return `${s.leaderName} expanded their royal spy network, embedding covert shadow informers within the borders of Faction ${targetId}.`;
-        }
-    },
-
+    // ── 9. COMMISSION ALCHEMICAL STOCKPILE ────────────────────────────────────
     {
         id: 'COMMISSION_ALCHEMICAL_STOCKPILE',
         name: 'Commission Alchemical Stockpile',
-        evaluate: (s) => { return s.magic >= 5 && s.treasury > 1000 ? 46 : 0; },
+        evaluate: (s) => {
+            return s.magic >= 4 && s.treasury > 1000 && (s.tick + s.id) % 3 === 0 ? 46 : 0;
+        },
         execute: async (s, client) => {
-            await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 600) WHERE id = $1", [s.id]);
-            await client.query("UPDATE sim_burg_economy SET health = LEAST(100, health + 6) WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b=>b.burg_id)]);
-            return `${s.name} commissioned court alchemists to distill emergency stockpiles of dragon-fire pitch and curative draughts.`;
+            await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 500) WHERE id = $1", [s.id]);
+            await client.query("UPDATE sim_burg_economy SET health = LEAST(100, health + 6) WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b => b.burg_id)]);
+            return `🧪 ALCHEMICAL STOCKPILE: ${s.name} commissioned court alchemists to distill emergency reserves of dragon-fire pitch and curative draughts.`;
         }
     },
 
+    // ── 10. HOLD CORONATION JOUST ────────────────────────────────────────────
     {
         id: 'HOLD_CORONATION_JOUST',
         name: 'Hold Grand Tourney and Joust',
-        evaluate: (s) => { return s.treasury > 1500 && s.avgUnrest < 35 && s.activeWars.length === 0 ? 38 + Math.floor(Math.random() * 20) : 0; },
+        evaluate: (s) => {
+            return s.treasury > 2000 && s.activeWars.length === 0 && (s.tick + s.id) % 6 === 0 ? 42 : 0;
+        },
         execute: async (s, client) => {
-            await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 700) WHERE id = $1", [s.id]);
-            await client.query("UPDATE sim_burg_economy SET unrest = GREATEST(0, unrest - 12) WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b=>b.burg_id)]);
-            return `${s.leaderName} proclaimed a grand chivalric tournament and joust, inspiring knightly valor and courtly prestige across ${s.name}.`;
+            await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 600) WHERE id = $1", [s.id]);
+            await client.query("UPDATE sim_burg_economy SET unrest = GREATEST(0, unrest - 10) WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b => b.burg_id)]);
+            return `🏆 CHIVALRIC TOURNEY: ${s.leaderName} proclaimed a grand chivalric tournament and joust, inspiring knightly valor and courtly prestige across ${s.name}.`;
         }
     },
 
-    {
-        id: 'ENFORCE_INQUISITORIAL_EDICT',
-        name: 'Enforce Inquisitorial Edict',
-        evaluate: (s) => { return s.magic > 6 && s.avgUnrest > 20 ? 48 : 0; },
-        execute: async (s, client) => {
-            await client.query("UPDATE sim_burg_economy SET crime_rate = GREATEST(0, crime_rate - 8), unrest = LEAST(100, unrest + 5) WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b=>b.burg_id)]);
-            return `${s.leaderName} dispatched state inquisitors across ${s.name} to hunt rogue sorcerers and unregistered occult cults.`;
-        }
-    },
-
+    // ── 11. ROYAL HIGHWAY PATROL ─────────────────────────────────────────────
     {
         id: 'ROYAL_HIGHWAY_PATROL',
         name: 'Royal Highway Patrol',
-        evaluate: (s) => { return s.activeWars.length === 0 ? 35 : 0; },
+        evaluate: (s) => {
+            return s.activeWars.length === 0 && (s.tick + s.id) % 3 === 0 ? 40 : 0;
+        },
         execute: async (s, client) => {
-            await client.query("UPDATE sim_burg_economy SET crime_rate = GREATEST(0, crime_rate - 5) WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b=>b.burg_id)]);
-            return `${s.leaderName} deployed mounted royal marshals to secure trade routes and deter bandits along the king's highways in ${s.name}.`;
+            await client.query("UPDATE sim_burg_economy SET crime_rate = GREATEST(0, crime_rate - 6) WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b => b.burg_id)]);
+            return `🐎 HIGHWAY PATROL: ${s.leaderName} deployed mounted royal marshals to secure trade routes and deter bandits along the king's highways in ${s.name}.`;
+        }
+    },
+
+    // ── 12. COMMISSION WORLD WONDER (Monumental, rare, capped) ───────────────
+    {
+        id: 'COMMISSION_WORLD_WONDER',
+        name: 'Commission World Wonder',
+        evaluate: (s) => {
+            // Only fires rarely (every 60 ticks) when treasury is colossal and at peace
+            if (s.treasury >= 50000 && s.activeWars.length === 0 && (s.tick + s.id) % 60 === 0) {
+                return 44;
+            }
+            return 0;
+        },
+        execute: async (s, client) => {
+            await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 10000) WHERE id = $1", [s.id]);
+            await client.query("UPDATE sim_burg_economy SET unrest = 0 WHERE burg_id = ANY($1::int[])", [s.myBurgs.map(b => b.burg_id)]);
+            return `🏛️ WORLD WONDER: ${s.name} completed construction on a magnificent World Wonder, cementing their historical legacy for centuries!`;
         }
     }
 ];

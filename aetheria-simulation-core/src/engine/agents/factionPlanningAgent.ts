@@ -56,12 +56,27 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
         const myCounselors = paragons.filter((p: any) => p.faction_id === f.id && p.is_counselor);
         let avgSurv = 1.0, avgProt = 1.0;
         if (myCounselors.length > 0) {
-            avgSurv = myCounselors.reduce((sum: number, c: any) => sum + c.survival_mult, 0) / myCounselors.length;
-            avgProt = myCounselors.reduce((sum: number, c: any) => sum + c.protection_mult, 0) / myCounselors.length;
+            avgSurv = myCounselors.reduce((sum: number, c: any) => sum + (c.survival_mult || 1.0), 0) / myCounselors.length;
+            avgProt = myCounselors.reduce((sum: number, c: any) => sum + (c.protection_mult || 1.0), 0) / myCounselors.length;
+        }
+
+        // Calculate authentic military combat squads across all garrisons in the faction
+        let totalCombatSquads = 0;
+        for (const b of myBurgs) {
+            let forces: any = {};
+            try {
+                if (typeof b.military_forces === 'string') forces = JSON.parse(b.military_forces || '{}');
+                else if (b.military_forces) forces = b.military_forces;
+            } catch(e){}
+            for (const count of Object.values(forces)) {
+                totalCombatSquads += (Number(count) || 0);
+            }
+            // Standing civic militia from population: 1 squad per 1,000 citizens (min 2 per burg)
+            totalCombatSquads += Math.max(2, Math.floor((b.pop_null || 1000) / 1000));
         }
 
         let perceivedEconomy = netIncome * avgSurv; 
-        let perceivedDefense = myUnits.length * avgProt; 
+        let perceivedDefense = Math.max(15, Math.floor(totalCombatSquads * avgProt)); 
 
         const leader = paragons.find((p: any) => p.faction_id === f.id && ["EMPEROR", "EMPRESS", "HIGH_MATRIARCH", "SYNDICATE_BOSS", "PRESIDENT", "CHIEFTAIN"].includes(p.title)) || paragons.find((p: any) => p.faction_id === f.id && !p.is_counselor);
         let aggression = f.trait_aggression || 5;
@@ -69,14 +84,20 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
         let magic = f.trait_magic || 5;
         
         if (leader && leader.traits) {
-            if (leader.traits.includes("Bloodthirsty")) aggression += 5;
-            if (leader.traits.includes("Pacifist")) aggression -= 4;
-            if (leader.traits.includes("Greedy")) economy += 4;
-            if (leader.traits.includes("Superstitious")) magic += 5;
-            if (leader.traits.includes("Paranoid")) aggression += 2;
+            const pTraitsStr = typeof leader.traits === 'string' ? leader.traits : JSON.stringify(leader.traits);
+            if (pTraitsStr.includes("Bloodthirsty")) aggression += 5;
+            if (pTraitsStr.includes("Pacifist")) aggression -= 4;
+            if (pTraitsStr.includes("Greedy")) economy += 4;
+            if (pTraitsStr.includes("Superstitious")) magic += 5;
+            if (pTraitsStr.includes("Paranoid")) aggression += 2;
         }
 
-        const validNeighbors = borders.filter((b:any) => b.faction_a === f.id).map((b:any) => b.faction_b);
+        // Neighbors on both side of the border relation (faction_a or faction_b)
+        const validNeighbors: number[] = Array.from(new Set<number>(
+            borders.filter((b: any) => b.faction_a === f.id || b.faction_b === f.id)
+                   .map((b: any) => Number(b.faction_a === f.id ? b.faction_b : b.faction_a))
+                   .filter((id: number) => id !== f.id && id > 0)
+        ));
         const activeWars = diplomacy.filter((d:any) => d.status === 'WAR' && (d.faction_a_id === f.id || d.faction_b_id === f.id)).map((d:any) => d.faction_a_id === f.id ? d.faction_b_id : d.faction_a_id);
 
         factionStates.set(f.id, { 
@@ -111,9 +132,9 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
             // Execute
             const msg = chosenAction ? await chosenAction.execute(state, client) : null;
             if (msg) {
-                // Tier is major if it's a war or huge investment
+                // Tier is major if it's a war, diplomatic shift, or major military mobilization
                 let tier = 'MINOR';
-                if (['DECLARE_WAR', 'PURGE_DISSIDENTS', 'INFRASTRUCTURE_INVESTMENT'].includes(chosenAction?.id || '')) tier = 'MAJOR';
+                if (['DECLARE_WAR', 'BORDER_SKIRMISH', 'MUSTER_MILITARY_FORCES', 'FORM_ALLIANCE', 'TRADE_EMBARGO', 'COVERT_SABOTAGE', 'COMMISSION_WORLD_WONDER'].includes(chosenAction?.id || '')) tier = 'MAJOR';
                 events.push({ tick, type: chosenAction?.id, message: msg, tier, faction_id: f.id, burg_id: state.myBurgs[0]?.burg_id || null, lore_date: loreDate });
             }
         }
