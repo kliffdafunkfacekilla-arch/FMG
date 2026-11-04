@@ -63,56 +63,137 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
             // 1. CIVIL PARAGONS (MAYORS, REEVES, MAGISTRATES)
             // ==========================================
             if (domain === 'Civil') {
-                if (effSurvival > 60 || burg.food < pop * 3) {
-                    foodDelta += Math.floor(pop * 0.12);
-                    wealthDelta -= 25;
+                const actionSeed = (tick + p.id + burg.burg_id) % 12;
+
+                if (burg.food < pop * 4) {
+                    // Emergency Grain Silos & Subsidies
+                    foodDelta += Math.floor(pop * 0.15) + 300;
+                    wealthDelta -= 20;
                     events.push({
                         burg_id: burg.burg_id,
-                        type: "MAYOR_GRAIN_SUBSIDY",
+                        type: "MAYOR_EXPAND_GRANARY",
                         tier: "MINOR",
-                        msg: `Mayor ${p.name} of ${burg.name} released emergency municipal grain stockpiles to lower market bread prices.`
+                        msg: `Mayor ${p.name} commissioned massive reinforced timber grain silos in ${burg.name}, expanding municipal reserves to protect against famine.`
                     });
-                    await tagBurgCitizens(client, burg.burg_id, ['#GrainSubsidyRecipient'], 'RELIEVED', `Receiving municipal grain rations from Mayor ${p.name}'s emergency relief.`, '%laborer%', 3);
-                } else if (burg.unrest > 25 && burg.wealth > 150 && (tick + p.id) % 5 === 0) {
-                    unrestDelta -= 15;
-                    wealthDelta -= 60;
+                    await tagBurgCitizens(client, burg.burg_id, ['#GranaryCarpenter', '#GrainSubsidyRecipient'], 'RELIEVED', `Receiving municipal grain rations and constructing emergency silos under Mayor ${p.name}.`, '%laborer%', 3);
+                } else if (burg.unrest > 20 && (tick + p.id) % 4 === 0) {
+                    // Civic Market Festival
+                    unrestDelta -= 16;
+                    wealthDelta -= 40;
                     events.push({
                         burg_id: burg.burg_id,
                         type: "MAYOR_CIVIC_FESTIVAL",
                         tier: "MINOR",
-                        msg: `Mayor ${p.name} funded a municipal market festival in ${burg.name}, distributing spiced ale and cider to soothe civil unrest.`
+                        msg: `Mayor ${p.name} funded a grand market festival in ${burg.name}, distributing spiced ale, roast meats, and cider to soothe civil unrest.`
                     });
                     await tagBurgCitizens(client, burg.burg_id, ['#FestivalReveler', '#CivicPride'], 'JOVIAL', `Drinking and dancing at the municipal festival hosted by Mayor ${p.name}.`, null, 4);
-                } else if (burg.wealth > 1500 && (tick + p.id) % 8 === 0) {
-                    wealthDelta -= 120;
-                    healthDelta += 4;
+                } else if (burg.health < 80 && (tick + p.id) % 5 === 0) {
+                    // Aqueduct & Stone Cisterns
+                    healthDelta += 8;
+                    wealthDelta -= 60;
                     events.push({
                         burg_id: burg.burg_id,
-                        type: "MAYOR_PUBLIC_WORKS",
+                        type: "MAYOR_AQUEDUCT_CISTERN",
                         tier: "MINOR",
-                        msg: `Mayor ${p.name} launched public infrastructure works in ${burg.name}, contracting mason guilds to repair canal walls and repave markets.`
+                        msg: `Mayor ${p.name} funded the construction of mountain aqueducts and stone cisterns in ${burg.name}, delivering clean spring water to common districts.`
                     });
-                    await tagBurgCitizens(client, burg.burg_id, ['#PublicWorksContractor'], 'INDUSTRIOUS', `Earning coin on city infrastructure projects funded by Mayor ${p.name}.`, '%mason%', 3);
-                } else if (effProtection > 60 && (tick + p.id) % 6 === 0) {
-                    crimeDelta -= 8;
-                    wealthDelta -= 10;
+                    await tagBurgCitizens(client, burg.burg_id, ['#AqueductMason'], 'INDUSTRIOUS', `Dressing stone channels and laying clean water conduits for Mayor ${p.name}'s aqueduct project.`, '%mason%', 3);
+                } else if (burg.port > 0 && actionSeed === 0) {
+                    // Harbor & Deepwater Quays
+                    wealthDelta += 80;
                     events.push({
                         burg_id: burg.burg_id,
-                        type: "MAYOR_TAX_AUDIT",
+                        type: "MAYOR_HARBOR_EXPANSION",
                         tier: "MINOR",
-                        msg: `Mayor ${p.name} conducted surprise audits of guild accounts and trade warehouses across ${burg.name}.`
+                        msg: `Mayor ${p.name} dredged the harbor basin and constructed deepwater timber quays in ${burg.name}, welcoming heavy merchant galleons.`
                     });
-                    await tagBurgCitizens(client, burg.burg_id, ['#AuditedMerchant'], 'WARY', `Having their ledger books audited by Mayor ${p.name}'s clerks.`, '%trader%', 3);
-                } else if ((tick + p.id) % 9 === 0) {
-                    wealthDelta += 30;
+                    await tagBurgCitizens(client, burg.burg_id, ['#DockBuilder'], 'INDUSTRIOUS', `Framing timber docks and driving pilings for the new harbor quays in ${burg.name}.`, '%carpenter%', 3);
+                } else if (actionSeed === 1) {
+                    // Artisan Master Guildhall
+                    wealthDelta += 50;
+                    healthDelta += 2;
                     events.push({
                         burg_id: burg.burg_id,
-                        type: "MAYOR_COMMERCE_CHARTER",
+                        type: "MAYOR_ARTISAN_GUILDHALL",
                         tier: "MINOR",
-                        msg: `Mayor ${p.name} issued new merchant licenses in ${burg.name}, opening prime market stalls along the high street.`
+                        msg: `Mayor ${p.name} chartered a grand Artisan Guildhall in ${burg.name}, uniting master blacksmiths, glassblowers, and weavers.`
                     });
+                    await tagBurgCitizens(client, burg.burg_id, ['#GuildCraftsman'], 'PROSPEROUS', `Forging fine masterworks under the charter of Mayor ${p.name}'s new Artisan Guildhall.`, '%smith%', 3);
+                } else if (actionSeed === 2) {
+                    // Scribe Academy & Civic Archive
+                    crimeDelta -= 10;
+                    wealthDelta -= 30;
+                    events.push({
+                        burg_id: burg.burg_id,
+                        type: "MAYOR_ACADEMY_SCRIBES",
+                        tier: "MINOR",
+                        msg: `Mayor ${p.name} founded a municipal Scribe Academy and Archive in ${burg.name}, recording commercial ledgers and land titles.`
+                    });
+                    await tagBurgCitizens(client, burg.burg_id, ['#AcademyScholar'], 'SCHOLARLY', `Transcribing legal deeds and guild charters in the municipal scribe hall of ${burg.name}.`, '%scribe%', 2);
+                } else if (actionSeed === 3) {
+                    // Fortified Citadel Ramparts
+                    unrestDelta -= 5;
+                    wealthDelta -= 80;
+                    events.push({
+                        burg_id: burg.burg_id,
+                        type: "MAYOR_CITADEL_RAMPARTS",
+                        tier: "MINOR",
+                        msg: `Mayor ${p.name} reinforced the perimeter ramparts, moat drawbridges, and wall bastions around ${burg.name}.`
+                    });
+                    await tagBurgCitizens(client, burg.burg_id, ['#RampartSentry'], 'WARY', `Standing watch on the newly reinforced stone ramparts of ${burg.name}.`, '%watch%', 3);
+                } else if (actionSeed === 4) {
+                    // Seasonal Merchant Tariff Holiday
+                    wealthDelta += 100;
+                    events.push({
+                        burg_id: burg.burg_id,
+                        type: "MAYOR_TAX_HOLIDAY",
+                        tier: "MINOR",
+                        msg: `Mayor ${p.name} declared a seasonal merchant tariff holiday in ${burg.name}, opening duty-free pavilions for visiting trade caravans.`
+                    });
+                    await tagBurgCitizens(client, burg.burg_id, ['#CaravanTrader'], 'PROSPEROUS', `Selling imported fabrics and spices at the duty-free market pavilions in ${burg.name}.`, '%trader%', 3);
+                } else if (actionSeed === 5) {
+                    // City Watch Barracks Commission
+                    crimeDelta -= 12;
+                    wealthDelta -= 50;
+                    events.push({
+                        burg_id: burg.burg_id,
+                        type: "MAYOR_BARRACKS_COMMISSION",
+                        tier: "MINOR",
+                        msg: `Mayor ${p.name} commissioned new city watch barracks in ${burg.name}, equipping two additional squads of armored halberdiers.`
+                    });
+                    await tagBurgCitizens(client, burg.burg_id, ['#BarracksGuard'], 'DEVOUT', `Drilling with halberds at the newly commissioned city watch barracks in ${burg.name}.`, '%watch%', 3);
+                } else if (actionSeed === 6) {
+                    // Public Health & Sanitation
+                    healthDelta += 8;
+                    wealthDelta -= 40;
+                    events.push({
+                        burg_id: burg.burg_id,
+                        type: "MAYOR_PUBLIC_SANITATION",
+                        tier: "MINOR",
+                        msg: `Mayor ${p.name} directed street-cleansing brigades and apothecary subsidies across ${burg.name}, eradicating disease from the lower quarters.`
+                    });
+                    await tagBurgCitizens(client, burg.burg_id, ['#SanitationWorker'], 'INDUSTRIOUS', `Clearing canal drains and lime-washing streets under Mayor ${p.name}'s sanitation edict.`, '%laborer%', 3);
+                } else if (actionSeed === 7) {
+                    // Terraced Agricultural Outskirts
+                    foodDelta += 450;
+                    wealthDelta -= 50;
+                    events.push({
+                        burg_id: burg.burg_id,
+                        type: "MAYOR_TERRACED_FARMLAND",
+                        tier: "MINOR",
+                        msg: `Mayor ${p.name} cleared surrounding foothills for terraced olive groves, vineyards, and barley fields around ${burg.name}.`
+                    });
+                    await tagBurgCitizens(client, burg.burg_id, ['#TerraceFarmer'], 'INDUSTRIOUS', `Cultivating terraced barley fields on the foothills of ${burg.name}.`, '%farmer%', 3);
                 } else {
-                    wealthDelta += 15;
+                    // Municipal Mint & Stamped Currency
+                    wealthDelta += 80;
+                    events.push({
+                        burg_id: burg.burg_id,
+                        type: "MAYOR_MUNICIPAL_MINT",
+                        tier: "MINOR",
+                        msg: `Mayor ${p.name} struck new municipal stamped silver coinage in ${burg.name}, standardizing currency and driving civic commerce.`
+                    });
+                    await tagBurgCitizens(client, burg.burg_id, ['#MintAssayer'], 'SCHOLARLY', `Assaying bullion and striking stamped trade coins at the municipal mint of ${burg.name}.`, '%smith%', 2);
                 }
             } 
 
