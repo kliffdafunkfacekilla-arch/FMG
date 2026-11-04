@@ -1,84 +1,150 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import pool from '../db/pool';
 import { 
     DirectorPlanningPass, 
     resolveDirectorInjections, 
     Entity 
 } from '../engine/rpg/narrativeTagEngine';
-
-// ==========================================
-// 1. DATA TYPES & ARCHITECTURE STRUCTURES
-// ==========================================
-
-export interface PlayerContext {
-    playerClass: string;
-    backstoryHooks: string[];
-    reputationDeltas: Record<string, number>;
-}
-
-export interface WorldStateSummary {
-    currentCellId: number;
-    activeSectorCoords: { rx: number; ry: number };
-    nearbyFactionDominance: string;
-    notableNpcsInRegion: string[];
-}
-
-export interface StoryBeat {
-    phase: number;
-    objective: string;
-    requiredAssetType: 'NPC_ALTERATION' | 'ITEM_SPAWN' | 'POI_PLACEMENT';
-    isCompleted: boolean;
-}
-
-export interface NarrativeFramework {
-    arcId: string;
-    theme: string;
-    antagonistVibe: string;
-    incitingIncident: string;
-    beats: StoryBeat[];
-}
-
-// ==========================================
-// 2. EXPRESS INTEGRATION ROUTER INTERFACE
-// ==========================================
+import {
+    DirectorInputPayload,
+    DirectorOutputBlueprint,
+    buildDirectorInputPayload,
+    validateDirectorMutations,
+    commitDirectorMutations,
+    generateStoryArcWithGemini
+} from '../engine/rpg/directorBridge';
 
 const directorRouter = Router();
 
+// =========================================================================
+// 1. EXPRESS VALIDATION MIDDLEWARE
+// =========================================================================
+
 /**
- * POST /api/dm/story/initialize_arc
- * Triggered by your DM layer or sector transition logic to lock down the narrative skeleton.
+ * Middleware ensuring incoming AI Director blueprints do not attempt to mutate non-existent IDs.
  */
-directorRouter.post('/initialize_arc', async (req: Request, res: Response): Promise<void> => {
+export async function validateBlueprintMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-        const { playerContext, worldContext, campaignOutline } = req.body as {
-            playerContext: PlayerContext;
-            worldContext: WorldStateSummary;
-            campaignOutline: string;
+        const { targetSector, blueprint, inputPayload } = req.body as {
+            targetSector?: { cellId: number; rx: number; ry: number; z?: number };
+            blueprint?: DirectorOutputBlueprint;
+            inputPayload?: DirectorInputPayload;
         };
 
-        const generatedFramework: NarrativeFramework = {
-            arcId: `arc_${Date.now()}`,
-            theme: "Industrial infiltration and betrayal mirroring player backstory elements",
-            antagonistVibe: "A paranoid local mining guild supervisor secretly weaponizing automated droids",
-            incitingIncident: "A standard supply wagon arriving in the local sector contains blueprints for military fortifications instead of grain.",
-            beats: [
-                { phase: 1, objective: "Locate and interrogate the guild informant hidden inside the local community.", requiredAssetType: "NPC_ALTERATION", isCompleted: false },
-                { phase: 2, objective: "Retrieve the encoded shipping ledger hidden within an adjacent sector cache.", requiredAssetType: "ITEM_SPAWN", isCompleted: false },
-                { phase: 3, objective: "Discover the point of entry for the subterranean weapon testing lair.", requiredAssetType: "POI_PLACEMENT", isCompleted: false }
-            ]
+        if (!blueprint) {
+            next();
+            return;
+        }
+
+        const cellId = targetSector?.cellId || 17363;
+        const rx = targetSector?.rx !== undefined ? targetSector.rx : 112;
+        const ry = targetSector?.ry !== undefined ? targetSector.ry : 112;
+        const z = targetSector?.z !== undefined ? targetSector.z : 0;
+
+        const effectivePayload = inputPayload || await buildDirectorInputPayload(cellId, rx, ry, z);
+        const validation = validateDirectorMutations(effectivePayload, blueprint);
+
+        // Attach sanitized blueprint and validation report to request object
+        (req as any).validatedBlueprint = validation.sanitizedBlueprint;
+        (req as any).validationReport = {
+            valid: validation.valid,
+            rejectedNpcIds: validation.rejectedNpcIds,
+            rejectedPropIds: validation.rejectedPropIds,
+            warningCount: validation.warningCount
         };
+
+        next();
+    } catch (err: any) {
+        res.status(500).json({ success: false, error: `Validation middleware error: ${err.message}` });
+    }
+}
+
+// =========================================================================
+// 2. ROUTE CONTROLLERS
+// =========================================================================
+
+/**
+ * GET /api/dm/story/context_payload
+ * Gathers living simulation indicators (economic, faction, player, sector assets)
+ * into the strict Input Payload contract ready for the AI Director.
+ */
+directorRouter.get('/context_payload', async (req: Request, res: Response): Promise<void> => {
+    try {
+        const cellId = Number(req.query.cellId) || 17363;
+        const rx = req.query.rx !== undefined ? Number(req.query.rx) : 112;
+        const ry = req.query.ry !== undefined ? Number(req.query.ry) : 112;
+        const z = req.query.z !== undefined ? Number(req.query.z) : 0;
+        const playerId = Number(req.query.playerId) || 1;
+
+        const payload = await buildDirectorInputPayload(cellId, rx, ry, z, playerId);
+        res.status(200).json(payload);
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/dm/story/validate_mutations
+ * Validates any candidate mutation blueprint against the live database cell assets.
+ */
+directorRouter.post('/validate_mutations', validateBlueprintMiddleware, async (req: Request, res: Response): Promise<void> => {
+    res.status(200).json({
+        success: true,
+        validationReport: (req as any).validationReport,
+        sanitizedBlueprint: (req as any).validatedBlueprint
+    });
+});
+
+/**
+ * POST /api/dm/story/generate_arc
+ * Autonomous Closed-Loop:
+ * 1. Reads live economic and faction simulation state from PostgreSQL.
+ * 2. Feeds the structured JSON prompt into Gemini.
+ * 3. Enforces the output schema contract.
+ * 4. Runs validation middleware to drop any hallucinated tokens.
+ * 5. Commits sanitized mutations to sim_sector_layers and sim_events.
+ */
+directorRouter.post('/generate_arc', async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { targetSector, playerId } = req.body as {
+            targetSector?: { cellId: number; rx: number; ry: number; z?: number };
+            playerId?: number;
+        };
+
+        const cellId = targetSector?.cellId || 17363;
+        const rx = targetSector?.rx !== undefined ? targetSector.rx : 112;
+        const ry = targetSector?.ry !== undefined ? targetSector.ry : 112;
+        const z = targetSector?.z !== undefined ? targetSector.z : 0;
+        const pId = playerId || 1;
+
+        // 1. Synthesize input payload from living simulation state
+        const inputPayload = await buildDirectorInputPayload(cellId, rx, ry, z, pId);
+
+        // 2. Generate blueprint via Gemini using structured JSON schema
+        const rawBlueprint = await generateStoryArcWithGemini(inputPayload);
+
+        // 3. Validate against real sector assets
+        const validation = validateDirectorMutations(inputPayload, rawBlueprint);
+
+        // 4. Commit mutations to persistent database
+        const commitResult = await commitDirectorMutations(cellId, rx, ry, z, validation.sanitizedBlueprint);
 
         res.status(200).json({
             success: true,
-            message: "Narrative core framework locked into session engine memory.",
-            frameworkSummary: {
-                arcId: generatedFramework.arcId,
-                incitingIncident: generatedFramework.incitingIncident,
-                activePhase: 1
-            }
+            message: "Simulation-driven narrative arc generated, validated, and committed to world state.",
+            validationReport: {
+                valid: validation.valid,
+                rejectedNpcIds: validation.rejectedNpcIds,
+                rejectedPropIds: validation.rejectedPropIds,
+                warningCount: validation.warningCount
+            },
+            commitResult,
+            activeStoryArc: validation.sanitizedBlueprint.story_arc_framework,
+            appliedMutations: validation.sanitizedBlueprint.database_mutations
         });
-    } catch (error) {
-        res.status(500).json({ success: false, error: (error as Error).message });
+    } catch (error: any) {
+        console.error('Error generating narrative arc:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
@@ -86,69 +152,35 @@ directorRouter.post('/initialize_arc', async (req: Request, res: Response): Prom
  * POST /api/dm/story/manifest_beat
  * Evaluates the active beat and mutates existing world database structures ahead of the player.
  */
-directorRouter.post('/manifest_beat', async (req: Request, res: Response): Promise<void> => {
+directorRouter.post('/manifest_beat', validateBlueprintMiddleware, async (req: Request, res: Response): Promise<void> => {
     try {
-        const { arcId, activePhase, targetSector, planningPass } = req.body as {
-            arcId?: string;
-            activePhase?: number;
+        const { targetSector, blueprint } = req.body as {
             targetSector?: { cellId: number; rx: number; ry: number; z?: number };
-            planningPass?: DirectorPlanningPass;
+            blueprint?: DirectorOutputBlueprint;
         };
 
-        // If a structured AI Director planning pass is supplied, execute it directly
-        if (planningPass) {
-            const cellId = targetSector?.cellId || 17363;
-            const rx = targetSector?.rx !== undefined ? targetSector.rx : 112;
-            const ry = targetSector?.ry !== undefined ? targetSector.ry : 112;
-            const z = targetSector?.z !== undefined ? targetSector.z : 0;
+        const cellId = targetSector?.cellId || 17363;
+        const rx = targetSector?.rx !== undefined ? targetSector.rx : 112;
+        const ry = targetSector?.ry !== undefined ? targetSector.ry : 112;
+        const z = targetSector?.z !== undefined ? targetSector.z : 0;
 
-            const sectorRes = await pool.query(
-                `SELECT npcs, props FROM sim_sector_layers WHERE cell_id = $1 AND rx = $2 AND ry = $3 AND z_layer = $4 LIMIT 1`,
-                [cellId, rx, ry, z]
-            );
+        const effectiveBlueprint = (req as any).validatedBlueprint || blueprint;
 
-            if (sectorRes.rows.length > 0) {
-                const npcs: Entity[] = (sectorRes.rows[0].npcs || []).map((n: any) => ({ ...n, type: 'NPC' }));
-                const props: Entity[] = (sectorRes.rows[0].props || []).map((p: any) => ({ ...p, type: 'PROP' }));
-                const combined = [...npcs, ...props];
-
-                const { modifiedEntities, appliedCount, matchedDetails } = resolveDirectorInjections(planningPass, combined);
-
-                const updatedNpcs = modifiedEntities.filter(e => e.type === 'NPC');
-                const updatedProps = modifiedEntities.filter(e => e.type === 'PROP');
-
-                await pool.query(
-                    `UPDATE sim_sector_layers SET npcs = $1, props = $2 WHERE cell_id = $3 AND rx = $4 AND ry = $5 AND z_layer = $6`,
-                    [JSON.stringify(updatedNpcs), JSON.stringify(updatedProps), cellId, rx, ry, z]
-                );
-
-                res.status(200).json({
-                    success: true,
-                    message: "AI Director semantic planning pass resolved and committed to sector layer.",
-                    arcId: planningPass.arc_id,
-                    appliedCount,
-                    matchedDetails
-                });
-                return;
-            }
+        if (effectiveBlueprint) {
+            const commitResult = await commitDirectorMutations(cellId, rx, ry, z, effectiveBlueprint);
+            res.status(200).json({
+                success: true,
+                message: "World state altered smoothly. Plot assets nested inside upcoming sector arrays.",
+                commitResult,
+                validationReport: (req as any).validationReport,
+                mutationsApplied: effectiveBlueprint.database_mutations
+            });
+            return;
         }
 
-        const databaseMutations = {
-            modifiedNpcId: "npc_citizen_4829",
-            injectedTraits: ["secret_informant", "hostile_on_detection_failure"],
-            spawnedItem: {
-                itemId: "item_encoded_ledger",
-                targetContainerPropId: "prop_chest_04"
-            }
-        };
-
-        res.status(200).json({
-            success: true,
-            message: "World state altered smoothly. Plot assets nested inside upcoming sector arrays.",
-            mutationsApplied: databaseMutations
-        });
-    } catch (error) {
-        res.status(500).json({ success: false, error: (error as Error).message });
+        res.status(400).json({ success: false, error: "Missing blueprint in request body." });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
@@ -200,8 +232,8 @@ directorRouter.post('/inject_pass', async (req: Request, res: Response): Promise
             matchedDetails,
             sectorUpdated: { cellId, rx, ry, z }
         });
-    } catch (error) {
-        res.status(500).json({ success: false, error: (error as Error).message });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
