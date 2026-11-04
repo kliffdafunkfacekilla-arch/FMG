@@ -778,7 +778,7 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
 }
 
 /**
- * Handles authentic lair establishment for each faction type
+ * Handles authentic lair establishment for each faction type with strict territorial caps
  */
 async function handleLairEstablishment(
     client: PoolClient,
@@ -789,8 +789,20 @@ async function handleLairEstablishment(
     preferredLairType: string,
     isSecret: boolean = false
 ) {
-    if (Number(cartel.wealth || 0) >= 300 && Math.random() < 0.25) {
-        const lairBurg = burgs.find((b: any) => (b.wealth || 0) >= 120);
+    // Only check every 10 ticks
+    if (tick % 10 !== 0) return;
+
+    // Strict Syndicate Territorial Cap: Maximum 8 active lairs per syndicate
+    const countRes = await client.query("SELECT COUNT(*) FROM sim_fringe_lairs WHERE faction_id = $1", [cartel.id]);
+    const currentLairs = parseInt(countRes.rows[0].count) || 0;
+    if (currentLairs >= 8) return;
+
+    // Significant capital and manpower deployment required to found a provincial lair
+    const wealth = Number(cartel.wealth || 0);
+    const manpower = Number(cartel.manpower || 0);
+
+    if (wealth >= 2000 && manpower >= 24 && Math.random() < 0.35) {
+        const lairBurg = burgs.find((b: any) => (b.wealth || 0) >= 150 && (b.unrest || 0) >= 10);
         if (!lairBurg) return;
 
         const existingLair = await client.query(
@@ -799,10 +811,18 @@ async function handleLairEstablishment(
         );
 
         if (existingLair.rows.length === 0) {
+            // Deduct investment from central cartel pool
+            await client.query(`
+                UPDATE sim_outlaw_factions
+                SET wealth = GREATEST(0, wealth - 1200),
+                    manpower = GREATEST(0, manpower - 24)
+                WHERE id = $1
+            `, [cartel.id]);
+
             const inserted = await client.query(
                 `INSERT INTO sim_fringe_lairs (faction_id, cell_id, burg_id, lair_type, manpower, heat)
-                 VALUES ($1, $2, $3, $4, $5, 10) RETURNING *`,
-                [cartel.id, lairBurg.cell_id, lairBurg.burg_id, preferredLairType, 40]
+                 VALUES ($1, $2, $3, $4, 24, 15) RETURNING *`,
+                [cartel.id, lairBurg.cell_id, lairBurg.burg_id, preferredLairType]
             );
             const newLair = inserted.rows[0];
             await ensureLairResidents(client, { ...newLair, cartel_name: cartel.name, cartel_type: cartel.type });

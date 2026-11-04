@@ -12,24 +12,31 @@ import { stepTowardCell, getNearestSacredGrove } from "./agentMovementHelper.js"
 import { recruitCultistPersona } from "./citizenPersonaHelper.js";
 
 export async function runCultistAgent(client: any, tick: number, loreDate: string) {
+  // Global Cultist Active Cap: 30 active operatives worldwide
+  const activeCultistsRes = await client.query("SELECT COUNT(*) as total FROM sim_agents WHERE role = 'Cultist'");
+  const cultistCount = parseInt(activeCultistsRes.rows[0].total) || 0;
+
   // 1. Secret Infiltration Recruitment in Unrestful Burgs
-  const unrestBurgsRes = await client.query(`
-    SELECT b.burg_id, b.cell_id, b.wealth, b.unrest, b.name
-    FROM sim_burg_economy b
-    WHERE b.unrest >= 25
-    ORDER BY b.unrest DESC
-  `);
+  if (cultistCount < 30) {
+    const unrestBurgsRes = await client.query(`
+      SELECT b.burg_id, b.cell_id, b.wealth, b.unrest, b.name
+      FROM sim_burg_economy b
+      WHERE b.unrest >= 20
+      ORDER BY b.unrest DESC
+      LIMIT 10
+    `);
 
-  for (const burg of unrestBurgsRes.rows) {
-    const existingInfiltrator = await client.query(
-      "SELECT id FROM sim_agents WHERE role = 'Cultist' AND home_burg_id = $1 AND state = 'INFILTRATING'",
-      [burg.burg_id]
-    );
+    for (const burg of unrestBurgsRes.rows) {
+      if (cultistCount >= 30) break;
+      const existingInfiltrator = await client.query(
+        "SELECT id FROM sim_agents WHERE role = 'Cultist' AND home_burg_id = $1 AND state = 'INFILTRATING'",
+        [burg.burg_id]
+      );
 
-    if (existingInfiltrator.rowCount === 0) {
-      const spawnChance = Math.min(0.60, burg.unrest / 130);
-      if (Math.random() < spawnChance) {
-        // Query pre-rendered citizen pool in this burg
+      if (existingInfiltrator.rowCount === 0) {
+        const spawnChance = Math.min(0.50, burg.unrest / 100);
+        if (Math.random() < spawnChance) {
+          // Query pre-rendered citizen pool in this burg
         const recruitRes = await client.query(`
           SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation
           FROM population_demographics
@@ -92,6 +99,7 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
         }
       }
     }
+  }
   }
 
   // 2. Process All Active Cultists
@@ -167,7 +175,13 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
     // --- PHASE B: OVERLAND PILGRIMAGE TO DRAGON PRISON ---
     else if (state === 'TRAVELING_TO_SEAL') {
       corruption += 1;
-      if (!targetCellId && targetGroveId) {
+      if (!targetCellId || !targetGroveId) {
+        const nearestGrove = await getNearestSacredGrove(client, locCellId);
+        if (nearestGrove) {
+          targetGroveId = nearestGrove.id;
+          targetCellId = nearestGrove.cell_id;
+        }
+      } else if (!targetCellId && targetGroveId) {
         const groveRes = await client.query("SELECT cell_id FROM sim_sacred_groves WHERE id = $1", [targetGroveId]);
         targetCellId = groveRes.rows[0]?.cell_id;
       }

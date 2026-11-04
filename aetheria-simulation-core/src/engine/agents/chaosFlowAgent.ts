@@ -254,26 +254,35 @@ export async function runChaosFlowAgent(
               ];
               await tagSectorEnvironment(client, cell.id, flowTags, 0);
 
-              if (Math.random() < 0.20) {
+              if (Math.random() < 0.10) {
                 const roll = Math.random();
                 if (roll < 0.50) {
-                  await client.query(
-                    `INSERT INTO sim_agents (name, role, sub_role, location_cell_id, state, corruption, age_ticks, active_plot)
-                     VALUES ($1, 'Cultist', 'Cultist_Pilgrim', $2, 'TRAVELING_TO_SEAL', 20, 0, 'Communing with chaotic aether along flow banks')`,
-                    [`Flow Cabal of ${flow.dragonName}`, cell.id]
-                  ).catch(() => {});
+                  const cCount = await client.query("SELECT COUNT(*) as cnt FROM sim_agents WHERE role = 'Cultist'");
+                  if (parseInt(cCount.rows[0].cnt) < 30) {
+                    await client.query(
+                      `INSERT INTO sim_agents (name, role, sub_role, location_cell_id, state, corruption, age_ticks, active_plot)
+                       VALUES ($1, 'Cultist', 'Cultist_Pilgrim', $2, 'TRAVELING_TO_SEAL', 20, 0, 'Communing with chaotic aether along flow banks')`,
+                      [`Flow Cabal of ${flow.dragonName}`, cell.id]
+                    ).catch(() => {});
+                  }
                 } else if (roll < 0.80) {
-                  await client.query(
-                    `INSERT INTO sim_agents (name, role, sub_role, location_cell_id, state, corruption, age_ticks, active_plot)
-                     VALUES ($1, 'Warden', 'Warden_Sentinel', $2, 'TRAVELING_TO_SEAL', 5, 0, 'Patrolling primordial flow perimeter')`,
-                    [`Grey Warden Flow-Patrol`, cell.id]
-                  ).catch(() => {});
+                  const wCount = await client.query("SELECT COUNT(*) as cnt FROM sim_agents WHERE role = 'Warden'");
+                  if (parseInt(wCount.rows[0].cnt) < 16) {
+                    await client.query(
+                      `INSERT INTO sim_agents (name, role, sub_role, location_cell_id, state, corruption, age_ticks, active_plot)
+                       VALUES ($1, 'Warden', 'Warden_Sentinel', $2, 'TRAVELING_TO_SEAL', 5, 0, 'Patrolling primordial flow perimeter')`,
+                      [`Grey Warden Flow-Patrol`, cell.id]
+                    ).catch(() => {});
+                  }
                 } else {
-                  await client.query(
-                    `INSERT INTO sim_agents (name, role, sub_role, location_cell_id, state, drained_power, age_ticks, active_plot)
-                     VALUES ($1, 'Chain_Zealot', 'Chain_Inquisitor', $2, 'WITCH_HUNTING', 15, 0, 'Hunting wild sparks drawn to the flow')`,
-                    [`Null-Chain Outriders`, cell.id]
-                  ).catch(() => {});
+                  const zCount = await client.query("SELECT COUNT(*) as cnt FROM sim_agents WHERE role = 'Chain_Zealot'");
+                  if (parseInt(zCount.rows[0].cnt) < 20) {
+                    await client.query(
+                      `INSERT INTO sim_agents (name, role, sub_role, location_cell_id, state, drained_power, age_ticks, active_plot)
+                       VALUES ($1, 'Chain_Zealot', 'Chain_Inquisitor', $2, 'WITCH_HUNTING', 15, 0, 'Hunting wild sparks drawn to the flow')`,
+                      [`Null-Chain Outriders`, cell.id]
+                    ).catch(() => {});
+                  }
                 }
               }
             }

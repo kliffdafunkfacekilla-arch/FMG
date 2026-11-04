@@ -12,9 +12,14 @@
  *  - The fringe factions are hard-coded lore; they are always re-inserted fresh
  */
 
+import fs from "fs";
 import BetterSqlite3 from "better-sqlite3";
 import pool from "../db/pool";
 import path from "path";
+import { enhanceAllCriminalSyndicates } from "../db/enhanceAllCriminalSyndicates";
+import { populateCellGeometries } from "../db/populateCellGeometries";
+import { prerenderWorldPopulation } from "../db/prerenderWorldPopulation";
+import { provisionAllBurgParagons } from "../db/provisionAllBurgParagons";
 
 const SQLITE_PATH = path.join(__dirname, "../../aetheria.sqlite");
 
@@ -102,6 +107,9 @@ CREATE TABLE sim_cells (
 
 CREATE TABLE IF NOT EXISTS sim_burg_economy (
   burg_id          INT  PRIMARY KEY,
+  name             TEXT,
+  culture_id       INT,
+  is_capital       BOOLEAN DEFAULT FALSE,
   food             INT  DEFAULT 1000,
   raw_materials    INT  DEFAULT 1000,
   refined_goods    INT  DEFAULT 1000,
@@ -121,10 +129,18 @@ CREATE TABLE IF NOT EXISTS sim_burg_economy (
   z_layer          INT  DEFAULT 0,
   resource_profile TEXT DEFAULT NULL,
   urban_tier       INT  DEFAULT 1,
+  hierarchy_tier   SMALLINT DEFAULT 1,
+  port             BOOLEAN DEFAULT FALSE,
+  pop_growth_pool  FLOAT DEFAULT 0.0,
   architecture_type VARCHAR(20) DEFAULT 'MIXED',
+  settlement_type   VARCHAR(32) DEFAULT 'BURG',
   occupier_faction_id INT,
   occupation_ticks INT DEFAULT 0,
-  resistance_strength INT DEFAULT 0
+  resistance_strength INT DEFAULT 0,
+  parent_burg_id   INT DEFAULT NULL,
+  upstream_burg_id INT DEFAULT NULL,
+  dedicated_civic_ratio REAL DEFAULT NULL,
+  current_inventory JSONB DEFAULT '{}'::jsonb
 );
 
 CREATE TABLE sim_industrial_stockpiles (
@@ -192,7 +208,8 @@ CREATE TABLE sim_chaos_zones (
   id        SERIAL PRIMARY KEY,
   cell_id   INT REFERENCES sim_cells(id) ON DELETE CASCADE,
   intensity REAL DEFAULT 0,
-  type      TEXT
+  type      TEXT,
+  UNIQUE(cell_id, type)
 );
 
 CREATE TABLE sim_sacred_groves (
@@ -241,16 +258,32 @@ CREATE TABLE sim_infrastructure (
   cell_id INT,
   type    TEXT,
   status  TEXT DEFAULT 'ACTIVE',
-  level   INT  DEFAULT 1
+  level   INT  DEFAULT 1,
+  UNIQUE(burg_id, type)
 );
 
 CREATE TABLE sim_agents (
-  id               SERIAL PRIMARY KEY,
-  name             TEXT,
-  faction_id       INT,
-  location_cell_id INT,
-  role             TEXT,
-  active_plot      TEXT
+  id                   SERIAL PRIMARY KEY,
+  name                 TEXT,
+  citizen_name         TEXT,
+  profession           TEXT,
+  species              TEXT,
+  spark_tier           TEXT,
+  personality_temper   TEXT,
+  personality_instinct TEXT,
+  motivation           TEXT,
+  faction_id           INT,
+  home_burg_id         INT,
+  location_cell_id     INT,
+  target_cell_id       INT,
+  target_grove_id      INT,
+  role                 TEXT,
+  sub_role             TEXT,
+  state                TEXT,
+  corruption           INT DEFAULT 0,
+  age_ticks            INT DEFAULT 0,
+  drained_power        REAL DEFAULT 0,
+  active_plot          TEXT
 );
 
 CREATE TABLE IF NOT EXISTS sim_commodity_prices (
@@ -362,7 +395,7 @@ CREATE TABLE IF NOT EXISTS sim_npc_instances (
     current_ry INT NOT NULL,
     local_pos INT[] NOT NULL,
     name VARCHAR(100) NOT NULL,
-    role VARCHAR(50) NOT NULL,
+    role VARCHAR(120) NOT NULL,
     kingdom VARCHAR(50),
     species VARCHAR(50),
     lineage VARCHAR(50),
@@ -417,6 +450,11 @@ CREATE TABLE IF NOT EXISTS sim_world_vault_sectors (
     infrastructure_mask INT NOT NULL DEFAULT 0,
     poi_type VARCHAR(64) NULL,
     compressed_terrain BYTEA NULL,
+    name VARCHAR(128) NULL,
+    props JSONB DEFAULT '[]'::jsonb,
+    npcs JSONB DEFAULT '[]'::jsonb,
+    features JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (cell_id, rx, ry)
 );
 CREATE INDEX IF NOT EXISTS idx_vault_coords ON sim_world_vault_sectors(cell_id, rx, ry);
@@ -472,6 +510,100 @@ CREATE TABLE IF NOT EXISTS sim_global_events (
     velocity_y INT,
     duration INT
 );
+
+CREATE TABLE IF NOT EXISTS sim_chaos_flows (
+    flow_id INT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    dragon_name VARCHAR(100) NOT NULL,
+    elemental_power VARCHAR(50) NOT NULL,
+    source_angle FLOAT NOT NULL,
+    source_coord JSONB NOT NULL,
+    sink_coord JSONB NOT NULL,
+    current_surge FLOAT NOT NULL DEFAULT 1.0,
+    current_width FLOAT NOT NULL DEFAULT 2.5,
+    meander_offset FLOAT NOT NULL DEFAULT 0.0,
+    waypoints JSONB NOT NULL DEFAULT '[]'::jsonb,
+    narrow_spots JSONB NOT NULL DEFAULT '[]'::jsonb,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sim_player_mutations (
+    id SERIAL PRIMARY KEY,
+    player_id INT NOT NULL,
+    mutation_key VARCHAR(100) NOT NULL,
+    mutation_name VARCHAR(100) NOT NULL,
+    description TEXT NOT NULL,
+    stat_modifiers JSONB DEFAULT '{}'::jsonb,
+    acquired_at_tick INT DEFAULT 1,
+    acquired_source VARCHAR(100) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sim_roads (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    road_group TEXT,
+    length REAL,
+    points JSONB,
+    source_cell_id INT,
+    dest_cell_id INT
+);
+
+CREATE TABLE IF NOT EXISTS sim_faction_wars (
+    id SERIAL PRIMARY KEY,
+    attacker_faction_id INT,
+    defender_faction_id INT,
+    is_active BOOLEAN DEFAULT TRUE,
+    started_tick INT DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS population_demographics (
+    citizen_id SERIAL PRIMARY KEY,
+    settlement_id INT,
+    home_cell_id INT,
+    name TEXT NOT NULL,
+    profession TEXT,
+    species TEXT,
+    is_null BOOLEAN NOT NULL DEFAULT TRUE,
+    spark_tier VARCHAR(30) DEFAULT 'NONE',
+    attunement_level FLOAT DEFAULT 0.0,
+    chaos_attraction_index FLOAT DEFAULT 0.0,
+    temper VARCHAR(30) DEFAULT 'STOIC',
+    instinct VARCHAR(30) DEFAULT 'WARY',
+    motivation TEXT DEFAULT 'Survive and provide',
+    traits JSONB DEFAULT '[]'::jsonb,
+    social_links JSONB DEFAULT '[]'::jsonb,
+    allegiance_status VARCHAR(50) DEFAULT 'CIVILIAN',
+    unit_size INT DEFAULT 12,
+    life_stage VARCHAR(20) DEFAULT 'ADULT',
+    age INT DEFAULT 25,
+    childhood_background TEXT,
+    is_immigrant BOOLEAN DEFAULT FALSE,
+    cause_of_death TEXT,
+    workplace_type TEXT,
+    workplace_name TEXT,
+    birthplace TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_pop_settlement ON population_demographics(settlement_id);
+CREATE INDEX IF NOT EXISTS idx_pop_spark ON population_demographics(spark_tier);
+CREATE INDEX IF NOT EXISTS idx_pop_allegiance ON population_demographics(allegiance_status);
+CREATE INDEX IF NOT EXISTS idx_pop_stage ON population_demographics(settlement_id, life_stage);
+CREATE INDEX IF NOT EXISTS idx_pop_demo_workplace ON population_demographics(workplace_type);
+
+CREATE TABLE IF NOT EXISTS sim_sector_layers (
+    cell_id INT NOT NULL,
+    rx INT NOT NULL,
+    ry INT NOT NULL,
+    z_layer INT NOT NULL,
+    layer_name VARCHAR(128) NOT NULL,
+    compressed_terrain BYTEA NOT NULL,
+    props JSONB DEFAULT '[]'::jsonb,
+    npcs JSONB DEFAULT '[]'::jsonb,
+    features JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (cell_id, rx, ry, z_layer)
+);
+CREATE INDEX IF NOT EXISTS idx_sector_layers_lookup ON sim_sector_layers(cell_id, rx, ry, z_layer);
+
 `;
 
 const fi = (v: any, def = 0) => Math.floor(Number(v) || def);
@@ -560,13 +692,86 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
       );
     }
 
+    // Populate authentic burg names from Okasha.json
+    try {
+      const candidatePaths = [
+        path.resolve(process.cwd(), "Okasha.json"),
+        path.resolve(process.cwd(), "../Okasha.json"),
+        path.resolve(__dirname, "../../../Okasha.json"),
+        path.resolve(__dirname, "../../Okasha.json"),
+        path.resolve("c:/Users/krazy/Desktop/FMG/Okasha.json")
+      ];
+      const okashaPath = candidatePaths.find(p => fs.existsSync(p));
+      if (okashaPath) {
+        const okashaRaw = fs.readFileSync(okashaPath, "utf8");
+        const okashaData = JSON.parse(okashaRaw);
+        const jsonBurgs = (okashaData.pack?.burgs || []).filter((b: any) => b && b.name && !b.removed && b.i > 0);
+        for (const jb of jsonBurgs) {
+          if (jb && jb.i && jb.name) {
+            const rawPop = Math.floor((jb.population || 10) * 1000);
+            const popNull = Math.floor(rawPop * 0.5);
+            const popAttuned = Math.floor(rawPop * 0.5);
+            const urbanTier = jb.capital ? 3 : (jb.population > 12 ? 3 : (jb.population > 2 ? 2 : 1));
+            const wealth = Math.floor(jb.treasury || 500);
+
+            await client.query(`
+              INSERT INTO sim_burg_economy (
+                burg_id, name, cell_id, food, raw_materials, refined_goods,
+                wealth, unrest, pop_null, pop_attuned, urban_tier,
+                dominant_domain, species_demographics, health, crime_rate,
+                is_capital, port, culture_id
+              ) VALUES (
+                $1, $2, $3, 2000, 1500, 1500,
+                $4, 0, $5, $6, $7,
+                'MATERIAL', '{}', 100, 0,
+                $8, $9, $10
+              ) ON CONFLICT (burg_id) DO UPDATE SET
+                name = EXCLUDED.name,
+                cell_id = EXCLUDED.cell_id,
+                urban_tier = EXCLUDED.urban_tier,
+                is_capital = EXCLUDED.is_capital
+            `, [
+              jb.i,
+              jb.name,
+              jb.cell,
+              wealth,
+              popNull,
+              popAttuned,
+              urbanTier,
+              Boolean(jb.capital),
+              Boolean(jb.port),
+              jb.culture || 0
+            ]);
+
+            await client.query(`
+              INSERT INTO sim_industrial_stockpiles (burg_id, complex_inventory)
+              VALUES ($1, '{}')
+              ON CONFLICT (burg_id) DO NOTHING
+            `, [jb.i]);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Could not load Okasha burg names:", e);
+    }
+
     // ── 4. Stockpiles ─────────────────────────────────────────────────────
     const stocks = sqlite.prepare("SELECT * FROM sim_industrial_stockpiles").all() as any[];
     for (const r of stocks) {
       await client.query(
         `INSERT INTO sim_industrial_stockpiles
            (burg_id,raw_wood,raw_ore,raw_herbs,raw_fiber,refined_lumber,forged_steel,alchemical_potions,textiles,complex_inventory)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         ON CONFLICT (burg_id) DO UPDATE SET
+           raw_wood = EXCLUDED.raw_wood,
+           raw_ore = EXCLUDED.raw_ore,
+           raw_herbs = EXCLUDED.raw_herbs,
+           raw_fiber = EXCLUDED.raw_fiber,
+           refined_lumber = EXCLUDED.refined_lumber,
+           forged_steel = EXCLUDED.forged_steel,
+           alchemical_potions = EXCLUDED.alchemical_potions,
+           textiles = EXCLUDED.textiles,
+           complex_inventory = EXCLUDED.complex_inventory`,
         [r.burg_id, fi(r.raw_wood), fi(r.raw_ore), fi(r.raw_herbs), fi(r.raw_fiber),
          fi(r.refined_lumber), fi(r.forged_steel), fi(r.alchemical_potions), fi(r.textiles),
          r.complex_inventory || "{}"]
@@ -664,14 +869,48 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
       );
     }
 
-    // ── 13. Agents ────────────────────────────────────────────────────────
-    const agents = sqlite.prepare("SELECT * FROM sim_agents").all() as any[];
-    for (const r of agents) {
-      await client.query(
-        `INSERT INTO sim_agents (id,name,faction_id,location_cell_id,role,active_plot)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
-        [r.id, r.name, r.faction_id, r.location_cell_id, r.role, r.active_plot || null]
-      );
+    // ── 13. Agents (Clean Elite Order of Grey Wardens & Initial Cultists) ───
+    await client.query("DELETE FROM sim_agents");
+    
+    // Seed 12 Elite Grey Wardens at the Spire of Convergence (Cell 16166)
+    const WARDEN_NAMES = [
+      "Corvus Wind-Rider", "Kaelis Stone-Back", "Fenrir Moon-Stalker", "Leona Shadow-Pounce",
+      "Morwen Blackwood", "Danica Clearwater", "Theron Frost", "Gareth Ashfall",
+      "Torben Brawn-Hammer", "Skoll Grey-Pelt", "Vesper Sun-Basker", "Rowan Deep-Root"
+    ];
+    for (let i = 0; i < WARDEN_NAMES.length; i++) {
+      await client.query(`
+        INSERT INTO sim_agents (
+          name, citizen_name, profession, species, spark_tier,
+          personality_temper, personality_instinct, motivation,
+          role, sub_role, location_cell_id, state,
+          corruption, age_ticks, active_plot
+        ) VALUES (
+          $1, $2, 'Grey Warden Sentinel', 'Human', 'ADEPT',
+          'STOIC', 'WARY', 'Defending the 12 Dragon Seals and maintaining cosmic vigil',
+          'Warden', 'Warden_Sentinel', 16166, 'AT_SPIRE',
+          0, 0, 'Vigil at the Spire of Convergence'
+        )
+      `, [`Warden ${WARDEN_NAMES[i]}`, WARDEN_NAMES[i]]);
+    }
+
+    // Seed 12 Cultist Infiltrators across top initial burgs
+    const topBurgsRes = await client.query("SELECT burg_id, cell_id, name FROM sim_burg_economy ORDER BY unrest DESC, wealth DESC LIMIT 12");
+    for (let i = 0; i < topBurgsRes.rows.length; i++) {
+      const b = topBurgsRes.rows[i];
+      await client.query(`
+        INSERT INTO sim_agents (
+          name, citizen_name, profession, species, spark_tier,
+          personality_temper, personality_instinct, motivation,
+          role, sub_role, home_burg_id, location_cell_id,
+          state, corruption, age_ticks, active_plot
+        ) VALUES (
+          $1, $2, 'Acolyte of the Abyss', 'Human', 'CHANNELER',
+          'FANATICAL', 'AGGRESSIVE', 'Shattering the 12 Dragon Seals to release primordial chaos',
+          'Cultist', 'Cultist_Infiltrator', $3, $4,
+          'INFILTRATING', 5, 0, $5
+        )
+      `, [`Cultist Initiate of ${b.name}`, `Initiate of ${b.name}`, b.burg_id, b.cell_id, `Infiltrating ${b.name}`]);
     }
 
     const tablesToResetSeq = ['sim_infrastructure', 'sim_agents', 'sim_sacred_groves', 'sim_fringe_lairs', 'sim_events', 'sim_trade_routes', 'sim_chaos_zones', 'sim_outlaw_factions', 'sim_calendar', 'sim_diplomacy'];
@@ -840,13 +1079,29 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
 
     const remainingBurgs = (await client.query("SELECT COUNT(*) as c FROM sim_burg_economy")).rows[0].c;
 
+    // 6. Pre-render 12:1 Consolidated World Population & Local Paragons
+    console.log("[resetWorld] Initializing consolidated world population (12:1 ratio)...");
+    await prerenderWorldPopulation();
+    console.log("[resetWorld] Provisioning authentic local paragons across all burgs...");
+    await provisionAllBurgParagons();
+
+    // 7. Provision full 10 syndicates and Voronoi cell boundaries
+    console.log("[resetWorld] Provisioning authentic 10 criminal syndicates & starting dens...");
+    await enhanceAllCriminalSyndicates();
+    console.log("[resetWorld] Populating Voronoi cell boundary geometries...");
+    await populateCellGeometries();
+
+    const finalParagons = (await client.query("SELECT COUNT(*) as c FROM sim_paragons")).rows[0].c;
+    const totalCitizens = (await client.query("SELECT COUNT(*) as c FROM population_demographics")).rows[0].c;
+
     const stats = {
       factions: factions.length,
       cells: cells.length,
       burgs: parseInt(remainingBurgs, 10),
-      paragons: paragons.length,
+      paragons: parseInt(finalParagons, 10),
+      citizens: parseInt(totalCitizens, 10),
       infrastructure: infra.length,
-      agents: agents.length,
+      agents: 24,
     };
 
     console.log("[resetWorld] Done:", stats);
