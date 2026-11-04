@@ -1,4 +1,5 @@
 import { PoolClient, Pool } from "pg";
+import { tagSectorEnvironment } from "./citizenPersonaHelper";
 
 export interface DragonFlowDef {
   flowId: number;
@@ -163,6 +164,8 @@ export async function runChaosFlowAgent(
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)
       ON CONFLICT (flow_id) DO UPDATE SET
         name = EXCLUDED.name,
+        dragon_name = EXCLUDED.dragon_name,
+        elemental_power = EXCLUDED.elemental_power,
         current_surge = EXCLUDED.current_surge,
         current_width = EXCLUDED.current_width,
         waypoints = EXCLUDED.waypoints,
@@ -217,7 +220,8 @@ export async function runChaosFlowAgent(
               const zoneIntensity = Math.round(prox.ambientChaos * 100);
               await client.query(
                 `INSERT INTO sim_chaos_zones (cell_id, intensity, type)
-                 VALUES ($1, $2, $3)`,
+                 VALUES ($1, $2, $3)
+                 ON CONFLICT (cell_id, type) DO UPDATE SET intensity = EXCLUDED.intensity`,
                 [cell.id, zoneIntensity, `${flow.elementalPower.toUpperCase()}_CHAOS_LEYS`]
               ).catch(() => {});
 
@@ -227,6 +231,28 @@ export async function runChaosFlowAgent(
                  WHERE id = $1`,
                 [cell.id]
               ).catch(() => {});
+
+              // Apply primordial chaos environmental tags to the sector layer
+              const domainTags: Record<string, string[]> = {
+                Mass: ["#GraviticAnomaly", "#DenseIronwood", "#BasaltFaultLine"],
+                Nexus: ["#SpatialFoldMirage", "#DimensionalFissure", "#PhaseSlip"],
+                Ordo: ["#TemporalStasisFrost", "#CrystallineLichen", "#StasisField"],
+                Lex: ["#IronRunicResonance", "#BindingLey", "#DecreeAura"],
+                Motus: ["#KineticGaleRifts", "#SquallWarpedTerrain", "#HowlingLeys"],
+                Flux: ["#BiomanticMutationZone", "#ChimericEcology", "#VolatileAether"],
+                Vita: ["#BloodBloomOvergrowth", "#ApexPredatorFrenzy", "#PrimevalHypergrowth"],
+                Ratio: ["#ClockworkFaultLines", "#HarmonicHum", "#GeometricResonance"],
+                Lux: ["#BlindingPhosphorFlats", "#RadiantEmberFlora", "#SolarAether"],
+                Omen: ["#EclipseShadowWash", "#OmenBlight", "#AstralWhispers"],
+                Aura: ["#PhantasmagoricMists", "#HallucinogenicSpores", "#VioletAura"],
+                Anumis: ["#SoulAshMiasma", "#RestlessShades", "#NecroticChill"]
+              };
+              const flowTags = [
+                "#ChaosFlowShores",
+                `#DragonLeys_${flow.dragonName}`,
+                ...(domainTags[flow.elementalPower] || ["#PrimordialAether"])
+              ];
+              await tagSectorEnvironment(client, cell.id, flowTags, 0);
 
               if (Math.random() < 0.20) {
                 const roll = Math.random();

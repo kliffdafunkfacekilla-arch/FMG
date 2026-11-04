@@ -395,3 +395,36 @@ export async function recruitInsideMan(
     return null;
   }
 }
+
+/**
+ * Injects or updates environmental tags on a sector layer (features->'environmental_tags')
+ */
+export async function tagSectorEnvironment(
+  client: any,
+  cellId: number,
+  tags: string[],
+  zLayer: number = 0
+): Promise<void> {
+  try {
+    const tagsJson = JSON.stringify(tags);
+    await client.query(`
+      UPDATE sim_sector_layers
+      SET features = jsonb_set(
+        COALESCE(features, '{}'::jsonb),
+        '{environmental_tags}',
+        (
+          SELECT jsonb_agg(DISTINCT elem)
+          FROM (
+            SELECT jsonb_array_elements_text(COALESCE(features->'environmental_tags', '[]'::jsonb)) AS elem
+            UNION
+            SELECT jsonb_array_elements_text($1::jsonb) AS elem
+          ) t
+        )
+      )
+      WHERE cell_id = $2 AND z_layer = $3
+    `, [tagsJson, cellId, zLayer]);
+  } catch (err) {
+    // Non-fatal if sector layer hasn't been prerendered for this cell
+  }
+}
+
