@@ -2,13 +2,50 @@ import { resolveCombat } from '../combatEngine';
 import { FACTION_ACTIONS, FactionState, FactionAction } from '../ai/factionActions';
 import { tagBurgCitizens } from "./citizenPersonaHelper";
 
+/**
+ * Extracts uppercase trait strings from a paragon's traits column
+ */
+function getTraitsList(p: any): string[] {
+    const list: string[] = [];
+    if (!p || !p.traits) return list;
+    try {
+        const parsed = typeof p.traits === 'string' ? JSON.parse(p.traits) : p.traits;
+        if (Array.isArray(parsed)) {
+            for (const item of parsed) {
+                if (typeof item === 'string') list.push(item.toUpperCase());
+                else if (item && item.name) list.push(String(item.name).toUpperCase());
+            }
+        }
+    } catch (e) {}
+    return list;
+}
+
 export async function runFactionPlanningAgent(client: any, tick: number, loreDate: string) {
     const factionRes = await client.query("SELECT * FROM sim_factions");
-    const burgRes = await client.query("SELECT b.burg_id, b.pop_null, c.faction_id, b.unrest, b.crime_rate, b.food, b.health, b.military_forces, c.id as cell_id FROM sim_burg_economy b JOIN sim_cells c ON b.cell_id = c.id WHERE c.faction_id IS NOT NULL");
+    const burgRes = await client.query(`
+        SELECT b.burg_id, b.pop_null, c.faction_id, b.unrest, b.crime_rate, b.food, b.health, 
+               b.military_forces, b.wealth, c.id as cell_id 
+        FROM sim_burg_economy b 
+        JOIN sim_cells c ON b.cell_id = c.id 
+        WHERE c.faction_id IS NOT NULL
+    `);
     const unitRes = await client.query("SELECT * FROM sim_faction_units");
     const paragonRes = await client.query("SELECT * FROM sim_paragons WHERE faction_id IS NOT NULL");
     const diploRes = await client.query("SELECT * FROM sim_diplomacy");
     const bordersRes = await client.query("SELECT * FROM sim_faction_borders");
+
+    // Fetch environmental / sector tags across cells
+    const sectorTagsRes = await client.query(`
+        SELECT cell_id, features->'environmental_tags' as env_tags 
+        FROM sim_sector_layers 
+        WHERE z_layer = 0 AND features->'environmental_tags' IS NOT NULL
+    `);
+    const sectorTagsMap = new Map<number, string[]>();
+    for (const r of sectorTagsRes.rows) {
+        if (Array.isArray(r.env_tags)) {
+            sectorTagsMap.set(Number(r.cell_id), r.env_tags);
+        }
+    }
 
     const factions = factionRes.rows;
     const burgs = burgRes.rows;
@@ -32,12 +69,17 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
         let avgHealth = 0;
         let avgCrime = 0;
 
+        // Collect all active macro tags across the faction's territories
+        const macroTagsSet = new Set<string>();
         for (const b of myBurgs) {
             let size = 1; if (b.pop_null > 500) size = 2; if (b.pop_null > 2000) size = 3; if (b.pop_null >= 5000) size = 4 + Math.floor((b.pop_null - 5000) / 5000);
             grossIncome += 200 * Math.pow(2, Math.min(size - 1, 6)) + (b.pop_null > 20000 ? Math.floor(b.pop_null / 10) : 0);
             avgUnrest += b.unrest || 0;
             avgHealth += b.health || 100;
             avgCrime += b.crime_rate || 0;
+
+            const tags = sectorTagsMap.get(Number(b.cell_id)) || [];
+            tags.forEach(t => macroTagsSet.add(t));
         }
 
         if (myBurgs.length > 0) {
@@ -71,28 +113,33 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
             for (const count of Object.values(forces)) {
                 totalCombatSquads += (Number(count) || 0);
             }
-            // Standing civic militia from population: 1 squad per 1,000 citizens (min 2 per burg)
             totalCombatSquads += Math.max(2, Math.floor((b.pop_null || 1000) / 1000));
         }
 
         let perceivedEconomy = netIncome * avgSurv; 
         let perceivedDefense = Math.max(15, Math.floor(totalCombatSquads * avgProt)); 
 
-        const leader = paragons.find((p: any) => p.faction_id === f.id && ["EMPEROR", "EMPRESS", "HIGH_MATRIARCH", "SYNDICATE_BOSS", "PRESIDENT", "CHIEFTAIN"].includes(p.title)) || paragons.find((p: any) => p.faction_id === f.id && !p.is_counselor);
+        // Identify sovereign ruler
+        const leader = paragons.find((p: any) => p.faction_id === f.id && [
+            "EMPEROR", "EMPRESS", "HIGH_MATRIARCH", "ARCH-DUKE", "GRAND_CHIEFTAIN", "LORD_PROTECTOR", "HIGH_CHANCELLOR", "WARLORD"
+        ].includes(String(p.title || "").toUpperCase())) || paragons.find((p: any) => p.faction_id === f.id && !p.is_counselor);
+
+        const leaderTraits = getTraitsList(leader);
+        const leaderName = leader ? leader.name : `Sovereign of ${f.name}`;
+        const leaderTitle = leader ? leader.title : "High Sovereign";
+        const leaderCorruption = Number(leader?.corruption_score || 0);
+
         let aggression = f.trait_aggression || 5;
         let economy = f.trait_economy || 5;
         let magic = f.trait_magic || 5;
         
-        if (leader && leader.traits) {
-            const pTraitsStr = typeof leader.traits === 'string' ? leader.traits : JSON.stringify(leader.traits);
-            if (pTraitsStr.includes("Bloodthirsty")) aggression += 5;
-            if (pTraitsStr.includes("Pacifist")) aggression -= 4;
-            if (pTraitsStr.includes("Greedy")) economy += 4;
-            if (pTraitsStr.includes("Superstitious")) magic += 5;
-            if (pTraitsStr.includes("Paranoid")) aggression += 2;
-        }
+        if (leaderTraits.some(t => t.includes("BLOODTHIRSTY") || t.includes("CONQUEROR") || t.includes("AGGRESSIVE"))) aggression += 4;
+        if (leaderTraits.some(t => t.includes("PACIFIST") || t.includes("DIPLOMAT"))) aggression -= 4;
+        if (leaderTraits.some(t => t.includes("GREEDY") || t.includes("USURIOUS"))) economy += 4;
+        if (leaderTraits.some(t => t.includes("SUPERSTITIOUS") || t.includes("ALCHEMIST"))) magic += 4;
+        if (leaderTraits.some(t => t.includes("PARANOID"))) aggression += 2;
 
-        // Neighbors on both side of the border relation (faction_a or faction_b)
+        // Valid diplomatic neighbors
         const validNeighbors: number[] = Array.from(new Set<number>(
             borders.filter((b: any) => b.faction_a === f.id || b.faction_b === f.id)
                    .map((b: any) => Number(b.faction_a === f.id ? b.faction_b : b.faction_a))
@@ -103,39 +150,54 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
         factionStates.set(f.id, { 
             id: f.id, name: f.name, treasury: newTreasury,
             avgUnrest, avgHealth, avgCrime, aggression, economy, magic, perceivedEconomy, perceivedDefense,
-            myBurgs, myUnits, validNeighbors, activeWars, leaderName: leader ? leader.name : 'The Ruler',
+            myBurgs, myUnits, validNeighbors, activeWars,
+            leaderName, leaderTitle, leaderTraits, leaderCorruption,
+            macroTags: Array.from(macroTagsSet),
             tick, loreDate
         });
 
-        // Ensure treasury updates every tick due to macro economy
+        // Update sovereign treasury
         await client.query("UPDATE sim_factions SET treasury = $1 WHERE id = $2", [newTreasury, f.id]);
     }
 
-    // --- PHASE 2: UTILITY AI ACTION EVALUATION ---
+    // --- PHASE 2: UTILITY AI ACTION EVALUATION WITH PERSONALITY & TAG WEIGHTING ---
     for (const f of factions) {
         const state = factionStates.get(f.id);
         if (!state || state.myBurgs.length === 0) continue;
 
-        // Evaluate all actions (every sovereign faction leader acts daily)
-        const scoredActions: { action: FactionAction, score: number }[] = [];
+        // Evaluate all sovereign actions
+        const scoredActions: { action: FactionAction; score: number; reasoning: string }[] = [];
         for (const action of FACTION_ACTIONS) {
-            const score = action.evaluate(state);
-            if (score > 0) {
-                scoredActions.push({ action, score });
+            const evalResult = action.evaluate(state);
+            if (evalResult.score > 0) {
+                scoredActions.push({ 
+                    action, 
+                    score: evalResult.score + (Math.random() * 8), // minor dynamic jitter
+                    reasoning: evalResult.reasoning 
+                });
             }
         }
 
         if (scoredActions.length > 0) {
             scoredActions.sort((a, b) => b.score - a.score);
-            const chosenAction = scoredActions[0]?.action;
+            const chosen = scoredActions[0]!;
             
-            // Execute
-            const msg = chosenAction ? await chosenAction.execute(state, client) : null;
+            // Execute the highest scoring action
+            const msg = await chosen.action.execute(state, client, chosen.reasoning);
             if (msg) {
-                // Tier is major if it's a war, diplomatic shift, or major military mobilization
                 let tier = 'MINOR';
-                if (['DECLARE_WAR', 'BORDER_SKIRMISH', 'MUSTER_MILITARY_FORCES', 'FORM_ALLIANCE', 'TRADE_EMBARGO', 'COVERT_SABOTAGE', 'COMMISSION_WORLD_WONDER'].includes(chosenAction?.id || '')) tier = 'MAJOR';
-                events.push({ tick, type: chosenAction?.id, message: msg, tier, faction_id: f.id, burg_id: state.myBurgs[0]?.burg_id || null, lore_date: loreDate });
+                if (['DECLARE_WAR', 'BORDER_SKIRMISH', 'MUSTER_MILITARY_FORCES', 'FORM_ALLIANCE', 'TRADE_EMBARGO', 'COVERT_SABOTAGE', 'COMMISSION_WORLD_WONDER'].includes(chosen.action.id)) {
+                    tier = 'MAJOR';
+                }
+                events.push({ 
+                    tick, 
+                    type: chosen.action.id, 
+                    message: msg, 
+                    tier, 
+                    faction_id: f.id, 
+                    burg_id: state.myBurgs[0]?.burg_id || null, 
+                    lore_date: loreDate 
+                });
             }
         }
     }
@@ -178,30 +240,39 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
         await client.query("UPDATE sim_burg_economy SET military_forces = $1 WHERE burg_id = $2", [JSON.stringify(result.defenderForces), targetBurg.burg_id]);
 
         let defRemaining = 0;
-        for (const val of Object.values(result.defenderForces)) defRemaining += (val as number) || 0;
-        let aggRemaining = 0;
-        for (const val of Object.values(result.attackerForces)) aggRemaining += (val as number) || 0;
+        for (const count of Object.values(result.defenderForces)) defRemaining += Number(count) || 0;
 
-        const aggFaction = factions.find((f: any) => f.id === aggressorId);
-        
-        if (defRemaining < 1 && aggRemaining > 0) {
+        if (defRemaining <= 0) {
             await client.query("UPDATE sim_cells SET faction_id = $1 WHERE id = $2", [aggressorId, targetBurg.cell_id]);
-            events.push({ tick, type: 'SIEGE_WON', message: `The forces of ${aggFaction?.name || 'Faction '+aggressorId} crushed the defenders at Burg ${targetBurg.burg_id} and OCCUPIED the city!`, tier: 'MAJOR', faction_id: aggressorId, burg_id: targetBurg.burg_id, lore_date: loreDate });
-            events.push({ tick, type: 'WAR_REFUGEES_DISPLACED', message: `Devastation in Burg ${targetBurg.burg_id}: displaced war refugees and surviving garrison deserters fled into the border wilderness, turning to desperate highway banditry!`, tier: 'MINOR', faction_id: aggressorId, burg_id: targetBurg.burg_id, lore_date: loreDate });
-            await tagBurgCitizens(client, targetBurg.burg_id, ['#WarRefugee', '#WildernessBandit'], 'DESPERATE', `Displaced into the wilderness following the fall of Burg ${targetBurg.burg_id}, turning to banditry.`, null, 4);
+            events.push({ 
+                tick, 
+                type: 'SIEGE_WON', 
+                message: `🚩 CONQUEST: The vanguard of ${aggState.name} stormed and conquered ${targetBurg.name || `Burg #${targetBurg.burg_id}`} from ${defState.name}!`, 
+                tier: 'CRITICAL', 
+                faction_id: aggressorId, 
+                burg_id: targetBurg.burg_id, 
+                lore_date: loreDate 
+            });
         } else {
-            const atkLosses = (result.difference > 0 && result.winner === 'DEFENDER') ? Math.floor(result.difference/100) : 0;
-            const defLosses = (result.difference > 0 && result.winner === 'ATTACKER') ? Math.floor(result.difference/100) : 0;
-            if (atkLosses > 0 || defLosses > 0) {
-                events.push({ tick, type: 'BATTLE', message: `A fierce battle erupted at Burg ${targetBurg.burg_id}. Attacker sustained ${atkLosses} losses, Defender sustained ${defLosses} losses.`, tier: 'MINOR', faction_id: aggressorId, burg_id: targetBurg.burg_id, lore_date: loreDate });
-            }
+            events.push({ 
+                tick, 
+                type: 'BATTLE', 
+                message: `⚔️ FRONTIER CLASH: Forces of ${aggState.name} attacked ${targetBurg.name || `Burg #${targetBurg.burg_id}`} (${defState.name}). Result: ${result.winner} victory (Combat roll: ${result.attackerTotal} vs ${result.defenderTotal}, diff: ${result.difference.toFixed(0)}).`, 
+                tier: 'MAJOR', 
+                faction_id: aggressorId, 
+                burg_id: targetBurg.burg_id, 
+                lore_date: loreDate 
+            });
         }
     }
 
+    // Insert logged events
     if (events.length > 0) {
         for (const ev of events) {
-            await client.query("INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date) VALUES ($1, $2, $3, $4, $5, $6, $7)", 
-                [ev.tick, ev.type, ev.message, ev.tier, ev.faction_id, ev.burg_id || null, ev.lore_date || loreDate]);
+            await client.query(
+                "INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                [ev.tick, ev.type, ev.message, ev.tier, ev.faction_id, ev.burg_id, ev.lore_date]
+            );
         }
     }
 }

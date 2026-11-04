@@ -1,9 +1,54 @@
-import { tagBurgCitizens } from "./citizenPersonaHelper";
+import { tagBurgCitizens, tagSectorEnvironment } from "./citizenPersonaHelper";
 
+/**
+ * Helper to extract uppercase trait names from a paragon's traits column
+ */
+function getParagonTraitNames(p: any): string[] {
+    const list: string[] = [];
+    if (!p || !p.traits) return list;
+    try {
+        const parsed = typeof p.traits === 'string' ? JSON.parse(p.traits) : p.traits;
+        if (Array.isArray(parsed)) {
+            for (const item of parsed) {
+                if (typeof item === 'string') list.push(item.toUpperCase());
+                else if (item && item.name) list.push(String(item.name).toUpperCase());
+            }
+        }
+    } catch (e) {}
+    return list;
+}
+
+/**
+ * Autonomous Local Paragon Agent:
+ * Burg leaders (Mayors, Reeves, Burgomasters, Headmen, Security Commanders, Watch Captains)
+ * assess the authentic deficits and crises of their burg, but their personality traits
+ * and active narrative tags fundamentally bias their decision-making.
+ *
+ * An obvious decision (e.g. buying food during famine) is NOT always taken:
+ * - A Greedy/Corrupt leader hoards grain for price gouging or audits taxes.
+ * - A Paranoid leader fortifies ramparts or declares curfews to suppress riots.
+ * - A Fanatical leader funds temple sacrifices and hunts heretics.
+ * - A Hedonist leader throws distracting wine festivals.
+ * - A Compassionate leader feeds the poor and cleanses the streets.
+ * - Active tags (#PlagueOutbreak, #TradeBlockaded, #CartelInfiltration) further alter choices.
+ */
 export async function runLocalParagonAgent(client: any, tick: number, loreDate: string = "") {
     const burgRes = await client.query("SELECT * FROM sim_burg_economy");
     const paragonRes = await client.query("SELECT * FROM sim_paragons");
     
+    // Fetch active environmental tags across sectors
+    const sectorTagsRes = await client.query(`
+        SELECT cell_id, features->'environmental_tags' as env_tags 
+        FROM sim_sector_layers 
+        WHERE z_layer = 0 AND features->'environmental_tags' IS NOT NULL
+    `);
+    const sectorTagsMap = new Map<number, string[]>();
+    for (const r of sectorTagsRes.rows) {
+        if (Array.isArray(r.env_tags)) {
+            sectorTagsMap.set(Number(r.cell_id), r.env_tags);
+        }
+    }
+
     // Group paragons by burg
     const paragonsByBurg = new Map<number, any[]>();
     for (const p of paragonRes.rows) {
@@ -18,289 +63,569 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
         const pop = burg.pop_null || 0;
         if (pop <= 0) continue;
 
-        // Baseline Needs Assessment (0 - 100)
-        let baseSurvival = 0;
-        if (burg.food < pop) {
-            baseSurvival = 100 - ((Math.max(0, burg.food) / pop) * 100); 
-        }
-        let baseProtection = burg.crime_rate || 0;
-        let basePleasure = (burg.unrest || 0) * 0.5 + ((100 - (burg.health || 100)) * 0.5);
+        const cellId = Number(burg.cell_id || 0);
+        const sectorTags = sectorTagsMap.get(cellId) || [];
 
-        // Action Results Trackers
+        // 1. BURG ACTUAL REAL-WORLD CONDITION ASSESSMENT
+        const foodNeedRatio = (burg.food || 0) / Math.max(1, pop * 2);
+        const isFamine = foodNeedRatio < 0.6 || sectorTags.some(t => t.includes("Famine") || t.includes("Shortage"));
+        const isFoodShortage = foodNeedRatio < 1.0;
+        const isPlagueOrSqualor = (burg.health || 100) < 70 || sectorTags.some(t => t.includes("Plague") || t.includes("Fever") || t.includes("Squalor"));
+        const isHighUnrest = (burg.unrest || 0) > 25 || sectorTags.some(t => t.includes("Unrest") || t.includes("Riot"));
+        const isCriticalUnrest = (burg.unrest || 0) > 50;
+        const isBankrupt = (burg.wealth || 0) < 60;
+        const isWealthySurplus = (burg.wealth || 0) > 800;
+        const isHighCrime = (burg.crime_rate || 0) > 30 || sectorTags.some(t => t.includes("Underworld") || t.includes("Cartel") || t.includes("Extortion"));
+        const isTradeBlockaded = sectorTags.some(t => t.includes("Blockade") || t.includes("Embargo"));
+        const isCartelInfiltrated = sectorTags.some(t => t.includes("Cartel") || t.includes("InsideMan") || t.includes("Smuggler"));
+        const isDragonstoneBoom = sectorTags.some(t => t.includes("Dragonstone") || t.includes("Mining"));
+        const isChaosCrisis = sectorTags.some(t => t.includes("Chaos") || t.includes("Storm") || t.includes("Rift"));
+
+        // Action Results Trackers for this burg
         let foodDelta = 0;
         let wealthDelta = 0;
         let crimeDelta = 0;
         let unrestDelta = 0;
         let healthDelta = 0;
+        let rawMaterialsDelta = 0;
+        let refinedGoodsDelta = 0;
 
         const myParagons = paragonsByBurg.get(burg.burg_id) || [];
 
-        // Action Execution (Each Paragon takes their turn every tick)
         for (const p of myParagons) {
-            const domain = p.domain || (p.title?.includes("Commander") || p.title?.includes("Marshal") || p.title?.includes("Captain") || p.title?.includes("Warden") ? 'Security' : 'Civil');
-            let survMult = 1.0;
-            let protMult = 1.0;
-            let pleasMult = 1.0;
-            try {
-                const traits = typeof p.traits === 'string' ? JSON.parse(p.traits) : p.traits;
-                if (Array.isArray(traits)) {
-                    for (const t of traits) {
-                        const name = (t.name || "").toLowerCase();
-                        const mod = Math.abs(t.modifier || 0.2);
-                        if (name.includes("paranoid") || name.includes("vigilant")) protMult += mod;
-                        if (name.includes("greedy") || name.includes("harsh")) pleasMult -= mod;
-                        if (name.includes("agrarian") || name.includes("stoic") || name.includes("generous")) survMult += mod;
-                    }
-                }
-            } catch (e) {}
+            const domain = p.domain || (
+                p.title?.includes("Commander") || p.title?.includes("Marshal") || 
+                p.title?.includes("Captain") || p.title?.includes("Warden") ? 'Security' : 'Civil'
+            );
 
-            // Apply their specific trait multipliers
-            const effSurvival = baseSurvival * (p.survival_mult || survMult);
-            const effProtection = baseProtection * (p.protection_mult || protMult);
-            const effPleasure = basePleasure * (p.pleasure_mult || pleasMult);
+            const traits = getParagonTraitNames(p);
+            const corruption = Number(p.corruption_score || 0);
 
-            // ==========================================
-            // 1. CIVIL PARAGONS (MAYORS, REEVES, MAGISTRATES)
-            // ==========================================
+            // Trait Booleans
+            const isGreedy = traits.some(t => t.includes("GREEDY") || t.includes("USURIOUS") || t.includes("CORRUPT") || t.includes("AVARICE"));
+            const isParanoid = traits.some(t => t.includes("PARANOID") || t.includes("WARY") || t.includes("FEARFUL") || t.includes("SUSPICIOUS"));
+            const isCompassionate = traits.some(t => t.includes("COMPASSIONATE") || t.includes("BENEVOLENT") || t.includes("AGRARIAN") || t.includes("GENEROUS") || t.includes("PATERNAL"));
+            const isFanatical = traits.some(t => t.includes("FANATICAL") || t.includes("DEVOUT") || t.includes("ZEALOUS") || t.includes("SUPERSTITIOUS"));
+            const isHedonist = traits.some(t => t.includes("HEDONIST") || t.includes("CONVIVIAL") || t.includes("INDOLENT") || t.includes("DECADENT"));
+            const isScholarly = traits.some(t => t.includes("SCHOLARLY") || t.includes("LOGICIAN") || t.includes("BUREAUCRATIC") || t.includes("CALCULATED"));
+            const isStoic = traits.some(t => t.includes("STOIC") || t.includes("PRAGMATIC") || t.includes("RESOLUTE") || t.includes("INDUSTRIOUS"));
+            const isVengeful = traits.some(t => t.includes("VENGEFUL") || t.includes("BITTER") || t.includes("HARSH") || t.includes("TYRANNICAL"));
+
+            // =========================================================================
+            // 1. CIVIL PARAGONS (MAYORS, REEVES, BURGOMASTERS, HEADMEN)
+            // =========================================================================
             if (domain === 'Civil') {
-                const actionSeed = (tick + p.id + burg.burg_id) % 12;
-
-                if (burg.food < pop * 4) {
-                    // Emergency Grain Silos & Subsidies
-                    foodDelta += Math.floor(pop * 0.15) + 300;
-                    wealthDelta -= 20;
-                    events.push({
-                        burg_id: burg.burg_id,
-                        type: "MAYOR_EXPAND_GRANARY",
-                        tier: "MINOR",
-                        msg: `Mayor ${p.name} commissioned massive reinforced timber grain silos in ${burg.name}, expanding municipal reserves to protect against famine.`
-                    });
-                    await tagBurgCitizens(client, burg.burg_id, ['#GranaryCarpenter', '#GrainSubsidyRecipient'], 'RELIEVED', `Receiving municipal grain rations and constructing emergency silos under Mayor ${p.name}.`, '%laborer%', 3);
-                } else if (burg.unrest > 20 && (tick + p.id) % 4 === 0) {
-                    // Civic Market Festival
-                    unrestDelta -= 16;
-                    wealthDelta -= 40;
-                    events.push({
-                        burg_id: burg.burg_id,
-                        type: "MAYOR_CIVIC_FESTIVAL",
-                        tier: "MINOR",
-                        msg: `Mayor ${p.name} funded a grand market festival in ${burg.name}, distributing spiced ale, roast meats, and cider to soothe civil unrest.`
-                    });
-                    await tagBurgCitizens(client, burg.burg_id, ['#FestivalReveler', '#CivicPride'], 'JOVIAL', `Drinking and dancing at the municipal festival hosted by Mayor ${p.name}.`, null, 4);
-                } else if (burg.health < 80 && (tick + p.id) % 5 === 0) {
-                    // Aqueduct & Stone Cisterns
-                    healthDelta += 8;
-                    wealthDelta -= 60;
-                    events.push({
-                        burg_id: burg.burg_id,
-                        type: "MAYOR_AQUEDUCT_CISTERN",
-                        tier: "MINOR",
-                        msg: `Mayor ${p.name} funded the construction of mountain aqueducts and stone cisterns in ${burg.name}, delivering clean spring water to common districts.`
-                    });
-                    await tagBurgCitizens(client, burg.burg_id, ['#AqueductMason'], 'INDUSTRIOUS', `Dressing stone channels and laying clean water conduits for Mayor ${p.name}'s aqueduct project.`, '%mason%', 3);
-                } else if (burg.port > 0 && actionSeed === 0) {
-                    // Harbor & Deepwater Quays
-                    wealthDelta += 80;
-                    events.push({
-                        burg_id: burg.burg_id,
-                        type: "MAYOR_HARBOR_EXPANSION",
-                        tier: "MINOR",
-                        msg: `Mayor ${p.name} dredged the harbor basin and constructed deepwater timber quays in ${burg.name}, welcoming heavy merchant galleons.`
-                    });
-                    await tagBurgCitizens(client, burg.burg_id, ['#DockBuilder'], 'INDUSTRIOUS', `Framing timber docks and driving pilings for the new harbor quays in ${burg.name}.`, '%carpenter%', 3);
-                } else if (actionSeed === 1) {
-                    // Artisan Master Guildhall
-                    wealthDelta += 50;
-                    healthDelta += 2;
-                    events.push({
-                        burg_id: burg.burg_id,
-                        type: "MAYOR_ARTISAN_GUILDHALL",
-                        tier: "MINOR",
-                        msg: `Mayor ${p.name} chartered a grand Artisan Guildhall in ${burg.name}, uniting master blacksmiths, glassblowers, and weavers.`
-                    });
-                    await tagBurgCitizens(client, burg.burg_id, ['#GuildCraftsman'], 'PROSPEROUS', `Forging fine masterworks under the charter of Mayor ${p.name}'s new Artisan Guildhall.`, '%smith%', 3);
-                } else if (actionSeed === 2) {
-                    // Scribe Academy & Civic Archive
-                    crimeDelta -= 10;
-                    wealthDelta -= 30;
-                    events.push({
-                        burg_id: burg.burg_id,
-                        type: "MAYOR_ACADEMY_SCRIBES",
-                        tier: "MINOR",
-                        msg: `Mayor ${p.name} founded a municipal Scribe Academy and Archive in ${burg.name}, recording commercial ledgers and land titles.`
-                    });
-                    await tagBurgCitizens(client, burg.burg_id, ['#AcademyScholar'], 'SCHOLARLY', `Transcribing legal deeds and guild charters in the municipal scribe hall of ${burg.name}.`, '%scribe%', 2);
-                } else if (actionSeed === 3) {
-                    // Fortified Citadel Ramparts
-                    unrestDelta -= 5;
-                    wealthDelta -= 80;
-                    events.push({
-                        burg_id: burg.burg_id,
-                        type: "MAYOR_CITADEL_RAMPARTS",
-                        tier: "MINOR",
-                        msg: `Mayor ${p.name} reinforced the perimeter ramparts, moat drawbridges, and wall bastions around ${burg.name}.`
-                    });
-                    await tagBurgCitizens(client, burg.burg_id, ['#RampartSentry'], 'WARY', `Standing watch on the newly reinforced stone ramparts of ${burg.name}.`, '%watch%', 3);
-                } else if (actionSeed === 4) {
-                    // Seasonal Merchant Tariff Holiday
-                    wealthDelta += 100;
-                    events.push({
-                        burg_id: burg.burg_id,
-                        type: "MAYOR_TAX_HOLIDAY",
-                        tier: "MINOR",
-                        msg: `Mayor ${p.name} declared a seasonal merchant tariff holiday in ${burg.name}, opening duty-free pavilions for visiting trade caravans.`
-                    });
-                    await tagBurgCitizens(client, burg.burg_id, ['#CaravanTrader'], 'PROSPEROUS', `Selling imported fabrics and spices at the duty-free market pavilions in ${burg.name}.`, '%trader%', 3);
-                } else if (actionSeed === 5) {
-                    // City Watch Barracks Commission
-                    crimeDelta -= 12;
-                    wealthDelta -= 50;
-                    events.push({
-                        burg_id: burg.burg_id,
-                        type: "MAYOR_BARRACKS_COMMISSION",
-                        tier: "MINOR",
-                        msg: `Mayor ${p.name} commissioned new city watch barracks in ${burg.name}, equipping two additional squads of armored halberdiers.`
-                    });
-                    await tagBurgCitizens(client, burg.burg_id, ['#BarracksGuard'], 'DEVOUT', `Drilling with halberds at the newly commissioned city watch barracks in ${burg.name}.`, '%watch%', 3);
-                } else if (actionSeed === 6) {
-                    // Public Health & Sanitation
-                    healthDelta += 8;
-                    wealthDelta -= 40;
-                    events.push({
-                        burg_id: burg.burg_id,
-                        type: "MAYOR_PUBLIC_SANITATION",
-                        tier: "MINOR",
-                        msg: `Mayor ${p.name} directed street-cleansing brigades and apothecary subsidies across ${burg.name}, eradicating disease from the lower quarters.`
-                    });
-                    await tagBurgCitizens(client, burg.burg_id, ['#SanitationWorker'], 'INDUSTRIOUS', `Clearing canal drains and lime-washing streets under Mayor ${p.name}'s sanitation edict.`, '%laborer%', 3);
-                } else if (actionSeed === 7) {
-                    // Terraced Agricultural Outskirts
-                    foodDelta += 450;
-                    wealthDelta -= 50;
-                    events.push({
-                        burg_id: burg.burg_id,
-                        type: "MAYOR_TERRACED_FARMLAND",
-                        tier: "MINOR",
-                        msg: `Mayor ${p.name} cleared surrounding foothills for terraced olive groves, vineyards, and barley fields around ${burg.name}.`
-                    });
-                    await tagBurgCitizens(client, burg.burg_id, ['#TerraceFarmer'], 'INDUSTRIOUS', `Cultivating terraced barley fields on the foothills of ${burg.name}.`, '%farmer%', 3);
-                } else {
-                    // Municipal Mint & Stamped Currency
-                    wealthDelta += 80;
-                    events.push({
-                        burg_id: burg.burg_id,
-                        type: "MAYOR_MUNICIPAL_MINT",
-                        tier: "MINOR",
-                        msg: `Mayor ${p.name} struck new municipal stamped silver coinage in ${burg.name}, standardizing currency and driving civic commerce.`
-                    });
-                    await tagBurgCitizens(client, burg.burg_id, ['#MintAssayer'], 'SCHOLARLY', `Assaying bullion and striking stamped trade coins at the municipal mint of ${burg.name}.`, '%smith%', 2);
+                interface CivicActionOption {
+                    id: string;
+                    utility: number;
+                    biasReason: string;
                 }
-            } 
+                const options: CivicActionOption[] = [];
 
-            // ==========================================
-            // 2. SECURITY PARAGONS (COMMANDERS, MARSHALS, CAPTAINS)
-            // ==========================================
-            else if (domain === 'Security') {
-                if (burg.unrest >= 40) {
-                    unrestDelta -= 8;
-                    crimeDelta -= 12;
-                    foodDelta += Math.floor(pop * 0.05);
-                    if ((tick + p.id) % 4 === 0) {
+                // Option: Expand Granaries & Subsidies (Natural food remedy)
+                if (isFoodShortage || isFamine) {
+                    let u = isFamine ? 80 : 50;
+                    if (isCompassionate) u += 40;
+                    if (isStoic) u += 20;
+                    if (isGreedy) u -= 50; // Greedy mayors hate buying grain for peasants
+                    if (isParanoid) u -= 20;
+                    options.push({ id: "MAYOR_EXPAND_GRANARY", utility: Math.max(5, u), biasReason: isCompassionate ? "deep empathy for starving laborers" : "civic food reserves" });
+                }
+
+                // Option: Hoard Grain & Price Gouge (Selfish response to food crisis)
+                if ((isFoodShortage || isFamine) && (isGreedy || corruption > 30)) {
+                    let u = 40;
+                    if (isGreedy) u += 50;
+                    if (corruption > 50) u += 30;
+                    if (isVengeful) u += 20;
+                    options.push({ id: "MAYOR_HOARD_GRAIN_SPECULATION", utility: u, biasReason: "avaricious desire to exploit food scarcity for profit" });
+                }
+
+                // Option: Public Health & Sanitation Cisterns (Natural health remedy)
+                if (isPlagueOrSqualor) {
+                    let u = 65;
+                    if (isCompassionate) u += 35;
+                    if (isScholarly) u += 30;
+                    if (isStoic) u += 20;
+                    if (isGreedy) u -= 30;
+                    if (isParanoid) u -= 20;
+                    options.push({ id: "MAYOR_PUBLIC_SANITATION", utility: Math.max(5, u), biasReason: isScholarly ? "modern miasma theory and clean aqueducts" : "compassion for the sick" });
+                }
+
+                // Option: Quarantine District Lockdown (Fearful/harsh health response)
+                if (isPlagueOrSqualor && (isParanoid || isVengeful || isFanatical)) {
+                    let u = 45;
+                    if (isParanoid) u += 40;
+                    if (isVengeful) u += 25;
+                    options.push({ id: "MAYOR_QUARANTINE_DISTRICT", utility: u, biasReason: "paranoia of contamination spreading to the noble quarter" });
+                }
+
+                // Option: Civic Festival & Spiced Wine Revelry (Hedonistic/distraction unrest remedy)
+                if (isHighUnrest) {
+                    let u = 45;
+                    if (isHedonist) u += 55;
+                    if (isCompassionate) u += 20;
+                    if (isStoic) u -= 35;
+                    if (isGreedy) u -= 25;
+                    options.push({ id: "MAYOR_CIVIC_FESTIVAL", utility: Math.max(5, u), biasReason: isHedonist ? "hedonistic belief that wine and songs cure all civil strife" : "soothing public anger" });
+                }
+
+                // Option: Tax Holiday & Debt Jubilee (Benevolent unrest remedy)
+                if (isHighUnrest && (isCompassionate || isStoic)) {
+                    let u = 50;
+                    if (isCompassionate) u += 40;
+                    if (isGreedy) u -= 60;
+                    options.push({ id: "MAYOR_TAX_HOLIDAY", utility: Math.max(5, u), biasReason: "granting tax relief to ease the crushing burden on citizens" });
+                }
+
+                // Option: Harsh Tax Audit & Shakedown (Greedy/extortive wealth measure)
+                if (isBankrupt || isGreedy || corruption > 40) {
+                    let u = isBankrupt ? 50 : 25;
+                    if (isGreedy) u += 55;
+                    if (isVengeful) u += 25;
+                    if (isCompassionate) u -= 50;
+                    options.push({ id: "MAYOR_TAX_LEVY_AUDIT", utility: Math.max(5, u), biasReason: isGreedy ? "insatiable greed to squeeze coin from local merchants" : "empty treasury coffers" });
+                }
+
+                // Option: Fortify Citadel Ramparts & Bastions (Paranoid defense measure)
+                if (isParanoid || sectorTags.some(t => t.includes("Bandit") || t.includes("War"))) {
+                    let u = 40;
+                    if (isParanoid) u += 50;
+                    if (isStoic) u += 20;
+                    options.push({ id: "MAYOR_CITADEL_RAMPARTS", utility: u, biasReason: "paranoia over vulnerable gates and lurking wilderness hostiles" });
+                }
+
+                // Option: Temple Sacrifice & Holy Tithes (Fanatical crisis response)
+                if (isChaosCrisis || isFanatical || sectorTags.some(t => t.includes("Cult") || t.includes("Dragon"))) {
+                    let u = 35;
+                    if (isFanatical) u += 60;
+                    if (isScholarly) u -= 30;
+                    options.push({ id: "MAYOR_TEMPLE_SACRIFICE_PURGE", utility: u, biasReason: "fanatical zeal to appease celestial patrons and ward against cosmic doom" });
+                }
+
+                // Option: Tolerate Underworld Shadow Warehouse (Corrupt collusion)
+                if (isCartelInfiltrated && (isGreedy || corruption > 35)) {
+                    let u = 35;
+                    if (isGreedy) u += 45;
+                    if (corruption > 50) u += 30;
+                    options.push({ id: "MAYOR_TOLERATE_SHADOW_WAREHOUSE", utility: u, biasReason: "under-the-table kickbacks from cartel factors in exchange for warehouse permits" });
+                }
+
+                // Option: Charter Blockade Runners (Smuggler shipping response to trade embargo)
+                if (isTradeBlockaded) {
+                    let u = 60;
+                    if (isStoic || isScholarly) u += 30;
+                    if (isParanoid) u -= 20;
+                    options.push({ id: "MAYOR_CHARTER_BLOCKADE_RUNNERS", utility: u, biasReason: "pragmatic determination to slip food through maritime blockades" });
+                }
+
+                // Option: Harbor Expansion & Quays (Prosperity maritime expansion)
+                if (burg.port && (isWealthySurplus || isStoic || isScholarly)) {
+                    let u = 45;
+                    if (isStoic) u += 25;
+                    if (isWealthySurplus) u += 25;
+                    options.push({ id: "MAYOR_HARBOR_EXPANSION", utility: u, biasReason: "expanding deepwater berths to welcome foreign trade galleons" });
+                }
+
+                // Option: Artisan Master Guildhall (Industrial development)
+                if (!isFamine && !isPlagueOrSqualor && (isScholarly || isStoic || isWealthySurplus)) {
+                    let u = 40;
+                    if (isScholarly) u += 30;
+                    if (isStoic) u += 25;
+                    options.push({ id: "MAYOR_ARTISAN_GUILDHALL", utility: u, biasReason: "chartering guild workshops to boost refined craftsmanship" });
+                }
+
+                // Option: Scribe Academy & Legal Archive (Scholarly governance)
+                if (isScholarly || (!isFamine && (tick + p.id) % 8 === 0)) {
+                    let u = 35;
+                    if (isScholarly) u += 50;
+                    options.push({ id: "MAYOR_ACADEMY_SCRIBES", utility: u, biasReason: "philosophical devotion to orderly cadastral archives and legal scholarship" });
+                }
+
+                // Option: Foothill Terraced Farmland (Long-term agricultural foresight)
+                if (isCompassionate || isStoic || isFoodShortage) {
+                    let u = 45;
+                    if (isCompassionate) u += 30;
+                    if (isStoic) u += 25;
+                    options.push({ id: "MAYOR_TERRACED_FARMLAND", utility: u, biasReason: "industrious expansion of hillside agricultural terraces" });
+                }
+
+                // Option: Municipal Mint & Currency Stamping (Greedy/Ambitious economic centralization)
+                if (isWealthySurplus || isGreedy) {
+                    let u = 40;
+                    if (isGreedy) u += 40;
+                    options.push({ id: "MAYOR_MUNICIPAL_MINT", utility: u, biasReason: "standardizing civic currency while levying lucrative seigniorage profits" });
+                }
+
+                // Sort options by utility with minor jitter for dynamic variance
+                options.sort((a, b) => (b.utility + (Math.random() * 8)) - (a.utility + (Math.random() * 8)));
+                const chosen = options[0] || { id: "MAYOR_TERRACED_FARMLAND", utility: 30, biasReason: "routine civic governance" };
+
+                // Execute the chosen civic action
+                switch (chosen.id) {
+                    case "MAYOR_EXPAND_GRANARY": {
+                        const grainGain = Math.floor(pop * 0.15) + 350;
+                        foodDelta += grainGain;
+                        wealthDelta -= 35;
                         events.push({
                             burg_id: burg.burg_id,
-                            type: "COMMANDER_CURFEW_ENFORCEMENT",
-                            tier: "MAJOR",
-                            msg: `Commander ${p.name} declared mandatory nightfall curfews in ${burg.name}, deploying armored guards to lock all gates.`
-                        });
-                        await tagBurgCitizens(client, burg.burg_id, ['#CurfewDefier'], 'REBELLIOUS', `Evading Commander ${p.name}'s watch patrols in the shadowed alleys of ${burg.name}.`, '%laborer%', 3);
-                        await tagBurgCitizens(client, burg.burg_id, ['#CurfewEnforcer'], 'WARY', `Enforcing Commander ${p.name}'s strict curfew orders.`, '%watch%', 3);
-                    }
-                } else if (burg.crime_rate > 25 && (tick + p.id) % 5 === 0) {
-                    crimeDelta -= 15;
-                    events.push({
-                        burg_id: burg.burg_id,
-                        type: "COMMANDER_CONTRABAND_RAID",
-                        tier: "MINOR",
-                        msg: `Commander ${p.name} led a city watch raid on an unlicensed dockside warehouse in ${burg.name}, seizing smuggled contraband.`
-                    });
-                    await tagBurgCitizens(client, burg.burg_id, ['#SmugglingSuspect'], 'FEARFUL', `Lying low after Commander ${p.name}'s watchmen raided a nearby warehouse.`, '%thief%', 3);
-                } else if ((tick + p.id) % 7 === 0) {
-                    unrestDelta -= 3;
-                    events.push({
-                        burg_id: burg.burg_id,
-                        type: "COMMANDER_GARRISON_DRILL",
-                        tier: "MINOR",
-                        msg: `Commander ${p.name} conducted military drills for the garrison and wall archers in ${burg.name}.`
-                    });
-                    await tagBurgCitizens(client, burg.burg_id, ['#GarrisonDrilled'], 'DEVOUT', `Drilling with shields and spears on the ramparts under Commander ${p.name}.`, '%watch%', 3);
-                } else {
-                    crimeDelta -= 8;
-                }
-            }
-
-            // ==========================================
-            // 3. SOCIAL & SPIRITUAL PARAGONS (PRIESTS, GUILDMASTERS)
-            // ==========================================
-            else if (domain === 'Social') {
-                if (burg.health < 70) {
-                    healthDelta += 8;
-                    if ((tick + p.id) % 5 === 0) {
-                        events.push({
-                            burg_id: burg.burg_id,
-                            type: "TEMPLE_HEALING_ALMS",
+                            type: chosen.id,
                             tier: "MINOR",
-                            msg: `Spiritual leader ${p.name} opened the temple sanctuary in ${burg.name}, providing free healing draughts and herbal broth to the sick.`
+                            msg: `🌾 CIVIC GRANARY EXPANSION: Driven by ${chosen.biasReason}, ${p.title} ${p.name} opened municipal emergency grain silos in ${burg.name}, distributing +${grainGain} food reserves to avert famine.`
                         });
-                        await tagBurgCitizens(client, burg.burg_id, ['#TemplePatient', '#AlmsRecipient'], 'GRATEFUL', `Receiving care and herbal draughts at the temple of ${burg.name}.`, null, 3);
+                        await tagBurgCitizens(client, burg.burg_id, ['#GrainSubsidyRecipient', '#GranaryCarpenter'], 'RELIEVED', `Receiving municipal grain rations under ${p.title} ${p.name}.`, '%laborer%', 3);
+                        await tagSectorEnvironment(client, cellId, ['#MunicipalGrainRelief']);
+                        break;
                     }
-                } else if (burg.unrest > 20 && (tick + p.id) % 6 === 0) {
-                    unrestDelta -= 12;
-                    events.push({
-                        burg_id: burg.burg_id,
-                        type: "FAITH_CONGREGATION",
-                        tier: "MINOR",
-                        msg: `Spiritual elder ${p.name} led a solemn vigil and prayer procession through the central plaza of ${burg.name}, calming the anxious populace.`
-                    });
-                    await tagBurgCitizens(client, burg.burg_id, ['#PiousWorshiper'], 'PEACEFUL', `Praying for civic peace and divine blessings in ${burg.name}.`, null, 3);
-                } else if ((tick + p.id) % 8 === 0) {
-                    wealthDelta += 30;
-                    events.push({
-                        burg_id: burg.burg_id,
-                        type: "GUILD_PRICE_ACCORD",
-                        tier: "MINOR",
-                        msg: `Guildmaster ${p.name} convened an artisan council in ${burg.name}, fixing fair exchange rates on textiles, copper, and timber.`
-                    });
-                    await tagBurgCitizens(client, burg.burg_id, ['#GuildSignatory'], 'INDUSTRIOUS', `Adhering to Guildmaster ${p.name}'s newly ratified price charter.`, '%artisan%', 3);
-                } else {
-                    healthDelta += 3;
-                    unrestDelta -= 3;
+                    case "MAYOR_HOARD_GRAIN_SPECULATION": {
+                        wealthDelta += 85;
+                        unrestDelta += 12;
+                        p.corruption_score = Math.min(100, corruption + 4);
+                        await client.query("UPDATE sim_paragons SET corruption_score = $1 WHERE id = $2", [p.corruption_score, p.id]);
+                        events.push({
+                            burg_id: burg.burg_id,
+                            type: chosen.id,
+                            tier: "MAJOR",
+                            msg: `⚠️ CORRUPT GRAIN HOARDING: Driven by ${chosen.biasReason}, ${p.title} ${p.name} locked down the municipal granaries in ${burg.name} during food shortages, reselling grain at extortionate prices to enrich the civic treasury (+85 Gold, +12 Unrest)!`
+                        });
+                        await tagBurgCitizens(client, burg.burg_id, ['#GougedCommoner', '#StarvingBitter'], 'DESPERATE', `Struggling to afford bread due to Mayor ${p.name}'s speculative grain prices.`, null, 3);
+                        await tagSectorEnvironment(client, cellId, ['#HoardedGrainCrisis']);
+                        break;
+                    }
+                    case "MAYOR_PUBLIC_SANITATION": {
+                        healthDelta += 10;
+                        wealthDelta -= 45;
+                        unrestDelta -= 3;
+                        events.push({
+                            burg_id: burg.burg_id,
+                            type: chosen.id,
+                            tier: "MINOR",
+                            msg: `🚰 PUBLIC SANITATION EDICT: Guided by ${chosen.biasReason}, ${p.title} ${p.name} funded stone aqueduct conduits and street-cleansing lime washes in ${burg.name}, eradicating filth and boosting public health (+10 Health).`
+                        });
+                        await tagBurgCitizens(client, burg.burg_id, ['#SanitationWorker', '#CleanWaterBearer'], 'INDUSTRIOUS', `Laying stone water pipes under ${p.title} ${p.name}'s sanitation edict.`, '%laborer%', 3);
+                        await tagSectorEnvironment(client, cellId, ['#SanitationDrivesActive']);
+                        break;
+                    }
+                    case "MAYOR_QUARANTINE_DISTRICT": {
+                        healthDelta += 4;
+                        unrestDelta += 14;
+                        crimeDelta += 6;
+                        events.push({
+                            burg_id: burg.burg_id,
+                            type: chosen.id,
+                            tier: "MAJOR",
+                            msg: `🧱 SICK QUARTER QUARANTINE: Driven by ${chosen.biasReason}, ${p.title} ${p.name} ordered heavy timber barricades erected around the lower river slums of ${burg.name}, sealing infected families behind armed sentries!`
+                        });
+                        await tagBurgCitizens(client, burg.burg_id, ['#QuarantinedCitizen', '#BarricadedSlumDweller'], 'REBELLIOUS', `Trapped behind quarantine barricades erected by ${p.title} ${p.name}.`, null, 3);
+                        await tagSectorEnvironment(client, cellId, ['#DistrictQuarantineLockdown']);
+                        break;
+                    }
+                    case "MAYOR_CIVIC_FESTIVAL": {
+                        unrestDelta -= 16;
+                        wealthDelta -= 60;
+                        foodDelta -= 80;
+                        events.push({
+                            burg_id: burg.burg_id,
+                            type: chosen.id,
+                            tier: "MINOR",
+                            msg: `🎪 CIVIC REVELRY FESTIVAL: Guided by ${chosen.biasReason}, ${p.title} ${p.name} funded a grand street carnival in ${burg.name}, tapping municipal wine vats and roasting whole oxen to soothe civil unrest (-16 Unrest).`
+                        });
+                        await tagBurgCitizens(client, burg.burg_id, ['#FestivalReveler', '#JovialCitizen'], 'JOVIAL', `Dancing and feasting at the municipal festival hosted by ${p.title} ${p.name}.`, null, 4);
+                        await tagSectorEnvironment(client, cellId, ['#FestivalRevelry']);
+                        break;
+                    }
+                    case "MAYOR_TAX_HOLIDAY": {
+                        unrestDelta -= 14;
+                        wealthDelta -= 30;
+                        refinedGoodsDelta += 40;
+                        events.push({
+                            burg_id: burg.burg_id,
+                            type: chosen.id,
+                            tier: "MINOR",
+                            msg: `📜 DEBT JUBILEE & TAX HOLIDAY: Guided by ${chosen.biasReason}, ${p.title} ${p.name} declared a duty-free market holiday in ${burg.name}, canceling market tolls and easing popular unrest (-14 Unrest).`
+                        });
+                        await tagBurgCitizens(client, burg.burg_id, ['#TaxHolidayBeneficiary', '#ProsperousTrader'], 'PROSPEROUS', `Selling goods duty-free under ${p.title} ${p.name}'s holiday decree.`, '%trader%', 3);
+                        break;
+                    }
+                    case "MAYOR_TAX_LEVY_AUDIT": {
+                        wealthDelta += 90;
+                        unrestDelta += 12;
+                        events.push({
+                            burg_id: burg.burg_id,
+                            type: chosen.id,
+                            tier: "MINOR",
+                            msg: `💰 HARSH TAX REASSESSMENT: Driven by ${chosen.biasReason}, ${p.title} ${p.name} dispatched municipal bailiffs across ${burg.name} to seize unpaid arrears, extracting +90 Gold while stoking citizen resentment (+12 Unrest).`
+                        });
+                        await tagBurgCitizens(client, burg.burg_id, ['#OverburdenedTaxpayer', '#ResentfulMerchant'], 'BITTER', `Enduring harsh tax audits by ${p.title} ${p.name}'s bailiffs.`, '%merchant%', 3);
+                        await tagSectorEnvironment(client, cellId, ['#TaxAuditBurden']);
+                        break;
+                    }
+                    case "MAYOR_CITADEL_RAMPARTS": {
+                        unrestDelta -= 4;
+                        wealthDelta -= 70;
+                        events.push({
+                            burg_id: burg.burg_id,
+                            type: chosen.id,
+                            tier: "MINOR",
+                            msg: `🛡️ PERIMETER RAMPART FORTIFICATION: Driven by ${chosen.biasReason}, ${p.title} ${p.name} reinforced the perimeter stone ramparts and gate bastions of ${burg.name}, bolstering civic defense.`
+                        });
+                        await tagBurgCitizens(client, burg.burg_id, ['#RampartSentry', '#MasonFortifier'], 'WARY', `Manning the newly reinforced battlements of ${burg.name}.`, '%watch%', 3);
+                        await tagSectorEnvironment(client, cellId, ['#FortifiedRamparts']);
+                        break;
+                    }
+                    case "MAYOR_TEMPLE_SACRIFICE_PURGE": {
+                        wealthDelta -= 50;
+                        unrestDelta -= 8;
+                        events.push({
+                            burg_id: burg.burg_id,
+                            type: chosen.id,
+                            tier: "MINOR",
+                            msg: `🕯️ CELESTIAL PURIFICATION RITE: Guided by ${chosen.biasReason}, ${p.title} ${p.name} sponsored solemn temple purification vigils in ${burg.name}, burning cleansing incense to ward against chaos corruption.`
+                        });
+                        await tagBurgCitizens(client, burg.burg_id, ['#PenitentPilgrim', '#TempleAcolyte'], 'DEVOUT', `Chanting prayers in the sacred temple sanctuary of ${burg.name}.`, null, 3);
+                        break;
+                    }
+                    case "MAYOR_TOLERATE_SHADOW_WAREHOUSE": {
+                        wealthDelta += 110;
+                        crimeDelta += 12;
+                        p.corruption_score = Math.min(100, corruption + 5);
+                        await client.query("UPDATE sim_paragons SET corruption_score = $1 WHERE id = $2", [p.corruption_score, p.id]);
+                        events.push({
+                            burg_id: burg.burg_id,
+                            type: chosen.id,
+                            tier: "MAJOR",
+                            msg: `🗝️ CLANDESTINE COLLUSION: Driven by ${chosen.biasReason}, ${p.title} ${p.name} granted private warehouse storage permits in ${burg.name}, pocketing kickbacks while allowing underworld syndicates to flourish (+110 Wealth, +12 Crime)!`
+                        });
+                        await tagBurgCitizens(client, burg.burg_id, ['#CartelCollaborator', '#BribedDockClerk'], 'COMPLICIT', `Facilitating uninspected warehouse transfers under Mayor ${p.name}'s blind eye.`, '%trader%', 3);
+                        await tagSectorEnvironment(client, cellId, ['#CartelInfiltration']);
+                        break;
+                    }
+                    case "MAYOR_CHARTER_BLOCKADE_RUNNERS": {
+                        foodDelta += 240;
+                        wealthDelta -= 55;
+                        unrestDelta -= 6;
+                        events.push({
+                            burg_id: burg.burg_id,
+                            type: chosen.id,
+                            tier: "MAJOR",
+                            msg: `⚡ BLOCKADE RUNNER CHARTER: Driven by ${chosen.biasReason}, ${p.title} ${p.name} hired independent cloud-skiffs and swift coastal luggers to slip grain into ${burg.name}, breaking the stranglehold of trade blockades (+240 Food)!`
+                        });
+                        await tagBurgCitizens(client, burg.burg_id, ['#BlockadeRunnerContact'], 'CONFIDENT', `Distributing flour brought through maritime blockades under ${p.title} ${p.name}.`, '%baker%', 3);
+                        break;
+                    }
+                    case "MAYOR_HARBOR_EXPANSION": {
+                        wealthDelta += 75;
+                        refinedGoodsDelta += 50;
+                        events.push({
+                            burg_id: burg.burg_id,
+                            type: chosen.id,
+                            tier: "MINOR",
+                            msg: `⚓ HARBOR BASIN EXPANSION: Guided by ${chosen.biasReason}, ${p.title} ${p.name} dredged the anchorage and erected timber crane wharves in ${burg.name}, accelerating maritime commerce.`
+                        });
+                        await tagBurgCitizens(client, burg.burg_id, ['#DockBuilder', '#QuayRigger'], 'INDUSTRIOUS', `Framing timber docks and driving pilings in the harbor of ${burg.name}.`, '%carpenter%', 3);
+                        break;
+                    }
+                    case "MAYOR_ARTISAN_GUILDHALL": {
+                        wealthDelta += 45;
+                        refinedGoodsDelta += 70;
+                        healthDelta += 2;
+                        events.push({
+                            burg_id: burg.burg_id,
+                            type: chosen.id,
+                            tier: "MINOR",
+                            msg: `🔨 ARTISAN GUILD CHARTER: Guided by ${chosen.biasReason}, ${p.title} ${p.name} chartered a grand municipal guildhall in ${burg.name}, providing bellows and workbenches for blacksmiths and weavers.`
+                        });
+                        await tagBurgCitizens(client, burg.burg_id, ['#MasterArtisan', '#GuildSmith'], 'PROSPEROUS', `Forging masterwork wares under ${p.title} ${p.name}'s guild charter.`, '%smith%', 3);
+                        break;
+                    }
+                    case "MAYOR_ACADEMY_SCRIBES": {
+                        crimeDelta -= 12;
+                        wealthDelta -= 30;
+                        events.push({
+                            burg_id: burg.burg_id,
+                            type: chosen.id,
+                            tier: "MINOR",
+                            msg: `📚 LEGAL SCRIBE ARCHIVE: Guided by ${chosen.biasReason}, ${p.title} ${p.name} founded a municipal scribe academy and deed registry in ${burg.name}, codifying property rights and trade contracts.`
+                        });
+                        await tagBurgCitizens(client, burg.burg_id, ['#CadastralScribe', '#LegalScholar'], 'SCHOLARLY', `Registering guild deeds in the municipal scribe hall of ${burg.name}.`, '%scribe%', 2);
+                        break;
+                    }
+                    case "MAYOR_MUNICIPAL_MINT": {
+                        wealthDelta += 85;
+                        events.push({
+                            burg_id: burg.burg_id,
+                            type: chosen.id,
+                            tier: "MINOR",
+                            msg: `🪙 MUNICIPAL COIN MINTING: Guided by ${chosen.biasReason}, ${p.title} ${p.name} struck new stamped silver coinage in ${burg.name}, standardizing market transactions and collecting bullion seigniorage.`
+                        });
+                        await tagBurgCitizens(client, burg.burg_id, ['#MintAssayer', '#CoinStamper'], 'SCHOLARLY', `Assaying silver ingots at the municipal mint of ${burg.name}.`, '%smith%', 2);
+                        break;
+                    }
+                    default: {
+                        foodDelta += 400;
+                        wealthDelta -= 35;
+                        events.push({
+                            burg_id: burg.burg_id,
+                            type: "MAYOR_TERRACED_FARMLAND",
+                            tier: "MINOR",
+                            msg: `🌱 TERRACED FARMLAND CLEARING: Guided by ${chosen.biasReason}, ${p.title} ${p.name} cleared foothill slopes for terraced barley fields and irrigation ditches around ${burg.name}.`
+                        });
+                        await tagBurgCitizens(client, burg.burg_id, ['#TerraceFarmer'], 'INDUSTRIOUS', `Cultivating terraced barley fields under ${p.title} ${p.name}.`, '%farmer%', 3);
+                        break;
+                    }
                 }
             }
 
-            // ==========================================
-            // 4. UNDERWORLD PARAGONS (SYNDICATE BOSSES)
-            // ==========================================
-            else if (domain === 'Underworld') {
-                if ((tick + p.id) % 6 === 0) {
-                    crimeDelta += 6;
-                    unrestDelta += 3;
-                    events.push({
-                        burg_id: burg.burg_id,
-                        type: "UNDERWORLD_SHAKEDOWN",
-                        tier: "MINOR",
-                        msg: `Underworld boss ${p.name} mobilized street enforcers across ${burg.name}, collecting protection coin from taverns and stalls.`
-                    });
-                    await tagBurgCitizens(client, burg.burg_id, ['#ExtortedMerchant', '#ProtectionPayer'], 'FEARFUL', `Paying extortion coin to ${p.name}'s syndicate enforcers.`, '%trader%', 3);
+            // =========================================================================
+            // 2. SECURITY PARAGONS (COMMANDERS, MARSHALS, CAPTAINS, WARDENS)
+            // =========================================================================
+            else if (domain === 'Security') {
+                interface SecurityActionOption {
+                    id: string;
+                    utility: number;
+                    biasReason: string;
+                }
+                const options: SecurityActionOption[] = [];
+
+                // Option: Iron Curfew & Gate Lock (Harsh response to civil unrest)
+                if (isHighUnrest) {
+                    let u = isCriticalUnrest ? 80 : 50;
+                    if (isParanoid) u += 35;
+                    if (isVengeful) u += 30;
+                    if (isCompassionate) u -= 40;
+                    options.push({ id: "COMMANDER_IRON_CURFEW", utility: Math.max(5, u), biasReason: isParanoid ? "paranoia of nocturnal rebellion and street barricades" : "suppressing civil riots" });
+                }
+
+                // Option: Dockside Contraband Raid (Enforcing law against crime/syndicates)
+                if (isHighCrime || isCartelInfiltrated) {
+                    let u = 60;
+                    if (isStoic || traits.some(t => t.includes("DUTIFUL") || t.includes("RESOLUTE"))) u += 35;
+                    if (corruption > 40) u -= 60; // Corrupt commanders do NOT raid cartel partners!
+                    options.push({ id: "COMMANDER_CONTRABAND_RAID", utility: Math.max(5, u), biasReason: "dutiful commitment to smashing unlicensed underworld syndicates" });
+                }
+
+                // Option: Underworld Bribe Acceptance (Corrupt commander colludes)
+                if ((isHighCrime || isCartelInfiltrated) && (corruption > 40 || isGreedy)) {
+                    let u = 40;
+                    if (isGreedy) u += 40;
+                    if (corruption > 60) u += 30;
+                    options.push({ id: "COMMANDER_TAKE_UNDERWORLD_BRIBE", utility: u, biasReason: "greed for syndicate hush money in exchange for routing patrols away from the harbor" });
+                }
+
+                // Option: Garrison Drills & Shield Conditioning (Military readiness)
+                if (!isCriticalUnrest && (isStoic || (tick + p.id) % 4 === 0)) {
+                    let u = 45;
+                    if (isStoic) u += 25;
+                    options.push({ id: "COMMANDER_GARRISON_DRILL", utility: u, biasReason: "iron discipline and wall archer readiness" });
+                }
+
+                // Option: Wilderness Bandit Sweep (Road security)
+                if (sectorTags.some(t => t.includes("Bandit") || t.includes("Wilderness")) || (tick + p.id) % 5 === 0) {
+                    let u = 40;
+                    if (isVengeful) u += 25;
+                    options.push({ id: "COMMANDER_BANDIT_SWEEP", utility: u, biasReason: "aggressive determination to scour highway bandits from trade corridors" });
+                }
+
+                // Option: Arrest Labor Agitators (Harsh political crackdown)
+                if (isHighUnrest && (isVengeful || isParanoid)) {
+                    let u = 55;
+                    if (isVengeful) u += 30;
+                    options.push({ id: "COMMANDER_ARREST_AGITATORS", utility: u, biasReason: "intolerant fury toward street dissent and strike organizers" });
+                }
+
+                options.sort((a, b) => (b.utility + (Math.random() * 8)) - (a.utility + (Math.random() * 8)));
+                const chosen = options[0] || { id: "COMMANDER_GARRISON_DRILL", utility: 35, biasReason: "routine garrison vigilance" };
+
+                switch (chosen.id) {
+                    case "COMMANDER_IRON_CURFEW": {
+                        unrestDelta -= 8;
+                        crimeDelta -= 12;
+                        events.push({
+                            burg_id: burg.burg_id,
+                            type: chosen.id,
+                            tier: "MAJOR",
+                            msg: `⚔️ MANDATORY IRON CURFEW: Driven by ${chosen.biasReason}, ${p.title} ${p.name} locked all gates and deployed heavy halberd patrols across ${burg.name}, enforcing dusk-to-dawn curfews!`
+                        });
+                        await tagBurgCitizens(client, burg.burg_id, ['#CurfewEnforcer'], 'WARY', `Enforcing ${p.title} ${p.name}'s strict nighttime lockdown.`, '%watch%', 3);
+                        await tagBurgCitizens(client, burg.burg_id, ['#CurfewDefier'], 'REBELLIOUS', `Evading armed curfew patrols in the shadowed alleys of ${burg.name}.`, '%laborer%', 3);
+                        await tagSectorEnvironment(client, cellId, ['#NightfallCurfewActive']);
+                        break;
+                    }
+                    case "COMMANDER_CONTRABAND_RAID": {
+                        crimeDelta -= 15;
+                        wealthDelta += 35;
+                        events.push({
+                            burg_id: burg.burg_id,
+                            type: chosen.id,
+                            tier: "MINOR",
+                            msg: `🗡️ DOCKSIDE CONTRABAND RAID: Guided by ${chosen.biasReason}, ${p.title} ${p.name} led a tactical raid on an unlicensed wharf warehouse in ${burg.name}, impounding smuggled contraband (-15 Crime).`
+                        });
+                        await tagBurgCitizens(client, burg.burg_id, ['#RaidedSmuggler'], 'FEARFUL', `Lying low after ${p.title} ${p.name}'s watchmen raided a nearby safehouse.`, '%trader%', 3);
+                        break;
+                    }
+                    case "COMMANDER_TAKE_UNDERWORLD_BRIBE": {
+                        wealthDelta += 65;
+                        crimeDelta += 14;
+                        p.corruption_score = Math.min(100, corruption + 6);
+                        await client.query("UPDATE sim_paragons SET corruption_score = $1 WHERE id = $2", [p.corruption_score, p.id]);
+                        events.push({
+                            burg_id: burg.burg_id,
+                            type: chosen.id,
+                            tier: "MAJOR",
+                            msg: `💰 WATCH BRIBERY COLLUSION: Driven by ${chosen.biasReason}, ${p.title} ${p.name} accepted pouches of hush gold in ${burg.name}, redirecting watch patrols away from smuggling alleys (+65 Wealth, +14 Crime)!`
+                        });
+                        await tagBurgCitizens(client, burg.burg_id, ['#BribedSentry'], 'COMPLICIT', `Turning a blind eye to nightly smuggling crates under Commander ${p.name}'s orders.`, '%watch%', 3);
+                        await tagSectorEnvironment(client, cellId, ['#CorruptedWatchGarrison']);
+                        break;
+                    }
+                    case "COMMANDER_BANDIT_SWEEP": {
+                        crimeDelta -= 10;
+                        wealthDelta += 20;
+                        events.push({
+                            burg_id: burg.burg_id,
+                            type: chosen.id,
+                            tier: "MINOR",
+                            msg: `🐎 HIGHWAY OUTRIDER SWEEP: Driven by ${chosen.biasReason}, ${p.title} ${p.name} led mounted outriders along the trade roads of ${burg.name}, driving off highway robbers and restoring order.`
+                        });
+                        await tagBurgCitizens(client, burg.burg_id, ['#ClearedRoadMerchant'], 'CONFIDENT', `Transporting goods along highways secured by ${p.title} ${p.name}.`, '%trader%', 3);
+                        break;
+                    }
+                    case "COMMANDER_ARREST_AGITATORS": {
+                        unrestDelta -= 10;
+                        crimeDelta -= 8;
+                        events.push({
+                            burg_id: burg.burg_id,
+                            type: chosen.id,
+                            tier: "MINOR",
+                            msg: `⛓️ LABOR AGITATOR CRACKDOWN: Driven by ${chosen.biasReason}, ${p.title} ${p.name} arrested five strike organizers in ${burg.name}, breaking up illegal assembly in the market square.`
+                        });
+                        await tagBurgCitizens(client, burg.burg_id, ['#JailedDissidentFamily'], 'BITTER', `Harboring deep resentment after ${p.title} ${p.name} imprisoned local labor spokesmen.`, '%laborer%', 3);
+                        break;
+                    }
+                    default: {
+                        unrestDelta -= 3;
+                        crimeDelta -= 6;
+                        events.push({
+                            burg_id: burg.burg_id,
+                            type: "COMMANDER_GARRISON_DRILL",
+                            tier: "MINOR",
+                            msg: `🛡️ GARRISON MARTIAL DRILL: Guided by ${chosen.biasReason}, ${p.title} ${p.name} conducted shield wall and pike drills on the ramparts of ${burg.name}, honing combat discipline.`
+                        });
+                        await tagBurgCitizens(client, burg.burg_id, ['#GarrisonDrilled'], 'DEVOUT', `Drilling with shields and spears under ${p.title} ${p.name}.`, '%watch%', 3);
+                        break;
+                    }
                 }
             }
         }
 
-        // Apply Deltas
+        // Apply Accumulators
         const newFood = Math.max(0, (burg.food || 0) + foodDelta);
         const newWealth = Math.max(0, (burg.wealth || 0) + wealthDelta);
         const newCrime = Math.min(100, Math.max(0, (burg.crime_rate || 0) + crimeDelta));
         const newUnrest = Math.min(100, Math.max(0, (burg.unrest || 0) + unrestDelta));
         const newHealth = Math.min(100, Math.max(0, (burg.health || 100) + healthDelta));
+        const newRaw = Math.max(0, (burg.raw_materials || 0) + rawMaterialsDelta);
+        const newRefined = Math.max(0, (burg.refined_goods || 0) + refinedGoodsDelta);
 
         burgUpdates.push({
             id: burg.burg_id,
@@ -308,11 +633,13 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
             wealth: newWealth,
             crime: newCrime,
             unrest: newUnrest,
-            health: newHealth
+            health: newHealth,
+            raw: newRaw,
+            refined: newRefined
         });
     }
 
-    // Bulk Update burg stats
+    // Bulk Update burg economic states
     if (burgUpdates.length > 0) {
         await client.query(`
             UPDATE sim_burg_economy AS b SET
@@ -320,14 +647,18 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
               wealth = v.wealth,
               crime_rate = v.crime,
               unrest = v.unrest,
-              health = v.health
+              health = v.health,
+              raw_materials = v.raw,
+              refined_goods = v.refined
             FROM (
               SELECT unnest($1::int[]) as id,
                      unnest($2::int[]) as food,
                      unnest($3::int[]) as wealth,
                      unnest($4::int[]) as crime,
                      unnest($5::int[]) as unrest,
-                     unnest($6::int[]) as health
+                     unnest($6::int[]) as health,
+                     unnest($7::int[]) as raw,
+                     unnest($8::int[]) as refined
             ) AS v
             WHERE b.burg_id = v.id
         `, [
@@ -336,14 +667,19 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
             burgUpdates.map(u => u.wealth),
             burgUpdates.map(u => u.crime),
             burgUpdates.map(u => u.unrest),
-            burgUpdates.map(u => u.health)
+            burgUpdates.map(u => u.health),
+            burgUpdates.map(u => u.raw),
+            burgUpdates.map(u => u.refined)
         ]);
     }
 
+    // Insert logged events
     if (events.length > 0) {
         for (const ev of events) {
-            await client.query("INSERT INTO sim_events (tick, type, message, tier, burg_id, lore_date) VALUES ($1, $2, $3, $4, $5, $6)", 
-                [tick, ev.type, ev.msg, ev.tier || 'MINOR', ev.burg_id, loreDate]);
+            await client.query(
+                "INSERT INTO sim_events (tick, type, message, tier, burg_id, lore_date) VALUES ($1, $2, $3, $4, $5, $6)", 
+                [tick, ev.type, ev.msg, ev.tier || 'MINOR', ev.burg_id, loreDate]
+            );
         }
     }
 }
