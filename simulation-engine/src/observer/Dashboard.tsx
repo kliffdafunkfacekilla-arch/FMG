@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { RegionMap } from "./RegionMap";
 
 interface Faction {
@@ -7,20 +7,100 @@ interface Faction {
   color: string;
   wealth?: number;
 }
-interface FringeFaction { id: number; name: string; type: string; wealth?: number; }
+
+interface FringeFaction {
+  id: number;
+  name: string;
+  type: string;
+  wealth?: number;
+  manpower?: number;
+  worker_groups?: number;
+  heat?: number;
+  description?: string;
+  contraband_types?: string[];
+  origin_cell_id?: number;
+}
+
+interface FringeLair {
+  id: number;
+  faction_id: number;
+  cell_id: number;
+  burg_id: number;
+  burg_name?: string;
+  lair_type: string;
+  manpower: number;
+  heat: number;
+}
+
 interface Cell {
-  id: number; faction_id: number | null; biome: number; geometry: any;
-  eco_plants: number; eco_prey: number; eco_predators: number; elevation: number;
+  id: number;
+  faction_id: number | null;
+  biome: number;
+  geometry: any;
+  eco_plants: number;
+  eco_prey: number;
+  eco_predators: number;
+  elevation: number;
 }
+
 interface SimEvent {
-  id: number; tick: number; type: string; message: string; tier: string;
-  lore_date: string; burg_id: number | null; faction_id: number | null; z_layer: number;
+  id: number;
+  tick: number;
+  type: string;
+  message: string;
+  tier: string;
+  lore_date: string;
+  burg_id: number | null;
+  faction_id: number | null;
+  z_layer: number;
 }
+
+interface BurgItem {
+  burg_id: number;
+  name: string;
+  cell_id: number;
+  food: number;
+  wealth: number;
+  unrest: number;
+  urban_tier: number;
+  pop_null: number;
+  crime_rate: number;
+  occupier_faction_id: number | null;
+  faction_id: number | null;
+  faction_name?: string;
+  faction_color?: string;
+}
+
+interface ParagonItem {
+  id: number;
+  burg_id: number;
+  name: string;
+  title: string;
+  traits: any;
+  corruption_score: number;
+}
+
+interface PrisonItem {
+  id: number;
+  cell_id: number;
+  dragon_name: string;
+  power_domain: string;
+  seal_strength: number;
+}
+
 interface ObserverState {
-  factions: Faction[]; fringeFactions: FringeFaction[]; cells: Cell[];
-  events: SimEvent[]; calendar: any; tickInProgress: boolean; economy: any[];
+  factions: Faction[];
+  fringeFactions: FringeFaction[];
+  cells: Cell[];
+  events: SimEvent[];
+  calendar: any;
+  tickInProgress: boolean;
+  economy: any[];
 }
-type ViewMode = "Biome" | "Political" | "Ecology" | "Unrest";
+
+type MainTab = "MAP" | "SECTORS" | "FRINGE" | "EVENTS";
+type ViewMode = "Political" | "Biome" | "Ecology" | "Unrest";
+type SectorCategory = "ALL_BURGS" | "PRISONS" | "CONVERGENCE";
 
 const BIOME_COLORS: Record<number, string> = {
   0: "#1e3a8a", 1: "#fde047", 2: "#d6d3d1", 3: "#fcd34d", 4: "#a3e635", 5: "#65a30d",
@@ -30,9 +110,10 @@ const BIOME_COLORS: Record<number, string> = {
   110: "#312e81", 111: "#e2e8f0", 112: "#14b8a6",
 };
 
-const SEASONS = ['The Thaw', 'The Bloom', 'The Zenith', 'The Wilt', 'The Fall', 'The Chill', 'The Rime', 'Shadow Week'];
-
-function MapCanvas({ cells, factions, viewMode, economy, onCellClick }: any) {
+// -------------------------------------------------------------
+// 1. MAP CANVAS COMPONENT
+// -------------------------------------------------------------
+function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCellId }: any) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -40,7 +121,6 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick }: any) {
   const lastMouse = useRef({ x: 0, y: 0 });
   const bounds = useRef({ minX: 0, maxX: 100, minY: 0, maxY: 100, baseScale: 1, baseOffX: 0, baseOffY: 0 });
 
-  // Compute bounds once
   useEffect(() => {
     if (!cells || cells.length === 0) return;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -60,7 +140,7 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick }: any) {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    
+
     const rect = canvas.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) {
       canvas.width = rect.width;
@@ -77,316 +157,208 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick }: any) {
     bounds.current.baseOffY = (canvas.height - (maxY - minY) * baseScale) / 2 - minY * baseScale;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#0d1117";
+    ctx.fillStyle = "#090d13";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     ctx.save();
-    // Move to center, scale, move back, then apply pan
-    ctx.translate(canvas.width/2 + offset.x, canvas.height/2 + offset.y);
+    ctx.translate(canvas.width / 2 + offset.x, canvas.height / 2 + offset.y);
     ctx.scale(zoom, zoom);
-    ctx.translate(-canvas.width/2, -canvas.height/2);
+    ctx.translate(-canvas.width / 2, -canvas.height / 2);
 
     cells.forEach((cell: Cell) => {
       if (!cell.geometry?.coordinates?.[0]) return;
       const coords = cell.geometry.coordinates[0];
 
-      if (cell.elevation < 20) { ctx.fillStyle = "#0c182b"; } 
-      else if (viewMode === "Biome") { ctx.fillStyle = BIOME_COLORS[cell.biome] || "#222"; } 
-      else if (viewMode === "Political") {
+      if (cell.elevation < 20) {
+        ctx.fillStyle = "#0c182b";
+      } else if (viewMode === "Biome") {
+        ctx.fillStyle = BIOME_COLORS[cell.biome] || "#222";
+      } else if (viewMode === "Political") {
         const actualFactionId = economy[cell.id]?.faction_id || cell.faction_id;
         const f = actualFactionId ? factions[actualFactionId] : null;
         ctx.fillStyle = f ? f.color + "cc" : "#1e2a1e";
       } else if (viewMode === "Ecology") {
         const total = (cell.eco_plants || 0) + (cell.eco_prey || 0) + (cell.eco_predators || 0);
-        const ratio = Math.min(1, total / 120);
-        const r = Math.floor(20 + ratio * 60), g = Math.floor(40 + ratio * 140), b = Math.floor(20 + ratio * 30);
-        ctx.fillStyle = `rgb(${r},${g},${b})`;
-      } else {
-        const eco = economy[cell.id];
-        const unrest = eco?.unrest ?? 0;
-        const hue = Math.max(0, 120 - unrest * 1.2);
-        ctx.fillStyle = `hsla(${hue},90%,40%,0.85)`;
+        ctx.fillStyle = `rgb(${Math.min(255, total)}, ${Math.min(255, (cell.eco_plants || 0) * 2)}, 50)`;
+      } else if (viewMode === "Unrest") {
+        const b = economy[cell.id];
+        const u = b ? b.unrest || 0 : 0;
+        ctx.fillStyle = u > 40 ? "#dc2626" : u > 15 ? "#ea580c" : "#1e293b";
       }
-      
+
       ctx.beginPath();
       coords.forEach(([x, y]: any, i: number) => {
-        const cx = x * baseScale + bounds.current.baseOffX;
-        const cy = y * baseScale + bounds.current.baseOffY;
-        if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
+        const px = x * baseScale + bounds.current.baseOffX;
+        const py = y * baseScale + bounds.current.baseOffY;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
       });
-      ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = "#ffffff08"; ctx.lineWidth = 0.5 / zoom; ctx.stroke();
+      ctx.closePath();
+      ctx.fill();
 
-      if (cell.elevation && cell.elevation >= 70 && String(cell.biome) !== "301") {
-          ctx.fillStyle = "#ffffff"; ctx.beginPath();
-          let pX = 0, pY = 0;
-          coords.forEach((p: any) => { pX += p[0]; pY += p[1]; });
-          pX = (pX / coords.length) * baseScale + bounds.current.baseOffX;
-          pY = (pY / coords.length) * baseScale + bounds.current.baseOffY;
-          ctx.moveTo(pX, pY - 8/zoom);
-          ctx.lineTo(pX + 6/zoom, pY + 6/zoom);
-          ctx.lineTo(pX - 6/zoom, pY + 6/zoom);
-          ctx.fill(); ctx.strokeStyle = '#000000'; ctx.lineWidth = 0.5/zoom; ctx.stroke();
-      }
-
-      if (economy[cell.id]) {
-        ctx.fillStyle = "#fff"; ctx.beginPath();
-        const cx = (coords[0][0]) * baseScale + bounds.current.baseOffX;
-        const cy = (coords[0][1]) * baseScale + bounds.current.baseOffY;
-        ctx.arc(cx, cy, 2/zoom, 0, Math.PI * 2);
-        ctx.fill(); ctx.strokeStyle = '#000000'; ctx.lineWidth = 0.5/zoom; ctx.stroke();
+      // Highlight selected cell
+      if (cell.id === selectedCellId) {
+        ctx.strokeStyle = "#fbbf24";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      } else {
+        ctx.strokeStyle = "rgba(0, 0, 0, 0.25)";
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
       }
     });
+
     ctx.restore();
-  }, [cells, factions, viewMode, economy, zoom, offset]);
+  }, [cells, factions, viewMode, economy, zoom, offset, selectedCellId]);
+
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.15 : 0.85;
+    setZoom(z => Math.max(0.5, Math.min(15, z * factor)));
+  };
 
   const handleMouseDown = (e: React.MouseEvent) => {
     isDragging.current = true;
     lastMouse.current = { x: e.clientX, y: e.clientY };
   };
+
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!isDragging.current) return;
     const dx = e.clientX - lastMouse.current.x;
     const dy = e.clientY - lastMouse.current.y;
-    setOffset(o => ({ x: o.x + dx, y: o.y + dy }));
     lastMouse.current = { x: e.clientX, y: e.clientY };
+    setOffset(o => ({ x: o.x + dx, y: o.y + dy }));
   };
+
   const handleMouseUp = () => { isDragging.current = false; };
-  const handleWheel = (e: React.WheelEvent) => {
-    const factor = e.deltaY < 0 ? 1.1 : 0.9;
-    setZoom(z => Math.max(0.5, Math.min(10, z * factor)));
-  };
-
-  const handleClick = (e: React.MouseEvent) => {
-    if (isDragging.current) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    // inverse transform
-    let mx = e.clientX - rect.left;
-    let my = e.clientY - rect.top;
-    mx -= canvas.width/2 + offset.x; my -= canvas.height/2 + offset.y;
-    mx /= zoom; my /= zoom;
-    mx += canvas.width/2; my += canvas.height/2;
-
-    let bestCell = null;
-    let minDist = Infinity;
-    cells.forEach((cell: Cell) => {
-      if (!cell.geometry?.coordinates?.[0]) return;
-      const pt = cell.geometry.coordinates[0][0];
-      const cx = (pt[0]) * bounds.current.baseScale + bounds.current.baseOffX;
-      const cy = (pt[1]) * bounds.current.baseScale + bounds.current.baseOffY;
-      const dist = (cx - mx) ** 2 + (cy - my) ** 2;
-      if (dist < minDist && dist < 100 / (zoom*zoom)) {
-        minDist = dist; bestCell = cell.id;
-      }
-    });
-    if (bestCell) onCellClick(bestCell);
-  };
 
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
-        <canvas 
-            ref={canvasRef} 
-            style={{ width: '100%', height: '100%', display: "block", cursor: isDragging.current ? 'grabbing' : 'grab' }}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseUp}
-            onWheel={handleWheel}
-            onClick={handleClick}
-        />
-        <div style={{ position: 'absolute', bottom: 10, right: 10, background: 'rgba(0,0,0,0.7)', padding: '5px', borderRadius: '4px', color: '#fff' }}>
-            Zoom: {zoom.toFixed(1)}x
-        </div>
+    <div style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden" }}>
+      <canvas
+        ref={canvasRef}
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        style={{ width: "100%", height: "100%", display: "block", cursor: "grab" }}
+      />
+      <div style={{ position: "absolute", bottom: 12, right: 12, background: "rgba(0,0,0,0.75)", padding: "4px 8px", borderRadius: 4, fontSize: 11, color: "#94a3b8" }}>
+        Pan: Click & Drag • Zoom: Wheel ({zoom.toFixed(1)}x)
+      </div>
     </div>
   );
 }
 
-function FactionPanel({ state, economy, cells }: { state: ObserverState, economy: any[], cells: any[] }) {
-    if (!state.factions || state.factions.length === 0) return <div style={{padding: '20px', color: '#888'}}>No factions data.</div>;
-    return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '10px' }}>
-            <h3 style={{ color: '#58a6ff', margin: 0, paddingBottom: '10px', borderBottom: '1px solid #30363d' }}>Global Factions</h3>
-            {state.factions.map(f => {
-                const myBurgs = economy.filter(b => b.faction_id === f.id);
-                const pop = myBurgs.reduce((sum, b) => sum + (b.pop_null||0), 0);
-                const wealth = myBurgs.reduce((sum, b) => sum + (b.wealth||0), 0);
-                return (
-                    <div key={f.id} style={{ background: '#21262d', padding: '10px', borderRadius: '6px', borderLeft: `4px solid ${f.color}` }}>
-                        <div style={{ fontWeight: 'bold', color: '#fff', fontSize: '14px' }}>{f.name}</div>
-                        <div style={{ fontSize: '12px', color: '#aaa', marginTop: '4px' }}>
-                            <div>Burgs: {myBurgs.length}</div>
-                            <div>Pop: {pop.toLocaleString()}</div>
-                            <div>Wealth: {wealth.toLocaleString()}</div>
-                        </div>
-                    </div>
-                );
-            })}
-            {state.fringeFactions && state.fringeFactions.length > 0 && (
-                <>
-                    <h3 style={{ color: '#ff7b72', margin: '10px 0 0 0', paddingBottom: '10px', borderBottom: '1px solid #30363d' }}>Fringe Factions</h3>
-                    {state.fringeFactions.map(ff => (
-                        <div key={ff.id} style={{ background: '#2d2121', padding: '10px', borderRadius: '6px', borderLeft: `4px solid #ff7b72` }}>
-                            <div style={{ fontWeight: 'bold', color: '#fff', fontSize: '13px' }}>{ff.name} <span style={{fontSize: '10px', color: '#aaa'}}>({ff.type})</span></div>
-                        </div>
-                    ))}
-                </>
-            )}
-        </div>
-    );
-}
-
-function RightPanel({ state, economyMap, factionMap, selectedCell, cells }: { state: ObserverState, economyMap: any, factionMap: any, selectedCell: number | null, cells: any[] }) {
-    const [tab, setTab] = useState<'Burg'|'Events'|'Render'>('Burg');
-    
-    let burg: any = null; let cell: any = null; let faction: any = null;
-    if (selectedCell) {
-        burg = economyMap[selectedCell];
-        cell = cells.find(c => c.id === selectedCell);
-        faction = cell ? factionMap[economyMap[selectedCell]?.faction_id || cell.faction_id] : null;
-        if (burg && typeof burg.military_forces === 'string') try { burg.military_forces = JSON.parse(burg.military_forces); } catch(e){}
-        if (burg && typeof burg.demographics === 'string') try { burg.demographics = JSON.parse(burg.demographics); } catch(e){}
-    }
-
-    return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#161b22' }}>
-            <div style={{ display: 'flex', background: '#010409', borderBottom: '1px solid #30363d' }}>
-                {['Burg', 'Events', 'Render'].map(t => (
-                    <div key={t} onClick={() => setTab(t as any)} style={{ 
-                        flex: 1, padding: '10px', textAlign: 'center', cursor: 'pointer', fontSize: '13px',
-                        borderBottom: tab === t ? '2px solid #58a6ff' : '2px solid transparent',
-                        color: tab === t ? '#fff' : '#8b949e', fontWeight: tab === t ? 'bold' : 'normal'
-                    }}>
-                        {t}
-                    </div>
-                ))}
-            </div>
-            <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
-                {tab === 'Burg' && (
-                    <div style={{ fontSize: '13px', color: '#ccc' }}>
-                        {!burg ? <div style={{ color: '#888', textAlign: 'center' }}>Select a Burg on the map.</div> : (
-                            <div>
-                                <h3 style={{ color: '#fff', margin: '0 0 10px 0' }}>Burg {burg.burg_id}</h3>
-                                <div><strong>Cell ID:</strong> {burg.cell_id}</div>
-                                <div><strong>Faction:</strong> {faction ? faction.name : 'None'}</div>
-                                <div><strong>Biome ID:</strong> {cell?.biome}</div>
-                                <hr style={{ borderColor: '#30363d', margin: '10px 0' }} />
-                                
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                                <div><strong>Population:</strong> {burg.pop_null}</div>
-                                <div><strong>Wealth:</strong> {burg.wealth}</div>
-                                <div><strong>Food:</strong> {burg.food}</div>
-                                <div><strong>Health:</strong> {burg.health}</div>
-                                <div><strong>Unrest:</strong> {burg.unrest}</div>
-                                <div><strong>Tier:</strong> {burg.urban_tier || 1}</div>
-                                </div>
-                                
-                                <hr style={{ borderColor: '#30363d', margin: '10px 0' }} />
-                                <strong style={{ color: '#fbbf24', display: 'block', marginBottom: '4px' }}>Military:</strong>
-                                {burg.military_forces && Object.keys(burg.military_forces).length > 0 ? (
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                                    {Object.entries(burg.military_forces).map(([type, count]) => (
-                                        <span key={type} style={{ background: '#333', padding: '2px 6px', borderRadius: '10px', fontSize: '11px', color: '#ff8c00' }}>
-                                        {type}: {String(count)}
-                                        </span>
-                                    ))}
-                                    </div>
-                                ) : <span style={{color: '#888'}}>None</span>}
-
-                                <hr style={{ borderColor: '#30363d', margin: '10px 0' }} />
-                                <strong style={{ color: '#fbbf24', display: 'block', marginBottom: '4px' }}>Demographics:</strong>
-                                {burg.demographics && Object.keys(burg.demographics).length > 0 ? (
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                                    {Object.entries(burg.demographics).map(([species, count]) => (
-                                        <span key={species} style={{ background: '#333', padding: '2px 6px', borderRadius: '10px', fontSize: '11px' }}>
-                                        {species}: {String(count)}
-                                        </span>
-                                    ))}
-                                    </div>
-                                ) : <span style={{color: '#888'}}>None</span>}
-                            </div>
-                        )}
-                    </div>
-                )}
-                {tab === 'Events' && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                        {(state.events || []).filter(e => !["CHAOS_STORM", "MERCY_ALIGNMENT", "LUNAR_HEMORRHAGE", "NIGHTMARE_ASCENDANT"].includes(e.type)).map((e) => {
-                            const isMajor = e.tier === "MAJOR";
-                            return (
-                                <div key={e.id} style={{
-                                    padding: "8px", background: isMajor ? "#2d2121" : "#1f2937",
-                                    borderLeft: `4px solid ${isMajor ? "#ff7b72" : "#58a6ff"}`, borderRadius: "4px", fontSize: "12px",
-                                }}>
-                                    <div style={{ display: "flex", justifyContent: "space-between", color: "#8b949e", marginBottom: "4px", fontSize: "10px" }}>
-                                        <span>Tick {e.tick} ({e.lore_date})</span>
-                                        <span style={{ fontWeight: "bold" }}>{e.type}</span>
-                                    </div>
-                                    <div style={{ color: "#e6edf3", lineHeight: 1.4 }}>{e.message}</div>
-                                </div>
-                            );
-                        })}
-                        {(state.events || []).length === 0 && <div style={{color: '#888', textAlign: 'center'}}>No events recorded.</div>}
-                    </div>
-                )}
-                {tab === 'Render' && (
-                    <div style={{ color: '#ccc', fontSize: '13px' }}>
-                        <p>Region Map Render Testing</p>
-                        {selectedCell ? (
-                            <div style={{ border: '1px solid #30363d', borderRadius: '4px', overflow: 'hidden' }}>
-                                <RegionMap cellId={selectedCell} />
-                            </div>
-                        ) : (
-                            <div style={{ color: '#888', textAlign: 'center' }}>Select a cell on the map to test its region render.</div>
-                        )}
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-}
-
+// -------------------------------------------------------------
+// 2. MAIN OBSERVER DASHBOARD COMPONENT
+// -------------------------------------------------------------
 export function Dashboard() {
   const [state, setState] = useState<ObserverState | null>(null);
   const [cells, setCells] = useState<Cell[]>([]);
   const [hasFetchedMap, setHasFetchedMap] = useState(false);
-  const [zLayer, setZLayer] = useState<number>(0);
   const [economyMap, setEconomyMap] = useState<Record<number, any>>({});
   const [factionMap, setFactionMap] = useState<Record<number, Faction>>({});
-  const [selectedCell, setSelectedCell] = useState<number | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [activeTab, setActiveTab] = useState<MainTab>("SECTORS");
   const [viewMode, setViewMode] = useState<ViewMode>("Political");
-  const intervalRef = useRef<any>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isBatchRunning, setIsBatchRunning] = useState(false);
 
+  // Sector Division State
+  const [burgs, setBurgs] = useState<BurgItem[]>([]);
+  const [paragons, setParagons] = useState<ParagonItem[]>([]);
+  const [prisons, setPrisons] = useState<PrisonItem[]>([]);
+  const [convergence, setConvergence] = useState<any>(null);
+  const [sectorFeatures, setSectorFeatures] = useState<Record<number, any>>({});
+  const [selectedCategory, setSelectedCategory] = useState<SectorCategory>("ALL_BURGS");
+  const [sectorSearch, setSectorSearch] = useState("");
+  const [selectedBurg, setSelectedBurg] = useState<BurgItem | null>(null);
+  const [selectedPrison, setSelectedPrison] = useState<PrisonItem | null>(null);
+  const [isConvergenceSelected, setIsConvergenceSelected] = useState(false);
+
+  // Fringe Faction State
+  const [fringeDetail, setFringeDetail] = useState<{ factions: FringeFaction[]; lairs: FringeLair[] }>({ factions: [], lairs: [] });
+  const [selectedFringe, setSelectedFringe] = useState<FringeFaction | null>(null);
+
+  // Filtered Events State
+  const [sectorEvents, setSectorEvents] = useState<SimEvent[]>([]);
+  const [fringeEvents, setFringeEvents] = useState<SimEvent[]>([]);
+  const [tierFilter, setTierFilter] = useState<string>("ALL");
+
+  // Fetch core simulation state
   const fetchState = useCallback(async () => {
-      if (!hasFetchedMap) {
-        const mapRes = await fetch(`/api/observer/map?z=${zLayer}`);
+    if (!hasFetchedMap) {
+      try {
+        const mapRes = await fetch(`/api/observer/map?z=0`);
         if (mapRes.ok) {
           const mapData = await mapRes.json();
           setCells(mapData.cells || []);
           setHasFetchedMap(true);
         }
-      }
-      try {
-        const res = await fetch(`/api/observer/state?z=${zLayer}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        setState(data);
-        const fm: Record<number, Faction> = {};
-        (data.factions || []).forEach((f: Faction) => { fm[f.id] = f; });
-        setFactionMap(fm);
-        const em: Record<number, any> = {};
-        (data.economy || []).forEach((e: any) => { em[e.cell_id] = e; });
-        setEconomyMap(em);
-      } catch (e) {
-        console.error("Fetch state error:", e);
-      }
-  }, [zLayer, hasFetchedMap]);
+      } catch (e) {}
+    }
+    try {
+      const res = await fetch(`/api/observer/state?z=0`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setState(data);
+      const fm: Record<number, Faction> = {};
+      (data.factions || []).forEach((f: Faction) => { fm[f.id] = f; });
+      setFactionMap(fm);
+      const em: Record<number, any> = {};
+      (data.economy || []).forEach((e: any) => { em[e.cell_id] = e; });
+      setEconomyMap(em);
+    } catch (e) {
+      console.error("Fetch state error:", e);
+    }
+  }, [hasFetchedMap]);
 
-  useEffect(() => { fetchState(); }, [fetchState]);
+  // Fetch comprehensive sector data (352 Burgs, 12 Prisons, Convergence)
+  const fetchSectors = useCallback(async () => {
+    try {
+      const res = await fetch("/api/observer/sectors");
+      if (!res.ok) return;
+      const data = await res.json();
+      setBurgs(data.burgs || []);
+      setParagons(data.paragons || []);
+      setPrisons(data.prisons || []);
+      setConvergence(data.convergence || null);
 
-  
-  // Polling loop for state
+      const sf: Record<number, any> = {};
+      (data.sectorFeatures || []).forEach((f: any) => { sf[f.cell_id] = f.features; });
+      setSectorFeatures(sf);
+
+      // Select Triburg or first burg by default if none selected
+      if (!selectedBurg && (data.burgs || []).length > 0) {
+        const defaultBurg = data.burgs.find((b: any) => b.burg_id === 244) || data.burgs[0];
+        setSelectedBurg(defaultBurg);
+      }
+    } catch (e) {
+      console.error("Fetch sectors error:", e);
+    }
+  }, [selectedBurg]);
+
+  // Fetch fringe factions and lairs
+  const fetchFringe = useCallback(async () => {
+    try {
+      const res = await fetch("/api/observer/fringe_detail");
+      if (!res.ok) return;
+      const data = await res.json();
+      setFringeDetail(data);
+      if (!selectedFringe && (data.factions || []).length > 0) {
+        setSelectedFringe(data.factions[0]);
+      }
+    } catch (e) {
+      console.error("Fetch fringe error:", e);
+    }
+  }, [selectedFringe]);
+
+  useEffect(() => {
+    fetchState();
+    fetchSectors();
+    fetchFringe();
+  }, [fetchState, fetchSectors, fetchFringe]);
+
+  // Polling loop for active state
   useEffect(() => {
     let active = true;
     let timerId: any = null;
@@ -396,13 +368,13 @@ export function Dashboard() {
       await fetchState();
       if (active) timerId = setTimeout(poll, 1500);
     }
-    
+
     poll();
 
-    // Also fetch initial autoplay state
-    fetch("/api/observer/autoplay").then(r => r.json()).then(d => {
-        if (active) setIsPlaying(d.autoplay);
-    }).catch(()=>{});
+    fetch("/api/observer/autoplay")
+      .then(r => r.json())
+      .then(d => { if (active) setIsPlaying(d.autoplay); })
+      .catch(() => {});
 
     return () => {
       active = false;
@@ -410,63 +382,721 @@ export function Dashboard() {
     };
   }, [fetchState]);
 
-  const togglePlay = async () => {
-      const nextState = !isPlaying;
-      setIsPlaying(nextState);
-      await fetch("/api/observer/autoplay", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ enabled: nextState })
-      });
+  // Fetch filtered sector events when selection changes
+  useEffect(() => {
+    async function loadSectorEvents() {
+      let url = "/api/observer/filtered_events?limit=150";
+      if (isConvergenceSelected) {
+        url += "&keyword=Convergence";
+      } else if (selectedPrison) {
+        url += `&keyword=${encodeURIComponent(selectedPrison.dragon_name)}`;
+      } else if (selectedBurg) {
+        url += `&burg_id=${selectedBurg.burg_id}`;
+      }
+      if (tierFilter !== "ALL") {
+        url += `&tier=${tierFilter}`;
+      }
+
+      try {
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          setSectorEvents(data.events || []);
+        }
+      } catch (e) {}
+    }
+
+    loadSectorEvents();
+  }, [selectedBurg, selectedPrison, isConvergenceSelected, tierFilter, state?.calendar?.tick]);
+
+  // Fetch filtered fringe faction events when fringe selection changes
+  useEffect(() => {
+    async function loadFringeEvents() {
+      if (!selectedFringe) return;
+      const cleanKeyword = selectedFringe.name.replace(/^The\s+/, "");
+      try {
+        const res = await fetch(`/api/observer/filtered_events?keyword=${encodeURIComponent(cleanKeyword)}&limit=150`);
+        if (res.ok) {
+          const data = await res.json();
+          setFringeEvents(data.events || []);
+        }
+      } catch (e) {}
+    }
+
+    loadFringeEvents();
+  }, [selectedFringe, state?.calendar?.tick]);
+
+  // Controls: Step 1 Tick
+  const runSingleTick = async () => {
+    if (isBatchRunning) return;
+    setIsBatchRunning(true);
+    try {
+      await fetch("/api/observer/tick", { method: "POST" });
+      await fetchState();
+      await fetchSectors();
+    } catch (e) {
+    } finally {
+      setIsBatchRunning(false);
+    }
   };
 
+  // Controls: Batch Run Ticks (5, 10)
+  const runBatchTicks = async (count: number) => {
+    if (isBatchRunning) return;
+    setIsBatchRunning(true);
+    try {
+      await fetch("/api/observer/batch_ticks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ count })
+      });
+      await fetchState();
+      await fetchSectors();
+    } catch (e) {
+    } finally {
+      setIsBatchRunning(false);
+    }
+  };
+
+  // Controls: Autoplay Toggle
+  const togglePlay = async () => {
+    const nextState = !isPlaying;
+    setIsPlaying(nextState);
+    await fetch("/api/observer/autoplay", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: nextState })
+    });
+  };
+
+  // Filtered Burg list based on search
+  const filteredBurgs = useMemo(() => {
+    if (!sectorSearch.trim()) return burgs;
+    const q = sectorSearch.toLowerCase();
+    return burgs.filter(b => b.name.toLowerCase().includes(q) || String(b.burg_id).includes(q));
+  }, [burgs, sectorSearch]);
 
   const cal = state?.calendar;
   const dateDisplay = cal
     ? (cal.is_shadow_week
-        ? `Year ${cal.year}, Shadow Week (Day ${cal.day_of_month || (cal.tick % 13) + 1}/13) • ${cal.moon_phase || 'The Grand Eclipse'} • Flow: Chaos (The Void)`
-        : `Year ${cal.year}, Month ${cal.month} (${cal.month_name || 'Dragon'}), Day ${cal.day_of_month || ((cal.tick - 1) % 44) + 1}/44 (Day ${cal.day_of_year || ((cal.tick - 1) % 541) + 1}/541) • ${cal.season} • Cruorbus: ${cal.moon_phase} • Flow: ${cal.active_flow} (${cal.dragon_domain})`)
-    : "Awaiting first tick...";
+        ? `Year ${cal.year}, Shadow Week (Day ${cal.day_of_month || (cal.tick % 13) + 1}/13) • ${cal.moon_phase || 'The Grand Eclipse'} • Chaos Flow: The Void`
+        : `Year ${cal.year}, Month ${cal.month} (${cal.month_name || 'Dragon'}), Day ${cal.day_of_month || ((cal.tick - 1) % 44) + 1}/44 • Season: ${cal.season} • Moon: ${cal.moon_phase} • Flow: ${cal.active_flow} (${cal.dragon_domain})`)
+    : "Awaiting simulation initialization...";
 
-  if (!state) return <div style={{ color: 'white', padding: 20 }}>Loading Simulation...</div>;
+  // Selected burg environmental tags
+  const currentBurgFeatures = selectedBurg ? sectorFeatures[selectedBurg.cell_id] : null;
+  const currentBurgTags: string[] = currentBurgFeatures?.environmental_tags || [];
+  const currentBurgParagons = selectedBurg ? paragons.filter(p => p.burg_id === selectedBurg.burg_id) : [];
 
   return (
-    <div style={{ fontFamily: "'Segoe UI', sans-serif", background: "#0d1117", color: "#e6edf3", height: "100vh", display: "flex", flexDirection: "column" }}>
-      {/* TOP BAR */}
-      <div style={{ display: "flex", alignItems: "center", gap: "16px", padding: "10px 20px", background: "#010409", borderBottom: "1px solid #30363d", flexWrap: "wrap" }}>
-        <span style={{ fontWeight: 700, fontSize: "15px", color: "#58a6ff" }}>World Observer</span>
-        <span style={{ color: cal?.is_shadow_week ? "#ff7b72" : "#7ee787", fontSize: "13px", marginLeft: "20px", fontWeight: 600 }}>
-            {cal ? `${dateDisplay} [Day/Tick ${cal.tick}]` : "Awaiting first tick..."}
-        </span>
-        {state?.tickInProgress && <span style={{ color: "#ff6b35", fontSize: "12px", fontStyle: "italic" }}>Tick running...</span>}
+    <div style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", background: "#0a0e14", color: "#e2e8f0", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+
+      {/* ============================================================= */}
+      {/* 1. TOP HEADER & TELEMETRY CONTROL BAR                         */}
+      {/* ============================================================= */}
+      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 18px", background: "#020408", borderBottom: "1px solid #1e293b", flexWrap: "wrap", gap: 12 }}>
         
-        <div style={{ marginLeft: "auto", display: "flex", gap: "10px", alignItems: "center" }}>
-          <select value={viewMode} onChange={(e) => setViewMode(e.target.value as ViewMode)} style={{ background: "#21262d", color: "#e6edf3", border: "1px solid #30363d", borderRadius: "4px", padding: "4px 8px" }}>
-            {["Political", "Biome", "Ecology", "Unrest"].map(m => <option key={m} value={m}>{m} View</option>)}
-          </select>
-          <button onClick={togglePlay} style={{ padding: "4px 12px", background: isPlaying ? "#da3633" : "#238636", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer", fontWeight: "bold" }}>
-            {isPlaying ? "STOP" : "PLAY"}
+        {/* Title & Telemetry */}
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 18, color: "#38bdf8", fontWeight: 800, letterSpacing: "-0.5px" }}>AETHERIA</span>
+            <span style={{ fontSize: 10, background: "#0369a1", color: "#e0f2fe", padding: "2px 6px", borderRadius: 4, fontWeight: 700, textTransform: "uppercase" }}>Observer</span>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#0f172a", border: "1px solid #1e293b", padding: "4px 10px", borderRadius: 6, fontSize: 12 }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: isPlaying || isBatchRunning || state?.tickInProgress ? "#22c55e" : "#64748b", boxShadow: isPlaying ? "0 0 8px #22c55e" : "none" }} />
+            <span style={{ color: "#94a3b8" }}>Tick <strong style={{ color: "#38bdf8", fontSize: 13 }}>{cal?.tick || 0}</strong></span>
+            <span style={{ color: "#334155" }}>|</span>
+            <span style={{ color: cal?.is_shadow_week ? "#f87171" : "#e2e8f0", fontWeight: 500 }}>{dateDisplay}</span>
+          </div>
+        </div>
+
+        {/* Tab Switcher */}
+        <div style={{ display: "flex", background: "#0f172a", borderRadius: 8, padding: 3, border: "1px solid #1e293b" }}>
+          <button
+            onClick={() => setActiveTab("SECTORS")}
+            style={{ padding: "6px 14px", border: "none", borderRadius: 6, background: activeTab === "SECTORS" ? "#1e293b" : "transparent", color: activeTab === "SECTORS" ? "#38bdf8" : "#94a3b8", cursor: "pointer", fontWeight: 600, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}
+          >
+            <span>🏰</span> Territorial Sectors
+          </button>
+          <button
+            onClick={() => setActiveTab("FRINGE")}
+            style={{ padding: "6px 14px", border: "none", borderRadius: 6, background: activeTab === "FRINGE" ? "#1e293b" : "transparent", color: activeTab === "FRINGE" ? "#f43f5e" : "#94a3b8", cursor: "pointer", fontWeight: 600, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}
+          >
+            <span>🌑</span> Fringe Factions
+          </button>
+          <button
+            onClick={() => setActiveTab("MAP")}
+            style={{ padding: "6px 14px", border: "none", borderRadius: 6, background: activeTab === "MAP" ? "#1e293b" : "transparent", color: activeTab === "MAP" ? "#a855f7" : "#94a3b8", cursor: "pointer", fontWeight: 600, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}
+          >
+            <span>🗺️</span> 2D World Map
+          </button>
+          <button
+            onClick={() => setActiveTab("EVENTS")}
+            style={{ padding: "6px 14px", border: "none", borderRadius: 6, background: activeTab === "EVENTS" ? "#1e293b" : "transparent", color: activeTab === "EVENTS" ? "#fbbf24" : "#94a3b8", cursor: "pointer", fontWeight: 600, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}
+          >
+            <span>📜</span> Master Events
           </button>
         </div>
-      </div>
 
-      {/* MAIN CONTENT */}
-      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-          {/* LEFT: FACTIONS */}
-          <div style={{ width: "300px", borderRight: "1px solid #30363d", overflowY: "auto", background: "#0d1117" }}>
-              <FactionPanel state={state} economy={state.economy || []} cells={cells} />
-          </div>
+        {/* Action Controls: Tick at Will */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button
+            onClick={runSingleTick}
+            disabled={isBatchRunning || isPlaying}
+            style={{ padding: "6px 12px", background: "#0284c7", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 700, fontSize: 12, opacity: isBatchRunning ? 0.6 : 1 }}
+          >
+            ▶ +1 Tick
+          </button>
+          <button
+            onClick={() => runBatchTicks(5)}
+            disabled={isBatchRunning || isPlaying}
+            style={{ padding: "6px 12px", background: "#0369a1", color: "#e0f2fe", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 700, fontSize: 12, opacity: isBatchRunning ? 0.6 : 1 }}
+          >
+            ⏩ +5 Ticks
+          </button>
+          <button
+            onClick={() => runBatchTicks(10)}
+            disabled={isBatchRunning || isPlaying}
+            style={{ padding: "6px 12px", background: "#075985", color: "#e0f2fe", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 700, fontSize: 12, opacity: isBatchRunning ? 0.6 : 1 }}
+          >
+            ⚡ +10 Ticks
+          </button>
+          <button
+            onClick={togglePlay}
+            style={{ padding: "6px 14px", background: isPlaying ? "#dc2626" : "#16a34a", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 700, fontSize: 12 }}
+          >
+            {isPlaying ? "⏹ Pause" : "▶ Autoplay"}
+          </button>
+        </div>
+      </header>
 
-          {/* CENTER: MAP */}
-          <div style={{ flex: 1, position: 'relative' }}>
-              <MapCanvas cells={cells} factions={factionMap} viewMode={viewMode} economy={economyMap} onCellClick={setSelectedCell} />
-          </div>
+      {/* ============================================================= */}
+      {/* 2. BODY CONTENT ROUTER                                        */}
+      {/* ============================================================= */}
+      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
 
-          {/* RIGHT: DETAILS & TABS */}
-          <div style={{ width: "350px", borderLeft: "1px solid #30363d", background: "#161b22" }}>
-              <RightPanel state={state} economyMap={economyMap} factionMap={factionMap} selectedCell={selectedCell} cells={cells} />
+        {/* ------------------------------------------------------------- */}
+        {/* TAB 1: TERRITORIAL SECTOR LOGS (BURGS, PRISONS, CONVERGENCE)  */}
+        {/* ------------------------------------------------------------- */}
+        {activeTab === "SECTORS" && (
+          <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+            
+            {/* LEFT: Sector Division Selector */}
+            <div style={{ width: 340, background: "#0b111a", borderRight: "1px solid #1e293b", display: "flex", flexDirection: "column" }}>
+              
+              {/* Category Pills */}
+              <div style={{ padding: "12px 14px 6px 14px", display: "flex", gap: 6 }}>
+                <button
+                  onClick={() => { setSelectedCategory("ALL_BURGS"); setIsConvergenceSelected(false); setSelectedPrison(null); }}
+                  style={{ flex: 1, padding: "6px 4px", fontSize: 11, fontWeight: 700, border: "none", borderRadius: 4, cursor: "pointer", background: selectedCategory === "ALL_BURGS" ? "#0284c7" : "#1e293b", color: selectedCategory === "ALL_BURGS" ? "#fff" : "#94a3b8" }}
+                >
+                  Burgs (352)
+                </button>
+                <button
+                  onClick={() => { setSelectedCategory("PRISONS"); setIsConvergenceSelected(false); if (prisons.length > 0) setSelectedPrison(prisons[0] || null); }}
+                  style={{ flex: 1, padding: "6px 4px", fontSize: 11, fontWeight: 700, border: "none", borderRadius: 4, cursor: "pointer", background: selectedCategory === "PRISONS" ? "#9333ea" : "#1e293b", color: selectedCategory === "PRISONS" ? "#fff" : "#94a3b8" }}
+                >
+                  Prisons (12)
+                </button>
+                <button
+                  onClick={() => { setSelectedCategory("CONVERGENCE"); setIsConvergenceSelected(true); setSelectedPrison(null); }}
+                  style={{ flex: 1, padding: "6px 4px", fontSize: 11, fontWeight: 700, border: "none", borderRadius: 4, cursor: "pointer", background: selectedCategory === "CONVERGENCE" ? "#dc2626" : "#1e293b", color: selectedCategory === "CONVERGENCE" ? "#fff" : "#94a3b8" }}
+                >
+                  Convergence
+                </button>
+              </div>
+
+              {/* Search Bar for Burgs */}
+              {selectedCategory === "ALL_BURGS" && (
+                <div style={{ padding: "8px 14px" }}>
+                  <input
+                    type="text"
+                    value={sectorSearch}
+                    onChange={(e) => setSectorSearch(e.target.value)}
+                    placeholder="Search burg name or ID..."
+                    style={{ width: "100%", padding: "6px 10px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: 6, color: "#f8fafc", fontSize: 12, outline: "none", boxSizing: "border-box" }}
+                  />
+                </div>
+              )}
+
+              {/* Territory List Stream */}
+              <div style={{ flex: 1, overflowY: "auto", padding: "6px 10px" }}>
+                {selectedCategory === "ALL_BURGS" && (
+                  filteredBurgs.map(b => {
+                    const isSelected = selectedBurg?.burg_id === b.burg_id && !isConvergenceSelected && !selectedPrison;
+                    const hasUnrest = b.unrest >= 40;
+                    return (
+                      <div
+                        key={b.burg_id}
+                        onClick={() => { setSelectedBurg(b); setSelectedPrison(null); setIsConvergenceSelected(false); }}
+                        style={{
+                          padding: "8px 10px",
+                          marginBottom: 4,
+                          borderRadius: 6,
+                          background: isSelected ? "#1e293b" : "#0d1520",
+                          borderLeft: `4px solid ${isSelected ? "#38bdf8" : hasUnrest ? "#ef4444" : b.faction_color || "#334155"}`,
+                          cursor: "pointer",
+                          transition: "all 0.15s"
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span style={{ fontWeight: 700, fontSize: 13, color: isSelected ? "#38bdf8" : "#f1f5f9" }}>{b.name}</span>
+                          <span style={{ fontSize: 10, color: "#64748b" }}>#{b.burg_id}</span>
+                        </div>
+                        <div style={{ display: "flex", gap: 10, fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
+                          <span>Pop: <strong style={{ color: "#cbd5e1" }}>{b.pop_null?.toLocaleString()}</strong></span>
+                          <span>Food: <strong style={{ color: b.food < 1000 ? "#ef4444" : "#10b981" }}>{b.food?.toLocaleString()}</strong></span>
+                          <span>Unrest: <strong style={{ color: hasUnrest ? "#ef4444" : "#cbd5e1" }}>{b.unrest}</strong></span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+
+                {selectedCategory === "PRISONS" && (
+                  prisons.map(p => {
+                    const isSelected = selectedPrison?.id === p.id;
+                    const isWeakened = p.seal_strength < 90;
+                    return (
+                      <div
+                        key={p.id}
+                        onClick={() => { setSelectedPrison(p); setSelectedBurg(null); setIsConvergenceSelected(false); }}
+                        style={{
+                          padding: "10px 12px",
+                          marginBottom: 6,
+                          borderRadius: 6,
+                          background: isSelected ? "#1e293b" : "#0f172a",
+                          borderLeft: `4px solid ${isSelected ? "#a855f7" : isWeakened ? "#ef4444" : "#22c55e"}`,
+                          cursor: "pointer"
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between" }}>
+                          <span style={{ fontWeight: 700, fontSize: 13, color: isSelected ? "#c084fc" : "#f1f5f9" }}>Prison of {p.dragon_name}</span>
+                          <span style={{ fontSize: 11, color: "#a855f7", fontWeight: 600 }}>{p.power_domain}</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
+                          Cell: {p.cell_id} • Seal Strength: <strong style={{ color: isWeakened ? "#ef4444" : "#22c55e" }}>{p.seal_strength}%</strong>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+
+                {selectedCategory === "CONVERGENCE" && (
+                  <div
+                    onClick={() => { setIsConvergenceSelected(true); setSelectedBurg(null); setSelectedPrison(null); }}
+                    style={{ padding: "12px", borderRadius: 6, background: "#1e1b4b", borderLeft: "4px solid #ef4444", cursor: "pointer" }}
+                  >
+                    <div style={{ fontWeight: 700, fontSize: 14, color: "#f87171" }}>The Planetary Convergence</div>
+                    <div style={{ fontSize: 12, color: "#cbd5e1", marginTop: 4 }}>
+                      Central Leyline Nexus (Cell 11429) where all 12 Chaos Rivers meet.
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* RIGHT: Selected Territory Telemetry, Active Tags, and Dedicated Event Log */}
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "#070b10", overflow: "hidden" }}>
+              
+              {/* Telemetry Header */}
+              <div style={{ padding: "16px 20px", background: "#0b111a", borderBottom: "1px solid #1e293b" }}>
+                {isConvergenceSelected ? (
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontSize: 20, fontWeight: 800, color: "#f87171" }}>The Cruorbus Convergence Nexus</span>
+                      <span style={{ fontSize: 11, background: "#7f1d1d", color: "#fecaca", padding: "2px 8px", borderRadius: 4, fontWeight: 700 }}>WORLD CORE NEXUS</span>
+                    </div>
+                    <p style={{ fontSize: 12, color: "#94a3b8", margin: "6px 0 10px 0" }}>{convergence?.description}</p>
+                    <div style={{ display: "flex", gap: 16, fontSize: 12 }}>
+                      <div>Cell ID: <strong>{convergence?.cell_id}</strong></div>
+                      <div>Active Leyline Branches: <strong>{convergence?.zones?.length || 10}</strong></div>
+                    </div>
+                  </div>
+                ) : selectedPrison ? (
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontSize: 20, fontWeight: 800, color: "#c084fc" }}>Prison of {selectedPrison.dragon_name}</span>
+                      <span style={{ fontSize: 11, background: "#581c87", color: "#f3e8ff", padding: "2px 8px", borderRadius: 4, fontWeight: 700 }}>DOMAIN OF {selectedPrison.power_domain.toUpperCase()}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 18, fontSize: 12, marginTop: 8 }}>
+                      <div>Cell ID: <strong>{selectedPrison.cell_id}</strong></div>
+                      <div>Cosmic Seal: <strong style={{ color: selectedPrison.seal_strength < 90 ? "#ef4444" : "#22c55e" }}>{selectedPrison.seal_strength}%</strong></div>
+                      <div>Wardens Stationed: <strong>Active</strong></div>
+                    </div>
+                  </div>
+                ) : selectedBurg ? (
+                  <div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span style={{ fontSize: 20, fontWeight: 800, color: "#38bdf8" }}>{selectedBurg.name}</span>
+                          <span style={{ fontSize: 11, background: "#0c4a6e", color: "#e0f2fe", padding: "2px 8px", borderRadius: 4, fontWeight: 700 }}>BURG #{selectedBurg.burg_id}</span>
+                          <span style={{ fontSize: 11, background: "#1e293b", color: "#94a3b8", padding: "2px 8px", borderRadius: 4 }}>Cell {selectedBurg.cell_id}</span>
+                        </div>
+                        <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>
+                          Faction: <strong style={{ color: selectedBurg.faction_color || "#38bdf8" }}>{selectedBurg.faction_name || "Sovereign Scute"}</strong> • Tier: <strong>{selectedBurg.urban_tier || 1}</strong>
+                        </div>
+                      </div>
+
+                      {/* Stat Metrics Grid */}
+                      <div style={{ display: "flex", gap: 14, fontSize: 11 }}>
+                        <div style={{ background: "#0f172a", padding: "6px 10px", borderRadius: 6, border: "1px solid #1e293b" }}>
+                          <div style={{ color: "#64748b" }}>Population</div>
+                          <div style={{ fontWeight: 700, fontSize: 13, color: "#f8fafc" }}>{selectedBurg.pop_null?.toLocaleString()}</div>
+                        </div>
+                        <div style={{ background: "#0f172a", padding: "6px 10px", borderRadius: 6, border: "1px solid #1e293b" }}>
+                          <div style={{ color: "#64748b" }}>Food Reserve</div>
+                          <div style={{ fontWeight: 700, fontSize: 13, color: selectedBurg.food < 1000 ? "#ef4444" : "#10b981" }}>{selectedBurg.food?.toLocaleString()}</div>
+                        </div>
+                        <div style={{ background: "#0f172a", padding: "6px 10px", borderRadius: 6, border: "1px solid #1e293b" }}>
+                          <div style={{ color: "#64748b" }}>Wealth</div>
+                          <div style={{ fontWeight: 700, fontSize: 13, color: "#facc15" }}>{selectedBurg.wealth?.toLocaleString()}</div>
+                        </div>
+                        <div style={{ background: "#0f172a", padding: "6px 10px", borderRadius: 6, border: "1px solid #1e293b" }}>
+                          <div style={{ color: "#64748b" }}>Unrest</div>
+                          <div style={{ fontWeight: 700, fontSize: 13, color: selectedBurg.unrest > 40 ? "#ef4444" : "#38bdf8" }}>{selectedBurg.unrest}</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Active Systemic Narrative Tags Badge Pool */}
+                    <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: "#64748b" }}>Active Sector Tags:</span>
+                      {currentBurgTags.length > 0 ? (
+                        currentBurgTags.map(tag => (
+                          <span
+                            key={tag}
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              padding: "2px 8px",
+                              borderRadius: 4,
+                              background: tag.includes("Famine") || tag.includes("Crisis") || tag.includes("Murder") ? "rgba(239, 68, 68, 0.2)" : "rgba(56, 189, 248, 0.15)",
+                              color: tag.includes("Famine") || tag.includes("Crisis") || tag.includes("Murder") ? "#f87171" : "#38bdf8",
+                              border: `1px solid ${tag.includes("Famine") || tag.includes("Crisis") ? "rgba(239, 68, 68, 0.4)" : "rgba(56, 189, 248, 0.3)"}`
+                            }}
+                          >
+                            {tag}
+                          </span>
+                        ))
+                      ) : (
+                        <span style={{ fontSize: 11, color: "#64748b", fontStyle: "italic" }}>No anomaly tags. Base municipal peace.</span>
+                      )}
+                    </div>
+
+                    {/* Paragons in this Burg */}
+                    {currentBurgParagons.length > 0 && (
+                      <div style={{ marginTop: 10, display: "flex", gap: 12 }}>
+                        {currentBurgParagons.map(p => (
+                          <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6, background: "#0f172a", padding: "4px 8px", borderRadius: 4, fontSize: 11 }}>
+                            <span style={{ color: "#94a3b8" }}>{p.title}:</span>
+                            <strong style={{ color: "#f8fafc" }}>{p.name}</strong>
+                            {p.corruption_score > 0 && <span style={{ color: "#f59e0b", fontSize: 10 }}>[Corr: {p.corruption_score}]</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+
+              {/* Event Log Filter Bar */}
+              <div style={{ padding: "8px 20px", background: "#090d14", borderBottom: "1px solid #1e293b", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8" }}>Territorial Event Chronicle ({sectorEvents.length} events logged)</span>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {["ALL", "CRITICAL", "MAJOR", "MINOR"].map(t => (
+                    <button
+                      key={t}
+                      onClick={() => setTierFilter(t)}
+                      style={{
+                        padding: "3px 8px",
+                        fontSize: 10,
+                        fontWeight: 700,
+                        border: "none",
+                        borderRadius: 4,
+                        cursor: "pointer",
+                        background: tierFilter === t ? "#38bdf8" : "#1e293b",
+                        color: tierFilter === t ? "#000" : "#94a3b8"
+                      }}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Filtered Event Stream */}
+              <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+                {sectorEvents.length > 0 ? (
+                  sectorEvents.map(e => {
+                    const isCrit = e.tier === "CRITICAL";
+                    const isMajor = e.tier === "MAJOR";
+                    const borderColor = isCrit ? "#ef4444" : isMajor ? "#f59e0b" : "#3b82f6";
+                    return (
+                      <div
+                        key={e.id}
+                        style={{
+                          padding: "10px 14px",
+                          background: isCrit ? "rgba(239, 68, 68, 0.08)" : isMajor ? "rgba(245, 158, 11, 0.06)" : "#0d1420",
+                          borderLeft: `4px solid ${borderColor}`,
+                          borderRadius: 6,
+                          fontSize: 12
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", color: "#64748b", fontSize: 11, marginBottom: 4 }}>
+                          <span>Tick <strong>{e.tick}</strong> ({e.lore_date})</span>
+                          <span style={{ fontWeight: 700, color: borderColor }}>{e.type}</span>
+                        </div>
+                        <div style={{ color: "#f1f5f9", lineHeight: 1.5 }}>{e.message}</div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div style={{ textAlign: "center", padding: 40, color: "#64748b", fontSize: 13 }}>
+                    No events recorded in this sector yet. Advance ticks or trigger systemic cascades to generate history.
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
+        )}
+
+        {/* ------------------------------------------------------------- */}
+        {/* TAB 2: FRINGE FACTIONS (UNDERWORLD & INDEPENDENT SYNDICATES)  */}
+        {/* ------------------------------------------------------------- */}
+        {activeTab === "FRINGE" && (
+          <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+            
+            {/* LEFT: Fringe Faction List */}
+            <div style={{ width: 320, background: "#0b111a", borderRight: "1px solid #1e293b", overflowY: "auto", padding: "10px" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#64748b", padding: "4px 8px 8px 8px" }}>
+                Independent Syndicates & Factions
+              </div>
+              {fringeDetail.factions.map(f => {
+                const isSelected = selectedFringe?.id === f.id;
+                const lairsCount = fringeDetail.lairs.filter(l => l.faction_id === f.id).length;
+                return (
+                  <div
+                    key={f.id}
+                    onClick={() => setSelectedFringe(f)}
+                    style={{
+                      padding: "10px 12px",
+                      marginBottom: 6,
+                      borderRadius: 6,
+                      background: isSelected ? "#1e293b" : "#0d1520",
+                      borderLeft: `4px solid ${isSelected ? "#f43f5e" : "#334155"}`,
+                      cursor: "pointer",
+                      transition: "all 0.15s"
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontWeight: 700, fontSize: 13, color: isSelected ? "#f43f5e" : "#f1f5f9" }}>{f.name}</span>
+                      <span style={{ fontSize: 10, background: "#1e293b", padding: "2px 6px", borderRadius: 4, color: "#94a3b8" }}>{f.type}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 10, fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
+                      <span>Manpower: <strong style={{ color: "#f8fafc" }}>{f.manpower}</strong></span>
+                      <span>Wealth: <strong style={{ color: "#facc15" }}>{f.wealth?.toLocaleString()}</strong></span>
+                      <span>Lairs: <strong style={{ color: "#38bdf8" }}>{lairsCount}</strong></span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* RIGHT: Selected Fringe Faction Profile, Lairs, and World Interactions Log */}
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "#070b10", overflow: "hidden" }}>
+              {selectedFringe ? (
+                <>
+                  {/* Faction Profile Card */}
+                  <div style={{ padding: "16px 20px", background: "#0b111a", borderBottom: "1px solid #1e293b" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span style={{ fontSize: 20, fontWeight: 800, color: "#f43f5e" }}>{selectedFringe.name}</span>
+                          <span style={{ fontSize: 11, background: "#881337", color: "#ffe4e6", padding: "2px 8px", borderRadius: 4, fontWeight: 700 }}>{selectedFringe.type}</span>
+                          <span style={{ fontSize: 11, background: "#1e293b", color: "#94a3b8", padding: "2px 8px", borderRadius: 4 }}>Origin Cell {selectedFringe.origin_cell_id}</span>
+                        </div>
+                        <p style={{ fontSize: 12, color: "#94a3b8", margin: "6px 0 10px 0", maxWidth: 700 }}>{selectedFringe.description}</p>
+                      </div>
+
+                      <div style={{ display: "flex", gap: 12, fontSize: 11 }}>
+                        <div style={{ background: "#0f172a", padding: "6px 12px", borderRadius: 6, border: "1px solid #1e293b" }}>
+                          <div style={{ color: "#64748b" }}>Total Manpower</div>
+                          <div style={{ fontWeight: 700, fontSize: 14, color: "#f8fafc" }}>{selectedFringe.manpower}</div>
+                        </div>
+                        <div style={{ background: "#0f172a", padding: "6px 12px", borderRadius: 6, border: "1px solid #1e293b" }}>
+                          <div style={{ color: "#64748b" }}>Treasury</div>
+                          <div style={{ fontWeight: 700, fontSize: 14, color: "#facc15" }}>{selectedFringe.wealth?.toLocaleString()}</div>
+                        </div>
+                        <div style={{ background: "#0f172a", padding: "6px 12px", borderRadius: 6, border: "1px solid #1e293b" }}>
+                          <div style={{ color: "#64748b" }}>Local Heat</div>
+                          <div style={{ fontWeight: 700, fontSize: 14, color: selectedFringe.heat ? "#ef4444" : "#10b981" }}>{selectedFringe.heat || 0}</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Contraband Types */}
+                    {selectedFringe.contraband_types && selectedFringe.contraband_types.length > 0 && (
+                      <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#64748b" }}>Contraband Traffiсking:</span>
+                        {selectedFringe.contraband_types.map(cb => (
+                          <span key={cb} style={{ fontSize: 10, background: "#1e293b", color: "#cbd5e1", padding: "2px 6px", borderRadius: 4 }}>
+                            {cb}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Established Subterranean Lairs */}
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 6 }}>
+                        Active Established Lairs in Burgs ({fringeDetail.lairs.filter(l => l.faction_id === selectedFringe.id).length}):
+                      </div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {fringeDetail.lairs.filter(l => l.faction_id === selectedFringe.id).map(l => (
+                          <div key={l.id} style={{ background: "#0f172a", border: "1px solid #1e293b", padding: "4px 8px", borderRadius: 4, fontSize: 11 }}>
+                            <span style={{ color: "#f43f5e", fontWeight: 700 }}>{l.lair_type}</span> in <strong>{l.burg_name || `Burg #${l.burg_id}`}</strong> (Manpower: {l.manpower})
+                          </div>
+                        ))}
+                        {fringeDetail.lairs.filter(l => l.faction_id === selectedFringe.id).length === 0 && (
+                          <span style={{ fontSize: 11, color: "#64748b", fontStyle: "italic" }}>No established lairs yet. Siphoning unrest to establish initial dens.</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* World Interactions Log */}
+                  <div style={{ padding: "8px 20px", background: "#090d14", borderBottom: "1px solid #1e293b" }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8" }}>
+                      Simulated World Interactions Chronicle ({fringeEvents.length} events logged)
+                    </span>
+                  </div>
+
+                  <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+                    {fringeEvents.length > 0 ? (
+                      fringeEvents.map(e => (
+                        <div
+                          key={e.id}
+                          style={{
+                            padding: "10px 14px",
+                            background: "#0d1420",
+                            borderLeft: `4px solid ${e.tier === "MAJOR" ? "#f43f5e" : "#0284c7"}`,
+                            borderRadius: 6,
+                            fontSize: 12
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", color: "#64748b", fontSize: 11, marginBottom: 4 }}>
+                            <span>Tick <strong>{e.tick}</strong> ({e.lore_date})</span>
+                            <span style={{ fontWeight: 700, color: "#f43f5e" }}>{e.type}</span>
+                          </div>
+                          <div style={{ color: "#f1f5f9", lineHeight: 1.5 }}>{e.message}</div>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ textAlign: "center", padding: 40, color: "#64748b", fontSize: 13 }}>
+                        No specific world interaction events logged for {selectedFringe.name} yet. Advance simulation ticks to generate crime and cartel expansion.
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div style={{ padding: 40, color: "#64748b", textAlign: "center" }}>Select a fringe faction on the left.</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ------------------------------------------------------------- */}
+        {/* TAB 3: 2D WORLD MAP & TACTICAL SURVEY                         */}
+        {/* ------------------------------------------------------------- */}
+        {activeTab === "MAP" && (
+          <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+            <div style={{ width: 280, background: "#0b111a", borderRight: "1px solid #1e293b", overflowY: "auto", padding: 12 }}>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 11, fontWeight: 700, color: "#64748b", display: "block", marginBottom: 4 }}>Map Overlay Mode:</label>
+                <select
+                  value={viewMode}
+                  onChange={(e) => setViewMode(e.target.value as ViewMode)}
+                  style={{ width: "100%", padding: "6px 8px", background: "#0f172a", border: "1px solid #1e293b", borderRadius: 6, color: "#f8fafc", fontSize: 12 }}
+                >
+                  <option value="Political">Political Borders</option>
+                  <option value="Biome">Natural Biomes</option>
+                  <option value="Unrest">Civil Unrest Heatmap</option>
+                  <option value="Ecology">Trophic Biomass Ecology</option>
+                </select>
+              </div>
+
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#64748b", borderBottom: "1px solid #1e293b", paddingBottom: 6, marginBottom: 8 }}>
+                Sovereign Factions ({state?.factions?.length || 0})
+              </div>
+              {(state?.factions || []).map(f => (
+                <div key={f.id} style={{ padding: "6px 8px", borderRadius: 4, marginBottom: 4, background: "#0f172a", borderLeft: `4px solid ${f.color}`, fontSize: 12 }}>
+                  <div style={{ fontWeight: 700, color: "#f1f5f9" }}>{f.name}</div>
+                  <div style={{ fontSize: 10, color: "#64748b" }}>Treasury: {f.wealth?.toLocaleString() || 0} Wealth</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ flex: 1, position: "relative" }}>
+              <MapCanvas
+                cells={cells}
+                factions={factionMap}
+                viewMode={viewMode}
+                economy={economyMap}
+                onCellClick={(id: number) => {
+                  const b = burgs.find(b => b.cell_id === id);
+                  if (b) {
+                    setSelectedBurg(b);
+                    setActiveTab("SECTORS");
+                  }
+                }}
+                selectedCellId={selectedBurg?.cell_id}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* ------------------------------------------------------------- */}
+        {/* TAB 4: MASTER CONTINENTAL EVENT STREAM                        */}
+        {/* ------------------------------------------------------------- */}
+        {activeTab === "EVENTS" && (
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "#070b10", overflow: "hidden" }}>
+            <div style={{ padding: "12px 20px", background: "#0b111a", borderBottom: "1px solid #1e293b", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#fbbf24" }}>Master Continental Event Chronicle</span>
+              <span style={{ fontSize: 11, color: "#64748b" }}>Showing recent live simulation events across all sectors & factions</span>
+            </div>
+
+            <div style={{ flex: 1, overflowY: "auto", padding: 20, display: "flex", flexDirection: "column", gap: 8 }}>
+              {(state?.events || []).map(e => {
+                const isCrit = e.tier === "CRITICAL";
+                const isMajor = e.tier === "MAJOR";
+                return (
+                  <div
+                    key={e.id}
+                    style={{
+                      padding: "10px 14px",
+                      background: isCrit ? "rgba(239, 68, 68, 0.08)" : isMajor ? "rgba(245, 158, 11, 0.06)" : "#0d1420",
+                      borderLeft: `4px solid ${isCrit ? "#ef4444" : isMajor ? "#f59e0b" : "#3b82f6"}`,
+                      borderRadius: 6,
+                      fontSize: 12
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", color: "#64748b", fontSize: 11, marginBottom: 4 }}>
+                      <span>Tick <strong>{e.tick}</strong> ({e.lore_date}) • Burg #{e.burg_id || "Global"}</span>
+                      <span style={{ fontWeight: 700, color: isCrit ? "#ef4444" : isMajor ? "#f59e0b" : "#38bdf8" }}>{e.type}</span>
+                    </div>
+                    <div style={{ color: "#f1f5f9", lineHeight: 1.5 }}>{e.message}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );
 }
+export default Dashboard;

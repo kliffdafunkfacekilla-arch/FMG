@@ -96,6 +96,146 @@ observerRouter.post("/tick", async (req, res) => {
   }
 });
 
+// Run batch ticks at will (1, 5, 10)
+observerRouter.post("/batch_ticks", async (req, res) => {
+  if (tickInProgress) {
+    return res.status(429).json({ error: "Tick already in progress. Please wait." });
+  }
+  if (resetInProgress) {
+    return res.status(429).json({ error: "World reset in progress. Please wait." });
+  }
+
+  const count = Math.min(Math.max(Number(req.body.count || 1), 1), 25);
+  tickInProgress = true;
+  try {
+    const results = [];
+    for (let i = 0; i < count; i++) {
+      const r = await executeMasterTick();
+      results.push(r);
+    }
+    res.json({
+      success: true,
+      countRun: results.length,
+      finalTick: results[results.length - 1]?.currentTick,
+      ticks: results
+    });
+  } catch (error: any) {
+    console.error("Batch tick error:", error.stack);
+    res.status(500).json({ error: error.message || "Batch tick failed" });
+  } finally {
+    tickInProgress = false;
+  }
+});
+
+// Get comprehensive sector data: all 352 Burgs, 12 Dragon Prisons, and Convergence Nexus
+observerRouter.get("/sectors", async (req, res) => {
+  try {
+    const burgsRes = await pool.query(`
+      SELECT b.burg_id, b.name, b.cell_id, b.food, b.wealth, b.unrest, b.urban_tier, b.pop_null, b.crime_rate, b.occupier_faction_id,
+             c.faction_id, f.name as faction_name, f.color as faction_color
+      FROM sim_burg_economy b
+      LEFT JOIN sim_cells c ON b.cell_id = c.id
+      LEFT JOIN sim_factions f ON COALESCE(b.occupier_faction_id, c.faction_id) = f.id
+      ORDER BY b.name ASC
+    `);
+
+    const paragonsRes = await pool.query(`
+      SELECT id, burg_id, name, title, traits, corruption_score
+      FROM sim_paragons
+      WHERE burg_id IS NOT NULL
+      ORDER BY id ASC
+    `);
+
+    const layersRes = await pool.query(`
+      SELECT cell_id, features
+      FROM sim_sector_layers
+      WHERE z_layer = 0
+    `);
+
+    const grovesRes = await pool.query(`
+      SELECT id, cell_id, dragon_name, power_domain, seal_strength
+      FROM sim_sacred_groves
+      ORDER BY id ASC
+    `);
+
+    const convergenceRes = await pool.query(`
+      SELECT cell_id, intensity, type
+      FROM sim_chaos_zones
+      WHERE type = 'NEXUS_CHAOS_LEYS'
+      ORDER BY intensity DESC LIMIT 10
+    `);
+
+    res.json({
+      burgs: burgsRes.rows,
+      paragons: paragonsRes.rows,
+      sectorFeatures: layersRes.rows,
+      prisons: grovesRes.rows,
+      convergence: {
+        name: "The Cruorbus Convergence Nexus",
+        cell_id: 11429,
+        description: "The planetary nexus where Cruorbus eclipse leylines align, channeling ambient primordial chaos through continental fault lines.",
+        zones: convergenceRes.rows
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get fringe factions detail with their established subterranean lairs
+observerRouter.get("/fringe_detail", async (req, res) => {
+  try {
+    const factionsRes = await pool.query(`
+      SELECT * FROM sim_outlaw_factions ORDER BY name ASC
+    `);
+    const lairsRes = await pool.query(`
+      SELECT l.*, b.name as burg_name
+      FROM sim_fringe_lairs l
+      LEFT JOIN sim_burg_economy b ON l.burg_id = b.burg_id
+      ORDER BY l.id ASC
+    `);
+    res.json({
+      factions: factionsRes.rows,
+      lairs: lairsRes.rows
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Filtered event log API for specific sectors, burgs, or fringe factions
+observerRouter.get("/filtered_events", async (req, res) => {
+  try {
+    const { burg_id, cell_id, keyword, tier, limit = 150 } = req.query;
+    let query = "SELECT * FROM sim_events WHERE 1=1";
+    const params: any[] = [];
+
+    if (burg_id) {
+      params.push(Number(burg_id));
+      query += ` AND burg_id = $${params.length}`;
+    }
+    if (cell_id) {
+      params.push(`%${cell_id}%`);
+      query += ` AND message ILIKE $${params.length}`;
+    }
+    if (keyword) {
+      params.push(`%${keyword}%`);
+      query += ` AND message ILIKE $${params.length}`;
+    }
+    if (tier && tier !== 'ALL') {
+      params.push(tier);
+      query += ` AND tier = $${params.length}`;
+    }
+
+    query += ` ORDER BY id DESC LIMIT ${Math.min(Number(limit), 300)}`;
+
+    const eventsRes = await pool.query(query, params);
+    res.json({ events: eventsRes.rows });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 observerRouter.post("/reset", async (req, res) => {
   if (tickInProgress) {
     return res.status(429).json({ error: "Cannot reset while a tick is in progress." });

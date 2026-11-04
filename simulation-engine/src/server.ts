@@ -31,6 +31,7 @@ const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173,http:
   .filter(Boolean);
 app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
+app.use(express.static(path.join(__dirname, '../dist-client')));
 app.use(express.static(path.join(__dirname, '../public')));
 
 app.use('/api/game', gameRouter);
