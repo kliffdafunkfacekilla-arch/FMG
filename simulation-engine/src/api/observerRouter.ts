@@ -48,7 +48,15 @@ observerRouter.get("/state", async (req, res) => {
     const agents = await pool.query("SELECT * FROM sim_agents");
     const sacredGroves = await pool.query("SELECT * FROM sim_sacred_groves");
     const calendar = await pool.query("SELECT * FROM sim_calendar ORDER BY id DESC LIMIT 1");
-    const outlaws = await pool.query("SELECT * FROM sim_outlaw_factions");
+    const outlaws = await pool.query(`
+      SELECT o.*,
+             COALESCE(SUM(l.manpower), 0)::int AS lair_manpower,
+             (COALESCE(o.manpower, 0) + COALESCE(SUM(l.manpower), 0))::int AS total_manpower
+      FROM sim_outlaw_factions o
+      LEFT JOIN sim_fringe_lairs l ON l.faction_id = o.id
+      GROUP BY o.id, o.name, o.type, o.origin_cell_id, o.manpower, o.worker_groups, o.wealth, o.heat, o.description, o.contraband_types
+      ORDER BY o.name ASC
+    `);
     const prices = await pool.query("SELECT * FROM sim_commodity_prices ORDER BY commodity");
 
     res.json({
@@ -186,7 +194,13 @@ observerRouter.get("/sectors", async (req, res) => {
 observerRouter.get("/fringe_detail", async (req, res) => {
   try {
     const factionsRes = await pool.query(`
-      SELECT * FROM sim_outlaw_factions ORDER BY name ASC
+      SELECT o.*,
+             COALESCE(SUM(l.manpower), 0)::int AS lair_manpower,
+             (COALESCE(o.manpower, 0) + COALESCE(SUM(l.manpower), 0))::int AS total_manpower
+      FROM sim_outlaw_factions o
+      LEFT JOIN sim_fringe_lairs l ON l.faction_id = o.id
+      GROUP BY o.id, o.name, o.type, o.origin_cell_id, o.manpower, o.worker_groups, o.wealth, o.heat, o.description, o.contraband_types
+      ORDER BY o.name ASC
     `);
     const lairsRes = await pool.query(`
       SELECT l.*, b.name as burg_name

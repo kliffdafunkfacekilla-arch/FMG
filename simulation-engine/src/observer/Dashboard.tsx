@@ -14,6 +14,8 @@ interface FringeFaction {
   type: string;
   wealth?: number;
   manpower?: number;
+  lair_manpower?: number;
+  total_manpower?: number;
   worker_groups?: number;
   heat?: number;
   description?: string;
@@ -978,7 +980,7 @@ export function Dashboard() {
                       <span style={{ fontSize: 10, background: "#1e293b", padding: "2px 6px", borderRadius: 4, color: "#94a3b8" }}>{f.type}</span>
                     </div>
                     <div style={{ display: "flex", gap: 10, fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
-                      <span>Manpower: <strong style={{ color: "#f8fafc" }}>{f.manpower}</strong></span>
+                      <span>Total Manpower: <strong style={{ color: "#f8fafc" }}>{((f.total_manpower ?? ((f.manpower || 0) + (fringeDetail.lairs.filter(l => l.faction_id === f.id).reduce((s, l) => s + (l.manpower || 0), 0))))).toLocaleString()}</strong></span>
                       <span>Wealth: <strong style={{ color: "#facc15" }}>{f.wealth?.toLocaleString()}</strong></span>
                       <span>Lairs: <strong style={{ color: "#38bdf8" }}>{lairsCount}</strong></span>
                     </div>
@@ -1006,7 +1008,12 @@ export function Dashboard() {
                       <div style={{ display: "flex", gap: 12, fontSize: 11 }}>
                         <div style={{ background: "#0f172a", padding: "6px 12px", borderRadius: 6, border: "1px solid #1e293b" }}>
                           <div style={{ color: "#64748b" }}>Total Manpower</div>
-                          <div style={{ fontWeight: 700, fontSize: 14, color: "#f8fafc" }}>{selectedFringe.manpower}</div>
+                          <div style={{ fontWeight: 700, fontSize: 14, color: "#f8fafc" }}>
+                            {((selectedFringe.total_manpower ?? ((selectedFringe.manpower || 0) + (fringeDetail.lairs.filter(l => l.faction_id === selectedFringe.id).reduce((s, l) => s + (l.manpower || 0), 0))))).toLocaleString()}
+                          </div>
+                          <div style={{ fontSize: 9, color: "#64748b", marginTop: 2 }}>
+                            {selectedFringe.manpower || 0} reserve &bull; {(fringeDetail.lairs.filter(l => l.faction_id === selectedFringe.id).reduce((s, l) => s + (l.manpower || 0), 0)).toLocaleString()} in lairs
+                          </div>
                         </div>
                         <div style={{ background: "#0f172a", padding: "6px 12px", borderRadius: 6, border: "1px solid #1e293b" }}>
                           <div style={{ color: "#64748b" }}>Treasury</div>
