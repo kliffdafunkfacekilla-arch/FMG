@@ -1822,6 +1822,15 @@ export default function App() {
       if (tags.includes('water') || tags.includes('water_source') || tags.includes('drinkable') || lower.includes('fountain') || lower.includes('well') || lower.includes('spring') || lower.includes('basin') || lower.includes('trough')) {
         return [16, 0]; // Water fountain / spring
       }
+      if (tags.includes('#BoardedDoor') || tags.includes('#SmithyClosed') || tags.includes('#Barricaded')) {
+        return [6, 2]; // Wooden barricaded / shuttered entrance
+      }
+      if (tags.includes('#RansackedAftermath') || tags.includes('#SkirmishDebris')) {
+        return [14, 0]; // Ransacked / shattered remains
+      }
+      if (tags.includes('#ActiveChaosNexus') || tags.includes('#EldritchBlight')) {
+        return [2, 5]; // Corrupted rune / chaos nexus
+      }
       if (tags.includes('crafting') || tags.includes('forge') || lower.includes('anvil') || lower.includes('forge') || lower.includes('blacksmith') || lower.includes('ore') || lower.includes('grindstone')) {
         return [13, 2]; // Anvil / forge / metal crafting
       }
@@ -1909,27 +1918,44 @@ export default function App() {
           ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
         }
 
-        // Prop Label badge with dark backing
+        // Prop Label badge with dark backing & dynamic aftermath indicator
         const shortName = prop.name.split(' ')[0];
+        let badgePrefix = '';
+        let badgeColor = '#fef08a';
+        if (tags.includes('#BoardedDoor') || tags.includes('#SmithyClosed') || tags.includes('#Barricaded')) {
+          badgePrefix = '[BOARDED] ';
+          badgeColor = '#fb923c';
+        } else if (tags.includes('#SealedCrimeScene') || tags.includes('#BloodstainedMarker')) {
+          badgePrefix = '[CRIME SCENE] ';
+          badgeColor = '#f87171';
+        } else if (tags.includes('#RansackedAftermath')) {
+          badgePrefix = '[RANSACKED] ';
+          badgeColor = '#fdba74';
+        } else if (tags.includes('#ActiveChaosNexus') || tags.includes('#EldritchBlight')) {
+          badgePrefix = '[CORRUPTED] ';
+          badgeColor = '#c084fc';
+        }
+        const fullLabel = `${badgePrefix}${shortName}`;
         ctx.font = 'bold 8px monospace';
-        const textWidth = ctx.measureText(shortName).width;
+        const textWidth = ctx.measureText(fullLabel).width;
         ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
         ctx.fillRect(screenX + TILE_SIZE / 2 - textWidth / 2 - 2, screenY - 9, textWidth + 4, 9);
-        ctx.fillStyle = '#fef08a';
+        ctx.fillStyle = badgeColor;
         ctx.textAlign = 'center';
-        ctx.fillText(shortName, screenX + TILE_SIZE / 2, screenY - 2);
+        ctx.fillText(fullLabel, screenX + TILE_SIZE / 2, screenY - 2);
       }
     });
 
     // 2. Render Injected NPCs with High-Contrast Tokens & Retro Animal Sprites
     injectedNPCs.forEach(npc => {
-      if (!npc.alive) return;
+      const isCorpse = !npc.alive || npc.tags.includes('#Dead') || npc.tags.includes('#Corpse');
+      const isImprisoned = npc.tags.includes('#Imprisoned') || npc.tags.includes('#InCustody');
       const npcCoord = `${npc.pos[0]},${npc.pos[1]}`;
       // Dynamic entities are strictly hidden in the shroud of war
       if (!visibleTiles.has(npcCoord)) return;
 
-      // Stealth opposed perception contest check
-      if (npc.isStealthed) {
+      // Stealth opposed perception contest check (living only)
+      if (!isCorpse && npc.isStealthed) {
         const dist = Math.hypot(npc.pos[0] - localPos.lx, npc.pos[1] - localPos.ly);
         if (dist > 1.5) {
           const detected = resolveStealthContest(npc.stealth || 10, playerPerception, false);
@@ -1941,7 +1967,7 @@ export default function App() {
       const screenY = (npc.pos[1] - localPos.ly + half) * TILE_SIZE;
 
       if (screenX >= 0 && screenX < canvasRef.current!.width && screenY >= 0 && screenY < canvasRef.current!.height) {
-        const ringColor = npc.disposition < 0 ? '#ef4444' : npc.disposition > 0 ? '#22c55e' : '#3b82f6';
+        const ringColor = isCorpse ? '#991b1b' : isImprisoned ? '#64748b' : npc.disposition < 0 ? '#ef4444' : npc.disposition > 0 ? '#22c55e' : '#3b82f6';
 
         // Drop shadow
         ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
@@ -1949,7 +1975,19 @@ export default function App() {
         ctx.ellipse(screenX + TILE_SIZE / 2, screenY + TILE_SIZE - 1, TILE_SIZE / 2 - 2, 3, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        if (animalSpritesImgRef.current && animalSpritesImgRef.current.complete) {
+        if (isCorpse) {
+          // Corpse / Crime scene token
+          ctx.fillStyle = '#7f1d1d';
+          ctx.beginPath();
+          ctx.arc(screenX + TILE_SIZE / 2, screenY + TILE_SIZE / 2, TILE_SIZE / 2 - 2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = ringColor;
+          ctx.stroke();
+          ctx.font = '10px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('💀', screenX + TILE_SIZE / 2, screenY + TILE_SIZE / 2 + 4);
+        } else if (animalSpritesImgRef.current && animalSpritesImgRef.current.complete) {
           const { col, row } = getNPCSpriteCoords(npc);
           ctx.imageSmoothingEnabled = false;
           // Render animal sprite from 128x128 grid
@@ -1981,14 +2019,23 @@ export default function App() {
           ctx.fillText(npc.disposition < 0 ? '⚔️' : npc.disposition > 0 ? '🤝' : '👤', screenX + TILE_SIZE / 2, screenY + TILE_SIZE / 2 + 4);
         }
 
-        // Nameplate with black backing
+        // Nameplate with black backing & status indication
         const npcShort = npc.name.split(' ')[0];
+        let npcLabel = npcShort;
+        let nameColor = '#ffffff';
+        if (isCorpse) {
+          npcLabel = `[CORPSE] ${npcShort}`;
+          nameColor = '#f87171';
+        } else if (isImprisoned) {
+          npcLabel = `[IN CHAINS] ${npcShort}`;
+          nameColor = '#94a3b8';
+        }
         ctx.font = 'bold 8.5px sans-serif';
-        const nWidth = ctx.measureText(npcShort).width;
+        const nWidth = ctx.measureText(npcLabel).width;
         ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
         ctx.fillRect(screenX + TILE_SIZE / 2 - nWidth / 2 - 2, screenY - 10, nWidth + 4, 10);
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(npcShort, screenX + TILE_SIZE / 2, screenY - 2);
+        ctx.fillStyle = nameColor;
+        ctx.fillText(npcLabel, screenX + TILE_SIZE / 2, screenY - 2);
       }
     });
 

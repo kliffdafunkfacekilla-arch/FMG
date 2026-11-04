@@ -72,8 +72,8 @@ The player interface is what the player sees on screen:
 - **Procedural Points of Entry (POEs)**: Doors, trapdoors, ladders, and cave mouths allow moving between layers and entering dungeons, crypts, and Grind Canyons.
 - **Web Audio Synthesizer**: Procedural ambient audio, footsteps, combat cues, and wind soundscapes generated directly through the Web Audio API.
 
-### Pillar 3: The Independent GM Engine (`ConcordiaGM.ts`)
-The Game Master (GM) engine is a strict, mathematical referee:
+### Pillar 3: The Independent GM & Narrative Reaction Engine (`ConcordiaGM.ts` & `narrativeReactionEngine.ts`)
+The Game Master (GM) engine is a strict, mathematical referee and systemic consequence engine:
 - **12 Concordia Attributes**:
   - Physical: *Might, Endurance, Finesse, Reflex, Vitality, Fortitude*.
   - Mental: *Knowledge, Logic, Awareness, Intuition, Charm, Willpower*.
@@ -83,11 +83,13 @@ The Game Master (GM) engine is a strict, mathematical referee:
   - `Composure` (Willpower + Fortitude): Mental resilience under dread or intimidation.
   - `Focus` (Logic + Awareness): Concentration for complex skill checks or magic.
 - **Contested 1d20 Mechanics**: Actions are resolved via `1d20 + Attribute + Modifiers` versus the defender's roll or a target difficulty. Margin of success determines exact injury or progress.
-- **The Physical Tag Matrix**: Objects and environments have physical tags (`stone`, `wood`, `metal`, `fire`, `flammable`, `locked`, `container`). Actions cascade logically: applying `fire` to `flammable wood` generates `smoke` and damages structural integrity without the GM having to make up rules on the fly.
+- **Data Collision Narrative Reactions (`narrativeReactionEngine.ts`)**: Pure deterministic tag reactions (`conditionTags` colliding -> `resultantMutations`), operating without LLM lag, token costs, or hallucinations (e.g., `#OccupationSmith` + `#AnxiousBehavior` + `#Famine` -> `#ContrabandSource`, `#RebelInformant`).
+- **Headless Background Director (`backgroundDirector.ts`)**: Advances unobserved sectors during daily master simulation ticks, resolving pending tag collisions, mutating physical properties (e.g., boarded doors, closed smithies, ransacked grain exchanges), and injecting major aftermath milestones to `sim_events`.
+- **Dynamic Rumor & Gossip Propagation**: Injected `sim_events` (`tier: 'MAJOR'`) automatically become the live gossip pool queried by barkeeps, caravan traders, and traveling bards across roadside taverns and adjacent burgs.
 
-### Pillar 4: The AI Story Generator (Narrative Director)
+### Pillar 4: The AI Story Generator & Contextual Director (`directorBridge.ts`)
 Powered by the Gemini API, this layer adds human-level soul to the math:
-- **Reads Real State**: The AI inspects the player's sector, current weather, burg unrest, active cartels, and nearby citizens.
+- **Contextual Assignment, Not Creation**: The AI never hallucinates fake map elements or generic NPCs. It receives real simulation data (famine, unrest, living paragons, and workplace facilities) and assigns dramatic narrative meaning to existing assets. For example, if `#Famine` and `#HighUnrest` collide, the AI does not spawn generic rioters—it identifies the real blacksmith and brewer in the sector to lead the bread riot against the real town reeve.
 - **Connects Any Two Entities**: If a player talks to an impoverished baker who lives near an Otter Mafia hideout during a famine, the Story Generator connects those exact simulation variables into organic dialogue and emergent gossip.
 - **Free-Speech Action Parser**: The player can type anything in natural plain English (e.g. *"I try to bribe the rampart sentry with 10 silver coins to let me sneak through the eastern gate"*), and the AI translates it into structured Concordia GM skill checks (`Roll: Opposed Charm vs Awareness, Cost: 10 Wealth`).
 - **Event Chronicle**: When players defeat a cartel boss, smuggle grain to starving peasants, or trigger a magical anomaly, the story generator logs the result directly into `sim_events`, which alters the simulation tick.
@@ -130,3 +132,4 @@ Powered by the Gemini API, this layer adds human-level soul to the math:
    ```
 4. **Access the Observer Dashboard**:
    - Open `http://127.0.0.1:3000` in any browser to watch the live simulation tick and world map.
+

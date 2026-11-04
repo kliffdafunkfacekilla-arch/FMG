@@ -15,6 +15,7 @@ import { runBurgExpansionAgent } from "./agents/burgExpansionAgent";
 import { runTrophicEcologyAgent } from "./agents/trophicEcologyAgent";
 import { runNPCRoutineAgent } from "./agents/npcRoutineAgent";
 import { runChaosFlowAgent } from "./agents/chaosFlowAgent";
+import { runBackgroundDirectorAgent } from "./agents/backgroundDirector";
 import { backfillBlankPersonas } from "./agents/citizenPersonaHelper";
 
 export async function executeMasterTick(): Promise<{status: string, currentTick: number}> {
@@ -76,6 +77,9 @@ export async function executeMasterTick(): Promise<{status: string, currentTick:
         // 9. Encounters & NPC Routines
         await runEncounterAgent(client, tick);
         await runNPCRoutineAgent(client, tick, loreDate);
+
+        // 9b. Headless Background Director (Simulates unobserved sector tag collisions and cascades aftermaths)
+        await runBackgroundDirectorAgent(client, tick, loreDate);
 
         // 10. Chronicler
         await runChroniclerAgent(client, tick, loreDate);
