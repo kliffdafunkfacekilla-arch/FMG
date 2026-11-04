@@ -18,6 +18,7 @@ import dmRouter from './api/dmRouter';
 import observerRouter from './api/observerRouter';
 import { regionalRouter } from './api/regionalRouter';
 import tellerRouter from './api/tellerRouter';
+import directorRouter from './api/directorRouter';
 
 dotenv.config();
 
@@ -38,6 +39,7 @@ app.use('/api/dm', dmRouter);
 app.use('/api/observer', observerRouter);
 app.use('/api/regional', regionalRouter);
 app.use('/teller', tellerRouter);
+app.use('/api/dm/story', directorRouter);
 
 // 1. Initialize World Seed API
 app.post('/api/world/initialize', async (req, res) => {
