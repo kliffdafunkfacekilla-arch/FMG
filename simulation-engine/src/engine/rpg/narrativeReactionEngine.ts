@@ -506,143 +506,345 @@ export const NarrativeReactionTable: ReactionRule[] = [
                     `Salvage prospectors erected heavy hoisting rigs over the chasm of ${actor.name || 'the chasm opening'} in ${ctx.burgName || 'the wilderness'} to dredge dragonstone.`
             }
         }
+    },
+
+    // 11. CASCADE WAVE 2: Shuttered Smithy & Broken Tools -> Agricultural Stagnation
+    {
+        id: 'agricultural_tool_shortage',
+        name: 'Tool Shortage Stalls Regional Agriculture',
+        description: 'With the local smith imprisoned and forge boarded, laborers cannot repair plows, halting planting and harvest.',
+        priority: 5,
+        entityConditions: {
+            type: 'NPC',
+            requiredTags: ['#BrokenTools'],
+            forbiddenTags: ['#FarmsStalled', '#PlowRepaired'],
+            roleMatch: ['farmer', 'husbandman', 'laborer', 'peasant', 'harvester', 'field hand']
+        },
+        resultantMutations: {
+            addTags: ['#FarmsStalled', '#GrainDeficit'],
+            nearbyCascades: [
+                {
+                    targetType: 'PROP',
+                    radius: 35,
+                    filter: p => p.tags.some(t => ['field', 'granary', 'wagon', 'cart', 'stall'].includes(t.toLowerCase())),
+                    addTags: ['#OvergrownFields', '#UnworkedSoil']
+                }
+            ],
+            sectorTagsToAdd: ['#AgriculturalCrisis', '#ResourceScarcity'],
+            logEvent: {
+                type: 'ECONOMIC_RIPPLE',
+                tier: 'MINOR',
+                title: 'Forge Closure Halts Regional Agriculture',
+                summaryTemplate: (actor, ctx) =>
+                    `With forges padlocked under garrison decree, agricultural laborers in ${ctx.burgName || 'the district'} suffer severe tool shortages, leaving fields unworked.`
+            }
+        }
+    },
+
+    // 12. CASCADE WAVE 2: Looted Granary + Food Crisis -> Syndicate Black Market Exploitation
+    {
+        id: 'syndicate_black_market_grain',
+        name: 'Cartels Monopolize Black Market Grain',
+        description: 'Following granary ransackings or farm failures, underworld syndicates establish illicit grain dens, extorting starvation rations.',
+        priority: 5,
+        entityConditions: {
+            type: 'PROP',
+            requiredTags: ['#RansackedAftermath'],
+            forbiddenTags: ['#BlackMarketGrainDepot', '#GuardedByCartel']
+        },
+        environmentConditions: {
+            requiredGlobalTags: ['#ResourceScarcity']
+        },
+        resultantMutations: {
+            addTags: ['#BlackMarketGrainDepot', '#GuardedByCartel'],
+            nearbyCascades: [
+                {
+                    targetType: 'NPC',
+                    radius: 30,
+                    filter: n => n.tags.includes('civilian'),
+                    addTags: ['#SmugglerPriceGouging', '#ExtortionDebt']
+                }
+            ],
+            sectorTagsToAdd: ['#CartelMonopoly', '#UndergroundDominance'],
+            logEvent: {
+                type: 'UNDERWORLD_EXPLOITATION',
+                tier: 'MAJOR',
+                title: 'Cartel Seizes Illicit Grain Monopoly',
+                summaryTemplate: (actor, ctx) =>
+                    `Underworld syndicates established illicit rations depots at ${actor.name || 'a ransacked granary'} in ${ctx.burgName || 'the burg'}, reselling stolen grain at extortionate prices.`
+            }
+        }
+    },
+
+    // 13. CASCADE WAVE 3: Paranoia + Suspect -> Vigilante Mob Justice
+    {
+        id: 'mob_justice_paranoia',
+        name: 'Vigilante Mob Corners Suspect',
+        description: 'Unresolved crime scene paranoia boils over into torches and pitchforks as frantic citizens corner prime suspects.',
+        priority: 4,
+        entityConditions: {
+            type: 'NPC',
+            requiredTags: ['#ParanoidWhispers'],
+            forbiddenTags: ['#VigilanteMobActive']
+        },
+        coPresenceConditions: {
+            type: 'NPC',
+            hasTags: ['#PrimeSuspect'],
+            maxDistance: 35
+        },
+        resultantMutations: {
+            addTags: ['#VigilanteMobActive', '#ArmedWithTorches'],
+            nearbyCascades: [
+                {
+                    targetType: 'NPC',
+                    radius: 35,
+                    filter: n => n.tags.includes('#PrimeSuspect'),
+                    addTags: ['#CorneredByMob', '#InMortalDanger']
+                }
+            ],
+            sectorTagsToAdd: ['#VigilanteChaos'],
+            logEvent: {
+                type: 'CIVIL_PANIC',
+                tier: 'MAJOR',
+                title: 'Vigilante Mob Forms in Streets',
+                summaryTemplate: (actor, ctx) =>
+                    `Paranoid whispers in ${ctx.burgName || 'the quarter'} erupted into vigilante fury as citizens armed with clubs and torches cornered murder suspects.`
+            }
+        }
+    },
+
+    // 14. CASCADE WAVE 3: Deposed Leader in Wilds Recruits Mercenary Counter-Coup
+    {
+        id: 'deposed_leader_mercenary_counterattack',
+        name: 'Deposed Official Assembles Mercenary Retinue',
+        description: 'Exiled magistrates hire ruthless frontier mercenaries, scheming a bloody military coup to retake civic power.',
+        priority: 4,
+        entityConditions: {
+            type: 'NPC',
+            requiredTags: ['#Deposed', '#Fugitive'],
+            forbiddenTags: ['#MercenaryRetinueRecruited', '#Dead', '#Imprisoned']
+        },
+        environmentConditions: {
+            minUnrest: 40
+        },
+        resultantMutations: {
+            addTags: ['#MercenaryRetinueRecruited', '#PlottingCounterCoup'],
+            stateOverrides: {
+                disposition: -3,
+                role: 'Warlord in Exile'
+            },
+            nearbyCascades: [
+                {
+                    targetType: 'PROP',
+                    radius: 20,
+                    filter: p => true,
+                    addTags: ['#WarCampDebris', '#SellswordArms']
+                }
+            ],
+            sectorTagsToAdd: ['#PendingCivilWar'],
+            logEvent: {
+                type: 'POLITICAL_CONSPIRACY',
+                tier: 'MAJOR',
+                title: 'Exiled Magistrate Enlists Frontier Mercenaries',
+                summaryTemplate: (actor, ctx) =>
+                    `From exile in the fringes, deposed magistrate ${actor.name || 'the fallen leader'} has assembled a vicious company of mercenaries, plotting a counter-coup against ${ctx.burgName || 'their former seat'}.`
+            }
+        }
+    },
+
+    // 15. CASCADE WAVE 3: Prolonged Chaos Nexus Exposure -> Eldritch Mutation
+    {
+        id: 'chaos_nexus_mutation',
+        name: 'Exposure to Cracked Seal Induces Eldritch Mutation',
+        description: 'Prolonged nightmares around an active chaos nexus twist mortal minds and bodies into dragon-touched frenzy.',
+        priority: 4,
+        entityConditions: {
+            type: 'NPC',
+            requiredTags: ['#NightmareAfflicted'],
+            forbiddenTags: ['#EldritchMutated', '#DragonTouched']
+        },
+        coPresenceConditions: {
+            type: 'PROP',
+            hasTags: ['#ActiveChaosNexus'],
+            maxDistance: 35
+        },
+        resultantMutations: {
+            addTags: ['#EldritchMutated', '#DragonTouched', '#Frenzied'],
+            stateOverrides: {
+                disposition: -4,
+                namePrefix: '[Dragon-Touched] '
+            },
+            nearbyCascades: [
+                {
+                    targetType: 'PROP',
+                    radius: 20,
+                    filter: p => true,
+                    addTags: ['#CrystallineResidue', '#ArcaneScorching']
+                }
+            ],
+            sectorTagsToAdd: ['#ActiveChaosOutbreak'],
+            logEvent: {
+                type: 'CHAOS_CORRUPTION',
+                tier: 'CRITICAL',
+                title: 'Miasma Induces Eldritch Mutations',
+                summaryTemplate: (actor, ctx) =>
+                    `Prolonged exposure to the breached chaos nexus in ${ctx.burgName || 'the sector'} warped ${actor.name || 'a citizen'} into a frenzied, dragon-touched mutant!`
+            }
+        }
     }
 ];
 
 // -------------------------------------------------------------
-// CORE EVALUATION PIPELINE
+// CORE EVALUATION PIPELINE: Multi-Pass Cascading Reaction Loop
 // -------------------------------------------------------------
 export function evaluateSectorReactions(
     sectorEntities: Entity[],
     globalTags: string[],
-    context: SectorContext
+    context: SectorContext,
+    maxPasses: number = 3
 ): SectorReactionResult {
     const activeSectorTags = new Set<string>(globalTags);
     const triggeredRules: string[] = [];
     const generatedEvents: EvaluatedEvent[] = [];
+    const executedRuleIds = new Set<string>();
     let mutatedCount = 0;
 
     // Sort rules by priority descending
     const sortedRules = [...NarrativeReactionTable].sort((a, b) => (b.priority || 0) - (a.priority || 0));
 
-    for (const rule of sortedRules) {
-        // 1. Verify environmental conditions
-        if (rule.environmentConditions) {
-            const { requiredGlobalTags, forbiddenGlobalTags, minUnrest, maxUnrest, minFood, maxFood } = rule.environmentConditions;
+    // Multi-pass reaction cascade loop:
+    // When Pass 1 generates new tags (e.g. #BrokenTools, #RansackedAftermath),
+    // Pass 2 immediately allows those newly spawned tags to react with neighboring entities!
+    for (let pass = 0; pass < maxPasses; pass++) {
+        let passMutated = false;
 
-            if (requiredGlobalTags && !requiredGlobalTags.every(t => activeSectorTags.has(t))) {
-                continue;
-            }
-            if (forbiddenGlobalTags && forbiddenGlobalTags.some(t => activeSectorTags.has(t))) {
-                continue;
-            }
-            if (minUnrest !== undefined && (context.unrest || 0) < minUnrest) {
-                continue;
-            }
-            if (maxUnrest !== undefined && (context.unrest || 0) > maxUnrest) {
-                continue;
-            }
-            if (minFood !== undefined && (context.food || 0) < minFood) {
-                continue;
-            }
-            if (maxFood !== undefined && (context.food || 0) > maxFood) {
-                continue;
-            }
-        }
+        for (const rule of sortedRules) {
+            // Avoid firing the exact same rule twice within the same tick evaluation
+            if (executedRuleIds.has(rule.id)) continue;
 
-        // 2. Iterate candidates that match entityConditions
-        for (const entity of sectorEntities) {
-            if (rule.entityConditions) {
-                const { type, requiredTags, forbiddenTags, roleMatch } = rule.entityConditions;
+            // 1. Verify environmental conditions
+            if (rule.environmentConditions) {
+                const { requiredGlobalTags, forbiddenGlobalTags, minUnrest, maxUnrest, minFood, maxFood } = rule.environmentConditions;
 
-                if (type && entity.type !== type) continue;
-                if (requiredTags && !requiredTags.every(rt => entity.tags.includes(rt))) continue;
-                if (forbiddenTags && forbiddenTags.some(ft => entity.tags.includes(ft))) continue;
-                if (roleMatch && (!entity.role || !roleMatch.some(rm => entity.role!.toLowerCase().includes(rm.toLowerCase())))) continue;
-            }
-
-            // 3. Verify spatial co-presence if specified
-            if (rule.coPresenceConditions) {
-                const { type: coType, hasTags: coTags, maxDistance = 40 } = rule.coPresenceConditions;
-                const entCoords = getEntityCoords(entity);
-
-                const hasCoPresence = sectorEntities.some(other => {
-                    if (other.id === entity.id) return false;
-                    if (coType && other.type !== coType) return false;
-                    if (!coTags.every(ct => other.tags.includes(ct))) return false;
-                    const otherCoords = getEntityCoords(other);
-                    const dist = Math.hypot(otherCoords.x - entCoords.x, otherCoords.y - entCoords.y);
-                    return dist <= maxDistance;
-                });
-
-                if (!hasCoPresence) continue;
-            }
-
-            // 4. APPLY MUTATIONS! Collision triggered!
-            triggeredRules.push(rule.id);
-            mutatedCount++;
-
-            // Primary entity tag modifications
-            if (rule.resultantMutations.addTags) {
-                for (const tag of rule.resultantMutations.addTags) {
-                    if (!entity.tags.includes(tag)) entity.tags.push(tag);
+                if (requiredGlobalTags && !requiredGlobalTags.every(t => activeSectorTags.has(t))) {
+                    continue;
                 }
-            }
-            if (rule.resultantMutations.removeTags) {
-                entity.tags = entity.tags.filter(t => !rule.resultantMutations.removeTags!.includes(t));
-            }
-
-            // State overrides (e.g. hp, disposition, alive)
-            if (rule.resultantMutations.stateOverrides) {
-                const so = rule.resultantMutations.stateOverrides;
-                if (so.alive !== undefined) entity.alive = so.alive;
-                if (so.hp !== undefined) entity.hp = so.hp;
-                if (so.disposition !== undefined) entity.disposition = (entity.disposition || 0) + so.disposition;
-                if (so.role !== undefined) entity.role = so.role;
-                if (so.namePrefix && entity.name && !entity.name.startsWith(so.namePrefix)) {
-                    entity.name = `${so.namePrefix}${entity.name}`;
+                if (forbiddenGlobalTags && forbiddenGlobalTags.some(t => activeSectorTags.has(t))) {
+                    continue;
+                }
+                if (minUnrest !== undefined && (context.unrest || 0) < minUnrest) {
+                    continue;
+                }
+                if (maxUnrest !== undefined && (context.unrest || 0) > maxUnrest) {
+                    continue;
+                }
+                if (minFood !== undefined && (context.food || 0) < minFood) {
+                    continue;
+                }
+                if (maxFood !== undefined && (context.food || 0) > maxFood) {
+                    continue;
                 }
             }
 
-            // Spatial cascades onto neighboring entities
-            if (rule.resultantMutations.nearbyCascades) {
-                for (const cascade of rule.resultantMutations.nearbyCascades) {
-                    for (const tag of cascade.addTags) {
-                        propagateToNearby(
-                            entity,
-                            sectorEntities,
-                            cascade.targetType,
-                            cascade.filter || (() => true),
-                            tag,
-                            cascade.radius
-                        );
+            // 2. Iterate candidates that match entityConditions
+            for (const entity of sectorEntities) {
+                if (rule.entityConditions) {
+                    const { type, requiredTags, forbiddenTags, roleMatch } = rule.entityConditions;
+
+                    if (type && entity.type !== type) continue;
+                    if (requiredTags && !requiredTags.every(rt => entity.tags.includes(rt))) continue;
+                    if (forbiddenTags && forbiddenTags.some(ft => entity.tags.includes(ft))) continue;
+                    if (roleMatch && (!entity.role || !roleMatch.some(rm => entity.role!.toLowerCase().includes(rm.toLowerCase())))) continue;
+                }
+
+                // 3. Verify spatial co-presence if specified
+                if (rule.coPresenceConditions) {
+                    const { type: coType, hasTags: coTags, maxDistance = 40 } = rule.coPresenceConditions;
+                    const entCoords = getEntityCoords(entity);
+
+                    const hasCoPresence = sectorEntities.some(other => {
+                        if (other.id === entity.id) return false;
+                        if (coType && other.type !== coType) return false;
+                        if (!coTags.every(ct => other.tags.includes(ct))) return false;
+                        const otherCoords = getEntityCoords(other);
+                        const dist = Math.hypot(otherCoords.x - entCoords.x, otherCoords.y - entCoords.y);
+                        return dist <= maxDistance;
+                    });
+
+                    if (!hasCoPresence) continue;
+                }
+
+                // 4. APPLY MUTATIONS! Collision triggered!
+                executedRuleIds.add(rule.id);
+                triggeredRules.push(rule.id);
+                mutatedCount++;
+                passMutated = true;
+
+                // Primary entity tag modifications
+                if (rule.resultantMutations.addTags) {
+                    for (const tag of rule.resultantMutations.addTags) {
+                        if (!entity.tags.includes(tag)) entity.tags.push(tag);
                     }
                 }
-            }
-
-            // Sector tags
-            if (rule.resultantMutations.sectorTagsToAdd) {
-                for (const st of rule.resultantMutations.sectorTagsToAdd) {
-                    activeSectorTags.add(st);
+                if (rule.resultantMutations.removeTags) {
+                    entity.tags = entity.tags.filter(t => !rule.resultantMutations.removeTags!.includes(t));
                 }
-            }
 
-            // Log event creation
-            if (rule.resultantMutations.logEvent) {
-                const evDef = rule.resultantMutations.logEvent;
-                generatedEvents.push({
-                    type: evDef.type,
-                    tier: evDef.tier,
-                    message: `📜 [${evDef.tier}] ${evDef.summaryTemplate(entity, context)}`,
-                    burgId: context.burgId || null,
-                    cellId: context.cellId,
-                    tick: context.tick
-                });
-            }
+                // State overrides (e.g. hp, disposition, alive)
+                if (rule.resultantMutations.stateOverrides) {
+                    const so = rule.resultantMutations.stateOverrides;
+                    if (so.alive !== undefined) entity.alive = so.alive;
+                    if (so.hp !== undefined) entity.hp = so.hp;
+                    if (so.disposition !== undefined) entity.disposition = (entity.disposition || 0) + so.disposition;
+                    if (so.role !== undefined) entity.role = so.role;
+                    if (so.namePrefix && entity.name && !entity.name.startsWith(so.namePrefix)) {
+                        entity.name = `${so.namePrefix}${entity.name}`;
+                    }
+                }
 
-            // Once rule fires for an entity, advance to next rule/entity
-            break;
+                // Spatial cascades onto neighboring entities
+                if (rule.resultantMutations.nearbyCascades) {
+                    for (const cascade of rule.resultantMutations.nearbyCascades) {
+                        for (const tag of cascade.addTags) {
+                            propagateToNearby(
+                                entity,
+                                sectorEntities,
+                                cascade.targetType,
+                                cascade.filter || (() => true),
+                                tag,
+                                cascade.radius
+                            );
+                        }
+                    }
+                }
+
+                // Sector tags
+                if (rule.resultantMutations.sectorTagsToAdd) {
+                    for (const st of rule.resultantMutations.sectorTagsToAdd) {
+                        activeSectorTags.add(st);
+                    }
+                }
+
+                // Log event creation
+                if (rule.resultantMutations.logEvent) {
+                    const evDef = rule.resultantMutations.logEvent;
+                    generatedEvents.push({
+                        type: evDef.type,
+                        tier: evDef.tier,
+                        message: `📜 [${evDef.tier}] ${evDef.summaryTemplate(entity, context)}`,
+                        burgId: context.burgId || null,
+                        cellId: context.cellId,
+                        tick: context.tick
+                    });
+                }
+
+                // Once rule fires for an entity in this pass, advance to next rule
+                break;
+            }
         }
+
+        // If no new reactions fired in this pass, the cascade has settled
+        if (!passMutated) break;
     }
 
     return {
