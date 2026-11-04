@@ -95,7 +95,7 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
         if (!state || state.myBurgs.length === 0) continue;
 
         // Bureaucratic Delay (Only evaluate full Action Pool periodically)
-        if (tick % 10 !== f.id % 10) continue; 
+        if (tick % 3 !== f.id % 3) continue; 
 
         // Evaluate all actions
         const scoredActions: { action: FactionAction, score: number }[] = [];
@@ -116,7 +116,7 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
                 // Tier is major if it's a war or huge investment
                 let tier = 'MINOR';
                 if (['DECLARE_WAR', 'PURGE_DISSIDENTS', 'INFRASTRUCTURE_INVESTMENT'].includes(chosenAction?.id || '')) tier = 'MAJOR';
-                events.push({ tick, type: chosenAction?.id, message: msg, tier, faction_id: f.id });
+                events.push({ tick, type: chosenAction?.id, message: msg, tier, faction_id: f.id, burg_id: state.myBurgs[0]?.burg_id || null, lore_date: loreDate });
             }
         }
     }
@@ -167,20 +167,20 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
         
         if (defRemaining < 1 && aggRemaining > 0) {
             await client.query("UPDATE sim_cells SET faction_id = $1 WHERE id = $2", [aggressorId, targetBurg.cell_id]);
-            events.push({ tick, type: 'SIEGE_WON', message: `The forces of ${aggFaction?.name || 'Faction '+aggressorId} crushed the defenders at Burg ${targetBurg.burg_id} and OCCUPIED the city!`, tier: 'MAJOR', faction_id: aggressorId });
+            events.push({ tick, type: 'SIEGE_WON', message: `The forces of ${aggFaction?.name || 'Faction '+aggressorId} crushed the defenders at Burg ${targetBurg.burg_id} and OCCUPIED the city!`, tier: 'MAJOR', faction_id: aggressorId, burg_id: targetBurg.burg_id, lore_date: loreDate });
         } else {
             const atkLosses = (result.difference > 0 && result.winner === 'DEFENDER') ? Math.floor(result.difference/100) : 0;
             const defLosses = (result.difference > 0 && result.winner === 'ATTACKER') ? Math.floor(result.difference/100) : 0;
             if (atkLosses > 0 || defLosses > 0) {
-                events.push({ tick, type: 'BATTLE', message: `A fierce battle erupted at Burg ${targetBurg.burg_id}. Attacker sustained ${atkLosses} losses, Defender sustained ${defLosses} losses.`, tier: 'MINOR', faction_id: aggressorId });
+                events.push({ tick, type: 'BATTLE', message: `A fierce battle erupted at Burg ${targetBurg.burg_id}. Attacker sustained ${atkLosses} losses, Defender sustained ${defLosses} losses.`, tier: 'MINOR', faction_id: aggressorId, burg_id: targetBurg.burg_id, lore_date: loreDate });
             }
         }
     }
 
     if (events.length > 0) {
         for (const ev of events) {
-            await client.query("INSERT INTO sim_events (tick, type, message, tier, faction_id) VALUES ($1, $2, $3, $4, $5)", 
-                [ev.tick, ev.type, ev.message, ev.tier, ev.faction_id]);
+            await client.query("INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date) VALUES ($1, $2, $3, $4, $5, $6, $7)", 
+                [ev.tick, ev.type, ev.message, ev.tier, ev.faction_id, ev.burg_id || null, ev.lore_date || loreDate]);
         }
     }
 }

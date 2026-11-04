@@ -110,9 +110,9 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
         targetCellId = endangeredGrove.cell_id;
 
         await client.query(`
-          INSERT INTO sim_events (tick, type, message, tier)
-          VALUES ($1, 'WARDEN_DISPATCH', $2, 'BACKGROUND')
-        `, [tick, `${citizenName} (a ${temper.toLowerCase()} former ${profession.toLowerCase()}) departed the Spire to reinforce the Prison of ${endangeredGrove.dragon_name} (Seal: ${endangeredGrove.seal_strength}%).`]);
+          INSERT INTO sim_events (tick, type, message, tier, lore_date)
+          VALUES ($1, 'WARDEN_DISPATCH', $2, 'MINOR', $3)
+        `, [tick, `${citizenName} (a ${temper.toLowerCase()} former ${profession.toLowerCase()}) departed the Spire to reinforce the Prison of ${endangeredGrove.dragon_name} (Seal: ${endangeredGrove.seal_strength}%).`, loreDate]);
       }
     }
 
@@ -138,9 +138,9 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
             for (const hc of hostileCultists.rows) {
               await client.query("DELETE FROM sim_agents WHERE id = $1", [hc.id]);
               await client.query(`
-                INSERT INTO sim_events (tick, type, message, tier)
-                VALUES ($1, 'WARDEN_CLASH', $2, 'MINOR')
-              `, [tick, `⚔️ ${citizenName} (${profession}) drew their halberd and executed ${hc.name} while defending the dragon seal grounds!`]);
+                INSERT INTO sim_events (tick, type, message, tier, lore_date)
+                VALUES ($1, 'WARDEN_CLASH', $2, 'MINOR', $3)
+              `, [tick, `⚔️ ${citizenName} (${profession}) drew their halberd and executed ${hc.name} while defending the dragon seal grounds!`, loreDate]);
             }
           }
         }
@@ -186,9 +186,9 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
         }
 
         await client.query(`
-          INSERT INTO sim_events (tick, type, message, tier)
-          VALUES ($1, 'WARDEN_TERMINAL_RESOLVE', $2, 'MAJOR')
-        `, [tick, `⚠️ SACRIFICIAL RESOLVE: ${citizenName} (${profession}), terminally warped by anchoring the Prison of ${dragonName}, has chosen martyrdom over madness. Bearing their ancestral sigil core, they march toward a cult sanctuary to unleash a terminal supernova!`]);
+          INSERT INTO sim_events (tick, type, message, tier, lore_date)
+          VALUES ($1, 'WARDEN_TERMINAL_RESOLVE', $2, 'MAJOR', $3)
+        `, [tick, `⚠️ SACRIFICIAL RESOLVE: ${citizenName} (${profession}), terminally warped by anchoring the Prison of ${dragonName}, has chosen martyrdom over madness. Bearing their ancestral sigil core, they march toward a cult sanctuary to unleash a terminal supernova!`, loreDate]);
       } else if (currentSeal >= 100) {
         state = 'RETURNING_TO_SPIRE';
         targetCellId = CONVERGENCE_SPIRE_CELL;
@@ -209,9 +209,9 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
           await client.query("DELETE FROM sim_agents WHERE id = $1", [w.id]);
 
           await client.query(`
-            INSERT INTO sim_events (tick, type, message, tier)
-            VALUES ($1, 'WARDEN_SUPERNOVA', $2, 'MAJOR')
-          `, [tick, `💥 HEROIC SUPERNOVA: ${citizenName}, the ${profession.toLowerCase()} turned Grey Warden martyr, detonated their soul-spark in an apocalyptic sigil rupture at Cell #${locCellId}! The explosion incinerated ${cultsPurged.rowCount} cultist cells, cleansed the land of all blight, and honored their mortal oath.`]);
+            INSERT INTO sim_events (tick, type, message, tier, lore_date)
+            VALUES ($1, 'WARDEN_SUPERNOVA', $2, 'MAJOR', $3)
+          `, [tick, `💥 HEROIC SUPERNOVA: ${citizenName}, the ${profession.toLowerCase()} turned Grey Warden martyr, detonated their soul-spark in an apocalyptic sigil rupture at Cell #${locCellId}! The explosion incinerated ${cultsPurged.rowCount} cultist cells, cleansed the land of all blight, and honored their mortal oath.`, loreDate]);
           continue;
         }
       }

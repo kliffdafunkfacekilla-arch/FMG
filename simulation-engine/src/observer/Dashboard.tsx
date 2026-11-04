@@ -391,7 +391,7 @@ export function Dashboard() {
       } else if (selectedPrison) {
         url += `&keyword=${encodeURIComponent(selectedPrison.dragon_name)}`;
       } else if (selectedBurg) {
-        url += `&burg_id=${selectedBurg.burg_id}`;
+        url += `&burg_id=${selectedBurg.burg_id}&burg_name=${encodeURIComponent(selectedBurg.name)}`;
       }
       if (tierFilter !== "ALL") {
         url += `&tier=${tierFilter}`;
@@ -415,7 +415,7 @@ export function Dashboard() {
       if (!selectedFringe) return;
       const cleanKeyword = selectedFringe.name.replace(/^The\s+/, "");
       try {
-        const res = await fetch(`/api/observer/filtered_events?keyword=${encodeURIComponent(cleanKeyword)}&limit=150`);
+        const res = await fetch(`/api/observer/filtered_events?faction_id=${selectedFringe.id}&keyword=${encodeURIComponent(cleanKeyword)}&limit=150`);
         if (res.ok) {
           const data = await res.json();
           setFringeEvents(data.events || []);

@@ -86,9 +86,9 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
 
         if (Math.random() < 0.30) {
           await client.query(`
-            INSERT INTO sim_events (tick, type, message, tier)
-            VALUES ($1, 'CULT_INFILTRATION', $2, 'BACKGROUND')
-          `, [tick, `Whispers of dark pacts spread in ${burg.name}. ${citizen.citizenName}, a ${citizen.temper.toLowerCase()} ${citizen.profession.toLowerCase()}, was secretly initiated into the cabal.`]);
+            INSERT INTO sim_events (tick, type, message, tier, burg_id, lore_date)
+            VALUES ($1, 'CULT_INFILTRATION', $2, 'MINOR', $3, $4)
+          `, [tick, `Whispers of dark pacts spread in ${burg.name}. ${citizen.citizenName}, a ${citizen.temper.toLowerCase()} ${citizen.profession.toLowerCase()}, was secretly initiated into the cabal.`, burg.burg_id, loreDate]);
         }
       }
     }
@@ -157,9 +157,9 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
           targetCellId = nearestGrove.cell_id;
 
           await client.query(`
-            INSERT INTO sim_events (tick, type, message, tier)
-            VALUES ($1, 'CULT_EXODUS', $2, 'MINOR')
-          `, [tick, `Having siphoned ${burgName}'s coffers from within, ${citizenName} (a ${temper.toLowerCase()} ${profession.toLowerCase()}) fled the watch, leading a cabal toward the Prison of ${nearestGrove.dragon_name}!`]);
+            INSERT INTO sim_events (tick, type, message, tier, burg_id, lore_date)
+            VALUES ($1, 'CULT_EXODUS', $2, 'MINOR', $3, $4)
+          `, [tick, `Having siphoned ${burgName}'s coffers from within, ${citizenName} (a ${temper.toLowerCase()} ${profession.toLowerCase()}) fled the watch, leading a cabal toward the Prison of ${nearestGrove.dragon_name}!`, burgId || null, loreDate]);
         }
       }
     }
@@ -187,9 +187,9 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
           const groveRes = await client.query("SELECT dragon_name FROM sim_sacred_groves WHERE id = $1", [targetGroveId]);
           const dragonName = groveRes.rows[0]?.dragon_name || 'Chaos';
           await client.query(`
-            INSERT INTO sim_events (tick, type, message, tier)
-            VALUES ($1, 'SEAL_BESIEGED', $2, 'MINOR')
-          `, [tick, `${citizenName} (${profession}) and their cabal reached the perimeter of the Prison of ${dragonName}, channeling dark rites to shatter the seal!`]);
+            INSERT INTO sim_events (tick, type, message, tier, lore_date)
+            VALUES ($1, 'SEAL_BESIEGED', $2, 'MINOR', $3)
+          `, [tick, `${citizenName} (${profession}) and their cabal reached the perimeter of the Prison of ${dragonName}, channeling dark rites to shatter the seal!`, loreDate]);
         }
       }
     }
@@ -204,9 +204,9 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
         const groveRes = await client.query("SELECT dragon_name FROM sim_sacred_groves WHERE id = $1", [targetGroveId]);
         const dName = groveRes.rows[0]?.dragon_name || 'Chaos';
         await client.query(`
-          INSERT INTO sim_events (tick, type, message, tier)
-          VALUES ($1, 'CULT_PRIEST_ASCENSION', $2, 'MAJOR')
-        `, [tick, `The former ${profession.toLowerCase()}, ${citizenName}, has completely succumbed to primordial madness at the Prison of ${dName}, ascending as High Priest of ${dName}!`]);
+          INSERT INTO sim_events (tick, type, message, tier, lore_date)
+          VALUES ($1, 'CULT_PRIEST_ASCENSION', $2, 'MAJOR', $3)
+        `, [tick, `The former ${profession.toLowerCase()}, ${citizenName}, has completely succumbed to primordial madness at the Prison of ${dName}, ascending as High Priest of ${dName}!`, loreDate]);
       }
 
       const isPriest = subRole === 'Cult_Priest';
