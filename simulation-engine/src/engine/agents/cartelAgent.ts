@@ -699,6 +699,37 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
         // 9. THE IVORY-GATE SYNDICATE (ID 4): Toll Racketeers & Mountain Checkpoints
         // =========================================================================
         else if (cartelId === 4 || cartelName.includes("Ivory-Gate")) {
+            // A. Recruitment of Disillusioned Fortress Guards & Highway Enforcers
+            if (tick % 4 === 0) {
+                const garrisonBurg = burgs.find(b => (b.unrest || 0) >= 3 || (b.pop_null || 0) >= 12);
+                if (garrisonBurg) {
+                    await client.query(`
+                        UPDATE sim_burg_economy SET pop_null = GREATEST(0, COALESCE(pop_null, 0) - 12) WHERE burg_id = $1
+                    `, [garrisonBurg.burg_id]);
+                    await client.query("UPDATE sim_outlaw_factions SET manpower = COALESCE(manpower, 0) + 6 WHERE id = $1", [cartel.id]);
+
+                    await tagBurgCitizens(
+                        client,
+                        garrisonBurg.burg_id,
+                        ['#IvoryTollEnforcer', '#BribedTurnkey'],
+                        'CORRUPT',
+                        `Enforcing illicit mountain toll gates and diverting road tolls for Legate General Vorun Iron-Grip.`,
+                        '%guard%',
+                        1
+                    );
+
+                    await client.query(`
+                        INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
+                        VALUES ($1, 'IVORY_GATE_RECRUITMENT', $2, 'MINOR', $3, $4, $5)
+                    `, [
+                        tick,
+                        `⚔️ TOLL ENFORCERS RECRUITED: Warden Vorun Iron-Grip enlisted veteran gate-guards and mercenary highwaymen in ${garrisonBurg.name} into the Ivory-Gate road legion.`,
+                        cartel.id, garrisonBurg.burg_id, loreDate
+                    ]);
+                }
+            }
+
+            // B. Roadway Extortion & Toll Checkpoints
             if (tick % 3 === 0) {
                 const passBurg = burgs.find(b => b.wealth > 150);
                 if (passBurg) {
