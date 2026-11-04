@@ -143,7 +143,7 @@ async function spawnImmigrant(client: any, burg: any) {
     ]);
 }
 
-export async function runBurgOperationsAgent(client: any, tick: number) {
+export async function runBurgOperationsAgent(client: any, tick: number, loreDate: string = "") {
     if (tick % 44 === 0) {
         // Natural maturation: advance child ages each month
         await client.query("UPDATE population_demographics SET age = age + 1 WHERE life_stage = 'CHILD'").catch(() => {});
@@ -157,6 +157,7 @@ export async function runBurgOperationsAgent(client: any, tick: number) {
     
     const burgUpdates: any[] = [];
     const stockpileUpdates: any[] = [];
+    const burgEvents: any[] = [];
     
     const RESOURCE_TYPES: Record<string, string> = {
         "veg": "food", "meat": "food", "fruit": "food", "root_veg": "food", "grain": "food", "lard": "food",
@@ -509,6 +510,73 @@ export async function runBurgOperationsAgent(client: any, tick: number) {
         const newHealth = Math.floor(Math.min(100, Math.max(0, (burg.health || 100) + healthDelta)));
         const newUnrest = Math.floor(Math.min(100, Math.max(0, (burg.unrest || 0) + unrestDelta)));
         const newCrime = Math.floor(Math.min(100, Math.max(0, (burg.crime_rate || 0) + crimeDelta)));
+
+        // Log Notable Economic & Civil Events
+        if (starvationDeaths > 0) {
+            burgEvents.push({
+                tick,
+                type: 'BURG_FAMINE',
+                message: `Severe famine strikes ${burg.name}: food supplies collapsed with a ${Math.abs(foodDelta)} bushel deficit. ${starvationDeaths} citizens died of starvation!`,
+                tier: 'MAJOR',
+                burg_id: burg.burg_id,
+                lore_date: loreDate
+            });
+        } else if (newFood === 0 && (burg.food || 0) > 0) {
+            burgEvents.push({
+                tick,
+                type: 'BURG_FAMINE',
+                message: `Granaries run completely dry in ${burg.name}! Food deficit reaches ${Math.abs(foodDelta)}. Citizens face imminent starvation.`,
+                tier: 'MAJOR',
+                burg_id: burg.burg_id,
+                lore_date: loreDate
+            });
+        }
+
+        if (urbanTier > (burg.urban_tier || 1)) {
+            const tierName = urbanTier === 2 ? 'Village' : urbanTier === 3 ? 'Town' : urbanTier === 4 ? 'City' : 'Metropolis';
+            burgEvents.push({
+                tick,
+                type: 'BURG_URBAN_GROWTH',
+                message: `Settlement boom in ${burg.name}: population and trade advanced the settlement to Tier ${urbanTier} (${tierName})! New artisan workshops and civil infrastructure erected.`,
+                tier: 'MAJOR',
+                burg_id: burg.burg_id,
+                lore_date: loreDate
+            });
+        }
+
+        if (newUnrest >= 45 && (burg.unrest || 0) < 45) {
+            burgEvents.push({
+                tick,
+                type: 'MARTIAL_LAW_DECLARED',
+                message: `Martial law declared in ${burg.name}: civil unrest spiked to ${newUnrest}%. City Watch patrols double to suppress insurrection.`,
+                tier: 'MAJOR',
+                burg_id: burg.burg_id,
+                lore_date: loreDate
+            });
+        }
+
+        if (receivedTribute && (receivedTribute.food > 50 || receivedTribute.wealth > 20) && (tick + burg.burg_id) % 7 === 0) {
+            burgEvents.push({
+                tick,
+                type: 'TRADE_CARAVAN_DELIVERY',
+                message: `Trade caravan arrived in ${burg.name}: received tribute of ${receivedTribute.food} food and ${receivedTribute.wealth} trade goods from regional vassals.`,
+                tier: 'MINOR',
+                burg_id: burg.burg_id,
+                lore_date: loreDate
+            });
+        }
+
+        if (foodDelta >= 800 && newFood > 15000 && (tick + burg.burg_id) % 17 === 0) {
+            burgEvents.push({
+                tick,
+                type: 'HARVEST_SURPLUS',
+                message: `Bountiful harvest recorded in ${burg.name}: agricultural yield produced +${foodDelta} surplus provisions.`,
+                tier: 'MINOR',
+                burg_id: burg.burg_id,
+                lore_date: loreDate
+            });
+        }
+
         let births = 0;
         if (newFood > 0 && newHealth >= 40 && newUnrest < 70) {
             const birthRate = 0.003 * (newHealth / 100) * (1 - newUnrest / 150);
@@ -701,6 +769,15 @@ export async function runBurgOperationsAgent(client: any, tick: number) {
             stockpileUpdates.map(u => u.id),
             stockpileUpdates.map(u => u.invObj)
         ]);
+    }
+
+    if (burgEvents.length > 0) {
+        for (const ev of burgEvents) {
+            await client.query(`
+                INSERT INTO sim_events (tick, type, message, tier, burg_id, lore_date)
+                VALUES ($1, $2, $3, $4, $5, $6)
+            `, [ev.tick, ev.type, ev.message, ev.tier, ev.burg_id, ev.lore_date]);
+        }
     }
 }
 

@@ -1,0 +1,807 @@
+import { Pool, PoolClient } from "pg";
+
+export interface OutlawSyndicateDef {
+  id: number;
+  name: string;
+  type: string;
+  originBurgId: number;
+  originCellId: number;
+  originFactionId: number;
+  bossName: string;
+  bossTitle: string;
+  bossTraits: Array<{ name: string; modifier: number }>;
+  description: string;
+  contrabandTypes: string[];
+  lairTypes: string[];
+  speciesDistribution: Array<{ species: string; weight: number }>;
+  uniqueRoles: Array<{
+    role: string;
+    weapon: string;
+    armor: string;
+    affinity: string;
+    inventory: string[];
+    instinct: string;
+    temper: string;
+  }>;
+}
+
+export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
+  {
+    id: 1,
+    name: "The Gilded Compass",
+    type: "MERCHANT_PRIVATEER_FLEET",
+    originBurgId: 338, // Peculiurus Spire
+    originCellId: 21143,
+    originFactionId: 3,
+    bossName: "High Factor Cassian Midas",
+    bossTitle: "Archon of the Meridian Ledger",
+    bossTraits: [
+      { name: "Calculated", modifier: 0.3 },
+      { name: "Usurious", modifier: 0.4 },
+      { name: "Bribery_Master", modifier: 0.5 },
+      { name: "Greedy", modifier: 0.2 }
+    ],
+    description: "A formidable armed merchant fleet and naval privateers who dominate maritime commerce, escort high-value merchant convoys, or deploy lethal privateer warships when contract rates surge.",
+    contrabandTypes: ["Forged Sovereign Bonds", "Clipped Meridian Bullion", "Mortgaged Land Deeds", "Blackmail Ledgers"],
+    lairTypes: ["SHADOW_VAULT", "USURY_HOUSE"],
+    speciesDistribution: [{ species: "Human", weight: 0.6 }, { species: "Penguin", weight: 0.2 }, { species: "Walrus", weight: 0.2 }],
+    uniqueRoles: [
+      {
+        role: "Shadow Usury Clerk",
+        weapon: "Weighted Steel Abacus & Concealed Bodkin",
+        armor: "Ermine-Trimmed Velvet Doublet",
+        affinity: "logic",
+        inventory: ["Mortgaged Estate Deeds", "Gilded Balance Scales", "Pouch of 85 Meridian Gold"],
+        instinct: "CALCULATED",
+        temper: "COLD"
+      },
+      {
+        role: "Vault Debt Collector",
+        weapon: "Heavy Iron-Banded Truncheon",
+        armor: "Reinforced Boiled Leather",
+        affinity: "might",
+        inventory: ["Promissory Writs", "Iron Keyring to Defaulted Warehouses", "Pouch of 40 Silver Coins"],
+        instinct: "INTIMIDATING",
+        temper: "STOIC"
+      }
+    ]
+  },
+  {
+    id: 2,
+    name: "The Free Sky-Barons",
+    type: "AERIAL_SMUGGLER_PRIVATEER",
+    originBurgId: 330, // Zeveed
+    originCellId: 2179,
+    originFactionId: 25,
+    bossName: "Commodore Vaelis Skystrider",
+    bossTitle: "Master of the Cloud Fleet",
+    bossTraits: [
+      { name: "Daring", modifier: 0.4 },
+      { name: "Smuggler", modifier: 0.5 },
+      { name: "Airship_Ace", modifier: 0.3 },
+      { name: "Ruthless", modifier: 0.3 }
+    ],
+    description: "High-altitude corsairs and cloud-skiff runners who smuggle illicit cargo for the Obsidian Cartel or anyone with coin, and double as aerial pirates and privateers.",
+    contrabandTypes: ["Unrefined Aerolith Charges", "Smuggled Feather-Silk", "Barred Navigational Charts", "Untaxed Dragon-Wine"],
+    lairTypes: ["CONTRABAND_DOCK", "SKY_CORSAIR_CACHE"],
+    speciesDistribution: [{ species: "Human", weight: 0.4 }, { species: "Avian", weight: 0.4 }, { species: "Felid", weight: 0.2 }],
+    uniqueRoles: [
+      {
+        role: "Airship Rigging Ace",
+        weapon: "Pneumatic Grapple Pistol & Dagger",
+        armor: "Feather-Light Sky-Leathers",
+        affinity: "reflex",
+        inventory: ["Smuggled Navigational Astrolabe", "Aerolith Spark Canister", "Pouch of 55 Sovereign Marks"],
+        instinct: "DARING",
+        temper: "RECKLESS"
+      },
+      {
+        role: "Cloud-Runner Smuggler",
+        weapon: "Twin Repeating Hand-Crossbows",
+        armor: "Padded Wind-Silk Jerkin",
+        affinity: "finesse",
+        inventory: ["Forged Flight Manifests", "Gliding Tether Harness", "Vial of Cloud-Condensate"],
+        instinct: "ELUSIVE",
+        temper: "SARDONIC"
+      }
+    ]
+  },
+  {
+    id: 3,
+    name: "The Devil's Choice",
+    type: "MERCENARY",
+    originBurgId: 53, // Shravhiek
+    originCellId: 27072,
+    originFactionId: 26,
+    bossName: "Captain Malakor Dread",
+    bossTitle: "Condottiere of the Blood Company",
+    bossTraits: [
+      { name: "Mercenary", modifier: 0.5 },
+      { name: "Brutal", modifier: 0.4 },
+      { name: "Disciplined", modifier: 0.3 },
+      { name: "Veteran", modifier: 0.3 }
+    ],
+    description: "Brutal sellswords, deserter legionnaires, and heavy strike-squads taking illegal privateer contracts and crushing civic resistance.",
+    contrabandTypes: ["Black-Market Arms Caches", "Military Halberds", "Stolen Siege Munitions", "Blood Contract Tokens"],
+    lairTypes: ["MERCENARY_GARRISON"],
+    speciesDistribution: [{ species: "Human", weight: 0.5 }, { species: "Wolf-Kin", weight: 0.3 }, { species: "Saurian", weight: 0.2 }],
+    uniqueRoles: [
+      {
+        role: "Company Shock Trooper",
+        weapon: "Serrated Flamberge & Spiked Cestus",
+        armor: "Dented Black-Iron Plate",
+        affinity: "might",
+        inventory: ["Blood-Stained Mercenary Token", "Flask of Heavy Rye Spirits", "Pouch of 60 Gold Crowns"],
+        instinct: "AGGRESSIVE",
+        temper: "BRUTAL"
+      },
+      {
+        role: "Disciplined Sellsword Veteran",
+        weapon: "Barbed Halberd & Heavy Pavise",
+        armor: "Reinforced Chain Hauberk",
+        affinity: "endurance",
+        inventory: ["Unsanctioned Bounty Writs", "Whetstone & Gunpowder Horn", "Pouch of 35 Silver"],
+        instinct: "TACTICAL",
+        temper: "STOIC"
+      }
+    ]
+  },
+  {
+    id: 4,
+    name: "The Ivory-Gate Syndicate",
+    type: "TOLL_AUTHORITY",
+    originBurgId: 344, // Ivory Pass
+    originCellId: 27068,
+    originFactionId: 26,
+    bossName: "Legate General Vorun Iron-Grip",
+    bossTitle: "Warden of the Ivory Pass",
+    bossTraits: [
+      { name: "Martial", modifier: 0.5 },
+      { name: "Inflexible", modifier: 0.4 },
+      { name: "Extortionist", modifier: 0.3 },
+      { name: "Intimidating", modifier: 0.4 }
+    ],
+    description: "Corrupt legion turncoats and toll racketeers who maintain fortified checkpoints along mountain choke-points, extorting trade caravans.",
+    contrabandTypes: ["Counterfeit Imperial Seals", "Confiscated Merchant Manifests", "Illicit Iron Bullion", "Extortion Ledgers"],
+    lairTypes: ["TOLL_BLOCKADE", "ENFORCER_DEN"],
+    speciesDistribution: [{ species: "Human", weight: 0.6 }, { species: "Armadillo", weight: 0.2 }, { species: "Saurian", weight: 0.2 }],
+    uniqueRoles: [
+      {
+        role: "Toll Road Extortionist",
+        weapon: "Heavy Spiked Pilum & Tower Shield",
+        armor: "Corroded Legionary Lorica",
+        affinity: "fortitude",
+        inventory: ["Confiscated Caravanserai Toll Passes", "Brass Weighing Scale", "Pouch of 70 Imperial Denarii"],
+        instinct: "EXACTING",
+        temper: "INFLEXIBLE"
+      },
+      {
+        role: "Legion Debt Enforcer",
+        weapon: "Iron-Tipped Spetum & Cestus",
+        armor: "Studded Boiled Leather",
+        affinity: "might",
+        inventory: ["Iron Manacles", "Warrant of Confiscation", "Pouch of 45 Silver"],
+        instinct: "BULLYING",
+        temper: "CALLOUS"
+      }
+    ]
+  },
+  {
+    id: 5,
+    name: "The Ghostwind Raiders",
+    type: "MERCENARY_REAVERS",
+    originBurgId: 115, // Port Sunder
+    originCellId: 24364,
+    originFactionId: 18,
+    bossName: "Corsair Queen Lyra Ghostwind",
+    bossTitle: "Terror of the Sunder Channel",
+    bossTraits: [
+      { name: "Sea_Wolf", modifier: 0.5 },
+      { name: "Cunning", modifier: 0.4 },
+      { name: "Reaver", modifier: 0.4 },
+      { name: "Elusive", modifier: 0.3 }
+    ],
+    description: "Ruthless sellsword reavers and iron privateers who take covert military contracts to raid trade arteries, burn rival granaries, and shatter fortifications.",
+    contrabandTypes: ["Plundered Spices", "Salvaged Ship Timber", "Pirate Flag Emblems", "Barrels of Stolen Port Rum"],
+    lairTypes: ["RAIDER_REDOUBT", "SMUGGLER_COVE"],
+    speciesDistribution: [{ species: "Human", weight: 0.4 }, { species: "Seal", weight: 0.3 }, { species: "Otter", weight: 0.3 }],
+    uniqueRoles: [
+      {
+        role: "Channel Boarding Reaver",
+        weapon: "Dual Serrated Boarding Cutlasses",
+        armor: "Salt-Crusted Sharkskin Jerkin",
+        affinity: "reflex",
+        inventory: ["Pillaged Merchant Cargo Receipt", "Brass Nautical Spyglass", "Pouch of 65 Plundered Gold"],
+        instinct: "FEROCIOUS",
+        temper: "RECKLESS"
+      },
+      {
+        role: "Cove Flume Lookout",
+        weapon: "Long-Barreled Harpoon Musket",
+        armor: "Oilcloth Weather Mantle",
+        affinity: "awareness",
+        inventory: ["Signal Flares", "Telescopic Rangefinder", "Flask of High-Proof Sunder Rum"],
+        instinct: "VIGILANT",
+        temper: "SARDONIC"
+      }
+    ]
+  },
+  {
+    id: 6,
+    name: "The Obsidian Cartel",
+    type: "CRIME_SYNDICATE",
+    originBurgId: 340, // Forgespire
+    originCellId: 13802,
+    originFactionId: 7, // Iron Caldera
+    bossName: "Baroness Vespera Blackglass",
+    bossTitle: "Matron of the Deep Veins",
+    bossTraits: [
+      { name: "Shadow_Miner", modifier: 0.5 },
+      { name: "Cold_Blooded", modifier: 0.4 },
+      { name: "Smuggler", modifier: 0.4 },
+      { name: "Obsidian_Artificer", modifier: 0.5 }
+    ],
+    description: "The premier underworld shadow cartel: traffics illegal contraband, establishes subterranean vice dens and black markets, and brokers lethal contract killings across major burgs.",
+    contrabandTypes: ["Raw Obsidian Shards", "Volcanic Void-Glass Kris", "Crackling Chaos-Resonant Gems", "Scorched Blast-Powder"],
+    lairTypes: ["OBSIDIAN_VAULT", "BLACK_GLASS_FOUNDRY"],
+    speciesDistribution: [{ species: "Human", weight: 0.3 }, { species: "Saurian", weight: 0.4 }, { species: "Armadillo", weight: 0.3 }],
+    uniqueRoles: [
+      {
+        role: "Master Void-Glass Lapidary",
+        weapon: "Fine-Edged Obsidian Scalpel & Hammer",
+        armor: "Asbestos-Weave Smelter Apron",
+        affinity: "finesse",
+        inventory: ["Pouch of Cut Obsidian Gemstones", "Diamond-Tipped Etching Chisel", "Pouch of 95 Caldera Gold"],
+        instinct: "METICULOUS",
+        temper: "COLD"
+      },
+      {
+        role: "Trench Shadow-Miner",
+        weapon: "Two-Handed Heavy Mining Pick",
+        armor: "Hardened Basalt-Plate Breastplate",
+        affinity: "might",
+        inventory: ["Unrefined Black-Glass Cluster", "Glow-Lichen Lantern", "Pouch of 45 Silver"],
+        instinct: "STUBBORN",
+        temper: "STOIC"
+      }
+    ]
+  },
+  {
+    id: 7,
+    name: "The Otter Mafia",
+    type: "RIVER_MOB",
+    originBurgId: 170, // Lake City
+    originCellId: 31865,
+    originFactionId: 11, // River Folk
+    bossName: "Don Finnegan 'Slick-Whiskers' Sliptide",
+    bossTitle: "Grand Godfather of the Riverways",
+    bossTraits: [
+      { name: "Cunning", modifier: 0.5 },
+      { name: "Lutrine_Boss", modifier: 0.5 },
+      { name: "Extortionist", modifier: 0.4 },
+      { name: "Water_Whisperer", modifier: 0.4 }
+    ],
+    description: "Lutrine freshwater racketeers controlling the canal locks, fish-barrel dead drops, floating riverboat gambling speakeasies, and waterway shakedowns.",
+    contrabandTypes: ["Illicit Fermented Eel-Wine", "Weighted River-Dice", "Siphoned Canal Fuel", "Extorted Fish-Weir Tithes"],
+    lairTypes: ["RIVERBOAT_CASINO", "SMUGGLERS_FLUME"],
+    speciesDistribution: [{ species: "Otter", weight: 0.8 }, { species: "Frog", weight: 0.1 }, { species: "Walrus", weight: 0.1 }],
+    uniqueRoles: [
+      {
+        role: "Lutrine Flume Runner",
+        weapon: "Lutrine Boarding Harpoon & Shark-Tooth Dagger",
+        armor: "Waterproof Treated Otter-Hide Vest",
+        affinity: "finesse",
+        inventory: ["Jar of Illicit Eel-Wine", "Weighted Bone Gaming Dice", "Pouch of 50 Polished River Shells & Coins"],
+        instinct: "SLICK",
+        temper: "CONVIVIAL"
+      },
+      {
+        role: "Canal Lock Bruiser",
+        weapon: "Heavy Iron Barge-Pole & Brass Knuckles",
+        armor: "Studded River-Dock Leathers",
+        affinity: "might",
+        inventory: ["Forged Canal Transit Tokens", "Twisted Wire Shackle", "Pouch of 40 Silver"],
+        instinct: "UNFLINCHING",
+        temper: "BLUNT"
+      }
+    ]
+  },
+  {
+    id: 8,
+    name: "The Ghostspring Operation Network",
+    type: "ESPIONAGE",
+    originBurgId: 230, // Arbor-Prime
+    originCellId: 7425,
+    originFactionId: 6, // Sylvan Empire
+    bossName: "The Whispering Mistress Selyse",
+    bossTitle: "Director of the Ghostspring Veil",
+    bossTraits: [
+      { name: "Untraceable", modifier: 0.5 },
+      { name: "Poison_Mistress", modifier: 0.4 },
+      { name: "Spymaster", modifier: 0.5 },
+      { name: "Spectral_Sight", modifier: 0.3 }
+    ],
+    description: "An elusive cabal operating from geothermal mist-springs and subterranean caverns, dealing in untraceable paralytic poisons and bought magistrate secrets.",
+    contrabandTypes: ["Distilled Ghost-Water Phials", "Paralytic Orchid Extracts", "Ciphered Aristocrat Dossiers", "Silent Night-Needles"],
+    lairTypes: ["GHOSTSPRING_DISTILLERY", "SHADOW_LISTENING_POST"],
+    speciesDistribution: [{ species: "Plant-Folk", weight: 0.4 }, { species: "Human", weight: 0.4 }, { species: "Felid", weight: 0.2 }],
+    uniqueRoles: [
+      {
+        role: "Ghostspring Mist Distiller",
+        weapon: "Concealed Spring-Needle Stiletto",
+        armor: "Vapour-Woven Camouflage Mantle",
+        affinity: "intuition",
+        inventory: ["Phial of Concentrated Ghost-Water", "Herbal Distillation Tube", "Pouch of 80 Untraceable Gold Coins"],
+        instinct: "SHADOWY",
+        temper: "ENIGMATIC"
+      },
+      {
+        role: "Phantom Shadow Informant",
+        weapon: "Dual Poison-Tipped Bodkins",
+        armor: "Muffled Silk Tunic",
+        affinity: "reflex",
+        inventory: ["Blackmailed Magistrate Seal", "Waxed Secret Letter", "Pouch of 60 Gold"],
+        instinct: "VIGILANT",
+        temper: "WHISPERING"
+      }
+    ]
+  },
+  {
+    id: 9,
+    name: "The Grind Canyon Corps",
+    type: "CHASM_STRIP_MINER",
+    originBurgId: 343, // Anvil Roosts
+    originCellId: 23152,
+    originFactionId: 15, // Dust-Husk Riders
+    bossName: "Overman Torvald Gravel-Maw",
+    bossTitle: "Foreman of the Jagged Trench",
+    bossTraits: [
+      { name: "Brutal_Industrialist", modifier: 0.5 },
+      { name: "Iron_Whip", modifier: 0.4 },
+      { name: "Trench_Master", modifier: 0.4 },
+      { name: "Greedy", modifier: 0.3 }
+    ],
+    description: "Heavy trench strip-miners, chasm divers, and scrap scavengers who hoist raw dragonstone, pre-Cruor relics, and unsmelted ores from bottomless chasms.",
+    contrabandTypes: ["Stolen Slag Ingots", "Blasting Cord Bundles", "Unregulated Dragon-Ore Crates", "Indentured Labor Ledgers"],
+    lairTypes: ["CANYON_STRIP_REDOUBT", "ILLEGAL_CHAIN_GANG_QUARRY"],
+    speciesDistribution: [{ species: "Wolf-Kin", weight: 0.4 }, { species: "Saurian", weight: 0.3 }, { species: "Human", weight: 0.3 }],
+    uniqueRoles: [
+      {
+        role: "Canyon Trench Stripper",
+        weapon: "Two-Handed Pneumatic Trench Sledge",
+        armor: "Welded Scrap-Iron Cuirass",
+        affinity: "might",
+        inventory: ["Bundle of Blasting Cord", "Quarry Scraper Chisel", "Pouch of 50 Heavy Iron Marks"],
+        instinct: "RELENTLESS",
+        temper: "FEROCIOUS"
+      },
+      {
+        role: "Illegal Quarry Taskmaster",
+        weapon: "Barbed Chain-Whip & Heavy Mallet",
+        armor: "Thick Bull-Hide Armor",
+        affinity: "endurance",
+        inventory: ["Master Shackle Keys", "Indentured Roster Ledger", "Pouch of 40 Silver"],
+        instinct: "TYRANNICAL",
+        temper: "CRUEL"
+      }
+    ]
+  },
+  {
+    id: 10,
+    name: "The Hedge Wizards",
+    type: "UNBOUND_COVEN",
+    originBurgId: 241, // Vulpus-Prime
+    originCellId: 14380,
+    originFactionId: 14, // Canopy Clans
+    bossName: "Arch-Hedge Master Malidore Thorn-Weaver",
+    bossTitle: "Keeper of the Unshackled Flame",
+    bossTraits: [
+      { name: "Wild_Spark", modifier: 0.5 },
+      { name: "Unbound", modifier: 0.5 },
+      { name: "Heretic_Alchemist", modifier: 0.4 },
+      { name: "Elusive", modifier: 0.4 }
+    ],
+    description: "An outlaw circle of unsanctioned magic users, hedge herbalists, and wild sparkborn fleeing the Mandate's null-iron shackles and inquisition fires.",
+    contrabandTypes: ["Unsealed Wild-Spark Scrolls", "Ward-Breaker Infusions", "Glowing Aether Concoctions", "Forbidden Runic Talismans"],
+    lairTypes: ["UNBOUND_SANCTUM", "WILD_SPARK_ALCHEMICAL_LAB"],
+    speciesDistribution: [{ species: "Plant-Folk", weight: 0.4 }, { species: "Human", weight: 0.4 }, { species: "Peacock", weight: 0.2 }],
+    uniqueRoles: [
+      {
+        role: "Unbound Wild-Spark Alchemist",
+        weapon: "Gnarled Rowan Wand & Acidic Glass Flasks",
+        armor: "Patchwork Runic Alchemical Robes",
+        affinity: "logic",
+        inventory: ["Phial of Unstable Spark-Essence", "Null-Breaking Herb Poultice", "Pouch of 75 Moon-Silver Shillings"],
+        instinct: "DEFIANT",
+        temper: "ECCENTRIC"
+      },
+      {
+        role: "Hedge Coven Apothecary",
+        weapon: "Carved Antler Dagger & Herbal Sprayer",
+        armor: "Tallow-Treated Woodland Mantle",
+        affinity: "intuition",
+        inventory: ["Forbidden Runic Grimoire Fragment", "Dried Spark-Thistle Herbs", "Pouch of 50 Gold"],
+        instinct: "CURIOUS",
+        temper: "COMPASSIONATE"
+      }
+    ]
+  }
+];
+
+export function getCartelDef(idOrName: number | string): OutlawSyndicateDef | undefined {
+  if (typeof idOrName === "number") {
+    return OUTLAW_SYNDICATES.find(s => s.id === idOrName);
+  }
+  const query = idOrName.toLowerCase();
+  return OUTLAW_SYNDICATES.find(s => s.name.toLowerCase().includes(query) || s.type.toLowerCase() === query);
+}
+
+export function getCartelLairType(cartel: any): string {
+  const id = Number(cartel.id);
+  const def = getCartelDef(id) || getCartelDef(String(cartel.name || ""));
+  if (def && def.lairTypes.length > 0) {
+    const pick = Math.floor(Math.random() * def.lairTypes.length);
+    return def.lairTypes[pick] || "BLACK_MARKET";
+  }
+  return cartel.type === "SMUGGLER" ? "BLACK_MARKET" : "VICE_DEN";
+}
+
+export function getLairPropDetails(lair: any) {
+  const cartelName = lair.cartel_name || "Underworld Syndicate";
+  const lairType = lair.lair_type || "BLACK_MARKET";
+
+  switch (lairType) {
+    case "OBSIDIAN_VAULT":
+      return {
+        name: `Obsidian Cartel Deep Vault & Shard Cache (${cartelName})`,
+        tags: ["stone", "obsidian", "vault", "underworld", "locked", "fire"],
+        hp: 200,
+        maxHp: 200,
+        description: "Fortified subterranean basalt chamber shielded with raw obsidian tiles, safeguarding illicit chaos crystals and void-glass blades."
+      };
+    case "BLACK_GLASS_FOUNDRY":
+      return {
+        name: `Clandestine Black-Glass Forge & Bellows (${cartelName})`,
+        tags: ["stone", "fire", "forge", "obsidian", "metal", "crafting"],
+        hp: 175,
+        maxHp: 175,
+        description: "Heat-shrouded illicit furnace smelting scorched dragon-slag into razor-sharp obsidian weaponry."
+      };
+    case "RIVERBOAT_CASINO":
+      return {
+        name: `The Whispering Otter Floating Casino & Speakeasy (${cartelName})`,
+        tags: ["wood", "water", "tavern", "casino", "underworld", "flammable"],
+        hp: 160,
+        maxHp: 160,
+        description: "Moored twin-hulled barge featuring high-stakes river dice, private loan parlors, and barrels of smuggled fermented eel-wine."
+      };
+    case "SMUGGLERS_FLUME":
+      return {
+        name: `Lutrine Submerged Flume & Canal Dead-Drop (${cartelName})`,
+        tags: ["stone", "water", "flume", "smuggler", "underworld", "container"],
+        hp: 150,
+        maxHp: 150,
+        description: "Concealed underwater grating and pulley system allowing Lutrine divers to transfer illicit cargo past harbour guards undetected."
+      };
+    case "GHOSTSPRING_DISTILLERY":
+      return {
+        name: `Ghostspring Geothermal Alchemical Still (${cartelName})`,
+        tags: ["stone", "water", "alchemy", "poison", "underworld", "fragile"],
+        hp: 140,
+        maxHp: 140,
+        description: "Muffled copper condensery tapping geothermal steam vents to distill untraceable ghost-water draughts and paralytic vapors."
+      };
+    case "SHADOW_LISTENING_POST":
+      return {
+        name: `Clandestine Echo Chamber & Cipher Archive (${cartelName})`,
+        tags: ["wood", "desk", "books", "espionage", "underworld", "secret"],
+        hp: 130,
+        maxHp: 130,
+        description: "Sound-damped backroom filled with surveillance dossiers, forged noble seals, and acoustic listening cones."
+      };
+    case "CANYON_STRIP_REDOUBT":
+      return {
+        name: `Grind Canyon Heavy Scrap Redoubt & Winch (${cartelName})`,
+        tags: ["metal", "stone", "redoubt", "weapons", "underworld", "heavy"],
+        hp: 220,
+        maxHp: 220,
+        description: "Barricaded trench bunker reinforced with heavy iron scrap plates and mechanical cable winches hauling stolen slag."
+      };
+    case "ILLEGAL_CHAIN_GANG_QUARRY":
+      return {
+        name: `Outlaw Slag Quarry & Crushing Machine (${cartelName})`,
+        tags: ["stone", "metal", "machinery", "mining", "underworld"],
+        hp: 190,
+        maxHp: 190,
+        description: "Steam-hissing rotary stone crusher where indentured laborers are forced to pulverize mineral slag under armed guard."
+      };
+    case "UNBOUND_SANCTUM":
+      return {
+        name: `Circle of the Unbound Wild-Spark Sanctum (${cartelName})`,
+        tags: ["wood", "arcane", "altar", "sanctum", "underworld", "heresy"],
+        hp: 150,
+        maxHp: 150,
+        description: "Secluded forest hideout hung with unsealed runic scrolls, where wild sparkborn practice magic free from null-iron shackles."
+      };
+    case "WILD_SPARK_ALCHEMICAL_LAB":
+      return {
+        name: `Heretical Chaos Alembic & Poultice Bench (${cartelName})`,
+        tags: ["wood", "glass", "alchemy", "fire", "underworld", "heresy"],
+        hp: 120,
+        maxHp: 120,
+        description: "Bubbling retort stands and jars of unsealed luminescent moss producing anti-chain draughts and ward-breaker powders."
+      };
+    case "SHADOW_VAULT":
+      return {
+        name: `Gilded Shadow Vault & Safehouse (${cartelName})`,
+        tags: ["metal", "stone", "vault", "underworld", "locked", "shadow_vault"],
+        hp: 180,
+        maxHp: 180,
+        description: "Concealed heavy steel vault door behind an unassuming ledger archive, stashing illicit usury receipts and meridian gold."
+      };
+    case "USURY_HOUSE":
+      return {
+        name: `Back-Alley Usury House & Pawn Exchange (${cartelName})`,
+        tags: ["wood", "underworld", "usury", "desk", "ledger"],
+        hp: 140,
+        maxHp: 140,
+        description: "Dimly lit parlor where desperate debtors pledge collateral under exorbitant interest rates."
+      };
+    case "CONTRABAND_DOCK":
+      return {
+        name: `Hidden Contraband Slipway & Sky-Cache (${cartelName})`,
+        tags: ["wood", "contraband", "crane", "cargo", "underworld"],
+        hp: 150,
+        maxHp: 150,
+        description: "Camouflaged docking crane and smuggling crates marked with the Free Sky insignia, bypassing toll tariffs."
+      };
+    case "SKY_CORSAIR_CACHE":
+      return {
+        name: `Concealed Sky-Corsair Arms Cache (${cartelName})`,
+        tags: ["metal", "wood", "cache", "weapons", "underworld"],
+        hp: 150,
+        maxHp: 150,
+        description: "Reinforced lockboxes containing grappling tether guns, gliding cloaks, and aerolith charge canisters."
+      };
+    case "MERCENARY_GARRISON":
+      return {
+        name: `Devil's Choice Sellsword Strongpoint (${cartelName})`,
+        tags: ["stone", "wood", "barricade", "garrison", "underworld", "weapons"],
+        hp: 180,
+        maxHp: 180,
+        description: "Fortified cellar barricade smelling of pitch, iron, and stale wine where brutal mercenaries await contracts."
+      };
+    case "TOLL_BLOCKADE":
+      return {
+        name: `Ivory-Gate Toll Redoubt & Iron Gate (${cartelName})`,
+        tags: ["stone", "metal", "toll", "gate", "underworld"],
+        hp: 190,
+        maxHp: 190,
+        description: "Illegal fortified toll checkpoint extorting passage tariffs from merchant wagons and travelers."
+      };
+    case "ENFORCER_DEN":
+      return {
+        name: `Ivory-Gate Enforcer Den & Holding Cell (${cartelName})`,
+        tags: ["stone", "iron", "cell", "enforcer", "underworld"],
+        hp: 170,
+        maxHp: 170,
+        description: "Heavily fortified headquarters for legion debt collectors and martial enforcers."
+      };
+    case "RAIDER_REDOUBT":
+      return {
+        name: `Ghostwind Raider Redoubt & Stash (${cartelName})`,
+        tags: ["wood", "stone", "redoubt", "cache", "underworld"],
+        hp: 160,
+        maxHp: 160,
+        description: "Hidden enclave fortified with driftwood barriers, caches of coastal plunder, and signal flares."
+      };
+    case "SMUGGLER_COVE":
+      return {
+        name: `Clandestine Smuggler Cove & Cache (${cartelName})`,
+        tags: ["stone", "water", "cave", "smuggler", "underworld"],
+        hp: 160,
+        maxHp: 160,
+        description: "Subterranean cavern tunnel connecting coastal channels directly to secret storehouses."
+      };
+    default:
+      return {
+        name: `Hidden Underworld Bazaar (${cartelName})`,
+        tags: ["wood", "cloth", "underworld", "black_market"],
+        hp: 140,
+        maxHp: 140,
+        description: "A shadowy den dealing in unlicensed commodities and illicit coin."
+      };
+  }
+}
+
+// First/Last Name matrices for unique individuals by syndicate lore
+const NAMES_BY_SYNDICATE: Record<number, { first: string[]; last: string[]; nicknames: string[] }> = {
+  1: { // Gilded Compass
+    first: ["Alistair", "Lucien", "Bartholomew", "Vivienne", "Eldred", "Morrigan", "Corin"],
+    last: ["Vance", "Midas", "Sterling", "Pendleton", "Rothschild", "Gold-Weaver", "Archon"],
+    nicknames: ["The Ledger", "Gold-Tooth", "Silent Coin", "The Collector"]
+  },
+  2: { // Free Sky
+    first: ["Vaelis", "Dax", "Cassia", "Zephyr", "Kaelen", "Orion", "Talon", "Lyra"],
+    last: ["Skystrider", "Cloud-Rider", "Sun-Sailor", "Wind-Vane", "Aether-Grip", "Hawthorne"],
+    nicknames: ["Quick-Trigger", "Gale-Eye", "Slip-Wing", "No-Tether"]
+  },
+  3: { // Devil's Choice
+    first: ["Malakor", "Rorik", "Garrison", "Vrena", "Brakkor", "Torsten", "Jorik"],
+    last: ["Dread", "Iron-Biter", "Blood-Drinker", "Grimm", "Black-Scar", "Mercer"],
+    nicknames: ["The Butcher", "Steel-Jaws", "No-Mercy", "Two-Pence"]
+  },
+  4: { // Ivory Gate
+    first: ["Vorun", "Marcus", "Tiberius", "Valeria", "Gaius", "Drusus", "Octavia"],
+    last: ["Iron-Grip", "Ivory-Tusk", "Gate-Warden", "Cestus", "Garrison-Pike", "Toll-Taker"],
+    nicknames: ["The Sledge", "Heavy-Foot", "Tax-Man", "Lock-Down"]
+  },
+  5: { // Ghostwind
+    first: ["Lyra", "Barnaby", "Bess", "Finn", "Reef", "Morwen", "Derrick", "Jonas"],
+    last: ["Ghostwind", "Reef-Cutter", "Barnacle", "Black-Fin", "Salt-Marrow", "Wave-Torn"],
+    nicknames: ["Dead-Water", "Shark-Bait", "The Reaver", "One-Eye"]
+  },
+  6: { // Obsidian Cartel
+    first: ["Vespera", "Silas", "Kaelen", "Brand", "Khoran", "Theron", "Nyx"],
+    last: ["Blackglass", "Cold-Chisel", "Deep-Vein", "Slag-Marrow", "Basalt-Bane", "Pyre-Grip"],
+    nicknames: ["The Glass-Cutter", "Black-Lung", "Shatter-Hand", "Dark-Spark"]
+  },
+  7: { // Otter Mafia
+    first: ["Finnegan", "Barnaby", "Sal", "Pip", "Winnie", "Cully", "Paddy", "Barty"],
+    last: ["Sliptide", "Fast-Paws", "Riverson", "Mud-Whisper", "Fish-Tooth", "Canal-Drover"],
+    nicknames: ["Slick-Whiskers", "Wet-Coin", "The Don", "Fast-Paws", "Quiet-Ripple"]
+  },
+  8: { // Ghostspring
+    first: ["Selyse", "Eamon", "Kira", "Vane", "Morwenna", "Theron", "Llyr"],
+    last: ["Night-Whisper", "Spring-Mist", "Phantom-Reed", "Shadow-Veil", "Pale-Drop", "Silent-Eye"],
+    nicknames: ["The Ghost", "Spider-Silk", "Hush", "Pale-Step"]
+  },
+  9: { // Grind Canyon
+    first: ["Torvald", "Kaelen", "Gorg", "Brant", "Hulda", "Draven", "Stig"],
+    last: ["Gravel-Maw", "Rust-Grit", "Trench-Ripper", "Chasm-Render", "Sledge-Iron", "Dust-Gouger"],
+    nicknames: ["The Crusher", "Grit-Eater", "Big Sledge", "Trench-Rat"]
+  },
+  10: { // Hedge Wizards
+    first: ["Malidore", "Morwenna", "Kip", "Bramble", "Eldra", "Thorne", "Rowan"],
+    last: ["Thorn-Weaver", "Wild-Root", "Spark-Runner", "Unshackled", "Hedge-Walker", "Briar-Burn"],
+    nicknames: ["The Heretic", "Sparky", "Unchained", "Root-Witch", "Wild-Spark"]
+  }
+};
+
+export function generateUniqueOutlawOperative(lair: any, slotIndex: number): any {
+  const cartelId = Number(lair.faction_id || 1);
+  const def = getCartelDef(cartelId) || OUTLAW_SYNDICATES[0]!;
+  const names = NAMES_BY_SYNDICATE[cartelId] || NAMES_BY_SYNDICATE[1]!;
+
+  const first = names.first[(lair.id * 7 + slotIndex * 13) % names.first.length] || "Outlaw";
+  const last = names.last[(lair.id * 11 + slotIndex * 17) % names.last.length] || "Operative";
+  const nickname = names.nicknames[(lair.id * 3 + slotIndex * 5) % names.nicknames.length] || "Shadow";
+  const fullName = `${first} "${nickname}" ${last}`;
+
+  // Species selection from syndicate distribution
+  let species = "Human";
+  const roll = Math.random();
+  let cumulative = 0;
+  for (const s of def.speciesDistribution) {
+    cumulative += s.weight;
+    if (roll <= cumulative) {
+      species = s.species;
+      break;
+    }
+  }
+
+  // Pick unique role archetype
+  const roleDef = def.uniqueRoles[slotIndex % def.uniqueRoles.length] || def.uniqueRoles[0]!;
+
+  // Base 12-stat Concordia generation
+  const baseStats: Record<string, number> = {
+    might: 10,
+    endurance: 10,
+    finesse: 10,
+    reflex: 10,
+    vitality: 10,
+    fortitude: 10,
+    knowledge: 10,
+    logic: 10,
+    awareness: 10,
+    intuition: 10,
+    charm: 10,
+    willpower: 10
+  };
+
+  // Boost primary stat and secondary stat
+  const primary = roleDef.affinity;
+  baseStats[primary] = 14 + Math.floor(Math.random() * 3);
+  if (primary === "might") baseStats.endurance = 13;
+  if (primary === "finesse") baseStats.reflex = 14;
+  if (primary === "logic") baseStats.knowledge = 13;
+  if (primary === "intuition") baseStats.awareness = 13;
+
+  const npcId = `npc_outlaw_${lair.id}_${slotIndex + 1}`;
+  const posX = 164 + (slotIndex * 4);
+  const posY = 164 + (slotIndex * 3);
+
+  return {
+    id: npcId,
+    cell_id: lair.cell_id,
+    current_rx: 112,
+    current_ry: 112,
+    local_pos: [posX, posY],
+    name: fullName,
+    role: `${roleDef.role} (${lair.lair_type.replace(/_/g, " ")})`,
+    kingdom: species === "Otter" || species === "Frog" || species === "Walrus" ? "Aquatic" : "Humanoid",
+    species,
+    lineage: `${species}-Born Outlaw`,
+    tags: ["outlaw", "underworld", lair.lair_type.toLowerCase(), "unique_individual", species.toLowerCase()],
+    faction: def.name,
+    hp: 35 + Math.floor(Math.random() * 10),
+    max_hp: 45,
+    disposition: 0,
+    alive: true,
+    equipped_weapon: roleDef.weapon,
+    equipped_armor: roleDef.armor,
+    stat_affinity: roleDef.affinity,
+    stats: baseStats,
+    inventory: [...roleDef.inventory],
+    memory_notes: [
+      `Stationed at the ${lair.lair_type.replace(/_/g, " ")} in Burg #${lair.burg_id} for ${def.name}.`,
+      `Personally answers to ${def.bossName} (${def.bossTitle}).`,
+      `Temper: ${roleDef.temper}, Instinct: ${roleDef.instinct}. Current Lair Heat: ${lair.heat || 0}/100.`
+    ],
+    wander_anchor: [posX, posY],
+    home_pos: [posX, posY],
+    work_pos: [posX, posY],
+    current_task: "GUARD_LAIR",
+    schedule_state: "WORK",
+    instinct: roleDef.instinct,
+    temper: roleDef.temper,
+    needs: { food: 0.8, rest: 0.8, coin: 0.9, safety: 0.7, company: 0.6 },
+    mood: { fear: 0.1, anger: 0.2, joy: 0.3 }
+  };
+}
+
+export async function ensureLairResidents(client: PoolClient | Pool, lair: any): Promise<any[]> {
+  // Check if residents already exist in sim_npc_instances
+  const res = await client.query(
+    `SELECT * FROM sim_npc_instances WHERE id LIKE $1 AND alive = true`,
+    [`npc_outlaw_${lair.id}_%`]
+  );
+
+  if (res.rows.length >= 2) {
+    return res.rows;
+  }
+
+  const residents: any[] = [...res.rows];
+  const existingSlots = new Set(residents.map(r => r.id));
+
+  for (let slot = 0; slot < 2; slot++) {
+    const expectedId = `npc_outlaw_${lair.id}_${slot + 1}`;
+    if (!existingSlots.has(expectedId)) {
+      const npc = generateUniqueOutlawOperative(lair, slot);
+      await client.query(`
+        INSERT INTO sim_npc_instances (
+          id, cell_id, current_rx, current_ry, local_pos, name, role,
+          kingdom, species, lineage, tags, faction, hp, max_hp, disposition, alive,
+          equipped_weapon, equipped_armor, stat_affinity, stats, inventory, memory_notes,
+          wander_anchor, home_pos, work_pos, current_task, schedule_state, instinct, temper, needs, mood
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7,
+          $8, $9, $10, $11::jsonb, $12, $13, $14, $15, $16,
+          $17, $18, $19, $20::jsonb, $21::jsonb, $22::jsonb,
+          $23, $24, $25, $26, $27, $28, $29, $30::jsonb, $31::jsonb
+        ) ON CONFLICT (id) DO UPDATE SET
+          alive = EXCLUDED.alive,
+          local_pos = EXCLUDED.local_pos
+      `, [
+        npc.id, npc.cell_id, npc.current_rx, npc.current_ry, npc.local_pos, npc.name, npc.role,
+        npc.kingdom, npc.species, npc.lineage, JSON.stringify(npc.tags), npc.faction, npc.hp, npc.max_hp, npc.disposition, npc.alive,
+        npc.equipped_weapon, npc.equipped_armor, npc.stat_affinity, JSON.stringify(npc.stats), JSON.stringify(npc.inventory), JSON.stringify(npc.memory_notes),
+        npc.wander_anchor, npc.home_pos, npc.work_pos, npc.current_task, npc.schedule_state, npc.instinct, npc.temper, JSON.stringify(npc.needs), JSON.stringify(npc.mood)
+      ]);
+
+      residents.push(npc);
+    }
+  }
+
+  return residents;
+}

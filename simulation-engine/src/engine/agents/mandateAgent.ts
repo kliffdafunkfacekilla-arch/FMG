@@ -85,9 +85,9 @@ export async function runMandateAgent(client: any, tick: number, loreDate: strin
 
       if (Math.random() < 0.3) {
         await client.query(`
-          INSERT INTO sim_events (tick, type, message, tier)
-          VALUES ($1, 'CHAIN_WARBAND_FORGED', $2, 'BACKGROUND')
-        `, [tick, `Fanatical Nulls outside ${burg.name} banded together under ${citizen.citizenName}, a ${citizen.temper.toLowerCase()} former ${citizen.profession.toLowerCase()}, forging a chapter of the Mandate of the Chain.`]);
+          INSERT INTO sim_events (tick, type, message, tier, burg_id, lore_date)
+          VALUES ($1, 'CHAIN_WARBAND_FORGED', $2, 'MINOR', $3, $4)
+        `, [tick, `Fanatical Nulls outside ${burg.name} banded together under ${citizen.citizenName}, a ${citizen.temper.toLowerCase()} former ${citizen.profession.toLowerCase()}, forging a chapter of the Mandate of the Chain.`, burg.burg_id, loreDate]);
       }
     }
   }
@@ -132,11 +132,11 @@ export async function runMandateAgent(client: any, tick: number, loreDate: strin
           `, [burgId]);
         }
 
-        if (Math.random() < 0.20) {
+        if (Math.random() < 0.05) {
           await client.query(`
-            INSERT INTO sim_events (tick, type, message, tier)
-            VALUES ($1, 'WITCH_HUNT_EXECUTION', $2, 'BACKGROUND')
-          `, [tick, `${citizenName} (${profession}) and their chain-militia cornered a wild sparkborn in the outskirts, draining their power into humming null-iron shackles.`]);
+            INSERT INTO sim_events (tick, type, message, tier, burg_id, lore_date)
+            VALUES ($1, 'WITCH_HUNT_EXECUTION', $2, 'MINOR', $3, $4)
+          `, [tick, `${citizenName} (${profession}) and their chain-militia cornered a wild sparkborn in the outskirts of Burg ${burgId || 'province'}, draining their power into humming null-iron shackles.`, burgId || null, loreDate]);
         }
       }
 
@@ -148,10 +148,12 @@ export async function runMandateAgent(client: any, tick: number, loreDate: strin
           targetGroveId = nearestGrove.id;
           targetCellId = nearestGrove.cell_id;
 
-          await client.query(`
-            INSERT INTO sim_events (tick, type, message, tier)
-            VALUES ($1, 'CHAIN_PILGRIMAGE', $2, 'MINOR')
-          `, [tick, `Carrying shackles heavy with stolen spark power, ${citizenName} (${profession}) led their Mandate pilgrimage toward the Prison of ${nearestGrove.dragon_name} to cleanse the land.`]);
+          if (Math.random() < 0.25) {
+            await client.query(`
+              INSERT INTO sim_events (tick, type, message, tier, burg_id, lore_date)
+              VALUES ($1, 'CHAIN_PILGRIMAGE', $2, 'MINOR', $3, $4)
+            `, [tick, `Carrying shackles heavy with stolen spark power, ${citizenName} (${profession}) led their Mandate pilgrimage toward the Prison of ${nearestGrove.dragon_name} to cleanse the land.`, burgId || null, loreDate]);
+          }
         }
       }
     }
@@ -192,9 +194,9 @@ export async function runMandateAgent(client: any, tick: number, loreDate: strin
       }
 
       await client.query(`
-        INSERT INTO sim_events (tick, type, message, tier)
-        VALUES ($1, 'CHAIN_PURIFICATION_IRON', $2, 'MAJOR')
-      `, [tick, `⛓️ THE IRON REINFORCEMENT: ${citizenName} (${profession}) knelt before the Prison of ${dragonName}, discharging their glowing chains! Convinced they purged a demonic font, their stolen spark energy has reinforced the ancient cosmic seal (+${strengthBonus}% Seal Strength)!`]);
+        INSERT INTO sim_events (tick, type, message, tier, lore_date)
+        VALUES ($1, 'CHAIN_PURIFICATION_IRON', $2, 'MAJOR', $3)
+      `, [tick, `⛓️ THE IRON REINFORCEMENT: ${citizenName} (${profession}) knelt before the Prison of ${dragonName}, discharging their glowing chains! Convinced they purged a demonic font, their stolen spark energy has reinforced the ancient cosmic seal (+${strengthBonus}% Seal Strength)!`, loreDate]);
     }
 
     // Persist updated state

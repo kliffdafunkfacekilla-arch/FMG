@@ -188,8 +188,8 @@ export async function runChaosFlowAgent(
   const surging = liveFlows.find(f => f.currentSurge >= 2.4);
   if (surging && (tick % 7 === 0)) {
     await client.query(
-      `INSERT INTO sim_events (tick, tier, message)
-       VALUES ($1, 'CRITICAL', $2)`,
+      `INSERT INTO sim_events (tick, type, tier, message)
+       VALUES ($1, 'CHAOS_SURGE', 'CRITICAL', $2)`,
       [
         tick,
         `⚡ PRIMORDIAL SURGE: ${surging.name} has flooded its banks! An iridescent torrent of ${surging.elementalPower} aether cuts across the province. Crossing on foot without an airship is deadly!`

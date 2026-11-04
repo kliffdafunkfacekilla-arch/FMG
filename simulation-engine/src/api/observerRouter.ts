@@ -206,21 +206,35 @@ observerRouter.get("/fringe_detail", async (req, res) => {
 // Filtered event log API for specific sectors, burgs, or fringe factions
 observerRouter.get("/filtered_events", async (req, res) => {
   try {
-    const { burg_id, cell_id, keyword, tier, limit = 150 } = req.query;
+    const { burg_id, burg_name, faction_id, cell_id, keyword, tier, limit = 150 } = req.query;
     let query = "SELECT * FROM sim_events WHERE 1=1";
     const params: any[] = [];
 
     if (burg_id) {
-      params.push(Number(burg_id));
-      query += ` AND burg_id = $${params.length}`;
+      if (burg_name) {
+        params.push(Number(burg_id));
+        params.push(`%${burg_name}%`);
+        query += ` AND (burg_id = $${params.length - 1} OR message ILIKE $${params.length})`;
+      } else {
+        params.push(Number(burg_id));
+        query += ` AND burg_id = $${params.length}`;
+      }
     }
-    if (cell_id) {
-      params.push(`%${cell_id}%`);
-      query += ` AND message ILIKE $${params.length}`;
-    }
-    if (keyword) {
+    if (faction_id && keyword) {
+      params.push(Number(faction_id));
       params.push(`%${keyword}%`);
-      query += ` AND message ILIKE $${params.length}`;
+      query += ` AND (faction_id = $${params.length - 1} OR message ILIKE $${params.length})`;
+    } else if (faction_id) {
+      params.push(Number(faction_id));
+      query += ` AND faction_id = $${params.length}`;
+    } else if (keyword) {
+      const kw = String(keyword).trim();
+      if (kw.toLowerCase() === 'convergence') {
+        query += ` AND (message ILIKE '%Convergence%' OR message ILIKE '%Cruorbus%' OR message ILIKE '%Chaos Flow%' OR type IN ('CHAOS_SURGE', 'CONVERGENCE_ECLIPSE', 'SHADOW_WEEK_ECLIPSE', 'AURA_RIVER'))`;
+      } else {
+        params.push(`%${kw}%`);
+        query += ` AND (message ILIKE $${params.length} OR type ILIKE $${params.length})`;
+      }
     }
     if (tier && tier !== 'ALL') {
       params.push(tier);

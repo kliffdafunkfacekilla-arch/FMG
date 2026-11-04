@@ -29,7 +29,7 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
   {
     id: 1,
     name: "The Gilded Compass",
-    type: "BANK",
+    type: "MERCHANT_PRIVATEER_FLEET",
     originBurgId: 338, // Peculiurus Spire
     originCellId: 21143,
     originFactionId: 3,
@@ -41,7 +41,7 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
       { name: "Bribery_Master", modifier: 0.5 },
       { name: "Greedy", modifier: 0.2 }
     ],
-    description: "Meridian shadow bankers, predatory usury syndicates, and coin-clippers operating secret vaults and extortionate foreclosure rings.",
+    description: "A formidable armed merchant fleet and naval privateers who dominate maritime commerce, escort high-value merchant convoys, or deploy lethal privateer warships when contract rates surge.",
     contrabandTypes: ["Forged Sovereign Bonds", "Clipped Meridian Bullion", "Mortgaged Land Deeds", "Blackmail Ledgers"],
     lairTypes: ["SHADOW_VAULT", "USURY_HOUSE"],
     speciesDistribution: [{ species: "Human", weight: 0.6 }, { species: "Penguin", weight: 0.2 }, { species: "Walrus", weight: 0.2 }],
@@ -69,7 +69,7 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
   {
     id: 2,
     name: "The Free Sky-Barons",
-    type: "SMUGGLER",
+    type: "AERIAL_SMUGGLER_PRIVATEER",
     originBurgId: 330, // Zeveed
     originCellId: 2179,
     originFactionId: 25,
@@ -81,7 +81,7 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
       { name: "Airship_Ace", modifier: 0.3 },
       { name: "Ruthless", modifier: 0.3 }
     ],
-    description: "High-altitude corsairs and cloud-skiff runners who smuggle unlicensed aether-cargo past provincial aerial beacons and customs fortresses.",
+    description: "High-altitude corsairs and cloud-skiff runners who smuggle illicit cargo for the Obsidian Cartel or anyone with coin, and double as aerial pirates and privateers.",
     contrabandTypes: ["Unrefined Aerolith Charges", "Smuggled Feather-Silk", "Barred Navigational Charts", "Untaxed Dragon-Wine"],
     lairTypes: ["CONTRABAND_DOCK", "SKY_CORSAIR_CACHE"],
     speciesDistribution: [{ species: "Human", weight: 0.4 }, { species: "Avian", weight: 0.4 }, { species: "Felid", weight: 0.2 }],
@@ -189,7 +189,7 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
   {
     id: 5,
     name: "The Ghostwind Raiders",
-    type: "RAIDER",
+    type: "MERCENARY_REAVERS",
     originBurgId: 115, // Port Sunder
     originCellId: 24364,
     originFactionId: 18,
@@ -201,7 +201,7 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
       { name: "Reaver", modifier: 0.4 },
       { name: "Elusive", modifier: 0.3 }
     ],
-    description: "Coastal reavers and hidden cove pirates preying upon merchant galleons along the storm-churned reefs of the Sunder Channel.",
+    description: "Ruthless sellsword reavers and iron privateers who take covert military contracts to raid trade arteries, burn rival granaries, and shatter fortifications.",
     contrabandTypes: ["Plundered Spices", "Salvaged Ship Timber", "Pirate Flag Emblems", "Barrels of Stolen Port Rum"],
     lairTypes: ["RAIDER_REDOUBT", "SMUGGLER_COVE"],
     speciesDistribution: [{ species: "Human", weight: 0.4 }, { species: "Seal", weight: 0.3 }, { species: "Otter", weight: 0.3 }],
@@ -229,7 +229,7 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
   {
     id: 6,
     name: "The Obsidian Cartel",
-    type: "BLACK_MARKET",
+    type: "CRIME_SYNDICATE",
     originBurgId: 340, // Forgespire
     originCellId: 13802,
     originFactionId: 7, // Iron Caldera
@@ -241,7 +241,7 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
       { name: "Smuggler", modifier: 0.4 },
       { name: "Obsidian_Artificer", modifier: 0.5 }
     ],
-    description: "Illicit shadow-miners, black-glass weapon smiths, and void-matter smugglers who strip forbidden volcanic veins for chaos-resonant crystals.",
+    description: "The premier underworld shadow cartel: traffics illegal contraband, establishes subterranean vice dens and black markets, and brokers lethal contract killings across major burgs.",
     contrabandTypes: ["Raw Obsidian Shards", "Volcanic Void-Glass Kris", "Crackling Chaos-Resonant Gems", "Scorched Blast-Powder"],
     lairTypes: ["OBSIDIAN_VAULT", "BLACK_GLASS_FOUNDRY"],
     speciesDistribution: [{ species: "Human", weight: 0.3 }, { species: "Saurian", weight: 0.4 }, { species: "Armadillo", weight: 0.3 }],
@@ -349,7 +349,7 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
   {
     id: 9,
     name: "The Grind Canyon Corps",
-    type: "STRIP_MINER",
+    type: "CHASM_STRIP_MINER",
     originBurgId: 343, // Anvil Roosts
     originCellId: 23152,
     originFactionId: 15, // Dust-Husk Riders
@@ -361,7 +361,7 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
       { name: "Trench_Master", modifier: 0.4 },
       { name: "Greedy", modifier: 0.3 }
     ],
-    description: "Heavy trench strip-miners, scrap scavengers, and canyon raiders who tear through ravines, enslaving runaway laborers to smelt outlaw metals.",
+    description: "Heavy trench strip-miners, chasm divers, and scrap scavengers who hoist raw dragonstone, pre-Cruor relics, and unsmelted ores from bottomless chasms.",
     contrabandTypes: ["Stolen Slag Ingots", "Blasting Cord Bundles", "Unregulated Dragon-Ore Crates", "Indentured Labor Ledgers"],
     lairTypes: ["CANYON_STRIP_REDOUBT", "ILLEGAL_CHAIN_GANG_QUARRY"],
     speciesDistribution: [{ species: "Wolf-Kin", weight: 0.4 }, { species: "Saurian", weight: 0.3 }, { species: "Human", weight: 0.3 }],

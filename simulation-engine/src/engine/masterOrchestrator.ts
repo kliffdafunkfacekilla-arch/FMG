@@ -48,7 +48,7 @@ export async function executeMasterTick(): Promise<{status: string, currentTick:
         });
 
         // 3. Burg Operations
-        await runBurgOperationsAgent(client, tick);
+        await runBurgOperationsAgent(client, tick, loreDate);
 
         // 4. Local Paragon AI
         await runLocalParagonAgent(client, tick);
