@@ -295,3 +295,45 @@ export async function backfillBlankPersonas(client: any): Promise<number> {
 
   return blankRes.rows.length;
 }
+
+/**
+ * Injects narrative tags and emotional state updates into real citizens of a burg
+ */
+export async function tagBurgCitizens(
+  client: any,
+  settlementId: number,
+  tags: string[],
+  newTemper?: string | null,
+  newMotivation?: string | null,
+  professionFilter?: string | null,
+  limit: number = 4
+): Promise<number> {
+  try {
+    const tagsJson = JSON.stringify(tags);
+    const res = await client.query(`
+      UPDATE population_demographics
+      SET traits = (
+          SELECT jsonb_agg(DISTINCT elem)
+          FROM (
+              SELECT jsonb_array_elements_text(COALESCE(traits, '[]'::jsonb)) AS elem
+              UNION
+              SELECT jsonb_array_elements_text($1::jsonb) AS elem
+          ) t
+      ),
+      temper = COALESCE($2, temper),
+      motivation = COALESCE($3, motivation)
+      WHERE citizen_id IN (
+          SELECT citizen_id FROM population_demographics
+          WHERE settlement_id = $4
+          AND ($5::text IS NULL OR profession ILIKE $5)
+          AND allegiance_status = 'CIVILIAN'
+          ORDER BY RANDOM()
+          LIMIT $6
+      )
+      RETURNING citizen_id
+    `, [tagsJson, newTemper || null, newMotivation || null, settlementId, professionFilter || null, limit]);
+    return res.rowCount || 0;
+  } catch (err) {
+    return 0;
+  }
+}

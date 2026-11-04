@@ -283,6 +283,7 @@ export function Dashboard() {
   const [sectorEvents, setSectorEvents] = useState<SimEvent[]>([]);
   const [fringeEvents, setFringeEvents] = useState<SimEvent[]>([]);
   const [tierFilter, setTierFilter] = useState<string>("ALL");
+  const [burgCitizens, setBurgCitizens] = useState<any[]>([]);
 
   // Fetch core simulation state
   const fetchState = useCallback(async () => {
@@ -408,6 +409,20 @@ export function Dashboard() {
 
     loadSectorEvents();
   }, [selectedBurg, selectedPrison, isConvergenceSelected, tierFilter, state?.calendar?.tick]);
+
+  // Fetch sampled living citizens with active narrative tags when a burg is selected
+  useEffect(() => {
+    if (!selectedBurg) {
+      setBurgCitizens([]);
+      return;
+    }
+    fetch(`/api/observer/burg_citizens?burg_id=${selectedBurg.burg_id}&limit=8`)
+      .then(r => r.json())
+      .then(d => {
+        setBurgCitizens(d.citizens || []);
+      })
+      .catch(() => {});
+  }, [selectedBurg, state?.calendar?.tick]);
 
   // Fetch filtered fringe faction events when fringe selection changes
   useEffect(() => {
@@ -796,6 +811,49 @@ export function Dashboard() {
                             {p.corruption_score > 0 && <span style={{ color: "#f59e0b", fontSize: 10 }}>[Corr: {p.corruption_score}]</span>}
                           </div>
                         ))}
+                      </div>
+                    )}
+
+                    {/* Living Tagged Citizens in this Burg */}
+                    {burgCitizens.length > 0 && (
+                      <div style={{ marginTop: 12, borderTop: "1px solid #1e293b", paddingTop: 10 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", marginBottom: 6, display: "flex", justifyContent: "space-between" }}>
+                          <span>Living Tagged Citizens ({burgCitizens.length} sampled):</span>
+                          <span style={{ color: "#64748b", fontStyle: "italic", fontSize: 10 }}>Tagged via live macro events & mayor decrees</span>
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 8 }}>
+                          {burgCitizens.map(c => {
+                            const traits = Array.isArray(c.traits) ? c.traits : [];
+                            const tagList = traits.filter((t: string) => typeof t === 'string' && t.startsWith("#"));
+                            return (
+                              <div key={c.citizen_id} style={{ background: "#0b1220", border: "1px solid #1e293b", borderRadius: 6, padding: "6px 8px", fontSize: 11 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                  <div>
+                                    <strong style={{ color: "#f8fafc" }}>{c.name}</strong>
+                                    <span style={{ color: "#64748b", marginLeft: 4 }}>({c.profession})</span>
+                                  </div>
+                                  <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: c.temper === 'DESPERATE' || c.temper === 'REBELLIOUS' ? 'rgba(239,68,68,0.2)' : 'rgba(56,189,248,0.2)', color: c.temper === 'DESPERATE' || c.temper === 'REBELLIOUS' ? '#f87171' : '#38bdf8' }}>
+                                    {c.temper}
+                                  </span>
+                                </div>
+                                {tagList.length > 0 && (
+                                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
+                                    {tagList.map((tg: string) => (
+                                      <span key={tg} style={{ fontSize: 9, fontWeight: 700, padding: "1px 4px", borderRadius: 3, background: tg.includes("Famine") || tg.includes("Curfew") ? "rgba(239, 68, 68, 0.25)" : "rgba(168, 85, 247, 0.25)", color: tg.includes("Famine") || tg.includes("Curfew") ? "#fca5a5" : "#d8b4fe" }}>
+                                        {tg}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                                {c.motivation && (
+                                  <div style={{ marginTop: 4, fontSize: 10, color: "#94a3b8", fontStyle: "italic", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                    "{c.motivation}"
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     )}
                   </div>

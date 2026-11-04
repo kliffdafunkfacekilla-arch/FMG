@@ -1,3 +1,5 @@
+import { tagBurgCitizens } from "./citizenPersonaHelper";
+
 const ADULT_TRADE_MAP: Record<string, string> = {
     "Forge Apprentice": "Blacksmith",
     "Weaver Youth": "Weaver",
@@ -521,6 +523,7 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
                 burg_id: burg.burg_id,
                 lore_date: loreDate
             });
+            await tagBurgCitizens(client, burg.burg_id, ['#FamineStricken', '#DesperateRationing'], 'DESPERATE', `Desperately searching for grain in ${burg.name} after severe famine struck.`, null, 6);
         } else if (newFood === 0 && (burg.food || 0) > 0) {
             burgEvents.push({
                 tick,
@@ -530,6 +533,7 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
                 burg_id: burg.burg_id,
                 lore_date: loreDate
             });
+            await tagBurgCitizens(client, burg.burg_id, ['#FamineStricken', '#BreadRioter'], 'ANGRY', `Threatening to storm the municipal granaries of ${burg.name} as bread supplies ran out.`, '%laborer%', 4);
         }
 
         if (urbanTier > (burg.urban_tier || 1)) {
@@ -542,6 +546,7 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
                 burg_id: burg.burg_id,
                 lore_date: loreDate
             });
+            await tagBurgCitizens(client, burg.burg_id, ['#BoomtownCitizen', '#MasterArtisan'], 'INSPIRED', `Expanding craft workshops to meet the boom of ${burg.name}'s new urban charter.`, null, 4);
         }
 
         if (newUnrest >= 45 && (burg.unrest || 0) < 45) {
@@ -553,6 +558,8 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
                 burg_id: burg.burg_id,
                 lore_date: loreDate
             });
+            await tagBurgCitizens(client, burg.burg_id, ['#CurfewDefier', '#AgitatedCitizen'], 'REBELLIOUS', `Joining secret assemblies in ${burg.name} to resist marshal patrols.`, '%laborer%', 4);
+            await tagBurgCitizens(client, burg.burg_id, ['#CurfewEnforcer', '#VigilantGuard'], 'WARY', `Patrolling the avenues of ${burg.name} under martial law curfews.`, '%watch%', 4);
         }
 
         if (receivedTribute && (receivedTribute.food > 50 || receivedTribute.wealth > 20) && (tick + burg.burg_id) % 7 === 0) {
@@ -564,6 +571,7 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
                 burg_id: burg.burg_id,
                 lore_date: loreDate
             });
+            await tagBurgCitizens(client, burg.burg_id, ['#ProsperousMerchant', '#CaravanPartner'], 'CONTENT', `Brokering lucrative distribution agreements as tributary trade arrived in ${burg.name}.`, '%trader%', 3);
         }
 
         if (foodDelta >= 800 && newFood > 15000 && (tick + burg.burg_id) % 17 === 0) {
@@ -575,6 +583,7 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
                 burg_id: burg.burg_id,
                 lore_date: loreDate
             });
+            await tagBurgCitizens(client, burg.burg_id, ['#BountifulHarvest', '#GrainSurplusProducer'], 'CONTENT', `Rejoicing as agricultural harvests filled the granary towers of ${burg.name}.`, '%farmer%', 3);
         }
 
         let births = 0;
