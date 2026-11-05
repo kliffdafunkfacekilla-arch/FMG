@@ -122,7 +122,11 @@ The backend simulation is driven by an 8-Layer Agentic architecture executed seq
 
 ## 5. Cosmic & Metaphysical Actors
 *   **714 Local Paragons**: Unique individuals across all 352 burgs (Civic Mayors/Reeves, Security Commanders/Marshals, and Underworld Syndicate Bosses) applying localized trait multipliers.
-*   **Wardens vs. Cultists**: Global metaphysical entities fighting a cosmic shadow war. Wardens stabilize the world and protect nature; Cultists sacrifice resources to weaken the 12 Dragon Seals.
+*   **The Grey Wardens (72 Total, ~6 per Prison)**: 1 Eyeless Elder + 5 Warden Sentinels defend each sacred dragon prison.
+*   **Eyeless Elders**: Veteran wardens (`age_ticks >= 80`, low corruption) who undergo the sacred Rite of the Blind Seer to perceive pure cosmic leys (`spark_tier = 'EYELESS_ELDER'`), providing +7 seal repair and projecting guidance tags (`#GuidanceOfTheEyelessElder`, `#EyelessSight`).
+*   **End-of-Life Kamikaze Sacrifice (`WARDEN_FINAL_SACRIFICE`)**: When terminally corrupted by primordial chaos or in desperate defense when a seal falls <= 25%, Wardens choose martyrdom over madness. They detonate their soul-spark in a pure aether supernova, vaporizing all besieging cultists, clearing local eco-blight, and reinforcing the dragon seal (+45%).
+*   **The Void Cults (288 Total, 4:1 Ratio)**: Exactly 4x the Warden population, balanced ~50/50: roughly ~144 secret infiltrators siphoning wealth in the burgs and ~144 active besiegers draining seals at the 12 dragon prisons.
+*   **World-Ending Apocalypse on Broken Seal**: If any sacred seal collapses to `0%`, the trapped Chaos Dragon awakens, triggering a realm-wide cataclysm (`WORLD_ENDING_APOCALYPSE`), spiking global unrest to 100%, and raining apocalyptic chaos fire. Wardens prioritize defense and sacrifice to keep the seals intact.
 
 ## 6. The Chronicler (Data & Output)
 *   **Event Logging**: All major actions across all layers are injected into `sim_events` (Major, Minor, Background tiers).

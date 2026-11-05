@@ -258,7 +258,7 @@ export async function runChaosFlowAgent(
                 const roll = Math.random();
                 if (roll < 0.50) {
                   const cCount = await client.query("SELECT COUNT(*) as cnt FROM sim_agents WHERE role = 'Cultist'");
-                  if (parseInt(cCount.rows[0].cnt) < 30) {
+                  if (parseInt(cCount.rows[0].cnt) < 288) {
                     await client.query(
                       `INSERT INTO sim_agents (name, role, sub_role, location_cell_id, state, corruption, age_ticks, active_plot)
                        VALUES ($1, 'Cultist', 'Cultist_Pilgrim', $2, 'TRAVELING_TO_SEAL', 20, 0, 'Communing with chaotic aether along flow banks')`,
@@ -267,7 +267,7 @@ export async function runChaosFlowAgent(
                   }
                 } else if (roll < 0.80) {
                   const wCount = await client.query("SELECT COUNT(*) as cnt FROM sim_agents WHERE role = 'Warden'");
-                  if (parseInt(wCount.rows[0].cnt) < 16) {
+                  if (parseInt(wCount.rows[0].cnt) < 72) {
                     await client.query(
                       `INSERT INTO sim_agents (name, role, sub_role, location_cell_id, state, corruption, age_ticks, active_plot)
                        VALUES ($1, 'Warden', 'Warden_Sentinel', $2, 'TRAVELING_TO_SEAL', 5, 0, 'Patrolling primordial flow perimeter')`,

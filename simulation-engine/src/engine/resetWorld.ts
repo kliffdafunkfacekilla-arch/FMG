@@ -180,6 +180,7 @@ CREATE TABLE sim_events (
   lore_date  TEXT,
   burg_id    INT,
   faction_id INT,
+  cell_id    INT,
   z_layer    INT  DEFAULT 0
 );
 
@@ -880,48 +881,152 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
       );
     }
 
-    // ── 13. Agents (Clean Elite Order of Grey Wardens & Initial Cultists) ───
+    // ── 13. Agents (Elite Order of Grey Wardens & Cultists) ───
     await client.query("DELETE FROM sim_agents");
     
-    // Seed 12 Elite Grey Wardens at the Spire of Convergence (Cell 16166)
-    const WARDEN_NAMES = [
-      "Corvus Wind-Rider", "Kaelis Stone-Back", "Fenrir Moon-Stalker", "Leona Shadow-Pounce",
-      "Morwen Blackwood", "Danica Clearwater", "Theron Frost", "Gareth Ashfall",
-      "Torben Brawn-Hammer", "Skoll Grey-Pelt", "Vesper Sun-Basker", "Rowan Deep-Root"
-    ];
-    for (let i = 0; i < WARDEN_NAMES.length; i++) {
+    // Fetch all 12 Sacred Groves (Dragon Prisons)
+    const allGrovesRes = await client.query("SELECT id, cell_id, dragon_name, power_domain FROM sim_sacred_groves ORDER BY id ASC");
+    const grovesList = allGrovesRes.rows;
+
+    const WARDEN_PATRONYMICS = ["Wind-Rider", "Stone-Back", "Moon-Stalker", "Shadow-Pounce", "Blackwood", "Clearwater", "Frost", "Ashfall", "Brawn-Hammer", "Grey-Pelt", "Sun-Basker", "Deep-Root"];
+
+    // 1. Seed ~6 Wardens per Dragon Prison (72 Wardens Worldwide, including Eyeless Elders)
+    for (let gIdx = 0; gIdx < grovesList.length; gIdx++) {
+      const g = grovesList[gIdx];
+      
+      // 1 Eyeless Elder per Grove (Blind Seer)
       await client.query(`
         INSERT INTO sim_agents (
           name, citizen_name, profession, species, spark_tier,
           personality_temper, personality_instinct, motivation,
-          role, sub_role, location_cell_id, state,
+          role, sub_role, location_cell_id, target_grove_id, state,
           corruption, age_ticks, active_plot
         ) VALUES (
-          $1, $2, 'Grey Warden Sentinel', 'Human', 'ADEPT',
-          'STOIC', 'WARY', 'Defending the 12 Dragon Seals and maintaining cosmic vigil',
-          'Warden', 'Warden_Sentinel', 16166, 'AT_SPIRE',
-          0, 0, 'Vigil at the Spire of Convergence'
+          $1, $2, 'Eyeless Elder Seer', 'Human', 'EYELESS_ELDER',
+          'STOIC', 'WARY', $3,
+          'Warden', 'Eyeless_Elder', $4, $5, 'STRENGTHENING_SEAL',
+          0, 150, $6
         )
-      `, [`Warden ${WARDEN_NAMES[i]}`, WARDEN_NAMES[i]]);
+      `, [
+        `Eyeless Elder of ${g.dragon_name}`,
+        `Elder of ${g.dragon_name}`,
+        `Guiding the cosmic vigil and piercing cosmic leys with starlight-filled sockets`,
+        g.cell_id, g.id,
+        `Seer vigil over the Prison of ${g.dragon_name}`
+      ]);
+
+      // 5 Warden Sentinels per Grove
+      for (let sIdx = 1; sIdx <= 5; sIdx++) {
+        const pName = WARDEN_PATRONYMICS[(gIdx + sIdx) % WARDEN_PATRONYMICS.length];
+        const temper = sIdx % 3 === 0 ? 'COMPASSIONATE' : sIdx % 2 === 0 ? 'SCHOLARLY' : 'STOIC';
+        const age = 20 + sIdx * 10;
+        await client.query(`
+          INSERT INTO sim_agents (
+            name, citizen_name, profession, species, spark_tier,
+            personality_temper, personality_instinct, motivation,
+            role, sub_role, location_cell_id, target_grove_id, state,
+            corruption, age_ticks, active_plot
+          ) VALUES (
+            $1, $2, 'Grey Warden Sentinel', 'Human', 'ADEPT',
+            $3, 'WARY', 'Defending the ancient Dragon Prison from encroaching cultists',
+            'Warden', 'Warden_Sentinel', $4, $5, 'STRENGTHENING_SEAL',
+            5, $6, $7
+          )
+        `, [
+          `Warden Sentinel ${pName} #${sIdx}`,
+          `Sentinel ${pName}`,
+          temper,
+          g.cell_id, g.id,
+          age,
+          `Anchoring the seal of ${g.dragon_name}`
+        ]);
+      }
     }
 
-    // Seed 12 Cultist Infiltrators across top initial burgs
-    const topBurgsRes = await client.query("SELECT burg_id, cell_id, name FROM sim_burg_economy ORDER BY unrest DESC, wealth DESC LIMIT 12");
-    for (let i = 0; i < topBurgsRes.rows.length; i++) {
-      const b = topBurgsRes.rows[i];
+    // 2. Seed Cultists: Exactly 4x Warden Count (288 Cultists Worldwide)
+    // Half (144) actively breaking seals at the 12 sacred groves (12 cultists per grove)
+    for (const g of grovesList) {
+      // 1 High Priest
       await client.query(`
         INSERT INTO sim_agents (
           name, citizen_name, profession, species, spark_tier,
           personality_temper, personality_instinct, motivation,
-          role, sub_role, home_burg_id, location_cell_id,
-          state, corruption, age_ticks, active_plot
+          role, sub_role, location_cell_id, target_grove_id, state,
+          corruption, age_ticks, active_plot
         ) VALUES (
-          $1, $2, 'Acolyte of the Abyss', 'Human', 'CHANNELER',
-          'FANATICAL', 'AGGRESSIVE', 'Shattering the 12 Dragon Seals to release primordial chaos',
-          'Cultist', 'Cultist_Infiltrator', $3, $4,
-          'INFILTRATING', 5, 0, $5
+          $1, $2, 'High Priest of the Void', 'Human', 'ADEPT',
+          'FANATICAL', 'AGGRESSIVE', 'Shattering the dragon seal to unleash the primordial apocalypse',
+          'Cultist', 'Cult_Priest', $3, $4, 'BESIEGING_SEAL',
+          75, 45, $5
         )
-      `, [`Cultist Initiate of ${b.name}`, `Initiate of ${b.name}`, b.burg_id, b.cell_id, `Infiltrating ${b.name}`]);
+      `, [
+        `High Priest of ${g.dragon_name}`,
+        `Priest of ${g.dragon_name}`,
+        g.cell_id, g.id,
+        `Channeling dark rites to shatter the seal of ${g.dragon_name}`
+      ]);
+
+      // 11 Besieging Cultist Zealots
+      for (let cIdx = 1; cIdx <= 11; cIdx++) {
+        const temper = cIdx % 2 === 0 ? 'FANATICAL' : 'DESPERATE';
+        const cAge = 10 + cIdx * 2;
+        await client.query(`
+          INSERT INTO sim_agents (
+            name, citizen_name, profession, species, spark_tier,
+            personality_temper, personality_instinct, motivation,
+            role, sub_role, location_cell_id, target_grove_id, state,
+            corruption, age_ticks, active_plot
+          ) VALUES (
+            $1, $2, 'Void Cultist Zealot', 'Human', 'CHANNELER',
+            $3, 'AGGRESSIVE', 'Draining the ancient dragon seal to awaken their primordial god',
+            'Cultist', 'Cultist_Pilgrim', $4, $5, 'BESIEGING_SEAL',
+            35, $6, $7
+          )
+        `, [
+          `Cabal Zealot #${cIdx} of ${g.dragon_name}`,
+          `Zealot #${cIdx} of ${g.dragon_name}`,
+          temper,
+          g.cell_id, g.id,
+          cAge,
+          `Besieging the Prison of ${g.dragon_name}`
+        ]);
+      }
+    }
+
+    // The other half (144) spreading corruption and recruiting in the burgs in secret
+    const allBurgsRes = await client.query("SELECT burg_id, cell_id, name FROM sim_burg_economy ORDER BY burg_id ASC");
+    const burgList = allBurgsRes.rows;
+    const cultistsPerBurg = Math.ceil(144 / Math.max(1, burgList.length));
+    let seededInfiltrators = 0;
+
+    for (let bIdx = 0; bIdx < burgList.length && seededInfiltrators < 144; bIdx++) {
+      const b = burgList[bIdx];
+      const countForThisBurg = Math.min(cultistsPerBurg, 144 - seededInfiltrators);
+      for (let k = 1; k <= countForThisBurg; k++) {
+        const temper = k % 3 === 0 ? 'GREEDY' : k % 2 === 0 ? 'BITTER' : 'DESPERATE';
+        const kAge = 5 + k;
+        await client.query(`
+          INSERT INTO sim_agents (
+            name, citizen_name, profession, species, spark_tier,
+            personality_temper, personality_instinct, motivation,
+            role, sub_role, home_burg_id, location_cell_id,
+            state, corruption, age_ticks, active_plot
+          ) VALUES (
+            $1, $2, 'Secret Cult Infiltrator', 'Human', 'CHANNELER',
+            $3, 'STEALTHY', 'Spreading corruption, siphoning municipal wealth, and recruiting converts in secret',
+            'Cultist', 'Cultist_Infiltrator', $4, $5,
+            'INFILTRATING', 15, $6, $7
+          )
+        `, [
+          `Shadow Infiltrator #${k} of ${b.name}`,
+          `Infiltrator #${k} of ${b.name}`,
+          temper,
+          b.burg_id, b.cell_id,
+          kAge,
+          `Infiltrating municipal guilds and recruiting converts in secret in ${b.name}`
+        ]);
+        seededInfiltrators++;
+      }
     }
 
     const tablesToResetSeq = ['sim_infrastructure', 'sim_agents', 'sim_sacred_groves', 'sim_fringe_lairs', 'sim_ghostwind_dead_drops', 'sim_events', 'sim_trade_routes', 'sim_chaos_zones', 'sim_outlaw_factions', 'sim_calendar', 'sim_diplomacy'];

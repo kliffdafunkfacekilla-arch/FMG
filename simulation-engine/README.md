@@ -44,7 +44,12 @@ Every execution of `/api/observer/tick` runs this exact agentic sequence:
 4. **`paragonPlanningAgent.ts`**: Executes personality-driven trait modifiers for local burg leaders.
 5. **`factionPlanningAgent.ts`**: Evaluates faction military, treasury, and geopolitical goals.
 6. **`cartelAgent.ts`**: Grows criminal syndicates, establishes subterranean lairs, and triggers turf wars.
-7. **`wardenAgent.ts` & `cultistAgent.ts`**: Metaphysical actors fighting over the 12 Dragon Seals.
+7. **`wardenAgent.ts` & `cultistAgent.ts`**: Metaphysical actors fighting over the 12 Dragon Seals:
+   - **The Grey Wardens (72 Total, ~6 per Prison)**: 1 Eyeless Elder + 5 Warden Sentinels defend each sacred dragon prison.
+   - **Eyeless Elders**: Veteran wardens (`age_ticks >= 80`, low corruption) undergo the sacred Rite of the Blind Seer to become `Eyeless_Elder` (`spark_tier = 'EYELESS_ELDER'`), channeling starlight leys (+7 seal repair bonus, high corruption resistance, granting elder guidance tags).
+   - **End-of-Life Kamikaze Sacrifice (`WARDEN_FINAL_SACRIFICE`)**: When terminally corrupted by primordial chaos (or in desperate defense when a seal falls <= 25%), Wardens choose martyrdom over madness. They detonate their soul-spark in a pure aether supernova, vaporizing all besieging cultists, clearing all local eco-blight, and reinforcing the dragon seal (+45%).
+   - **The Void Cults (288 Total, 4:1 Ratio)**: Exactly 4x the Warden population, balanced ~50/50: roughly ~144 secret infiltrators siphoning wealth in the burgs and ~144 active besiegers draining seals at the 12 dragon prisons.
+   - **World-Ending Apocalypse on Broken Seal**: If any sacred seal collapses to `0%`, the trapped Chaos Dragon awakens, triggering a realm-wide cataclysm (`WORLD_ENDING_APOCALYPSE`), spiking global unrest to 100%, and raining apocalyptic chaos fire.
 8. **`encounterAgent.ts`**: Roaming predators, prey herds, wayfarer caravans, and anomaly migrations.
 9. **`chroniclerAgent.ts`**: Commits historical milestones to `sim_events`.
 

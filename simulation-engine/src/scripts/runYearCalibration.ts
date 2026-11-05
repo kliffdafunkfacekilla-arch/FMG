@@ -12,9 +12,13 @@ interface TelemetrySnapshot {
   avgHealth: number;
   avgCrime: number;
   wardenCount: number;
+  eyelessElders: number;
   cultistCount: number;
+  cultInfiltrators: number;
+  cultBesiegers: number;
   minSeal: number;
   avgSeal: number;
+  kamikazeCount: number;
   totalLairs: number;
   totalEvents: number;
 }
@@ -31,20 +35,32 @@ async function captureSnapshot(client: any, tick: number, season: string): Promi
   `);
 
   const agentsRes = await client.query(`
-    SELECT role, COUNT(*) as cnt
+    SELECT role, sub_role, state, COUNT(*) as cnt
     FROM sim_agents
-    GROUP BY role
+    GROUP BY role, sub_role, state
   `);
-  let wardens = 0, cultists = 0;
+  let wardens = 0, elders = 0, cultists = 0, cultInfiltrators = 0, cultBesiegers = 0;
   for (const r of agentsRes.rows) {
-    if (r.role === 'Warden') wardens = parseInt(r.cnt);
-    if (r.role === 'Cultist') cultists = parseInt(r.cnt);
+    const c = parseInt(r.cnt);
+    if (r.role === 'Warden') {
+      wardens += c;
+      if (r.sub_role === 'Eyeless_Elder') elders += c;
+    }
+    if (r.role === 'Cultist') {
+      cultists += c;
+      if (r.state === 'INFILTRATING') cultInfiltrators += c;
+      if (r.state === 'BESIEGING_SEAL' || r.state === 'TRAVELING_TO_SEAL') cultBesiegers += c;
+    }
   }
 
   const sealRes = await client.query(`
     SELECT MIN(seal_strength) as min_s, AVG(seal_strength) as avg_s
     FROM sim_sacred_groves
   `);
+
+  const kamikazeRes = await client.query(
+    "SELECT COUNT(*) as total FROM sim_events WHERE type = 'WARDEN_FINAL_SACRIFICE'"
+  );
 
   const lairRes = await client.query(`SELECT COUNT(*) as total FROM sim_fringe_lairs`);
   const eventRes = await client.query(`SELECT COUNT(*) as total FROM sim_events`);
@@ -62,9 +78,13 @@ async function captureSnapshot(client: any, tick: number, season: string): Promi
     avgHealth: Math.round((parseFloat(e.avg_health) || 0) * 10) / 10,
     avgCrime: Math.round((parseFloat(e.avg_crime) || 0) * 10) / 10,
     wardenCount: wardens,
+    eyelessElders: elders,
     cultistCount: cultists,
+    cultInfiltrators,
+    cultBesiegers,
     minSeal: Math.round(parseFloat(s.min_s) || 100),
     avgSeal: Math.round((parseFloat(s.avg_s) || 100) * 10) / 10,
+    kamikazeCount: parseInt(kamikazeRes.rows[0]?.total) || 0,
     totalLairs: parseInt(lairRes.rows[0]?.total) || 0,
     totalEvents: parseInt(eventRes.rows[0]?.total) || 0
   };
@@ -143,6 +163,47 @@ export async function runYearCalibration() {
     `);
     console.table(groves.rows);
 
+    console.log("\n--- Wardens & Eyeless Elders Roster ---");
+    const wardensSummary = await client.query(`
+      SELECT sub_role, spark_tier, COUNT(*) as count, AVG(age_ticks)::int as avg_age, AVG(corruption)::int as avg_corruption
+      FROM sim_agents
+      WHERE role = 'Warden'
+      GROUP BY sub_role, spark_tier
+    `);
+    console.table(wardensSummary.rows);
+
+    console.log("\n--- Cultist Distribution (Burg Infiltrators vs Seal Besiegers) ---");
+    const cultistsSummary = await client.query(`
+      SELECT state, sub_role, COUNT(*) as count, AVG(corruption)::int as avg_corruption
+      FROM sim_agents
+      WHERE role = 'Cultist'
+      GROUP BY state, sub_role
+      ORDER BY count DESC
+    `);
+    console.table(cultistsSummary.rows);
+
+    console.log("\n--- Broken Seals / World Apocalypse Status ---");
+    const apocalypseCheck = await client.query(`
+      SELECT id, tick, type, message, tier, lore_date
+      FROM sim_events
+      WHERE type = 'WORLD_ENDING_APOCALYPSE'
+    `);
+    if (apocalypseCheck.rowCount === 0) {
+      console.log("SUCCESS: No dragon seals broken. The world survives through Warden sacrifice and vigilance!");
+    } else {
+      console.table(apocalypseCheck.rows);
+    }
+
+    console.log("\n--- Heroic Kamikaze Sacrifices Logged ---");
+    const kamikazeLog = await client.query(`
+      SELECT id, tick, message, lore_date
+      FROM sim_events
+      WHERE type = 'WARDEN_FINAL_SACRIFICE'
+      ORDER BY tick DESC
+      LIMIT 10
+    `);
+    console.table(kamikazeLog.rows);
+
     console.log("\n--- Fringe Cartels & Lairs Status ---");
     const outlaws = await client.query(`
       SELECT o.id, o.name, o.manpower as central_reserve, o.wealth,
@@ -182,7 +243,7 @@ export async function runYearCalibration() {
     `);
     console.table(deadDrops.rows);
 
-    console.log("\n--- Active Citizen Rumor Tags (Ghostwind & Ghostspring) ---");
+    console.log("\n--- Active Citizen Rumor & Environmental Tags ---");
     const rumorTags = await client.query(`
       SELECT elem as tag, COUNT(*) as citizen_count
       FROM population_demographics,
@@ -190,7 +251,7 @@ export async function runYearCalibration() {
       WHERE elem = ANY($1::text[])
       GROUP BY elem
       ORDER BY citizen_count DESC
-    `, [["#GhostwindRumor", "#BlameRivalFaction", "#SpectralAirshipSighting", "#LockedRoomMystery", "#DeadDropSuccess", "#HauntedSpringsLegend", "#PaleGhostSighting"]]);
+    `, [["#GhostwindRumor", "#BlameRivalFaction", "#SpectralAirshipSighting", "#LockedRoomMystery", "#DeadDropSuccess", "#HauntedSpringsLegend", "#PaleGhostSighting", "#GuidanceOfTheEyelessElder", "#EyelessSight", "#PropheticVigil", "#SacrificialAetherCrater", "#HallowedMartyrGround"]]);
     console.table(rumorTags.rows);
 
   } finally {
