@@ -189,38 +189,38 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
   {
     id: 5,
     name: "The Ghostwind Raiders",
-    type: "MERCENARY_REAVERS",
+    type: "PHANTOM_PRIVATEER",
     originBurgId: 115, // Port Sunder
     originCellId: 24364,
-    originFactionId: 18,
+    originFactionId: 1, // Guerrilla Clans
     bossName: "Corsair Queen Lyra Ghostwind",
-    bossTitle: "Commander of the Covert Fleet",
+    bossTitle: "Captain of The Ghostwind",
     bossTraits: [
-      { name: "Guerrilla_Sympathizer", modifier: 0.5 },
-      { name: "Covert_Aeronaut", modifier: 0.5 },
-      { name: "Reaver", modifier: 0.4 },
-      { name: "Elusive", modifier: 0.4 }
+      { name: "Guerrilla_Loyalist", modifier: 0.5 },
+      { name: "Phantom_Aeronaut", modifier: 0.5 },
+      { name: "Dead_Drop_Broker", modifier: 0.4 },
+      { name: "Elusive", modifier: 0.5 }
     ],
-    description: "Secret airship fleet operating under mercenary sellsword cover, covertly serving as the aerial fleet of the Guerrilla Clans. Executes devastating strikes for coin while secretly routing plundered munitions and gold to Clan territory.",
-    contrabandTypes: ["Covert Aerial Torpedoes", "Stolen Sovereign War-Flags", "Disguised Airship Hull Plates", "Smuggled Arms for Guerrilla Clans"],
-    lairTypes: ["SECRET_AIRSHIP_HANGAR", "CLAN_COVERT_REDOUBT"],
+    description: "A single legendary ghost airship, The Ghostwind, operating from one covert hidden cove in Guerrilla Clan lands. Contracts via dead drops from 4 major sovereign powers—none of whom realize they are all hiring the same vessel to raid each other in a circle, nor that it's hitting them too! Once a season, executes a phantom strike where least expected, subdues the crew, loots the ship down to its bare hull, and leaves a single captive capable of freeing themselves after hours. Seized gold is routed back to the Guerrilla Clans, while the larger portion is dead-dropped to outer rural burgs where local smugglers distribute it.",
+    contrabandTypes: ["Phantom Muffled Sails", "Dead-Drop Seal Cylinders", "Stripped Convoy Cargo", "Smuggled Arms for Guerrilla Clans"],
+    lairTypes: ["CLAN_COVERT_COVE"],
     speciesDistribution: [{ species: "Human", weight: 0.4 }, { species: "Seal", weight: 0.3 }, { species: "Otter", weight: 0.3 }],
     uniqueRoles: [
       {
-        role: "Guerrilla Sky-Reaver",
-        weapon: "Dual Serrated Boarding Sabres",
-        armor: "Oilcloth & Hidden Chain Jerkin",
+        role: "Ghostwind Rigging-Phantom",
+        weapon: "Dual Serrated Boarding Sabres & Silk Choke-Cord",
+        armor: "Muffled Oilcloth & Shrouded Chain Jerkin",
         affinity: "reflex",
         inventory: ["Concealed Guerrilla Clan Sigil", "Boarding Grapple", "Pouch of 60 Plundered Gold"],
         instinct: "FEROCIOUS",
         temper: "DEVOUT"
       },
       {
-        role: "Covert Airship Bombardier",
-        weapon: "Repeating Pyrotechnic Sling & Dagger",
-        armor: "Fireproof Leather Smock",
+        role: "Dead-Drop Shadow Courier",
+        weapon: "Silent Repeating Crossbow & Flint Dagger",
+        armor: "Camouflaged Travel Leathers",
         affinity: "awareness",
-        inventory: ["Aerial Incendiary Bombs", "Telescopic Rangefinder", "Pouch of 40 Silver"],
+        inventory: ["Wax-Sealed Dead Drop Cylinder", "Ciphered Quad-Court Manifest", "Pouch of 40 Silver"],
         instinct: "TACTICAL",
         temper: "STOIC"
       }
@@ -269,7 +269,7 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
   {
     id: 7,
     name: "The Otter Mafia",
-    type: "RIVER_MOB",
+    type: "RIVER_TAVERN_MOB",
     originBurgId: 170, // Lake City
     originCellId: 31865,
     originFactionId: 11, // River Folk
@@ -278,31 +278,31 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
     bossTraits: [
       { name: "Cunning", modifier: 0.5 },
       { name: "Lutrine_Boss", modifier: 0.5 },
-      { name: "Extortionist", modifier: 0.4 },
-      { name: "Water_Whisperer", modifier: 0.4 }
+      { name: "Underwater_Extraction", modifier: 0.5 },
+      { name: "Tavern_Intelligence", modifier: 0.4 }
     ],
-    description: "Lutrine freshwater racketeers controlling the canal locks, fish-barrel dead drops, floating riverboat gambling speakeasies, and waterway shakedowns.",
-    contrabandTypes: ["Illicit Fermented Eel-Wine", "Weighted River-Dice", "Siphoned Canal Fuel", "Extorted Fish-Weir Tithes"],
-    lairTypes: ["RIVERBOAT_CASINO", "SMUGGLERS_FLUME"],
+    description: "Lutrine river racketeers operating lively dockside taverns, riverboat saloons, and gambling flues along continental waterways. They gather rich rumors and sovereign intel from travelers and drunk barge crews, and excel at specialized underwater escapes, river smuggling, and deep submerged retrieval missions.",
+    contrabandTypes: ["Illicit Fermented Eel-Wine", "Submerged Salvage Relics", "Bribed Lockmaster Tokens", "Waterway Gossip & Dossiers"],
+    lairTypes: ["RIVER_TAVERN", "WATERWAY_SALOON", "SMUGGLERS_FLUME"],
     speciesDistribution: [{ species: "Otter", weight: 0.8 }, { species: "Frog", weight: 0.1 }, { species: "Walrus", weight: 0.1 }],
     uniqueRoles: [
       {
-        role: "Lutrine Flume Runner",
-        weapon: "Lutrine Boarding Harpoon & Shark-Tooth Dagger",
-        armor: "Waterproof Treated Otter-Hide Vest",
-        affinity: "finesse",
-        inventory: ["Jar of Illicit Eel-Wine", "Weighted Bone Gaming Dice", "Pouch of 50 Polished River Shells & Coins"],
+        role: "Lutrine Tavernier & Informant",
+        weapon: "Concealed Brass Spigot & Fish-Gutting Dirk",
+        armor: "Embroidered River-Tavern Waistcoat",
+        affinity: "charm",
+        inventory: ["Jug of Vintage Eel-Wine", "Black-Book of Traveler Secrets", "Pouch of 60 Polished River Shells & Coins"],
         instinct: "SLICK",
         temper: "CONVIVIAL"
       },
       {
-        role: "Canal Lock Bruiser",
-        weapon: "Heavy Iron Barge-Pole & Brass Knuckles",
-        armor: "Studded River-Dock Leathers",
-        affinity: "might",
-        inventory: ["Forged Canal Transit Tokens", "Twisted Wire Shackle", "Pouch of 40 Silver"],
-        instinct: "UNFLINCHING",
-        temper: "BLUNT"
+        role: "Submerged Flume Diver",
+        weapon: "Pneumatic Harpoon & Heavy Net",
+        armor: "Waterproof Treated Otter-Hide Diving Suit",
+        affinity: "endurance",
+        inventory: ["Reed Breathing Tube", "Submerged Salvage Hook", "Pouch of 45 Silver"],
+        instinct: "AMPHIBIOUS",
+        temper: "STOIC"
       }
     ]
   },
@@ -349,80 +349,80 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
   {
     id: 9,
     name: "The Grind Canyon Corps",
-    type: "CHASM_STRIP_MINER",
+    type: "NOMADIC_CHASM_HUNTERS",
     originBurgId: 343, // Anvil Roosts
     originCellId: 23152,
     originFactionId: 15, // Dust-Husk Riders
     bossName: "Overman Torvald Gravel-Maw",
-    bossTitle: "Foreman of the Jagged Trench",
+    bossTitle: "Foreman of the Caravan Trenches",
     bossTraits: [
-      { name: "Brutal_Industrialist", modifier: 0.5 },
-      { name: "Iron_Whip", modifier: 0.4 },
-      { name: "Trench_Master", modifier: 0.4 },
-      { name: "Greedy", modifier: 0.3 }
+      { name: "Chasm_Caravan_Master", modifier: 0.5 },
+      { name: "Treasure_Hound", modifier: 0.5 },
+      { name: "Relic_Excavator", modifier: 0.4 },
+      { name: "Greedy", modifier: 0.4 }
     ],
-    description: "Heavy trench strip-miners, chasm divers, and scrap scavengers who hoist raw dragonstone, pre-Cruor relics, and unsmelted ores from bottomless chasms.",
-    contrabandTypes: ["Stolen Slag Ingots", "Blasting Cord Bundles", "Unregulated Dragon-Ore Crates", "Indentured Labor Ledgers"],
-    lairTypes: ["CANYON_STRIP_REDOUBT", "ILLEGAL_CHAIN_GANG_QUARRY"],
+    description: "A loose, self-populating gypsy-like caravan community of chasm divers and treasure hunters. They only pitch camp around an active grinding canyon while working it (never more than 3 active in the world at once). When stationed near a canyon, their wild crews flood the nearest burg with raw dragonstone cash, wild tavern brawls, and municipal corruption until the chasm slams shut.",
+    contrabandTypes: ["Uncut Chasm Dragonstone", "Pre-Cruor Titan Relics", "Heavy Blasting Caps", "Unregistered Smelted Slag"],
+    lairTypes: ["CHASM_DIVE_CAMP"],
     speciesDistribution: [{ species: "Wolf-Kin", weight: 0.4 }, { species: "Saurian", weight: 0.3 }, { species: "Human", weight: 0.3 }],
     uniqueRoles: [
       {
-        role: "Canyon Trench Stripper",
-        weapon: "Two-Handed Pneumatic Trench Sledge",
-        armor: "Welded Scrap-Iron Cuirass",
+        role: "Caravan Chasm Diver",
+        weapon: "Two-Handed Pneumatic Trench Sledge & Pick",
+        armor: "Welded Scrap-Iron Harness & Heavy Rope",
         affinity: "might",
-        inventory: ["Bundle of Blasting Cord", "Quarry Scraper Chisel", "Pouch of 50 Heavy Iron Marks"],
-        instinct: "RELENTLESS",
-        temper: "FEROCIOUS"
+        inventory: ["Titan Relic Fragment", "Chasm Winch Harness", "Pouch of 75 Raw Dragonstone Nuggets"],
+        instinct: "FEARLESS",
+        temper: "BOISTEROUS"
       },
       {
-        role: "Illegal Quarry Taskmaster",
-        weapon: "Barbed Chain-Whip & Heavy Mallet",
-        armor: "Thick Bull-Hide Armor",
-        affinity: "endurance",
-        inventory: ["Master Shackle Keys", "Indentured Roster Ledger", "Pouch of 40 Silver"],
-        instinct: "TYRANNICAL",
-        temper: "CRUEL"
+        role: "Caravan Quartermaster & Fence",
+        weapon: "Barbed Chain-Whip & Heavy Cleaver",
+        armor: "Greasy Bull-Hide Apron & Brass Scales",
+        affinity: "finesse",
+        inventory: ["Caravan Cashbox Key", "Assayer's Streak-Plate", "Pouch of 90 Gold"],
+        instinct: "SHREWD",
+        temper: "ROWDY"
       }
     ]
   },
   {
     id: 10,
     name: "The Hedge Wizards",
-    type: "NOMAD_HEDGE_WIZARDS",
+    type: "NOMADIC_ENTERTAINERS_AND_CHARM_PEDDLERS",
     originBurgId: 241, // Vulpus-Prime
     originCellId: 14380,
     originFactionId: 14, // Canopy Clans
     bossName: "Malidore Thorn-Weaver",
-    bossTitle: "Nomadic Sparkborn Wanderer",
+    bossTitle: "Ringmaster of the Wonder-Wander Troupe",
     bossTraits: [
       { name: "Wild_Spark", modifier: 0.5 },
-      { name: "Solitary_Nomad", modifier: 0.5 },
+      { name: "Carnival_Showman", modifier: 0.5 },
       { name: "Charm_Peddler", modifier: 0.4 },
-      { name: "Elusive", modifier: 0.4 }
+      { name: "Solitary_Nomad", modifier: 0.4 }
     ],
-    description: "Solitary nomadic wanderers moving burg to burg across rural territories peddling charms (ranging from useless junk and useful remedies to chaotic wild surges and backfiring disasters). Never recruit or group up in covens; new wizards emerge when starving sparkborn learn survival on the road.",
-    contrabandTypes: ["Unsealed Wild-Spark Charms", "Curative Bramble Poultices", "Faulty Luck-Pebbles", "Unstable Arcane Alembics"],
-    lairTypes: ["ROADSIDE_HEDGE_WAGON", "WILD_BRAMBLE_CAMP"],
+    description: "Solitary nomadic snake-oil salesmen, bards, entertainers, and tinkerers (mending pots, sharpening knives, and peddling luck pebbles and bramble charms). They never team up or form covens. The sole exception is 'The Wonder-Wander Troupe'—a traveling carnival of eccentric hedge mages, fire-eaters, and acrobats who frequent each sovereign faction once a year to perform, spread joy, and peddle wonders.",
+    contrabandTypes: ["Unsealed Wild-Spark Charms", "Curative Bramble Poultices", "Faulty Luck-Pebbles", "Carnival Curios"],
+    lairTypes: ["TRAVELING_CIRCUS_CARAVAN"],
     speciesDistribution: [{ species: "Human", weight: 0.5 }, { species: "Plant-Folk", weight: 0.3 }, { species: "Peacock", weight: 0.2 }],
     uniqueRoles: [
       {
-        role: "Solitary Wandering Hedge Wizard",
-        weapon: "Carved Rowan Walking Staff & Flint Dagger",
+        role: "Wandering Bard & Knife-Sharpener",
+        weapon: "Worn Lute, Flint Wheel & Honing Stiletto",
         armor: "Patchwork Travel Cloak & Burlap Pack",
-        affinity: "intuition",
-        inventory: ["Sack of Peddled Charms (Junk & Remedies)", "Wild Spark Flint", "Pouch of 25 Copper & Silver"],
-        instinct: "ELUSIVE",
+        affinity: "charm",
+        inventory: ["Honing Stone", "Peddled Luck Pebbles", "Pouch of 25 Copper & Silver"],
+        instinct: "ENTERTAINING",
         temper: "ECCENTRIC"
       },
       {
-        role: "Starving Spark-Nomad",
-        weapon: "Sharpened Ash Wand & Slingshot",
-        armor: "Threadbare Woolen Rags",
+        role: "Wonder-Wander Acrobat-Mage",
+        weapon: "Pyrotechnic Flash-Rod & Ribbon Daggers",
+        armor: "Silk Harlequin Tunic & Spangled Boots",
         affinity: "reflex",
-        inventory: ["Handful of Painted Luck Pebbles", "Crust of Hardtack", "Pouch of 12 Copper Coins"],
-        instinct: "SURVIVALIST",
-        temper: "DESPERATE"
+        inventory: ["Spun Glass Spark-Orb", "Circus Handbill", "Pouch of 35 Shiny Silver Coins"],
+        instinct: "PLAYFUL",
+        temper: "FLAMBOYANT"
       }
     ]
   }

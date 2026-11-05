@@ -361,46 +361,114 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
         }
 
         // =========================================================================
-        // 4. THE GHOSTWIND RAIDERS (ID 5): Secret Airships for the Guerrilla Clans
+        // 4. THE GHOSTWIND RAIDERS (ID 5): 1 Ship, 1 Hidden Lair, Dead-Drop Quad-Contracts,
+        //    Strategic Locked-Room Phantom Strikes & Outer-Burg Smuggler Distribution
         // =========================================================================
         else if (cartelId === 5 || cartelName.includes("Ghostwind")) {
-            // Secret airship mercenaries, secretly serving the Guerrilla Clans (Faction 21)
-            if (tick % 2 === 0) {
-                const hiringFactionRes = await client.query(`
-                    SELECT id, name, treasury FROM sim_factions WHERE id > 0 AND id != 21 AND treasury >= 2500 ORDER BY RANDOM() LIMIT 1
+            // Ensure strictly 1 single hidden lair in existence (anchored in Guerrilla Clan territory)
+            const lairCountRes = await client.query("SELECT COUNT(*) as total FROM sim_fringe_lairs WHERE faction_id = $1", [cartel.id]);
+            if (parseInt(lairCountRes.rows[0].total) === 0) {
+                const clanCell = cartel.origin_cell_id || 24364;
+                await client.query(`
+                    INSERT INTO sim_fringe_lairs (faction_id, cell_id, burg_id, lair_type, manpower, heat)
+                    VALUES ($1, $2, $3, 'CLAN_COVERT_COVE', 45, 10)
+                `, [cartel.id, clanCell, cartel.origin_burg_id || 115]);
+            }
+
+            // Executes a strategic phantom strike roughly once a season (~every 60-66 ticks)
+            if (tick % 66 === 33) {
+                // Dead Drop Contracting: 4 major sovereign powers unwittingly contract the same ship
+                const topPowersRes = await client.query(`
+                    SELECT f.id, f.name, f.treasury
+                    FROM sim_factions f
+                    WHERE f.id NOT IN (1, 21) AND f.treasury >= 400
+                    ORDER BY f.treasury DESC
+                    LIMIT 4
                 `);
-                if (hiringFactionRes.rows.length > 0) {
-                    const clientFaction = hiringFactionRes.rows[0];
-                    const targetBurg = burgs.find(b => b.wealth > 100);
 
+                const powers = topPowersRes.rows;
+                if (powers.length >= 2) {
+                    // One of the top powers is targeted using intel provided in the circular dead drops
+                    const targetIndex = Math.floor(Math.random() * powers.length);
+                    const targetPower = powers[targetIndex];
+                    const contractedBy = powers[(targetIndex + 1) % powers.length];
+
+                    // Find a major supply convoy / burg belonging to target power
+                    const targetBurgRes = await client.query(`
+                        SELECT b.burg_id, b.name, b.wealth, b.food, b.cell_id
+                        FROM sim_burg_economy b
+                        JOIN sim_cells c ON b.cell_id = c.id
+                        WHERE c.faction_id = $1 AND b.wealth >= 80
+                        ORDER BY b.wealth DESC
+                        LIMIT 1
+                    `, [targetPower.id]);
+
+                    const targetBurg = targetBurgRes.rows[0] || burgs[0];
                     if (targetBurg) {
-                        await client.query("UPDATE sim_factions SET treasury = treasury - 500 WHERE id = $1", [clientFaction.id]);
-                        await client.query("UPDATE sim_outlaw_factions SET wealth = COALESCE(wealth, 0) + 250 WHERE id = $1", [cartel.id]);
-                        // Covertly funnel 250 gold directly to the Guerrilla Clans!
-                        await client.query("UPDATE sim_factions SET treasury = treasury + 250 WHERE id = 21");
+                        const plunderWealth = Math.min(Number(targetBurg.wealth), 400);
+                        const plunderFood = Math.min(Number(targetBurg.food), 250);
 
+                        // Loot the target down to its bare hull
                         await client.query(`
                             UPDATE sim_burg_economy
-                            SET food = GREATEST(0, food - 120),
-                                wealth = GREATEST(0, wealth - 70),
-                                unrest = LEAST(100, unrest + 10)
-                            WHERE burg_id = $1
+                            SET wealth = GREATEST(20, wealth - $1),
+                                food = GREATEST(50, food - $2),
+                                unrest = LEAST(100, unrest + 12)
+                            WHERE burg_id = $3
+                        `, [plunderWealth, plunderFood, targetBurg.burg_id]);
+
+                        // Dead drop contracting fee paid by the contracting court
+                        await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 300) WHERE id = $1", [contractedBy.id]);
+
+                        // 1. Portion to Guerrilla Clans (Faction ID 1)
+                        const clanCut = Math.floor(plunderWealth * 0.35);
+                        await client.query("UPDATE sim_factions SET treasury = treasury + $1 WHERE id = 1", [clanCut]);
+
+                        // 2. Larger portion distributed via dead drops to smaller outer burgs away from capitals
+                        const ruralCut = plunderWealth - clanCut;
+                        const outerBurgsRes = await client.query(`
+                            SELECT b.burg_id, b.name
+                            FROM sim_burg_economy b
+                            WHERE b.is_capital = false AND b.burg_id != $1
+                            ORDER BY b.wealth ASC
+                            LIMIT 2
                         `, [targetBurg.burg_id]);
 
+                        const outerBurgs = outerBurgsRes.rows;
+                        const sharePerBurg = outerBurgs.length > 0 ? Math.floor(ruralCut / outerBurgs.length) : 0;
+                        for (const ob of outerBurgs) {
+                            await client.query(`
+                                UPDATE sim_burg_economy
+                                SET wealth = wealth + $1,
+                                    food = food + 100,
+                                    unrest = GREATEST(0, unrest - 4)
+                                WHERE burg_id = $2
+                            `, [sharePerBurg, ob.burg_id]);
+
+                            await client.query(`
+                                INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
+                                VALUES ($1, 'GHOSTWIND_DEAD_DROP_DISTRIBUTION', $2, 'MINOR', $3, $4, $5)
+                            `, [
+                                tick,
+                                `📦 DEAD DROP SMUGGLING: Outlying smugglers near ${ob.name} recovered an untraceable dead drop left by The Ghostwind! Siphoning off their commission, the contraband coin (${sharePerBurg} gold) was quietly circulated into the hands of struggling rural commoners.`,
+                                cartel.id, ob.burg_id, loreDate
+                            ]);
+                        }
+
+                        // Log the seasonal Locked-Room Phantom Raid
                         await client.query(`
                             INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
-                            VALUES ($1, 'GHOSTWIND_COVERT_AIRSHIP_STRIKE', $2, 'MAJOR', $3, $4, $5)
+                            VALUES ($1, 'GHOSTWIND_PHANTOM_RAID', $2, 'MAJOR', $3, $4, $5)
                         `, [
                             tick,
-                            `⚔️ COVERT AIRSHIP STRIKE: Ghostwind Raiders executed a devastating midnight airship raid on supply depots near ${targetBurg.name}, masquerading as neutral mercenaries while secretly routing seized gold to the Guerrilla Clans!`,
+                            `⚔️ THE GHOSTWIND PHANTOM RAID: Emerging silently out of thin air, The Ghostwind ambushed the flagship supply convoy of ${targetPower.name} near ${targetBurg.name}! Armed raiders subdued the entire crew with ruthless finesse and stripped the vessel down to its bare hull. In a signature locked-room mystery escape, the raiders left exactly one captive tied in a knot that could be worked free after four hours—by which time The Ghostwind had vanished into the cloudbanks without a trace! Neither ${targetPower.name} nor the court of ${contractedBy.name} (who paid the dead drop contract) realize the same ghost ship plays all four major powers against each other.`,
                             cartel.id, targetBurg.burg_id, loreDate
                         ]);
                     }
                 }
             }
 
-            // Maintain covert airship hangars
-            await handleLairEstablishment(client, cartel, burgs, tick, loreDate, "SECRET_AIRSHIP_HANGAR", true);
+            // The Ghostwind is strictly 1 single covert airship with 1 hidden lair — NO additional lairs!
         }
 
         // =========================================================================
@@ -538,11 +606,11 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
         }
 
         // =========================================================================
-        // 6. THE HEDGE WIZARDS (ID 10): Solitary Nomads & Peddled Wild Charms
+        // 6. THE HEDGE WIZARDS (ID 10): Solitary Nomads, Entertainers & Peddled Charms
         // =========================================================================
         else if (cartelId === 10 || cartelName.includes("Hedge Wizards") || cartelName.includes("Hedge Wizard")) {
-            // A. No recruitment: starving sparkborn peasants awaken power on the road
-            if (tick % 3 === 0) {
+            // A. Solitary Spark Awakening: Impoverished wanderer learning on the road (NO recruitment/teams)
+            if (tick % 4 === 0) {
                 const ruralBurg = burgs.find(b => b.health < 80 || b.unrest > 8);
                 if (ruralBurg) {
                     await client.query(`
@@ -550,15 +618,70 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
                         VALUES ($1, 'HEDGE_SPARK_AWAKENING', $2, 'MINOR', $3, $4, $5)
                     `, [
                         tick,
-                        `✨ SPARK AWAKENING: Starving on the rural roads outside ${ruralBurg.name}, an impoverished wanderer discovered their innate magical spark, learning through survival to become an independent hedge wizard.`,
+                        `✨ SPARK AWAKENING: Starving on the rural roads outside ${ruralBurg.name}, an impoverished wanderer discovered an innate magical spark—learning through solitary survival to scrape by as an independent hedge wizard.`,
                         cartel.id, ruralBurg.burg_id, loreDate
                     ]);
                 }
             }
 
-            // B. Solitary Nomads Peddling Charms across 4 distinct outcome tiers
+            // B. Wandering Bards & Entertainers: Ballads, sleight of hand, puppet shows
+            if (tick % 3 === 0) {
+                const bardBurg = burgs.find(b => b.wealth > 80);
+                if (bardBurg) {
+                    await client.query(`
+                        UPDATE sim_burg_economy
+                        SET unrest = GREATEST(0, unrest - 2)
+                        WHERE burg_id = $1
+                    `, [bardBurg.burg_id]);
+                    await client.query("UPDATE sim_outlaw_factions SET wealth = COALESCE(wealth, 0) + 20 WHERE id = $1", [cartel.id]);
+
+                    await tagBurgCitizens(
+                        client,
+                        bardBurg.burg_id,
+                        ['#BardicCheer'],
+                        'CONVIVIAL',
+                        `Enchanted by the roadside songs and whimsical lute-ballads of a traveling hedge wizard.`,
+                        '%commoner%',
+                        1
+                    );
+
+                    await client.query(`
+                        INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
+                        VALUES ($1, 'HEDGE_BARD_PERFORMANCE', $2, 'MINOR', $3, $4, $5)
+                    `, [
+                        tick,
+                        `🪕 BARDIC ENTERTAINER: A wandering hedge wizard busked on the street corners of ${bardBurg.name}, singing ancient folk ballads and weaving dancing colored sparks to ease commoner hearts for tossed coppers.`,
+                        cartel.id, bardBurg.burg_id, loreDate
+                    ]);
+                }
+            }
+
+            // C. Practical Tinkering Services: Pot mending, knife sharpening, brazier repair
+            if (tick % 3 === 1) {
+                const tinkerBurg = burgs.find(b => b.wealth > 100);
+                if (tinkerBurg) {
+                    await client.query(`
+                        UPDATE sim_burg_economy
+                        SET raw_materials = raw_materials + 15,
+                            unrest = GREATEST(0, unrest - 1)
+                        WHERE burg_id = $1
+                    `, [tinkerBurg.burg_id]);
+                    await client.query("UPDATE sim_outlaw_factions SET wealth = COALESCE(wealth, 0) + 25 WHERE id = $1", [cartel.id]);
+
+                    await client.query(`
+                        INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
+                        VALUES ($1, 'HEDGE_PRACTICAL_TINKERING', $2, 'MINOR', $3, $4, $5)
+                    `, [
+                        tick,
+                        `🔨 PRACTICAL HEDGE TINKERING: Setting up a whetstone and solder-pot outside the cookhouses of ${tinkerBurg.name}, a solitary hedge wizard mended copper pots and honed butchering blades with subtle heat charms.`,
+                        cartel.id, tinkerBurg.burg_id, loreDate
+                    ]);
+                }
+            }
+
+            // D. Solitary Nomads Peddling Charms across 4 distinct outcome tiers
             const charmBurg = burgs.find(b => b.wealth > 60);
-            if (charmBurg) {
+            if (charmBurg && tick % 2 === 0) {
                 const roll = Math.random();
 
                 // Tier 1: Useless Junk (Placebo, ~35%)
@@ -635,64 +758,221 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
                 }
             }
 
-            // Roadside nomadic camps
-            await handleLairEstablishment(client, cartel, burgs, tick, loreDate, "ROADSIDE_HEDGE_WAGON", true);
+            // E. The Sole Exception: "The Wonder-Wander Troupe" Traveling Circus (Moves every ~45 ticks to visit each faction)
+            if (tick % 45 === 15) {
+                // Find next faction to visit
+                const factionListRes = await client.query(`
+                    SELECT f.id, f.name, b.burg_id, b.name as burg_name, b.cell_id
+                    FROM sim_factions f
+                    JOIN sim_burg_economy b ON b.cell_id IN (SELECT id FROM sim_cells WHERE faction_id = f.id)
+                    WHERE f.id > 0 AND b.wealth > 100
+                    ORDER BY RANDOM()
+                    LIMIT 1
+                `);
+
+                if (factionListRes.rows.length > 0) {
+                    const stop = factionListRes.rows[0];
+
+                    // Check or update the single traveling circus lair
+                    const existingCircus = await client.query(
+                        `SELECT id FROM sim_fringe_lairs WHERE faction_id = $1 AND lair_type = 'TRAVELING_CIRCUS_CARAVAN' LIMIT 1`,
+                        [cartel.id]
+                    );
+
+                    if (existingCircus.rows.length === 0) {
+                        await client.query(`
+                            INSERT INTO sim_fringe_lairs (faction_id, cell_id, burg_id, lair_type, manpower, heat)
+                            VALUES ($1, $2, $3, 'TRAVELING_CIRCUS_CARAVAN', 24, 0)
+                        `, [cartel.id, stop.cell_id, stop.burg_id]);
+                    } else {
+                        await client.query(`
+                            UPDATE sim_fringe_lairs
+                            SET cell_id = $1, burg_id = $2
+                            WHERE id = $3
+                        `, [stop.cell_id, stop.burg_id, existingCircus.rows[0].id]);
+                    }
+
+                    // Festival arrival benefits
+                    await client.query(`
+                        UPDATE sim_burg_economy
+                        SET unrest = GREATEST(0, unrest - 8),
+                            wealth = wealth + 30
+                        WHERE burg_id = $1
+                    `, [stop.burg_id]);
+                    await client.query("UPDATE sim_outlaw_factions SET wealth = COALESCE(wealth, 0) + 120 WHERE id = $1", [cartel.id]);
+
+                    await tagBurgCitizens(
+                        client,
+                        stop.burg_id,
+                        ['#CircusSpectator', '#EnchantedAudience'],
+                        'JOYFUL',
+                        `Spectating breathtaking pyrotechnics and aerial acrobatics performed by The Wonder-Wander Troupe.`,
+                        null,
+                        3
+                    );
+
+                    await client.query(`
+                        INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
+                        VALUES ($1, 'WONDER_WANDER_CIRCUS_ARRIVES', $2, 'CRITICAL', $3, $4, $5)
+                    `, [
+                        tick,
+                        `🎪 THE WONDER-WANDER CIRCUS ARRIVES: The flamboyant wagons of The Wonder-Wander Troupe rolled into ${stop.burg_name} of ${stop.name}! Acrobats, fire-eating hedge mages, and chimera-puppeteers raised their starry pavilions, bringing seasonal revelry, festive joy, and whimsical wonder to the entire realm!`,
+                        cartel.id, stop.burg_id, loreDate
+                    ]);
+                }
+            }
+
+            // Strictly NO static burg lairs or municipal infiltrations for Hedge Wizards!
         }
 
         // =========================================================================
-        // 7. THE OTTER MAFIA (ID 7): River Mob, Canal Locks & Floating Speakeasies
+        // 7. THE OTTER MAFIA (ID 7): River Taverns, Waterway Intel & Submerged Operations
         // =========================================================================
         else if (cartelId === 7 || cartelName.includes("Otter Mafia")) {
+            // A. River Taverns & Saloons: Serving drink, gathering rich gossip & sovereign intel
             if (tick % 2 === 0) {
-                const canalBurg = burgs.find(b => b.wealth > 150);
-                if (canalBurg) {
+                const riverBurg = burgs.find(b => b.wealth > 120);
+                if (riverBurg) {
                     await client.query(`
-                        UPDATE sim_burg_economy SET wealth = GREATEST(0, wealth - 35), unrest = LEAST(100, unrest + 2) WHERE burg_id = $1
-                    `, [canalBurg.burg_id]);
-                    await client.query("UPDATE sim_outlaw_factions SET wealth = COALESCE(wealth, 0) + 65 WHERE id = $1", [cartel.id]);
+                        UPDATE sim_burg_economy
+                        SET wealth = GREATEST(0, wealth - 20)
+                        WHERE burg_id = $1
+                    `, [riverBurg.burg_id]);
+                    await client.query("UPDATE sim_outlaw_factions SET wealth = COALESCE(wealth, 0) + 75 WHERE id = $1", [cartel.id]);
 
-                    await tagBurgCitizens(client, canalBurg.burg_id, ['#OtterMobAssociate'], 'WARY', `Paying canal lock tolls and purchasing smuggled eel-wine from Otter Mafia runners.`, '%laborer%', 2);
+                    await tagBurgCitizens(
+                        client,
+                        riverBurg.burg_id,
+                        ['#OtterTavernPatron', '#LooseLippedBargeman'],
+                        'CONVIVIAL',
+                        `Sipping fermented eel-wine in an Otter Mafia dockside saloon, inadvertently sharing river trade secrets.`,
+                        '%laborer%',
+                        2
+                    );
 
                     await client.query(`
                         INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
-                        VALUES ($1, 'OTTER_MAFIA_CANAL_EXTORTION', $2, 'MINOR', $3, $4, $5)
+                        VALUES ($1, 'OTTER_TAVERN_INTEL', $2, 'MINOR', $3, $4, $5)
                     `, [
                         tick,
-                        `🦦 CANAL RACKET: Otter Mafia lock-bosses extorted barge tolls along the river flues near ${canalBurg.name}, trafficking smuggled fermented eel-wine to dockside speakeasies.`,
-                        cartel.id, canalBurg.burg_id, loreDate
+                        `🦦 RIVER TAVERN INTEL: Over draughts of frosted marsh-ale and fermented eel-wine at a dockside tavern near ${riverBurg.name}, Otter Mafia salooneers extracted vital sovereign trade schedules and patrol routes from loose-lipped barge crews.`,
+                        cartel.id, riverBurg.burg_id, loreDate
                     ]);
                 }
             }
 
-            await handleLairEstablishment(client, cartel, burgs, tick, loreDate, "RIVERBOAT_CASINO", false);
+            // B. Underwater Escape & Extraction: Smuggling fugitives through flumes
+            if (tick % 4 === 1) {
+                const escapeBurg = burgs.find(b => b.unrest >= 8 || b.wealth > 200);
+                if (escapeBurg) {
+                    await client.query("UPDATE sim_outlaw_factions SET wealth = COALESCE(wealth, 0) + 110 WHERE id = $1", [cartel.id]);
+                    await client.query(`
+                        UPDATE sim_burg_economy
+                        SET unrest = LEAST(100, unrest + 2)
+                        WHERE burg_id = $1
+                    `, [escapeBurg.burg_id]);
+
+                    await client.query(`
+                        INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
+                        VALUES ($1, 'OTTER_UNDERWATER_EXTRACTION', $2, 'MAJOR', $3, $4, $5)
+                    `, [
+                        tick,
+                        `🏊 UNDERWATER EXTRACTION: Specialised Otter Mafia flume-divers extracted a high-profile fugitive out of ${escapeBurg.name}! Equipped with reed respirators, they swam beneath municipal harbor cordons and submerged sewer grates, vanishing into the river currents!`,
+                        cartel.id, escapeBurg.burg_id, loreDate
+                    ]);
+                }
+            }
+
+            // C. Submerged Cargo Retrieval & Deep Salvage
+            if (tick % 4 === 3) {
+                const salvageBurg = burgs.find(b => b.wealth > 150);
+                if (salvageBurg) {
+                    await client.query("UPDATE sim_outlaw_factions SET wealth = COALESCE(wealth, 0) + 130 WHERE id = $1", [cartel.id]);
+                    await client.query(`
+                        UPDATE sim_burg_economy
+                        SET raw_materials = raw_materials + 40
+                        WHERE burg_id = $1
+                    `, [salvageBurg.burg_id]);
+
+                    await client.query(`
+                        INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
+                        VALUES ($1, 'OTTER_UNDERWATER_RETRIEVAL', $2, 'MAJOR', $3, $4, $5)
+                    `, [
+                        tick,
+                        `🌊 SUBMERGED RETRIEVAL MISSION: Otter Mafia salvage teams dove into dangerous river flues and flooded ruins near ${salvageBurg.name}, retrieving sunken bullion chests and lost cargo crates from riverbed shipwrecks.`,
+                        cartel.id, salvageBurg.burg_id, loreDate
+                    ]);
+                }
+            }
+
+            // Establish authentic River Taverns along waterways (unhidden)
+            await handleLairEstablishment(client, cartel, burgs, tick, loreDate, "RIVER_TAVERN", false);
         }
 
         // =========================================================================
-        // 8. THE GRIND CANYON CORPS (ID 9): Chasm Divers & Relic Excavators (NO SMUGGLING)
+        // 8. THE GRIND CANYON CORPS (ID 9): Nomadic Chasm Divers & Caravan Community
         // =========================================================================
         else if (cartelId === 9 || cartelName.includes("Grind Canyon")) {
-            if (tick % 3 === 0) {
-                const partnerBurg = burgs.find(b => b.wealth > 100);
-                if (partnerBurg) {
-                    await client.query("UPDATE sim_outlaw_factions SET wealth = COALESCE(wealth, 0) + 160 WHERE id = $1", [cartel.id]);
-                    await client.query(`
-                        UPDATE sim_burg_economy SET raw_materials = raw_materials + 150, wealth = wealth + 40 WHERE burg_id = $1
-                    `, [partnerBurg.burg_id]);
+            // Check active canyons currently worked by the Grind Core community
+            const activeCanyonsRes = await client.query(`
+                SELECT id, name, cell_id, miner_crew_name, dragonstone_richness
+                FROM sim_grind_canyons
+                WHERE status IN ('OPEN', 'COLLAPSING')
+            `);
 
-                    await tagBurgCitizens(client, partnerBurg.burg_id, ['#DragonstoneSmith'], 'INDUSTRIOUS', `Smelting raw abyssal dragonstone hoisted by the Grind Canyon Corps.`, '%smith%', 2);
+            if (activeCanyonsRes.rows.length > 0) {
+                // If canyons are active, the gypsy caravan community is stationed near them
+                if (tick % 2 === 0) {
+                    for (const canyon of activeCanyonsRes.rows) {
+                        // Find the nearest burg to the canyon dive site
+                        const nearestBurgRes = await client.query(`
+                            SELECT burg_id, name, wealth, unrest
+                            FROM sim_burg_economy
+                            ORDER BY ABS(cell_id - $1) ASC
+                            LIMIT 1
+                        `, [canyon.cell_id]);
 
-                    await client.query(`
-                        INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
-                        VALUES ($1, 'CHASM_RELIC_EXTRACTION', $2, 'MAJOR', $3, $4, $5)
-                    `, [
-                        tick,
-                        `⛏️ ABYSSAL EXCAVATION: Grind Canyon Corps dive teams rigged steel winches into a grinding wilderness trench, hoisting up an ancient Pre-Cruor titan relic and 50 lbs of raw dragonstone for the forges of ${partnerBurg.name}!`,
-                        cartel.id, partnerBurg.burg_id, loreDate
-                    ]);
+                        const nearestBurg = nearestBurgRes.rows[0];
+                        if (nearestBurg) {
+                            // Caravan divers inject raw dragonstone cash, but cause wild brawls and corruption
+                            await client.query(`
+                                UPDATE sim_burg_economy
+                                SET wealth = wealth + 50,
+                                    raw_materials = raw_materials + 60,
+                                    unrest = LEAST(100, unrest + 4),
+                                    crime_rate = LEAST(100, COALESCE(crime_rate, 0) + 5)
+                                WHERE burg_id = $1
+                            `, [nearestBurg.burg_id]);
+
+                            await tagBurgCitizens(
+                                client,
+                                nearestBurg.burg_id,
+                                ['#ChasmBrawler', '#DragonstoneGambler'],
+                                'ROWDY',
+                                `Gambling raw dragonstone nuggets in tavern brawls hosted by the Grind Canyon Corps caravan.`,
+                                '%laborer%',
+                                2
+                            );
+
+                            await client.query(`
+                                INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
+                                VALUES ($1, 'GRIND_CORE_CARAVAN_INFLUX', $2, 'MAJOR', $3, $4, $5)
+                            `, [
+                                tick,
+                                `⛏️ GRIND CORE CARAVAN INFLUX: Off-shift chasm divers from ${canyon.name} flooded the taverns and back-alleys of ${nearestBurg.name}! Paying for drinks in raw dragonstone nuggets, the nomadic crews sparked high-stakes dice brawls, spreading wealth, wild crime, and municipal corruption while the canyon remains open!`,
+                                cartel.id, nearestBurg.burg_id, loreDate
+                            ]);
+                        }
+                    }
+                }
+
+                // Self-populating caravan community: apprentice training on the road
+                if (tick % 5 === 0) {
+                    await client.query("UPDATE sim_outlaw_factions SET manpower = LEAST(120, manpower + 2) WHERE id = $1", [cartel.id]);
                 }
             }
 
-            await handleLairEstablishment(client, cartel, burgs, tick, loreDate, "CANYON_STRIP_REDOUBT", false);
+            // Grind Core NEVER establishes permanent burg lairs! They exist strictly as temporary dive camps at active canyons.
         }
 
         // =========================================================================
