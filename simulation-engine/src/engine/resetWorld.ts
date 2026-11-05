@@ -231,6 +231,17 @@ CREATE TABLE IF NOT EXISTS sim_fringe_lairs (
     inventory JSONB DEFAULT '{}'::jsonb
 );
 
+CREATE TABLE IF NOT EXISTS sim_ghostwind_dead_drops (
+    id SERIAL PRIMARY KEY,
+    created_tick INT,
+    client_faction_id INT,
+    target_faction_id INT,
+    target_burg_id INT,
+    bounty_gold INT,
+    status VARCHAR(20) DEFAULT 'PENDING',
+    executed_tick INT
+);
+
 CREATE TABLE sim_paragons (
   id               SERIAL PRIMARY KEY,
   burg_id          INT,
@@ -913,7 +924,7 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
       `, [`Cultist Initiate of ${b.name}`, `Initiate of ${b.name}`, b.burg_id, b.cell_id, `Infiltrating ${b.name}`]);
     }
 
-    const tablesToResetSeq = ['sim_infrastructure', 'sim_agents', 'sim_sacred_groves', 'sim_fringe_lairs', 'sim_events', 'sim_trade_routes', 'sim_chaos_zones', 'sim_outlaw_factions', 'sim_calendar', 'sim_diplomacy'];
+    const tablesToResetSeq = ['sim_infrastructure', 'sim_agents', 'sim_sacred_groves', 'sim_fringe_lairs', 'sim_ghostwind_dead_drops', 'sim_events', 'sim_trade_routes', 'sim_chaos_zones', 'sim_outlaw_factions', 'sim_calendar', 'sim_diplomacy'];
     for (const t of tablesToResetSeq) {
       await client.query(`SELECT setval('${t}_id_seq', (SELECT COALESCE(MAX(id), 1) FROM ${t}))`).catch(() => {});
     }

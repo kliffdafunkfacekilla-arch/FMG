@@ -361,8 +361,8 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
         }
 
         // =========================================================================
-        // 4. THE GHOSTWIND RAIDERS (ID 5): 1 Ship, 1 Hidden Lair, Dead-Drop Quad-Contracts,
-        //    Strategic Locked-Room Phantom Strikes & Outer-Burg Smuggler Distribution
+        // 4. THE GHOSTWIND RAIDERS (ID 5): 1 Ship, 1 Hidden Lair, Real Dead Drops
+        //    Supplied Twice a Year by Top 4 Factions, Randomized Strikes & Rumors
         // =========================================================================
         else if (cartelId === 5 || cartelName.includes("Ghostwind")) {
             // Ensure strictly 1 single hidden lair in existence (anchored in Guerrilla Clan territory)
@@ -375,100 +375,198 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
                 `, [cartel.id, clanCell, cartel.origin_burg_id || 115]);
             }
 
-            // Executes a strategic phantom strike roughly once a season (~every 60-66 ticks)
-            if (tick % 66 === 33) {
-                // Dead Drop Contracting: 4 major sovereign powers unwittingly contract the same ship
+            // Ensure dead drops table exists
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS sim_ghostwind_dead_drops (
+                    id SERIAL PRIMARY KEY,
+                    created_tick INT,
+                    client_faction_id INT,
+                    target_faction_id INT,
+                    target_burg_id INT,
+                    bounty_gold INT,
+                    status VARCHAR(20) DEFAULT 'PENDING',
+                    executed_tick INT
+                );
+            `);
+
+            // A. Real Dead Drops Supplied Twice a Year by the Top 4 Sovereign Power Leaders
+            // In a 541-day calendar: twice a year at Tick 135 (mid High Sun) and Tick 405 (mid Thaw)
+            if (tick === 135 || tick === 405) {
                 const topPowersRes = await client.query(`
                     SELECT f.id, f.name, f.treasury
                     FROM sim_factions f
-                    WHERE f.id NOT IN (1, 21) AND f.treasury >= 400
+                    WHERE f.id NOT IN (1, 21) AND f.treasury >= 250
                     ORDER BY f.treasury DESC
                     LIMIT 4
                 `);
 
                 const powers = topPowersRes.rows;
-                if (powers.length >= 2) {
-                    // One of the top powers is targeted using intel provided in the circular dead drops
-                    const targetIndex = Math.floor(Math.random() * powers.length);
-                    const targetPower = powers[targetIndex];
-                    const contractedBy = powers[(targetIndex + 1) % powers.length];
+                if (powers.length >= 4) {
+                    for (let i = 0; i < powers.length; i++) {
+                        const clientFaction = powers[i];
+                        const targetFaction = powers[(i + 1) % powers.length];
 
-                    // Find a major supply convoy / burg belonging to target power
-                    const targetBurgRes = await client.query(`
-                        SELECT b.burg_id, b.name, b.wealth, b.food, b.cell_id
-                        FROM sim_burg_economy b
-                        JOIN sim_cells c ON b.cell_id = c.id
-                        WHERE c.faction_id = $1 AND b.wealth >= 80
-                        ORDER BY b.wealth DESC
-                        LIMIT 1
-                    `, [targetPower.id]);
-
-                    const targetBurg = targetBurgRes.rows[0] || burgs[0];
-                    if (targetBurg) {
-                        const plunderWealth = Math.min(Number(targetBurg.wealth), 400);
-                        const plunderFood = Math.min(Number(targetBurg.food), 250);
-
-                        // Loot the target down to its bare hull
-                        await client.query(`
-                            UPDATE sim_burg_economy
-                            SET wealth = GREATEST(20, wealth - $1),
-                                food = GREATEST(50, food - $2),
-                                unrest = LEAST(100, unrest + 12)
-                            WHERE burg_id = $3
-                        `, [plunderWealth, plunderFood, targetBurg.burg_id]);
-
-                        // Dead drop contracting fee paid by the contracting court
-                        await client.query("UPDATE sim_factions SET treasury = GREATEST(0, treasury - 300) WHERE id = $1", [contractedBy.id]);
-
-                        // 1. Portion to Guerrilla Clans (Faction ID 1)
-                        const clanCut = Math.floor(plunderWealth * 0.35);
-                        await client.query("UPDATE sim_factions SET treasury = treasury + $1 WHERE id = 1", [clanCut]);
-
-                        // 2. Larger portion distributed via dead drops to smaller outer burgs away from capitals
-                        const ruralCut = plunderWealth - clanCut;
-                        const outerBurgsRes = await client.query(`
-                            SELECT b.burg_id, b.name
+                        // Find a wealthy supply target burg belonging to the target power
+                        const targetBurgRes = await client.query(`
+                            SELECT b.burg_id, b.name, b.wealth
                             FROM sim_burg_economy b
-                            WHERE b.is_capital = false AND b.burg_id != $1
-                            ORDER BY b.wealth ASC
-                            LIMIT 2
-                        `, [targetBurg.burg_id]);
+                            JOIN sim_cells c ON b.cell_id = c.id
+                            WHERE c.faction_id = $1 AND b.wealth >= 60
+                            ORDER BY b.wealth DESC
+                            LIMIT 1
+                        `, [targetFaction.id]);
 
-                        const outerBurgs = outerBurgsRes.rows;
-                        const sharePerBurg = outerBurgs.length > 0 ? Math.floor(ruralCut / outerBurgs.length) : 0;
-                        for (const ob of outerBurgs) {
+                        const targetBurg = targetBurgRes.rows[0] || burgs[0];
+                        if (targetBurg) {
+                            const bounty = 350;
+                            // Deduct bounty gold from client faction treasury
+                            await client.query("UPDATE sim_factions SET treasury = GREATEST(50, treasury - $1) WHERE id = $2", [bounty, clientFaction.id]);
+
+                            // Insert real dead drop contract into sim_ghostwind_dead_drops
                             await client.query(`
-                                UPDATE sim_burg_economy
-                                SET wealth = wealth + $1,
-                                    food = food + 100,
-                                    unrest = GREATEST(0, unrest - 4)
-                                WHERE burg_id = $2
-                            `, [sharePerBurg, ob.burg_id]);
+                                INSERT INTO sim_ghostwind_dead_drops (created_tick, client_faction_id, target_faction_id, target_burg_id, bounty_gold, status)
+                                VALUES ($1, $2, $3, $4, $5, 'PENDING')
+                            `, [tick, clientFaction.id, targetFaction.id, targetBurg.burg_id, bounty]);
 
                             await client.query(`
                                 INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
-                                VALUES ($1, 'GHOSTWIND_DEAD_DROP_DISTRIBUTION', $2, 'MINOR', $3, $4, $5)
+                                VALUES ($1, 'GHOSTWIND_DEAD_DROP_PLACED', $2, 'MAJOR', $3, $4, $5)
                             `, [
                                 tick,
-                                `📦 DEAD DROP SMUGGLING: Outlying smugglers near ${ob.name} recovered an untraceable dead drop left by The Ghostwind! Siphoning off their commission, the contraband coin (${sharePerBurg} gold) was quietly circulated into the hands of struggling rural commoners.`,
-                                cartel.id, ob.burg_id, loreDate
+                                `📜 REAL DEAD DROP SUPPLIED: Sovereign ministers of ${clientFaction.name} deposited a secret dead drop containing ${bounty} gold and convoy routing ciphers inside a hollow border cairn, commissioning a phantom strike on ${targetFaction.name}'s supply routes near ${targetBurg.name}! Unwittingly, all four supreme courts are supplying dead drops targeting each other in a circle.`,
+                                cartel.id, targetBurg.burg_id, loreDate
                             ]);
                         }
-
-                        // Log the seasonal Locked-Room Phantom Raid
-                        await client.query(`
-                            INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
-                            VALUES ($1, 'GHOSTWIND_PHANTOM_RAID', $2, 'MAJOR', $3, $4, $5)
-                        `, [
-                            tick,
-                            `⚔️ THE GHOSTWIND PHANTOM RAID: Emerging silently out of thin air, The Ghostwind ambushed the flagship supply convoy of ${targetPower.name} near ${targetBurg.name}! Armed raiders subdued the entire crew with ruthless finesse and stripped the vessel down to its bare hull. In a signature locked-room mystery escape, the raiders left exactly one captive tied in a knot that could be worked free after four hours—by which time The Ghostwind had vanished into the cloudbanks without a trace! Neither ${targetPower.name} nor the court of ${contractedBy.name} (who paid the dead drop contract) realize the same ghost ship plays all four major powers against each other.`,
-                            cartel.id, targetBurg.burg_id, loreDate
-                        ]);
                     }
                 }
             }
 
-            // The Ghostwind is strictly 1 single covert airship with 1 hidden lair — NO additional lairs!
+            // B. Randomized Timing of Phantom Strikes
+            // Check for pending dead drops
+            const pendingDropsRes = await client.query(`
+                SELECT d.id, d.created_tick, d.client_faction_id, d.target_faction_id, d.target_burg_id, d.bounty_gold,
+                       cf.name as client_name, tf.name as target_name, b.name as target_burg_name, b.wealth, b.food
+                FROM sim_ghostwind_dead_drops d
+                JOIN sim_factions cf ON cf.id = d.client_faction_id
+                JOIN sim_factions tf ON tf.id = d.target_faction_id
+                JOIN sim_burg_economy b ON b.burg_id = d.target_burg_id
+                WHERE d.status = 'PENDING'
+                ORDER BY d.id ASC
+            `);
+
+            if (pendingDropsRes.rows.length > 0) {
+                // Check last executed strike tick to randomize timing with natural variance
+                const lastStrikeRes = await client.query(`
+                    SELECT MAX(executed_tick) as last_tick FROM sim_ghostwind_dead_drops WHERE status = 'EXECUTED'
+                `);
+                const lastTick = Number(lastStrikeRes.rows[0]?.last_tick || 0);
+                const ticksSinceLast = tick - lastTick;
+
+                // Randomized timing: at least 32 ticks cooldown between strikes, with a 18% stochastic chance per tick
+                const shouldStrike = (lastTick === 0 && tick >= 45) || (ticksSinceLast >= 32 && Math.random() < 0.18) || (ticksSinceLast >= 70);
+
+                if (shouldStrike) {
+                    const contract = pendingDropsRes.rows[0];
+                    const plunderWealth = Math.min(Number(contract.wealth || 200), 400);
+                    const plunderFood = Math.min(Number(contract.food || 150), 250);
+
+                    // 1. Plunder target down to its bare hull
+                    await client.query(`
+                        UPDATE sim_burg_economy
+                        SET wealth = GREATEST(20, wealth - $1),
+                            food = GREATEST(50, food - $2),
+                            unrest = LEAST(100, unrest + 12)
+                        WHERE burg_id = $3
+                    `, [plunderWealth, plunderFood, contract.target_burg_id]);
+
+                    // Mark dead drop contract as EXECUTED
+                    await client.query(`
+                        UPDATE sim_ghostwind_dead_drops
+                        SET status = 'EXECUTED', executed_tick = $1
+                        WHERE id = $2
+                    `, [tick, contract.id]);
+
+                    // Add bounty gold to Ghostwind wealth
+                    await client.query("UPDATE sim_outlaw_factions SET wealth = COALESCE(wealth, 0) + $1 WHERE id = $2", [contract.bounty_gold, cartel.id]);
+
+                    // 2. Cut to Guerrilla Clans (Faction ID 1): 35%
+                    const clanCut = Math.floor(plunderWealth * 0.35);
+                    await client.query("UPDATE sim_factions SET treasury = treasury + $1 WHERE id = 1", [clanCut]);
+
+                    // 3. Cut to outer rural burgs: 65% via local smugglers
+                    const ruralCut = plunderWealth - clanCut;
+                    const outerBurgsRes = await client.query(`
+                        SELECT b.burg_id, b.name
+                        FROM sim_burg_economy b
+                        WHERE b.is_capital = false AND b.burg_id != $1
+                        ORDER BY b.wealth ASC
+                        LIMIT 2
+                    `, [contract.target_burg_id]);
+
+                    const outerBurgs = outerBurgsRes.rows;
+                    const sharePerBurg = outerBurgs.length > 0 ? Math.floor(ruralCut / outerBurgs.length) : 0;
+                    for (const ob of outerBurgs) {
+                        await client.query(`
+                            UPDATE sim_burg_economy
+                            SET wealth = wealth + $1,
+                                food = food + 100,
+                                unrest = GREATEST(0, unrest - 4)
+                            WHERE burg_id = $2
+                        `, [sharePerBurg, ob.burg_id]);
+
+                        await client.query(`
+                            INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
+                            VALUES ($1, 'GHOSTWIND_DEAD_DROP_DISTRIBUTION', $2, 'MINOR', $3, $4, $5)
+                        `, [
+                            tick,
+                            `📦 DEAD DROP SMUGGLING: Outlying smugglers near ${ob.name} recovered an untraceable dead drop left by The Ghostwind! Siphoning off their cut, contraband coin (${sharePerBurg} gold) was quietly circulated into the hands of struggling rural commoners.`,
+                            cartel.id, ob.burg_id, loreDate
+                        ]);
+                    }
+
+                    // 4. Spawn Rumor Tags to Spread Rumors of Who Did It
+                    await tagBurgCitizens(
+                        client,
+                        contract.target_burg_id,
+                        ['#GhostwindRumor', '#BlameRivalFaction', '#SpectralAirshipSighting', '#LockedRoomMystery'],
+                        'WARY',
+                        `Debating conflicting rumors: some blame ${contract.client_name} privateers, while terrified sailors swear a phantom airship vanished into thin air after tying the crew in slipknots.`,
+                        null,
+                        4
+                    );
+
+                    // Also tag citizens in client faction capital
+                    const clientCapRes = await client.query(`
+                        SELECT burg_id FROM sim_burg_economy b
+                        JOIN sim_cells c ON b.cell_id = c.id
+                        WHERE c.faction_id = $1 AND b.is_capital = true
+                        LIMIT 1
+                    `, [contract.client_faction_id]);
+                    if (clientCapRes.rows.length > 0) {
+                        await tagBurgCitizens(
+                            client,
+                            clientCapRes.rows[0].burg_id,
+                            ['#DeadDropSuccess', '#WhisperedTriumph'],
+                            'TRIUMPHANT',
+                            `Court nobles quietly celebrate the destruction of rival convoys in ${contract.target_name}, toast-drinking their anonymous mercenary contractor.`,
+                            null,
+                            3
+                        );
+                    }
+
+                    // 5. Log the signature phantom strike event
+                    await client.query(`
+                        INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
+                        VALUES ($1, 'GHOSTWIND_PHANTOM_RAID', $2, 'MAJOR', $3, $4, $5)
+                    `, [
+                        tick,
+                        `⚔️ THE GHOSTWIND PHANTOM RAID: Emerging silently out of storm clouds, The Ghostwind ambushed the flagship supply convoy of ${contract.target_name} near ${contract.target_burg_name}! Carrying out the secret dead-drop contract placed by ${contract.client_name}, the phantom corsairs subdued the entire crew with ruthless finesse and stripped the vessel down to its bare hull. In their signature locked-room mystery style, the raiders left exactly one captive tied in a loose knot that could be worked free after four hours—by which time The Ghostwind had vanished into the cloudbanks! Faction leaders in ${contract.target_name} suspect espionage, while commoners and sailors spread wild rumors: some point fingers at ${contract.client_name}, while others swear an actual ghost ship struck them!`,
+                        cartel.id, contract.target_burg_id, loreDate
+                    ]);
+                }
+            }
+
+            // Strictly 1 single covert airship with 1 hidden lair — NO additional lairs!
         }
 
         // =========================================================================
@@ -1033,26 +1131,109 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
         }
 
         // =========================================================================
-        // 10. THE GHOSTSPRING NETWORK (ID 8): Poison Distillers & Bought Secrets
+        // 10. THE GHOSTSPRING SUBTERRANE (ID 8): Outcast Riverfolk in Mountain Caves
+        //     Connecting Hot Springs on Both Sides, Pale Skin Ghost Legend & Smugglers
         // =========================================================================
         else if (cartelId === 8 || cartelName.includes("Ghostspring")) {
-            if (tick % 3 === 0) {
-                const spyBurg = burgs.find(b => b.wealth > 200);
-                if (spyBurg) {
-                    await client.query("UPDATE sim_outlaw_factions SET wealth = COALESCE(wealth, 0) + 90 WHERE id = $1", [cartel.id]);
+            // Strictly 1 single headquarters lair in the central mountain range
+            const lairCountRes = await client.query("SELECT COUNT(*) as total FROM sim_fringe_lairs WHERE faction_id = $1", [cartel.id]);
+            if (parseInt(lairCountRes.rows[0].total) === 0) {
+                const peakCell = cartel.origin_cell_id || 13408;
+                await client.query(`
+                    INSERT INTO sim_fringe_lairs (faction_id, cell_id, burg_id, lair_type, manpower, heat)
+                    VALUES ($1, $2, $3, 'CENTRAL_PEAK_SPRING_CAVERN', 40, 5)
+                `, [cartel.id, peakCell, cartel.origin_burg_id || 73]);
+            }
+
+            // Find mountain burgs on either side of the mountain divide
+            const mountainBurgsRes = await client.query(`
+                SELECT b.burg_id, b.name, b.cell_id, c.elevation
+                FROM sim_burg_economy b
+                JOIN sim_cells c ON b.cell_id = c.id
+                WHERE c.elevation >= 55
+                ORDER BY RANDOM()
+                LIMIT 2
+            `);
+            const mountainBurgs = mountainBurgsRes.rows;
+
+            // A. Subterranean Swimming Across the Mountain Divide (Eastern to Western Springs)
+            if (tick % 3 === 0 && mountainBurgs.length >= 2) {
+                const [eastBurg, westBurg] = mountainBurgs;
+                await client.query("UPDATE sim_outlaw_factions SET wealth = COALESCE(wealth, 0) + 85 WHERE id = $1", [cartel.id]);
+                await client.query(`
+                    UPDATE sim_burg_economy SET wealth = wealth + 20, raw_materials = raw_materials + 25 WHERE burg_id = $1
+                `, [westBurg.burg_id]);
+
+                await client.query(`
+                    INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
+                    VALUES ($1, 'GHOSTSPRING_MOUNTAIN_SWIM', $2, 'MINOR', $3, $4, $5)
+                `, [
+                    tick,
+                    `🏊 TRANS-MOUNTAIN SUBTERRANEAN SWIM: Ghostspring pale-skin divers plunged into steaming geothermal pools outside ${eastBurg.name} and navigated miles of pitch-black flooded cavern flues beneath the central mountain range, surfacing with sealed cargo casks in the hot springs of ${westBurg.name}!`,
+                    cartel.id, eastBurg.burg_id, loreDate
+                ]);
+            }
+
+            // B. Ghost Stories & Haunted Springs Folklore (Superstitious Commoners)
+            if (tick % 4 === 1 && mountainBurgs.length > 0) {
+                const springBurg = mountainBurgs[0];
+                await tagBurgCitizens(
+                    client,
+                    springBurg.burg_id,
+                    ['#HauntedSpringsLegend', '#PaleGhostSighting'],
+                    'WARY',
+                    `Terrified by sightings of chalk-white figures vanishing beneath boiling sulfur pools, believing the mountain springs are haunted by water-wraiths.`,
+                    null,
+                    4
+                );
+
+                await client.query(`
+                    INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
+                    VALUES ($1, 'GHOSTSPRING_HAUNTED_LEGEND', $2, 'MINOR', $3, $4, $5)
+                `, [
+                    tick,
+                    `👻 HAUNTED SPRINGS FOLKLORE: Travelers near the steaming geothermal springs above ${springBurg.name} caught glimpses of chalk-pale, spectral figures vanishing silently beneath boiling sulfur waters. Wild ghost stories spread through mountain inns that the springs are cursed and haunted!`,
+                    cartel.id, springBurg.burg_id, loreDate
+                ]);
+            }
+
+            // C. Obsidian Cartel Bypass Smuggling (Cartel Knows They Are NOT Ghosts)
+            if (tick % 4 === 2) {
+                const cartelRes = await client.query("SELECT id, wealth FROM sim_outlaw_factions WHERE id = 6");
+                if (cartelRes.rows.length > 0 && Number(cartelRes.rows[0].wealth) >= 200) {
+                    await client.query("UPDATE sim_outlaw_factions SET wealth = GREATEST(0, wealth - 90) WHERE id = 6");
+                    await client.query("UPDATE sim_outlaw_factions SET wealth = wealth + 90 WHERE id = $1", [cartel.id]);
 
                     await client.query(`
                         INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
-                        VALUES ($1, 'GHOSTSPRING_POISON_PLOT', $2, 'MINOR', $3, $4, $5)
+                        VALUES ($1, 'GHOSTSPRING_CARTEL_BYPASS_RUN', $2, 'MAJOR', $3, $4, $5)
                     `, [
                         tick,
-                        `🍵 DISTILLED VENOMS: Operating from geothermal mist caves near ${spyBurg.name}, Ghostspring alchemists brewed batches of untraceable paralytic orchid extract for clandestine buyers.`,
-                        cartel.id, spyBurg.burg_id, loreDate
+                        `🏔️ CARTEL UNDER-MOUNTAIN BYPASS: Disregarding peasant ghost stories, the Obsidian Cartel contracted Ghostspring pale-skin divers to swim waterproof crates of void-lotus powder through flooded cavern flues beneath the central mountain range, completely bypassing high mountain toll gates and sovereign checkpoints!`,
+                        cartel.id, null, loreDate
                     ]);
                 }
             }
 
-            await handleLairEstablishment(client, cartel, burgs, tick, loreDate, "GHOSTSPRING_DISTILLERY", true);
+            // D. Free Sky-Baron Aerie Drop & River Retrieval (Barons Know They Are NOT Ghosts)
+            if (tick % 4 === 0) {
+                const baronRes = await client.query("SELECT id, wealth FROM sim_outlaw_factions WHERE id = 2");
+                if (baronRes.rows.length > 0 && Number(baronRes.rows[0].wealth) >= 200) {
+                    await client.query("UPDATE sim_outlaw_factions SET wealth = GREATEST(0, wealth - 80) WHERE id = 2");
+                    await client.query("UPDATE sim_outlaw_factions SET wealth = wealth + 80 WHERE id = $1", [cartel.id]);
+
+                    await client.query(`
+                        INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
+                        VALUES ($1, 'GHOSTSPRING_BARON_CARGO_TRANSFER', $2, 'MAJOR', $3, $4, $5)
+                    `, [
+                        tick,
+                        `📦 SKY-BARON SPRING DROP: Knowing the 'haunted springs' are actually subterranean Riverfolk outcasts, Free Sky-Baron cloud-skiffs dropped tethered cargo crates into steaming geothermal pools above the pass, where Ghostspring divers retrieved the contraband underwater to transport beneath the peaks.`,
+                        cartel.id, null, loreDate
+                    ]);
+                }
+            }
+
+            // Strictly 1 single central mountain cave network — NO additional lairs!
         }
     }
 }

@@ -103,8 +103,15 @@ export async function enhanceAllCriminalSyndicates() {
             `, [syn.id, b.cell_id, b.burg_id]);
             console.log(`   + Established RIVER_TAVERN for ${syn.name} in ${b.name} (Burg #${b.burg_id})`);
           }
+        } else if (syn.id === 8) {
+          // The Ghostspring Subterrane: STRICTLY 1 single central mountain cave network
+          await client.query(`
+            INSERT INTO sim_fringe_lairs (faction_id, cell_id, burg_id, lair_type, manpower, heat)
+            VALUES ($1, $2, $3, 'CENTRAL_PEAK_SPRING_CAVERN', 40, 5)
+          `, [syn.id, syn.originCellId, syn.originBurgId]);
+          console.log(`   + Established strictly 1 CENTRAL_PEAK_SPRING_CAVERN for ${syn.name} in central mountain peaks (Burg #${syn.originBurgId})`);
         } else {
-          // Other syndicates (Gilded Compass, Sky-Barons, Legion, Ivory-Gate, Obsidian, Ghostspring)
+          // Other syndicates (Gilded Compass, Sky-Barons, Legion, Ivory-Gate, Obsidian)
           const candidateBurgs = await client.query(`
             SELECT b.burg_id, b.cell_id, b.name
             FROM sim_burg_economy b

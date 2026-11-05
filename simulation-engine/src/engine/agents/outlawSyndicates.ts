@@ -308,41 +308,41 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
   },
   {
     id: 8,
-    name: "The Ghostspring Operation Network",
-    type: "ESPIONAGE",
-    originBurgId: 230, // Arbor-Prime
-    originCellId: 7425,
-    originFactionId: 6, // Sylvan Empire
-    bossName: "The Whispering Mistress Selyse",
-    bossTitle: "Director of the Ghostspring Veil",
+    name: "The Ghostspring Subterrane",
+    type: "OUTCAST_RIVERFOLK_SMUGGLERS",
+    originBurgId: 73, // Flute (Central Mountain Range)
+    originCellId: 13408,
+    originFactionId: 26, // River Folk lineage
+    bossName: "Mother Nilura Pale-Skin",
+    bossTitle: "Matriarch of the Under-Springs",
     bossTraits: [
-      { name: "Untraceable", modifier: 0.5 },
-      { name: "Poison_Mistress", modifier: 0.4 },
-      { name: "Spymaster", modifier: 0.5 },
-      { name: "Spectral_Sight", modifier: 0.3 }
+      { name: "Subterranean_Amphibian", modifier: 0.5 },
+      { name: "Mountain_Smuggler", modifier: 0.5 },
+      { name: "Haunted_Legend", modifier: 0.4 },
+      { name: "Pale_Skin", modifier: 0.4 }
     ],
-    description: "An elusive cabal operating from geothermal mist-springs and subterranean caverns, dealing in untraceable paralytic poisons and bought magistrate secrets.",
-    contrabandTypes: ["Distilled Ghost-Water Phials", "Paralytic Orchid Extracts", "Ciphered Aristocrat Dossiers", "Silent Night-Needles"],
-    lairTypes: ["GHOSTSPRING_DISTILLERY", "SHADOW_LISTENING_POST"],
-    speciesDistribution: [{ species: "Plant-Folk", weight: 0.4 }, { species: "Human", weight: 0.4 }, { species: "Felid", weight: 0.2 }],
+    description: "A single close-knit tribe of outcast Riverfolk dwelling in deep subterranean caves beneath the mainland's central mountain range. Flooded cavern flues connect geothermal hot springs on both sides of the continental mountain barrier, allowing them to swim beneath the peaks to retrieve and drop cargo. Their chalk-pale white skin from lifelong underground isolation started local ghost stories and legends of the misty springs being haunted. But the Obsidian Cartel and the Free Sky-Barons know they are not ghosts, contracting them as mountain bypass smugglers.",
+    contrabandTypes: ["Trans-Mountain Smuggled Goods", "Hot-Spring Mineral Salts", "Waterproof Pitch-Casks", "Subterranean Flue Maps"],
+    lairTypes: ["CENTRAL_PEAK_SPRING_CAVERN"],
+    speciesDistribution: [{ species: "Riverfolk", weight: 0.8 }, { species: "Human", weight: 0.1 }, { species: "Otter", weight: 0.1 }],
     uniqueRoles: [
       {
-        role: "Ghostspring Mist Distiller",
-        weapon: "Concealed Spring-Needle Stiletto",
-        armor: "Vapour-Woven Camouflage Mantle",
-        affinity: "intuition",
-        inventory: ["Phial of Concentrated Ghost-Water", "Herbal Distillation Tube", "Pouch of 80 Untraceable Gold Coins"],
-        instinct: "SHADOWY",
-        temper: "ENIGMATIC"
+        role: "Pale-Skin Flue Swimmer",
+        weapon: "Bone Harpoon & Flint Dive Knife",
+        armor: "Treated Waterproof Eel-Skin Mantle",
+        affinity: "endurance",
+        inventory: ["Pitch-Sealed Waterproof Cask", "Luminescent Cave Moss Phial", "Pouch of 50 Mountain-Smuggled Gold"],
+        instinct: "ELUSIVE",
+        temper: "SILENT"
       },
       {
-        role: "Phantom Shadow Informant",
-        weapon: "Dual Poison-Tipped Bodkins",
-        armor: "Muffled Silk Tunic",
+        role: "Under-Spring Cargo Courier",
+        weapon: "Submerged Speargun & Obsidian Choke-Hook",
+        armor: "Subterranean Calcium-Stained Leathers",
         affinity: "reflex",
-        inventory: ["Blackmailed Magistrate Seal", "Waxed Secret Letter", "Pouch of 60 Gold"],
+        inventory: ["Obsidian Cartel Smuggling Token", "Sky-Baron Freight Tag", "Pouch of 40 Silver"],
         instinct: "VIGILANT",
-        temper: "WHISPERING"
+        temper: "STOIC"
       }
     ]
   },
@@ -586,6 +586,14 @@ export function getLairPropDetails(lair: any) {
         hp: 150,
         maxHp: 150,
         description: "Concealed underwater grating and pulley system allowing Lutrine divers to transfer illicit cargo past harbour guards undetected."
+      };
+    case "CENTRAL_PEAK_SPRING_CAVERN":
+      return {
+        name: `Ghostspring Subterranean Cavern & Thermal Pool (${cartelName})`,
+        tags: ["stone", "water", "cave", "hot_spring", "underworld", "subterranean"],
+        hp: 280,
+        maxHp: 280,
+        description: "Steaming limestone cavern deep beneath the continental mountain divide, connecting flooded subterranean flues and hot springs on both sides of the peaks."
       };
     case "GHOSTSPRING_DISTILLERY":
       return {

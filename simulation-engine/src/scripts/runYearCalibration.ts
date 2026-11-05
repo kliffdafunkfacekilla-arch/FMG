@@ -170,6 +170,29 @@ export async function runYearCalibration() {
     `);
     console.table(sovereigns.rows);
 
+    console.log("\n--- The Ghostwind Real Dead Drops (Supplied Twice a Year by Top 4 Powers) ---");
+    const deadDrops = await client.query(`
+      SELECT d.id, d.created_tick, d.bounty_gold, d.status, d.executed_tick,
+             cf.name as client_faction, tf.name as target_faction, b.name as target_burg
+      FROM sim_ghostwind_dead_drops d
+      JOIN sim_factions cf ON cf.id = d.client_faction_id
+      JOIN sim_factions tf ON tf.id = d.target_faction_id
+      JOIN sim_burg_economy b ON b.burg_id = d.target_burg_id
+      ORDER BY d.id ASC
+    `);
+    console.table(deadDrops.rows);
+
+    console.log("\n--- Active Citizen Rumor Tags (Ghostwind & Ghostspring) ---");
+    const rumorTags = await client.query(`
+      SELECT elem as tag, COUNT(*) as citizen_count
+      FROM population_demographics,
+           jsonb_array_elements_text(COALESCE(traits, '[]'::jsonb)) as elem
+      WHERE elem = ANY($1::text[])
+      GROUP BY elem
+      ORDER BY citizen_count DESC
+    `, [["#GhostwindRumor", "#BlameRivalFaction", "#SpectralAirshipSighting", "#LockedRoomMystery", "#DeadDropSuccess", "#HauntedSpringsLegend", "#PaleGhostSighting"]]);
+    console.table(rumorTags.rows);
+
   } finally {
     client.release();
   }
