@@ -154,29 +154,20 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
     // ── 4. CHAOS FLOW — Lunar cycle of Cruorbus & Shadow Week ─────────────────
     if (phase === "SHADOW_WEEK") {
         // Shadow Week: 13-day solar eclipse by Cruorbus.
-        // Ambient chaos flow calms, but starves the 12 Sacred Groves, causing seals to decay.
-        const groveRes = await client.query("SELECT id, cell_id, seal_strength FROM sim_sacred_groves LIMIT 12");
-        for (const grove of groveRes.rows) {
-            const decay = Math.floor(2 + Math.random() * 4); // 2-5% decay per day of eclipse
-            const newStr = Math.max(0, (grove.seal_strength || 100) - decay);
-            await client.query("UPDATE sim_sacred_groves SET seal_strength = $1 WHERE id = $2", [newStr, grove.id]);
-        }
+        // Ambient chaos flow calms. The Dragon Prisons (which feed on flowing chaos)
+        // do not naturally self-regenerate during these 13 days, giving cultists a window of vulnerability.
         if (tick % 3 === 0) {
             await client.query(
                 `INSERT INTO sim_events (tick, type, message, tier, lore_date) VALUES ($1, 'SHADOW_WEEK_ECLIPSE', $2, 'MAJOR', $3)`,
-                [tick, `Shadow Week Day ${dayOfMonth}: Total darkness blankets Ostraka as Cruorbus blots out the sun. The Dragon Seals weaken and cultist chants ring in the void.`, loreDate]
+                [tick, `Shadow Week Day ${dayOfMonth}: Total darkness blankets Ostraka as Cruorbus blots out the sun. Ambient chaos flows still, depriving the ancient seals of ley energy as Shlaar's whispers intensify in the void.`, loreDate]
             );
         }
     } else if (phase === "FULL_BLOOD") {
-        // Peak chaos: spawn chaos zones, damage seals, trigger chaos storms
-        const groveRes = await client.query("SELECT id, cell_id, seal_strength FROM sim_sacred_groves LIMIT 12");
+        // Peak chaos: spawn chaos zones, trigger chaos storms across Ostraka
+        // Weakened seals may radiate void rifts
+        const groveRes = await client.query("SELECT id, cell_id, seal_strength FROM sim_sacred_groves WHERE seal_strength < 40");
         for (const grove of groveRes.rows) {
-            const damage = Math.floor(5 + Math.random() * 15);
-            const newStr = Math.max(0, (grove.seal_strength || 100) - damage);
-            await client.query("UPDATE sim_sacred_groves SET seal_strength = $1 WHERE id = $2", [newStr, grove.id]);
-
-            // Broken seals spawn chaos zones
-            if (newStr < 30 && Math.random() < 0.4) {
+            if (Math.random() < 0.3) {
                 await client.query(
                     `INSERT INTO sim_chaos_zones (cell_id, intensity, type) VALUES ($1, $2, 'VOID_RIFT') ON CONFLICT DO NOTHING`,
                     [grove.cell_id, 20 + Math.random() * 40]

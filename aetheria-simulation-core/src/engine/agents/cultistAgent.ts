@@ -25,6 +25,17 @@ const TARGET_INFILTRATOR_COUNT = 144;
 const TARGET_BESIEGER_COUNT = 144;
 
 export async function runCultistAgent(client: any, tick: number, loreDate: string) {
+  // Self-Sustaining Dragon Prisons: The 12 prisons naturally recharge and hold containment from the flowing chaos.
+  // During Shadow Week (Days 529-541), ambient chaos calms, pausing self-regeneration and creating vulnerability.
+  const isShadowWeek = loreDate.includes('Shadow Week');
+  if (!isShadowWeek) {
+    await client.query(`
+      UPDATE sim_sacred_groves
+      SET seal_strength = LEAST(100, seal_strength + 1)
+      WHERE seal_strength > 0 AND seal_strength < 100
+    `);
+  }
+
   // Check active cultist population breakdown
   const infiltratorsCountRes = await client.query(
     "SELECT COUNT(*) as total FROM sim_agents WHERE role = 'Cultist' AND state = 'INFILTRATING'"
@@ -114,7 +125,7 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
         await client.query(`
           INSERT INTO sim_events (tick, type, message, tier, burg_id, lore_date)
           VALUES ($1, 'CULT_INFILTRATION', $2, 'MINOR', $3, $4)
-        `, [tick, `Dark whispers echo through ${burg.name}. ${citizen.citizenName}, a ${citizen.temper.toLowerCase()} ${citizen.profession.toLowerCase()}, was secretly sworn into the cult cabal.`, burg.burg_id, loreDate]);
+        `, [tick, `Whispers of Shlaar seep through the flawed prison matrix into ${burg.name}, echoing the dragons' madness. ${citizen.citizenName}, a Sparkborn ${citizen.profession.toLowerCase()}, was seduced by the cosmic whispers and initiated into the cabal.`, burg.burg_id, loreDate]);
       }
     }
   }
@@ -123,7 +134,7 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
   const besiegersRes = await client.query(
     "SELECT COUNT(*) as total FROM sim_agents WHERE role = 'Cultist' AND state IN ('BESIEGING_SEAL', 'TRAVELING_TO_SEAL')"
   );
-  let activeBesiegers = parseInt(besiegersRes.rows[0].total) || 0;
+  const currentBesiegers = parseInt(besiegersRes.rows[0].total) || 0;
 
   // 3. Process All Active Cultists
   const cultistsRes = await client.query(`
@@ -153,7 +164,7 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
 
     // --- PHASE A: SECRET INFILTRATION IN BURGS ---
     if (state === 'INFILTRATING') {
-      corruption = Math.min(75, corruption + (Math.random() < 0.30 ? 1 : 0));
+      corruption += Math.floor(Math.random() * 2 + 1);
       const burgId = c.home_burg_id;
 
       // Siphon coin and spike civic unrest
@@ -177,9 +188,9 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
       }
 
       // Check for Exodus Trigger to Dragon Prison:
-      // STRICTLY balance: only send reinforcements if active besiegers < 144
-      const needsBesiegers = activeBesiegers < TARGET_BESIEGER_COUNT;
-      const shouldExodus = needsBesiegers && (corruption >= 45 || Math.random() < 0.12);
+      // If besiegers < 144, or corruption >= 35, or burg unrest >= 60
+      const needsBesiegers = currentBesiegers < TARGET_BESIEGER_COUNT;
+      const shouldExodus = needsBesiegers || corruption >= 35 || Math.random() < 0.08;
 
       if (shouldExodus && locCellId) {
         const nearestGrove = await getNearestSacredGrove(client, locCellId);
@@ -188,7 +199,6 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
           subRole = 'Cultist_Zealot';
           targetGroveId = nearestGrove.id;
           targetCellId = nearestGrove.cell_id;
-          activeBesiegers++;
 
           if (Math.random() < 0.25) {
             await client.query(`
@@ -212,7 +222,7 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
       }
 
       if (targetCellId) {
-        const moveResult = await stepTowardCell(client, locCellId, targetCellId, 65);
+        const moveResult = await stepTowardCell(client, locCellId, targetCellId, 65, 'Warden');
         locCellId = moveResult.nextCellId;
 
         // Leave a trail of chaos blight along march path
@@ -252,8 +262,8 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
       }
 
       const isPriest = subRole === 'Cult_Priest';
-      // Calibrated drain: Priests channel with 35% chance, Zealots chant with 10% chance
-      const doesDrain = isPriest ? (Math.random() < 0.35) : (Math.random() < 0.10);
+      // Balanced drain: Priests channel with 60% chance, Zealots chant with 15% chance
+      const doesDrain = isPriest ? (Math.random() < 0.60) : (Math.random() < 0.15);
       const drainAmt = doesDrain ? (isPriest ? 1.0 * sealDrainBonus : 1.0) : 0;
 
       // Drain Dragon Seal Strength

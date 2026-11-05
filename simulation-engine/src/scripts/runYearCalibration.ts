@@ -163,14 +163,32 @@ export async function runYearCalibration() {
     `);
     console.table(groves.rows);
 
-    console.log("\n--- Wardens & Eyeless Elders Roster ---");
+    console.log("\n--- Wardens, Eyeless Elders & Mad Hermits Roster ---");
     const wardensSummary = await client.query(`
-      SELECT sub_role, spark_tier, COUNT(*) as count, AVG(age_ticks)::int as avg_age, AVG(corruption)::int as avg_corruption
+      SELECT role, sub_role, state, spark_tier, COUNT(*) as count, AVG(age_ticks)::int as avg_age, AVG(corruption)::int as avg_corruption
       FROM sim_agents
-      WHERE role = 'Warden'
-      GROUP BY sub_role, spark_tier
+      WHERE role IN ('Warden', 'Mad_Hermit')
+      GROUP BY role, sub_role, state, spark_tier
+      ORDER BY role ASC, count DESC
     `);
     console.table(wardensSummary.rows);
+
+    console.log("\n--- Ancient Path Wards Status (Thousands along Forgotten Pilgrim Routes) ---");
+    const wardsSummary = await client.query(`
+      SELECT is_charged, COUNT(*) as count
+      FROM sim_ancient_path_wards
+      GROUP BY is_charged
+    `);
+    console.table(wardsSummary.rows);
+
+    console.log("\n--- Cosmic Awakenings vs Sanity Shatters ---");
+    const awakeningEvents = await client.query(`
+      SELECT type, COUNT(*) as count
+      FROM sim_events
+      WHERE type IN ('WARDEN_ANCIENT_WARD_AWAKENING', 'SPARKBORN_DRIVEN_MAD', 'WARDEN_VOW_TAKEN', 'EYELESS_ELDER_CRYPT_VIGIL', 'WARDEN_FINAL_SACRIFICE')
+      GROUP BY type
+    `);
+    console.table(awakeningEvents.rows);
 
     console.log("\n--- Cultist Distribution (Burg Infiltrators vs Seal Besiegers) ---");
     const cultistsSummary = await client.query(`
@@ -251,7 +269,7 @@ export async function runYearCalibration() {
       WHERE elem = ANY($1::text[])
       GROUP BY elem
       ORDER BY citizen_count DESC
-    `, [["#GhostwindRumor", "#BlameRivalFaction", "#SpectralAirshipSighting", "#LockedRoomMystery", "#DeadDropSuccess", "#HauntedSpringsLegend", "#PaleGhostSighting", "#GuidanceOfTheEyelessElder", "#EyelessSight", "#PropheticVigil", "#SacrificialAetherCrater", "#HallowedMartyrGround"]]);
+    `, [["#GhostwindRumor", "#BlameRivalFaction", "#SpectralAirshipSighting", "#LockedRoomMystery", "#DeadDropSuccess", "#HauntedSpringsLegend", "#PaleGhostSighting", "#AncientWardDischarge", "#AwakenedSparkborn", "#MadHermitProphecy", "#VisionsOfTheVoid", "#EyelessFlowSight", "#SignatureCurvedBlade", "#WhispersOfTheCryptElders", "#GuidanceOfTheAncestors", "#SacrificialAetherCrater", "#HallowedMartyrGround"]]);
     console.table(rumorTags.rows);
 
   } finally {

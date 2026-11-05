@@ -17,11 +17,15 @@ import { runNPCRoutineAgent } from "./agents/npcRoutineAgent";
 import { runChaosFlowAgent } from "./agents/chaosFlowAgent";
 import { runBackgroundDirectorAgent } from "./agents/backgroundDirector";
 import { backfillBlankPersonas } from "./agents/citizenPersonaHelper";
+import { initSpatialCache } from "./agents/agentMovementHelper";
 
 export async function executeMasterTick(): Promise<{status: string, currentTick: number}> {
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
+        
+        // Ensure in-memory spatial cache is initialized once for sub-microsecond agent navigation
+        await initSpatialCache(client);
         
         // Ensure all active sim_agents retain living citizen personas
         await backfillBlankPersonas(client);

@@ -274,6 +274,16 @@ CREATE TABLE sim_infrastructure (
   UNIQUE(burg_id, type)
 );
 
+CREATE TABLE IF NOT EXISTS sim_ancient_path_wards (
+  id                  SERIAL PRIMARY KEY,
+  cell_id             INT,
+  flow_id             INT,
+  path_name           TEXT,
+  is_charged          BOOLEAN DEFAULT true,
+  last_triggered_tick INT DEFAULT 0,
+  recharge_ticks      INT DEFAULT 120
+);
+
 CREATE TABLE sim_agents (
   id                   SERIAL PRIMARY KEY,
   name                 TEXT,
@@ -881,8 +891,9 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
       );
     }
 
-    // ── 13. Agents (Elite Order of Grey Wardens & Cultists) ───
+    // ── 13. Agents (Elite Order of Grey Wardens, Ancient Path Wards & Void Cults) ───
     await client.query("DELETE FROM sim_agents");
+    await client.query("DELETE FROM sim_ancient_path_wards");
     
     // Fetch all 12 Sacred Groves (Dragon Prisons)
     const allGrovesRes = await client.query("SELECT id, cell_id, dragon_name, power_domain FROM sim_sacred_groves ORDER BY id ASC");
@@ -890,11 +901,30 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
 
     const WARDEN_PATRONYMICS = ["Wind-Rider", "Stone-Back", "Moon-Stalker", "Shadow-Pounce", "Blackwood", "Clearwater", "Frost", "Ashfall", "Brawn-Hammer", "Grey-Pelt", "Sun-Basker", "Deep-Root"];
 
-    // 1. Seed ~6 Wardens per Dragon Prison (72 Wardens Worldwide, including Eyeless Elders)
-    for (let gIdx = 0; gIdx < grovesList.length; gIdx++) {
-      const g = grovesList[gIdx];
-      
-      // 1 Eyeless Elder per Grove (Blind Seer)
+    // A. Seed Thousands of Ancient Forgotten Wards along Pilgrimage Corridors Converging on the Spire (Cell 16166)
+    const SPIRE_CELL = 16166;
+    for (let fIdx = 0; fIdx < grovesList.length; fIdx++) {
+      const g = grovesList[fIdx];
+      // Seed ~100 ancient dormant wards along the ley pathway between perimeter prison and Spire
+      const corridorCellsRes = await client.query(`
+        SELECT id FROM sim_cells
+        WHERE (id % 12) = $1
+        ORDER BY RANDOM()
+        LIMIT 100
+      `, [fIdx]);
+
+      for (const c of corridorCellsRes.rows) {
+        await client.query(`
+          INSERT INTO sim_ancient_path_wards (cell_id, flow_id, path_name, is_charged, recharge_ticks)
+          VALUES ($1, $2, $3, true, 150)
+        `, [c.id, g.id, `Ancient Pilgrim Leyway of ${g.dragon_name}`]);
+      }
+    }
+
+    // B. Seed 12 Venerable Eyeless Crypt Elders in the Under-Spire Tomb (Standing in Alcoves, Watching the Flows Forever)
+    for (let cIdx = 0; cIdx < grovesList.length; cIdx++) {
+      const g = grovesList[cIdx];
+      const cryptAge = 300 + cIdx * 20;
       await client.query(`
         INSERT INTO sim_agents (
           name, citizen_name, profession, species, spark_tier,
@@ -902,24 +932,53 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
           role, sub_role, location_cell_id, target_grove_id, state,
           corruption, age_ticks, active_plot
         ) VALUES (
-          $1, $2, 'Eyeless Elder Seer', 'Human', 'EYELESS_ELDER',
-          'STOIC', 'WARY', $3,
-          'Warden', 'Eyeless_Elder', $4, $5, 'STRENGTHENING_SEAL',
-          0, 150, $6
+          $1, $2, 'Ancient Crypt Seer', 'Human', 'EYELESS_ELDER',
+          'STOIC', 'WARY', 'Standing eternal vigil in the under-spire tomb alcove, gazing into the 12 chaos flows across Ostraka',
+          'Warden', 'Eyeless_Crypt_Elder', $3, $4, 'SPIRE_CRYPT_VIGIL',
+          15, $5, $6
         )
       `, [
-        `Eyeless Elder of ${g.dragon_name}`,
-        `Elder of ${g.dragon_name}`,
-        `Guiding the cosmic vigil and piercing cosmic leys with starlight-filled sockets`,
-        g.cell_id, g.id,
-        `Seer vigil over the Prison of ${g.dragon_name}`
+        `Crypt Elder of ${g.dragon_name}`,
+        `Elder ${g.dragon_name}-Watcher`,
+        SPIRE_CELL, g.id,
+        cryptAge,
+        `Eternal alcove vigil beneath the Spire of Convergence, telepathically advising active Elders on the surface`
       ]);
+    }
 
-      // 5 Warden Sentinels per Grove
-      for (let sIdx = 1; sIdx <= 5; sIdx++) {
+    // C. Seed 12 Active Flow-Seer Eyeless Elders on Patrol with Signature Curved Blades
+    for (let eIdx = 0; eIdx < grovesList.length; eIdx++) {
+      const g = grovesList[eIdx];
+      const pName = WARDEN_PATRONYMICS[eIdx % WARDEN_PATRONYMICS.length];
+      const flowAge = 120 + eIdx * 5;
+      await client.query(`
+        INSERT INTO sim_agents (
+          name, citizen_name, profession, species, spark_tier,
+          personality_temper, personality_instinct, motivation,
+          role, sub_role, location_cell_id, target_grove_id, state,
+          corruption, age_ticks, active_plot
+        ) VALUES (
+          $1, $2, 'Eyeless Flow Blade', 'Human', 'EYELESS_ELDER',
+          'STOIC', 'WARY', 'Hunting Shlaar cultists and severing chaos monstrosities with signature curved blades',
+          'Warden', 'Eyeless_Elder', $3, $4, 'PATROLLING_FLOW',
+          10, $5, $6
+        )
+      `, [
+        `Eyeless Elder ${pName}`,
+        `Elder ${pName}`,
+        g.cell_id, g.id,
+        flowAge,
+        `Flow-sight patrol along the leys of ${g.dragon_name}, channeling uncanny blade strikes`
+      ]);
+    }
+
+    // D. Seed 48 Grey Warden Sentinels on Active Flow Patrol with Aether-Tech Sigils (4 per flow)
+    for (let gIdx = 0; gIdx < grovesList.length; gIdx++) {
+      const g = grovesList[gIdx];
+      for (let sIdx = 1; sIdx <= 4; sIdx++) {
         const pName = WARDEN_PATRONYMICS[(gIdx + sIdx) % WARDEN_PATRONYMICS.length];
         const temper = sIdx % 3 === 0 ? 'COMPASSIONATE' : sIdx % 2 === 0 ? 'SCHOLARLY' : 'STOIC';
-        const age = 20 + sIdx * 10;
+        const age = 30 + sIdx * 10;
         await client.query(`
           INSERT INTO sim_agents (
             name, citizen_name, profession, species, spark_tier,
@@ -928,8 +987,8 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
             corruption, age_ticks, active_plot
           ) VALUES (
             $1, $2, 'Grey Warden Sentinel', 'Human', 'ADEPT',
-            $3, 'WARY', 'Defending the ancient Dragon Prison from encroaching cultists',
-            'Warden', 'Warden_Sentinel', $4, $5, 'STRENGTHENING_SEAL',
+            $3, 'WARY', 'Patrolling the primordial flows and cleansing eco-blight with aether-tech sigils',
+            'Warden', 'Warden_Sentinel', $4, $5, 'PATROLLING_FLOW',
             5, $6, $7
           )
         `, [
@@ -938,13 +997,14 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
           temper,
           g.cell_id, g.id,
           age,
-          `Anchoring the seal of ${g.dragon_name}`
+          `Aether-tech sigil patrol along the flow of ${g.dragon_name}`
         ]);
       }
     }
 
-    // 2. Seed Cultists: Exactly 4x Warden Count (288 Cultists Worldwide)
-    // Half (144) actively breaking seals at the 12 sacred groves (12 cultists per grove)
+    // E. Seed Cultists: Exactly 4x Warden Count (288 Cultists Worldwide)
+    // Sourced from Shlaar's psychic whispers leaking through the one ritual flaw into Sparkborn minds
+    // 144 operating along the flow banks and ancient sites (12 per flow/groves)
     for (const g of grovesList) {
       // 1 High Priest
       await client.query(`
@@ -954,8 +1014,8 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
           role, sub_role, location_cell_id, target_grove_id, state,
           corruption, age_ticks, active_plot
         ) VALUES (
-          $1, $2, 'High Priest of the Void', 'Human', 'ADEPT',
-          'FANATICAL', 'AGGRESSIVE', 'Shattering the dragon seal to unleash the primordial apocalypse',
+          $1, $2, 'High Priest of Shlaar', 'Human', 'ADEPT',
+          'FANATICAL', 'AGGRESSIVE', 'Seduced by Shlaar whispers to tear open the flawed containment',
           'Cultist', 'Cult_Priest', $3, $4, 'BESIEGING_SEAL',
           75, 45, $5
         )
@@ -963,10 +1023,10 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
         `High Priest of ${g.dragon_name}`,
         `Priest of ${g.dragon_name}`,
         g.cell_id, g.id,
-        `Channeling dark rites to shatter the seal of ${g.dragon_name}`
+        `Channeling Shlaar's psychic whispers to breach the ancient self-sustaining prison of ${g.dragon_name}`
       ]);
 
-      // 11 Besieging Cultist Zealots
+      // 11 Flow Zealots
       for (let cIdx = 1; cIdx <= 11; cIdx++) {
         const temper = cIdx % 2 === 0 ? 'FANATICAL' : 'DESPERATE';
         const cAge = 10 + cIdx * 2;
@@ -978,7 +1038,7 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
             corruption, age_ticks, active_plot
           ) VALUES (
             $1, $2, 'Void Cultist Zealot', 'Human', 'CHANNELER',
-            $3, 'AGGRESSIVE', 'Draining the ancient dragon seal to awaken their primordial god',
+            $3, 'AGGRESSIVE', 'Heeding the psychic whispers of Shlaar along the chaos flows',
             'Cultist', 'Cultist_Pilgrim', $4, $5, 'BESIEGING_SEAL',
             35, $6, $7
           )
@@ -988,7 +1048,7 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
           temper,
           g.cell_id, g.id,
           cAge,
-          `Besieging the Prison of ${g.dragon_name}`
+          `Channeling dark rites along the flow of ${g.dragon_name}`
         ]);
       }
     }
@@ -1013,7 +1073,7 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
             state, corruption, age_ticks, active_plot
           ) VALUES (
             $1, $2, 'Secret Cult Infiltrator', 'Human', 'CHANNELER',
-            $3, 'STEALTHY', 'Spreading corruption, siphoning municipal wealth, and recruiting converts in secret',
+            $3, 'STEALTHY', 'Seduced by Shlaar whispers, spreading corruption, siphoning wealth, and recruiting converts in secret',
             'Cultist', 'Cultist_Infiltrator', $4, $5,
             'INFILTRATING', 15, $6, $7
           )
@@ -1023,13 +1083,13 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
           temper,
           b.burg_id, b.cell_id,
           kAge,
-          `Infiltrating municipal guilds and recruiting converts in secret in ${b.name}`
+          `Infiltrating municipal guilds and spreading Shlaar whispers in secret in ${b.name}`
         ]);
         seededInfiltrators++;
       }
     }
 
-    const tablesToResetSeq = ['sim_infrastructure', 'sim_agents', 'sim_sacred_groves', 'sim_fringe_lairs', 'sim_ghostwind_dead_drops', 'sim_events', 'sim_trade_routes', 'sim_chaos_zones', 'sim_outlaw_factions', 'sim_calendar', 'sim_diplomacy'];
+    const tablesToResetSeq = ['sim_infrastructure', 'sim_ancient_path_wards', 'sim_agents', 'sim_sacred_groves', 'sim_fringe_lairs', 'sim_ghostwind_dead_drops', 'sim_events', 'sim_trade_routes', 'sim_chaos_zones', 'sim_outlaw_factions', 'sim_calendar', 'sim_diplomacy'];
     for (const t of tablesToResetSeq) {
       await client.query(`SELECT setval('${t}_id_seq', (SELECT COALESCE(MAX(id), 1) FROM ${t}))`).catch(() => {});
     }

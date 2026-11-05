@@ -372,6 +372,72 @@ observerRouter.get("/burg_citizens", async (req, res) => {
   }
 });
 
+// Comprehensive Metaphysics & Cosmic Telemetry: Dragon Prisons, Grey Wardens, Eyeless Elders, Ancient Wards & Cults
+observerRouter.get("/metaphysics", async (req, res) => {
+  try {
+    const grovesRes = await pool.query(`
+      SELECT id, cell_id, dragon_name, power_domain, seal_strength
+      FROM sim_sacred_groves
+      ORDER BY seal_strength ASC
+    `);
+
+    const wardsRes = await pool.query(`
+      SELECT 
+        COUNT(*) as total_wards,
+        COUNT(*) FILTER (WHERE is_charged = true) as charged_wards,
+        COUNT(*) FILTER (WHERE is_charged = false) as recharging_wards
+      FROM sim_ancient_path_wards
+    `);
+
+    const wardensRes = await pool.query(`
+      SELECT sub_role, state, COUNT(*) as count, ROUND(AVG(corruption)::numeric, 1) as avg_corruption, ROUND(AVG(age_ticks)::numeric, 1) as avg_age
+      FROM sim_agents
+      WHERE role = 'Warden'
+      GROUP BY sub_role, state
+    `);
+
+    const cultistsRes = await pool.query(`
+      SELECT state, sub_role, COUNT(*) as count, ROUND(AVG(corruption)::numeric, 1) as avg_corruption
+      FROM sim_agents
+      WHERE role = 'Cultist'
+      GROUP BY state, sub_role
+    `);
+
+    const hermitsRes = await pool.query(`
+      SELECT COUNT(*) as mad_hermits FROM sim_agents WHERE role = 'Mad_Hermit'
+    `);
+
+    const recentEventsRes = await pool.query(`
+      SELECT tick, type, message, tier, cell_id, lore_date
+      FROM sim_events
+      WHERE type IN (
+        'WARDEN_FINAL_SACRIFICE',
+        'WARDEN_ANCIENT_WARD_AWAKENING',
+        'SPARKBORN_DRIVEN_MAD',
+        'WARDEN_VOW_TAKEN',
+        'WARDEN_BECOMES_EYELESS_ELDER',
+        'EYELESS_ELDER_CRYPT_VIGIL',
+        'WORLD_ENDING_APOCALYPSE',
+        'CULT_PRIEST_ASCENSION',
+        'WARDEN_CLASH'
+      )
+      ORDER BY id DESC
+      LIMIT 25
+    `);
+
+    res.json({
+      dragon_groves: grovesRes.rows,
+      ancient_wards: wardsRes.rows[0],
+      wardens: wardensRes.rows,
+      cultists: cultistsRes.rows,
+      mad_hermits: parseInt(hermitsRes.rows[0]?.mad_hermits || '0'),
+      recent_events: recentEventsRes.rows
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 observerRouter.post("/reset", async (req, res) => {
   if (tickInProgress) {
     return res.status(429).json({ error: "Cannot reset while a tick is in progress." });
