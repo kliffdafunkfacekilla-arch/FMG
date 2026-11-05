@@ -69,6 +69,12 @@ export async function runGrindCanyonAgent(client: PoolClient, tick: number, lore
         WHERE id = $2
       `, [tick, canyon.id]);
 
+      // Remove the temporary dive camp for this canyon from sim_fringe_lairs
+      await client.query(`
+        DELETE FROM sim_fringe_lairs
+        WHERE faction_id = 9 AND cell_id = $1
+      `, [canyon.cell_id]);
+
       await client.query(`
         INSERT INTO sim_events (tick, type, message, tier, lore_date)
         VALUES ($1, 'GRIND_CANYON_SEALED', $2, 'MAJOR', $3)
@@ -77,10 +83,19 @@ export async function runGrindCanyonAgent(client: PoolClient, tick: number, lore
         `💥 GRIND CANYON SEALED: ${canyon.name} at Cell ${canyon.cell_id} has ground shut with a deafening tectonic roar! The chasm, pre-Cruor ruins, and unmined dragonstone veins are crushed and sealed beneath solid bedrock.`,
         loreDate
       ]);
+
+      await client.query(`
+        INSERT INTO sim_events (tick, type, message, tier, lore_date)
+        VALUES ($1, 'GRIND_CORE_CARAVAN_DEPARTURE', $2, 'MAJOR', $3)
+      `, [
+        tick,
+        `🐎 GRIND CORE CARAVAN DEPARTURE: With ${canyon.name} ground shut beneath solid stone at Cell ${canyon.cell_id}, the Grind Canyon Corps packed up their heavy winches, forge-wagons, and caravans to roam the wilderness until the next chasm tears open!`,
+        loreDate
+      ]);
     }
   }
 
-  // 2. Spawn new Grind Canyons in wild / canyon / mountain terrain
+  // 2. Spawn new Grind Canyons in wild / canyon / mountain terrain (Strictly max 3 active in world)
   const openCountRes = await client.query(`
     SELECT COUNT(*) FROM sim_grind_canyons WHERE status IN ('OPEN', 'COLLAPSING')
   `);
@@ -127,12 +142,33 @@ export async function runGrindCanyonAgent(client: PoolClient, tick: number, lore
         crewName, tick
       ]);
 
+      // Find nearest burg to this canyon dive site
+      const nearestBurgRes = await client.query(`
+        SELECT burg_id, name, cell_id FROM sim_burg_economy ORDER BY ABS(cell_id - $1) ASC LIMIT 1
+      `, [cell.id]);
+      const nearestBurg = nearestBurgRes.rows[0];
+
+      // Anchor temporary dive camp in sim_fringe_lairs for the duration of the dig
+      await client.query(`
+        INSERT INTO sim_fringe_lairs (faction_id, cell_id, burg_id, lair_type, manpower, heat)
+        VALUES (9, $1, $2, 'CHASM_DIVE_CAMP', 35, 20)
+      `, [cell.id, nearestBurg ? nearestBurg.burg_id : null]);
+
       await client.query(`
         INSERT INTO sim_events (tick, type, message, tier, lore_date)
         VALUES ($1, 'GRIND_CANYON_OPENED', $2, 'CRITICAL', $3)
       `, [
         tick,
         `⚡ GRIND CANYON OPENED: A colossal tectonic fissure has torn open at Cell ${cell.id}! ${canyonName} plunges ${depth}m into the earth, exposing pre-Cruor ruins and veins of ${dragonPick.stone}. ${crewName} has anchored heavy descent winches to strip treasure before the chasm grinds shut!`,
+        loreDate
+      ]);
+
+      await client.query(`
+        INSERT INTO sim_events (tick, type, message, tier, lore_date)
+        VALUES ($1, 'GRIND_CORE_CARAVAN_ARRIVED', $2, 'CRITICAL', $3)
+      `, [
+        tick,
+        `⛺ CHASM CARAVAN ARRIVAL: The nomadic wagon-trains of the Grind Canyon Corps have arrived at Cell ${cell.id}! Setting up heavy descent winches and mobile forge-tents above ${canyonName}, the self-populating caravan community has established camp to strip dragonstone before the bedrock slams shut! Nearby ${nearestBurg?.name || 'settlements'} brace for the influx of wild crews.`,
         loreDate
       ]);
     }

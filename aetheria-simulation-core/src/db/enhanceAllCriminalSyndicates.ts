@@ -62,31 +62,65 @@ export async function enhanceAllCriminalSyndicates() {
       }
     }
 
-    // 4. Seed initial lairs for the 5 new syndicates if they have none
-    console.log("Seeding authentic starting lairs for newly integrated syndicates...");
-    for (const syn of OUTLAW_SYNDICATES.filter(s => s.id >= 6)) {
+    // 4. Seed initial lairs strictly aligned with each syndicate's lore and mechanics
+    console.log("Seeding authentic starting lairs tailored to syndicate lore...");
+    for (const syn of OUTLAW_SYNDICATES) {
       const existingLairs = await client.query(
         `SELECT COUNT(*) FROM sim_fringe_lairs WHERE faction_id = $1`,
         [syn.id]
       );
       if (Number(existingLairs.rows[0].count) === 0) {
-        // Find 2 wealthy/suitable candidate burgs near their origin or matching theme
-        const candidateBurgs = await client.query(`
-          SELECT b.burg_id, b.cell_id, b.name
-          FROM sim_burg_economy b
-          WHERE b.cell_id IS NOT NULL AND b.wealth > 150
-          ORDER BY RANDOM()
-          LIMIT 3
-        `);
-
-        for (let i = 0; i < candidateBurgs.rows.length; i++) {
-          const b = candidateBurgs.rows[i];
-          const lairType = syn.lairTypes[i % syn.lairTypes.length];
+        if (syn.id === 5) {
+          // The Ghostwind Raiders: STRICTLY 1 single hidden lair in Guerrilla Clan territory
           await client.query(`
             INSERT INTO sim_fringe_lairs (faction_id, cell_id, burg_id, lair_type, manpower, heat)
-            VALUES ($1, $2, $3, $4, 60, 15)
-          `, [syn.id, b.cell_id, b.burg_id, lairType]);
-          console.log(`   + Established ${lairType} for ${syn.name} in Burg ${b.name} (Burg #${b.burg_id}, Cell ${b.cell_id})`);
+            VALUES ($1, $2, $3, 'CLAN_COVERT_COVE', 45, 10)
+          `, [syn.id, syn.originCellId, syn.originBurgId]);
+          console.log(`   + Established strictly 1 CLAN_COVERT_COVE for ${syn.name} in Guerrilla Clan lands (Burg #${syn.originBurgId})`);
+        } else if (syn.id === 9) {
+          // The Grind Canyon Corps: ZERO static lairs! Canyons only.
+          console.log(`   + Grind Canyon Corps: 0 static starting lairs (nomadic dive camps open only at grinding canyons).`);
+        } else if (syn.id === 10) {
+          // The Hedge Wizards: STRICTLY 1 Traveling Circus Caravan lair
+          await client.query(`
+            INSERT INTO sim_fringe_lairs (faction_id, cell_id, burg_id, lair_type, manpower, heat)
+            VALUES ($1, $2, $3, 'TRAVELING_CIRCUS_CARAVAN', 24, 0)
+          `, [syn.id, syn.originCellId, syn.originBurgId]);
+          console.log(`   + Established strictly 1 TRAVELING_CIRCUS_CARAVAN for ${syn.name} at origin burg #${syn.originBurgId}`);
+        } else if (syn.id === 7) {
+          // The Otter Mafia: 2 authentic River Taverns along riverways
+          const riverBurgs = await client.query(`
+            SELECT b.burg_id, b.cell_id, b.name
+            FROM sim_burg_economy b
+            WHERE b.cell_id IS NOT NULL AND b.wealth > 100
+            ORDER BY RANDOM()
+            LIMIT 2
+          `);
+          for (const b of riverBurgs.rows) {
+            await client.query(`
+              INSERT INTO sim_fringe_lairs (faction_id, cell_id, burg_id, lair_type, manpower, heat)
+              VALUES ($1, $2, $3, 'RIVER_TAVERN', 30, 8)
+            `, [syn.id, b.cell_id, b.burg_id]);
+            console.log(`   + Established RIVER_TAVERN for ${syn.name} in ${b.name} (Burg #${b.burg_id})`);
+          }
+        } else {
+          // Other syndicates (Gilded Compass, Sky-Barons, Legion, Ivory-Gate, Obsidian, Ghostspring)
+          const candidateBurgs = await client.query(`
+            SELECT b.burg_id, b.cell_id, b.name
+            FROM sim_burg_economy b
+            WHERE b.cell_id IS NOT NULL AND b.wealth > 150
+            ORDER BY RANDOM()
+            LIMIT 2
+          `);
+          for (let i = 0; i < candidateBurgs.rows.length; i++) {
+            const b = candidateBurgs.rows[i];
+            const lairType = syn.lairTypes[i % syn.lairTypes.length] || "VICE_DEN";
+            await client.query(`
+              INSERT INTO sim_fringe_lairs (faction_id, cell_id, burg_id, lair_type, manpower, heat)
+              VALUES ($1, $2, $3, $4, 35, 12)
+            `, [syn.id, b.cell_id, b.burg_id, lairType]);
+            console.log(`   + Established ${lairType} for ${syn.name} in Burg ${b.name}`);
+          }
         }
       }
     }
