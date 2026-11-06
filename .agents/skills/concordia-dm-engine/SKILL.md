@@ -51,3 +51,4 @@ When modifying the DM layer:
 2. Test player action arbitration:
    `curl -X POST http://localhost:3000/api/dm/act -H "Content-Type: application/json" -d '{"cellId": 13408, "actionText": "Examine the central well", "targetId": "prop_fountain_73"}'`
 3. Verify `tsc` clean build across `simulation-engine`.
+

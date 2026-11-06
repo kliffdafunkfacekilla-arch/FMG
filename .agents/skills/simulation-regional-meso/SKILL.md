@@ -44,3 +44,4 @@ When modifying regional generation or overland routing:
    `curl "http://localhost:3000/api/regional/manifest/13408?x=50&y=50"`
 2. Verify boundary checks: Coordinates `< 0` or `>= 100` must return HTTP 400.
 3. Verify that running `runDualLODSimulation.ts` correctly processes the focused cell alongside macro ticks without performance degradation.
+

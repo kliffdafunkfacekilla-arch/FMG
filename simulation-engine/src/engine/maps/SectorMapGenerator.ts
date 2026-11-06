@@ -162,22 +162,22 @@ interface WorkplaceSpec {
 }
 
 const WORKPLACE_SPECS: Record<string, WorkplaceSpec> = {
-  BAKERY: { type: "BAKERY", title: "Communal Hearth Bakery", floorTile: 3, hasCellar: false, hasUpper: false, hasOven: true, propTag: ["bakery", "food", "fire", "crafting"], propDesc: "Blazing brick bread ovens, flour barrels, and cooling racks." },
-  FORGE: { type: "FORGE", title: "Armory & Blacksmith Forge", floorTile: 4, hasCellar: false, hasUpper: false, hasOven: true, propTag: ["forge", "metal", "fire", "crafting"], propDesc: "Heavy iron anvil, dual bellows, and a blazing coal furnace." },
-  BREWERY: { type: "BREWERY", title: "Cask & Fermentation Brewhouse", floorTile: 3, hasCellar: true, hasUpper: false, propTag: ["brewhouse", "food", "container", "crafting"], propDesc: "Copper mash tuns, fermentation vats, and aged oak kegs." },
-  CARPENTRY: { type: "CARPENTRY", title: "Timber Framing Workshop", floorTile: 3, hasCellar: false, hasUpper: false, propTag: ["carpentry", "wood", "crafting"], propDesc: "Adzes, broadaxes, sawhorses, and timber framing joints." },
-  TANNERY: { type: "TANNERY", title: "Leather Currying Tannery", floorTile: 3, hasCellar: false, hasUpper: false, propTag: ["tannery", "leather", "crafting"], propDesc: "Scraping frames, tanning vats, and cured leather hides." },
-  WEAVERY: { type: "WEAVERY", title: "Draper Loom Guildhouse", floorTile: 3, hasCellar: false, hasUpper: false, propTag: ["weaving", "cloth", "crafting"], propDesc: "Vertical timber looms, spinning distaffs, and wool bolts." },
-  POTTERY: { type: "POTTERY", title: "Clay Pottery & Brick Kiln", floorTile: 3, hasCellar: false, hasUpper: false, hasOven: true, propTag: ["pottery", "fire", "stone"], propDesc: "Domed brick kiln, turning wheels, and drying storage jars." },
-  BARRACKS: { type: "BARRACKS", title: "Sovereign Guard Barracks", floorTile: 4, hasCellar: false, hasUpper: true, propTag: ["barracks", "military", "weapon", "defense"], propDesc: "Weapon racks, iron footlockers, and muster yard equipment." },
-  FARMSTEAD: { type: "FARMSTEAD", title: "Agrarian Granary & Farmstead", floorTile: 3, hasCellar: true, hasUpper: false, propTag: ["farming", "food", "granary"], propDesc: "Threshed grain bins, seed sacks, and winnowing sieves." },
-  FISHERY: { type: "FISHERY", title: "Harbor Fishery & Smokehouse", floorTile: 3, hasCellar: false, hasUpper: false, propTag: ["fishery", "food", "water"], propDesc: "Salted herring casks, smoke racks, and drying seine nets." },
-  APOTHECARY: { type: "APOTHECARY", title: "Apothecary Herbarium & Dispensary", floorTile: 3, hasCellar: true, hasUpper: false, propTag: ["medical", "alchemy", "herbalism"], propDesc: "Drying healing mosses, glass alembics, and tincture flasks." },
-  TEMPLE: { type: "TEMPLE", title: "Sanctuary of the Dragon Seals", floorTile: 4, hasCellar: true, hasUpper: true, hasAltar: true, propTag: ["sacred", "holy", "altar", "relic"], propDesc: "Polished stone altar, runic leylines, and incense burners." },
-  REGISTRY: { type: "REGISTRY", title: "Municipal Registry & Town Hall", floorTile: 4, hasCellar: true, hasUpper: true, propTag: ["civic", "paper", "registry"], propDesc: "Magistrate desks, official provincial wax seals, and tax rolls." },
-  PRECISION_ATELIER: { type: "PRECISION_ATELIER", title: "Horological Atelier & Clocksmith", floorTile: 4, hasCellar: false, hasUpper: false, propTag: ["machinery", "clockwork", "crafting"], propDesc: "Brass gears, escapement wheels, and fine engraving loupes." },
-  MASONRY: { type: "MASONRY", title: "Stonemason Cutting Yard", floorTile: 4, hasCellar: false, hasUpper: false, propTag: ["stone", "masonry", "crafting"], propDesc: "Granite ashlar blocks, stone chisels, and plumb lines." },
-  MARKET_STALL: { type: "MARKET_STALL", title: "Central Trade Exchange Stalls", floorTile: 3, hasCellar: false, hasUpper: false, propTag: ["market", "commerce", "container"], propDesc: "Canopied market stalls heaped with regional produce and goods." }
+  BAKERY: { type: "BAKERY", title: "Communal Hearth Bakery", floorTile: 3, hasCellar: false, hasUpper: false, hasOven: true, propTag: ["type:workstation", "material:brick", "material:wood", "bakery", "food", "fire", "crafting", "flammable", "oven"], propDesc: "Blazing brick bread ovens, flour barrels, and cooling racks." },
+  FORGE: { type: "FORGE", title: "Armory & Blacksmith Forge", floorTile: 4, hasCellar: false, hasUpper: false, hasOven: true, propTag: ["type:workstation", "material:iron", "material:stone", "forge", "metal", "fire", "crafting", "heat", "heavy"], propDesc: "Heavy iron anvil, dual bellows, and a blazing coal furnace." },
+  BREWERY: { type: "BREWERY", title: "Cask & Fermentation Brewhouse", floorTile: 3, hasCellar: true, hasUpper: false, propTag: ["type:workstation", "type:container", "material:copper", "material:wood_oak", "brewhouse", "food", "container", "crafting", "liquid"], propDesc: "Copper mash tuns, fermentation vats, and aged oak kegs." },
+  CARPENTRY: { type: "CARPENTRY", title: "Timber Framing Workshop", floorTile: 3, hasCellar: false, hasUpper: false, propTag: ["type:workstation", "material:wood_oak", "carpentry", "wood", "crafting", "flammable"], propDesc: "Adzes, broadaxes, sawhorses, and timber framing joints." },
+  TANNERY: { type: "TANNERY", title: "Leather Currying Tannery", floorTile: 3, hasCellar: false, hasUpper: false, propTag: ["type:workstation", "material:wood", "material:leather", "tannery", "leather", "crafting", "liquid"], propDesc: "Scraping frames, tanning vats, and cured leather hides." },
+  WEAVERY: { type: "WEAVERY", title: "Draper Loom Guildhouse", floorTile: 3, hasCellar: false, hasUpper: false, propTag: ["type:workstation", "material:wood", "material:cloth", "weaving", "cloth", "crafting", "flammable"], propDesc: "Vertical timber looms, spinning distaffs, and wool bolts." },
+  POTTERY: { type: "POTTERY", title: "Clay Pottery & Brick Kiln", floorTile: 3, hasCellar: false, hasUpper: false, hasOven: true, propTag: ["type:workstation", "material:clay", "material:brick", "pottery", "fire", "stone", "heat"], propDesc: "Domed brick kiln, turning wheels, and drying storage jars." },
+  BARRACKS: { type: "BARRACKS", title: "Sovereign Guard Barracks", floorTile: 4, hasCellar: false, hasUpper: true, propTag: ["type:structure", "material:stone", "material:iron", "barracks", "military", "weapon", "defense", "secure"], propDesc: "Weapon racks, iron footlockers, and muster yard equipment." },
+  FARMSTEAD: { type: "FARMSTEAD", title: "Agrarian Granary & Farmstead", floorTile: 3, hasCellar: true, hasUpper: false, propTag: ["type:structure", "type:container", "material:wood_pine", "farming", "food", "granary", "flammable", "container"], propDesc: "Threshed grain bins, seed sacks, and winnowing sieves." },
+  FISHERY: { type: "FISHERY", title: "Harbor Fishery & Smokehouse", floorTile: 3, hasCellar: false, hasUpper: false, propTag: ["type:workstation", "material:wood", "fishery", "food", "water", "crafting"], propDesc: "Salted herring casks, smoke racks, and drying seine nets." },
+  APOTHECARY: { type: "APOTHECARY", title: "Apothecary Herbarium & Dispensary", floorTile: 3, hasCellar: true, hasUpper: false, propTag: ["type:workstation", "type:container", "material:glass", "material:wood", "medical", "alchemy", "herbalism", "fragile"], propDesc: "Drying healing mosses, glass alembics, and tincture flasks." },
+  TEMPLE: { type: "TEMPLE", title: "Sanctuary of the Dragon Seals", floorTile: 4, hasCellar: true, hasUpper: true, hasAltar: true, propTag: ["type:altar", "type:structure", "material:stone", "sacred", "holy", "altar", "relic", "hallowed"], propDesc: "Polished stone altar, runic leylines, and incense burners." },
+  REGISTRY: { type: "REGISTRY", title: "Municipal Registry & Town Hall", floorTile: 4, hasCellar: true, hasUpper: true, propTag: ["type:workstation", "type:structure", "material:wood", "material:paper", "civic", "paper", "registry", "flammable"], propDesc: "Magistrate desks, official provincial wax seals, and tax rolls." },
+  PRECISION_ATELIER: { type: "PRECISION_ATELIER", title: "Horological Atelier & Clocksmith", floorTile: 4, hasCellar: false, hasUpper: false, propTag: ["type:workstation", "material:brass", "material:steel", "machinery", "clockwork", "crafting", "fragile"], propDesc: "Brass gears, escapement wheels, and fine engraving loupes." },
+  MASONRY: { type: "MASONRY", title: "Stonemason Cutting Yard", floorTile: 4, hasCellar: false, hasUpper: false, propTag: ["type:workstation", "material:granite", "material:stone", "stone", "masonry", "crafting", "heavy"], propDesc: "Granite ashlar blocks, stone chisels, and plumb lines." },
+  MARKET_STALL: { type: "MARKET_STALL", title: "Central Trade Exchange Stalls", floorTile: 3, hasCellar: false, hasUpper: false, propTag: ["type:furniture", "type:container", "material:wood", "material:cloth", "market", "commerce", "container", "flammable"], propDesc: "Canopied market stalls heaped with regional produce and goods." }
 };
 
 export function generateBurgSectorLayers(
@@ -351,7 +351,7 @@ export function generateBurgSectorLayers(
       id: `prop_fountain_${burg.burg_id}`,
       name: tier >= 3 ? `Grand Public Fountain of ${burgName}` : `Central Well of ${burgName}`,
       pos: [CENTER, CENTER],
-      tags: ["stone", "water", "civic", "container", "fountain"],
+      tags: ["type:waterway", "type:container", "material:stone", "stone", "water", "civic", "container", "fountain", "drinkable"],
       hp: 150,
       maxHp: 150,
       description: `A communal stone water well providing clear drinking water to the citizens of ${burgName}.`
@@ -516,7 +516,7 @@ export function generateBurgSectorLayers(
         id: `prop_cellar_hatch_${b.spec.type.toLowerCase()}_${burg.burg_id}`,
         name: `${b.spec.title} Cellar Trapdoor`,
         pos: [b.cx + 2, b.cy + 1],
-        tags: ["wood", "hatch", "down", "stairs_down", "cellar", "subterranean"],
+        tags: ["type:portal", "material:wood_oak", "material:iron", "wood", "hatch", "down", "stairs_down", "cellar", "subterranean", "openable", "lockable", "flammable"],
         hp: 60,
         maxHp: 60,
         description: `Iron-strapped oak trapdoor opening down into the ${b.spec.title.toLowerCase()} basement.`
@@ -528,7 +528,7 @@ export function generateBurgSectorLayers(
         id: `prop_stairs_up_${b.spec.type.toLowerCase()}_${burg.burg_id}`,
         name: `${b.spec.title} Upper Flight Stairs`,
         pos: [b.cx - 2, b.cy - 1],
-        tags: ["wood", "stairs_up", "up", "elevated"],
+        tags: ["type:portal", "material:wood_oak", "wood", "stairs_up", "up", "elevated", "climbable", "flammable"],
         hp: 80,
         maxHp: 80,
         description: `Stair flight ascending to the second floor of the ${b.spec.title.toLowerCase()}.`
@@ -539,16 +539,37 @@ export function generateBurgSectorLayers(
       const c = b.citizens[ci]!;
       const stats = computeCitizenConcordiaStats(c, rand);
 
+      // Determine emotional & physiological status from burg indicators
+      const statusTags: string[] = [];
+      const burgUnrest = Number(burg.unrest) || 0;
+      const burgFood = Number(burg.stockpile_food ?? burg.food ?? 5000);
+      if (burgFood < 1000) statusTags.push("starving");
+      if (burgUnrest > 40) statusTags.push("anxious");
+      if (burgUnrest > 70) statusTags.push("panicked");
+      if (burgUnrest > 85) statusTags.push("rebellious");
+
+      const citizenTags = [
+        c.species ? c.species.toLowerCase() : "human",
+        "civilian",
+        c.workplace_type ? c.workplace_type.toLowerCase() : "trade",
+        c.temper ? c.temper.toLowerCase() : "sanguine",
+        c.instinct ? c.instinct.toLowerCase() : "fight",
+        c.motivation ? `motivation:${c.motivation.toLowerCase().replace(/\s+/g, '_')}` : "motivation:duty",
+        c.allegiance_status ? c.allegiance_status.toLowerCase() : "loyalist",
+        c.spark_tier && c.spark_tier !== 'NONE' ? `spark:${c.spark_tier.toLowerCase()}` : "spark:null",
+        ...statusTags
+      ];
+
       npcs0.push({
         id: `npc_citizen_${c.citizen_id}`,
         name: `${c.name} (${c.profession})`,
         role: c.profession,
         pos: [b.cx + (ci === 0 ? 0 : 1), b.cy + (ci === 0 ? 0 : -1)],
-        tags: [c.species ? c.species.toLowerCase() : "human", "civilian", c.workplace_type ? c.workplace_type.toLowerCase() : "trade"],
+        tags: citizenTags,
         faction: factionName,
         hp: 25,
         maxHp: 25,
-        disposition: 1,
+        disposition: statusTags.includes("rebellious") ? -1 : 1,
         alive: true,
         equippedWeapon: c.profession.includes("Smith") ? "Heavy Blacksmith Hammer" : c.profession.includes("Guard") ? "City Watch Spear" : "Carved Wooden Cudgel",
         equippedArmor: c.profession.includes("Guard") ? "Studded Leather Cuirass" : "Woven Wool Tunic & Apron",
@@ -556,7 +577,8 @@ export function generateBurgSectorLayers(
         memoryNotes: [
           c.childhood_background || "Raised locally among the workshops of the province.",
           c.motivation || "Devoted to their daily labor and community.",
-          `Employed at ${c.workplace_name || b.spec.title}.`
+          `Employed at ${c.workplace_name || b.spec.title}.`,
+          `Temper: ${c.temper || 'Sanguine'} | Instinct: ${c.instinct || 'Self-Preservation'}`
         ],
         stats
       });
@@ -569,7 +591,7 @@ export function generateBurgSectorLayers(
         id: `prop_wall_stairs_north_${burg.burg_id}`,
         name: "North Curtain Wall Stairs Up",
         pos: [WALL_LEFT + 4, WALL_TOP + 3],
-        tags: ["stone", "stairs_up", "up", "ramparts", "elevated"],
+        tags: ["type:portal", "material:stone", "stone", "stairs_up", "up", "ramparts", "elevated", "climbable"],
         hp: 180,
         maxHp: 180,
         description: "Stone staircase rising to the north wall parapet walkway."
@@ -578,7 +600,7 @@ export function generateBurgSectorLayers(
         id: `prop_wall_stairs_south_${burg.burg_id}`,
         name: "South Curtain Wall Stairs Up",
         pos: [WALL_RIGHT - 4, WALL_BOTTOM - 3],
-        tags: ["stone", "stairs_up", "up", "ramparts", "elevated"],
+        tags: ["type:portal", "material:stone", "stone", "stairs_up", "up", "ramparts", "elevated", "climbable"],
         hp: 180,
         maxHp: 180,
         description: "Stone staircase rising to the south wall parapet walkway."
@@ -591,7 +613,7 @@ export function generateBurgSectorLayers(
       id: `prop_sewer_grate_${burg.burg_id}`,
       name: "Municipal Plaza Sewer Grate",
       pos: [CENTER + 3, CENTER + 3],
-      tags: ["metal", "iron", "grate", "down", "stairs_down", "sewer", "subterranean"],
+      tags: ["type:portal", "material:iron", "metal", "iron", "grate", "down", "stairs_down", "sewer", "subterranean", "openable", "heavy"],
       hp: 180,
       maxHp: 180,
       description: "Heavy forged iron grating offering descent into the city stormwater culvert system."
@@ -641,7 +663,7 @@ export function generateBurgSectorLayers(
       id: `prop_sewer_ladder_up_${burg.burg_id}`,
       name: "Municipal Sewer Ladder Up to Plaza",
       pos: [CENTER + 3, CENTER + 3],
-      tags: ["metal", "iron", "ladder", "up", "surface"],
+      tags: ["type:portal", "material:iron", "metal", "iron", "ladder", "up", "surface", "climbable"],
       hp: 120,
       maxHp: 120,
       description: "Vertical iron climbing rungs ascending to the street plaza grating."
@@ -652,7 +674,7 @@ export function generateBurgSectorLayers(
       name: "Culvert Dire Rat",
       role: "Trophic Sewer Scavenger",
       pos: [CENTER + 5, CENTER + 2],
-      tags: ["beast", "rodent", "trophic_scavenger"],
+      tags: ["type:creature", "material:flesh", "beast", "rodent", "trophic_scavenger", "instinct:scavenge", "hostile", "fast"],
       faction: "Wild Fauna",
       hp: 16,
       maxHp: 16,
@@ -682,7 +704,7 @@ export function generateBurgSectorLayers(
       id: `prop_cellar_ladder_up_${b.spec.type.toLowerCase()}_${burg.burg_id}`,
       name: `${b.spec.title} Cellar Ladder Up`,
       pos: [b.cx + 2, b.cy + 1],
-      tags: ["wood", "ladder", "up", "surface"],
+      tags: ["type:portal", "material:wood_oak", "wood", "ladder", "up", "surface", "climbable", "flammable"],
       hp: 80,
       maxHp: 80,
       description: `Vertical wooden ladder climbing up to the ground-floor trapdoor.`
@@ -692,7 +714,7 @@ export function generateBurgSectorLayers(
       id: `prop_sub_storage_${b.spec.type.toLowerCase()}_${burg.burg_id}`,
       name: `${b.spec.title} Storage Vault`,
       pos: [b.cx - 1, b.cy - 1],
-      tags: ["wood", "container", "valuable"],
+      tags: ["type:container", "material:wood_oak", "wood", "container", "valuable", "openable", "lockable", "flammable"],
       hp: 90,
       maxHp: 90,
       description: `Cool underground vault storing bulk casks, root crops, or sacramental archives.`
@@ -725,7 +747,7 @@ export function generateBurgSectorLayers(
           id: `prop_smuggler_escape_hatch_${burg.burg_id}_${lair.id}`,
           name: `${cartelName} Wilderness Escape Flue`,
           pos: [exitX, ly],
-          tags: ["wood", "hatch", "secret", "ladder", "up", "surface"],
+          tags: ["type:portal", "material:wood_oak", "wood", "hatch", "secret", "ladder", "up", "surface", "climbable", "hidden"],
           hp: 100,
           maxHp: 100,
           description: "Camouflaged trapdoor burrowed under the outer wall opening into the wilderness brush."
@@ -734,7 +756,7 @@ export function generateBurgSectorLayers(
           id: `prop_surface_secret_hatch_${burg.burg_id}_${lair.id}`,
           name: "Camouflaged Brush Trapdoor",
           pos: [exitX, ly],
-          tags: ["wood", "hatch", "secret", "down", "stairs_down", "subterranean"],
+          tags: ["type:portal", "material:wood_oak", "wood", "hatch", "secret", "down", "stairs_down", "subterranean", "openable", "hidden"],
           hp: 80,
           maxHp: 80,
           description: "Concealed iron-ringed trapdoor overgrown with brambles outside the town wall."
@@ -745,7 +767,7 @@ export function generateBurgSectorLayers(
         id: `prop_cartel_cache_${burg.burg_id}_${lair.id}`,
         name: `${cartelName} Contraband Cache (${lairType})`,
         pos: [lx, ly],
-        tags: ["wood", "contraband", "valuable", "locked", "container"],
+        tags: ["type:container", "material:wood_oak", "wood", "contraband", "valuable", "locked", "container", "openable", "lockable", "flammable"],
         hp: 150,
         maxHp: 150,
         description: `Sealed lockboxes containing illicit contraband and ledger notes of ${cartelName}.`

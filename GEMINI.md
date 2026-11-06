@@ -102,8 +102,14 @@ Every Local cell is vertically sandwiched by 3 synchronized layers:
 * 12 Attributes: Might, Endurance, Finesse, Reflex, Vitality, Fortitude, Knowledge, Logic, Awareness, Intuition, Charm, Willpower.
 * 4 Derived Pools: Health, Stamina, Composure, Focus.
 * Opposed 1d20 resolution: `Attacker 1d20 + Stat + Mod` vs `Defender 1d20 + Stat + Mod`.
-* Tag Matrix: Environmental and physical interactions cascade deterministically through physical tags (`stone`, `wood`, `metal`, `fire`, `flammable`, `container`, `locked`, `beast`, `organic`).
 * Pure mechanical calculation with zero AI hallucination.
+* **The Universal Tag Matrix**: Connective tissue governing all physical, psychological, and systemic interactions across the world:
+  - **Physical Entity Triad**: Every prop, item, obstacle, and structure carries:
+    - *Type*: `type:container`, `type:portal`, `type:furniture`, `type:workstation`, `type:mechanism`, `type:structure`, `type:hazard`, `type:waterway`, `type:weapon`, `type:armor`, `type:foliage`.
+    - *Material*: `material:stone`, `material:iron`, `material:steel`, `material:osmium`, `material:wood_oak`, `material:wood_pine`, `material:obsidian`, `material:dragonstone`, `material:leather`, `material:cloth`, `material:glass`, `material:flesh`, `material:water`, `material:oil`.
+    - *Affordances, Capabilities & States*: What it can do or have done to it (`climbable`, `openable`, `lockable`, `locked`, `flammable`, `fragile`, `conductive`, `buoyant`, `sharp`, `blunt`, `piercing`, `corrosive`, `illuminating`, `toxic`, `burning`, `wet`, `frozen`, `corroded`, `void_tainted`, `hallowed`).
+  - **Citizen Persona & Status Tags**: Every NPC is tagged with authentic personality (`pious`, `greedy`, `cowardly`, `brave`, `cynical`, `loyal`, `rebellious`), temperament & instinct (`temper:*`, `instinct:*`, `motivation:*`), and dynamic condition (`starving`, `exhausted`, `injured`, `panicked`, `drunk`, `corrupted_by_void`, `mourning`, `celebrating`, `sheltered`, `alert`, `imprisoned`, `fugitive`).
+  - **Simulated Event Tags & Data Collision Reactions**: Macro and regional events emit tags (`#MartialLawCurfew`, `#FamineCrisis`, `#FullBloodStorm`, `#CultistWhisper`, `#DebtJubilee`, `#DragonSurge`) that collide directly with citizen tags in `narrativeReactionEngine.ts`, causing them to react naturally and systematically (rioting, hiding, praying, price-gouging, reporting heresy) without LLM hallucinations.
 
 ### Pillar 4: The AI Story Generator (Narrative Weaver)
 * Gemini-powered narrative engine that reads simulation state and player history to weave emergent drama and natural dialogue.

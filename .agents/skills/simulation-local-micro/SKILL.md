@@ -51,3 +51,4 @@ When making changes to local sectors:
    `curl "http://localhost:3000/api/dm/sector_layer?cellId=13408&rx=50&ry=50&z=-1"`
    `curl "http://localhost:3000/api/dm/sector_layer?cellId=13408&rx=50&ry=50&z=1"`
 3. Confirm `player-client` compiles without errors (`npm --prefix player-client run build`).
+

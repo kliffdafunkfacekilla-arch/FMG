@@ -52,3 +52,4 @@ When modifying the story or quest layer:
 2. Verify story arc blueprint validation using valid sector IDs:
    `curl -X POST http://localhost:3000/api/dm/story/manifest_beat -H "Content-Type: application/json" -d '{"targetSector":{"cellId":13408,"rx":50,"ry":50,"z":0}}'`
 3. Check `sim_events` insertion to verify chronicler logging integrity.
+

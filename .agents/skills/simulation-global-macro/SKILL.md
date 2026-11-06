@@ -53,3 +53,4 @@ When making changes to the Macro Layer:
    - Population change should remain within natural bounds (< 0.1% monthly delta).
    - Treaty counts must remain stable without spamming peace declarations daily.
 3. Update `GEMINI.md` and `SYSTEM_OVERVIEW.md` if any constants or state schemas change.
+

@@ -52,7 +52,7 @@ export { getCartelLairType };
  */
 export async function runCartelAgent(client: PoolClient, tick: number, loreDate: string) {
     const cartelsRes = await client.query("SELECT * FROM sim_outlaw_factions ORDER BY id ASC");
-    
+
     // Ensure each cartel has an active Capo / Paragon
     for (const cartel of cartelsRes.rows) {
         if (cartel.worker_groups === undefined || cartel.worker_groups === null) {
@@ -66,7 +66,7 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
         if (!paragon) {
             const traits = JSON.stringify([{ name: "Ruthless", modifier: 0.2 }]);
             const newP = await client.query(
-                `INSERT INTO sim_paragons (outlaw_id, burg_id, title, name, traits) VALUES ($1, $2, 'Syndicate Boss', $3, $4) RETURNING *`, 
+                `INSERT INTO sim_paragons (outlaw_id, burg_id, title, name, traits) VALUES ($1, $2, 'Syndicate Boss', $3, $4) RETURNING *`,
                 [cartel.id, cartel.origin_burg_id || 0, `${cartel.name} Boss`, traits]
             );
             paragon = newP.rows[0];
@@ -531,8 +531,8 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
                         ['#GhostwindRumor', '#BlameRivalFaction', '#SpectralAirshipSighting', '#LockedRoomMystery'],
                         'WARY',
                         `Debating conflicting rumors: some blame ${contract.client_name} privateers, while terrified sailors swear a phantom airship vanished into thin air after tying the crew in slipknots.`,
-                        null,
-                        4
+                        '%sailor%',
+                        3
                     );
 
                     // Also tag citizens in client faction capital
@@ -549,8 +549,8 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
                             ['#DeadDropSuccess', '#WhisperedTriumph'],
                             'TRIUMPHANT',
                             `Court nobles quietly celebrate the destruction of rival convoys in ${contract.target_name}, toast-drinking their anonymous mercenary contractor.`,
-                            null,
-                            3
+                            '%noble%',
+                            2
                         );
                     }
 
@@ -1183,8 +1183,8 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
                     ['#HauntedSpringsLegend', '#PaleGhostSighting'],
                     'WARY',
                     `Terrified by sightings of chalk-white figures vanishing beneath boiling sulfur pools, believing the mountain springs are haunted by water-wraiths.`,
-                    null,
-                    4
+                    '%peasant%',
+                    2
                 );
 
                 await client.query(`
