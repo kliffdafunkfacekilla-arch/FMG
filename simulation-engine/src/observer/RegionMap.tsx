@@ -106,6 +106,7 @@ export interface RegionLiveState {
   burg: any;
   factionName: string;
   mapData: number[];
+  biomeMap?: number[];
   infraMap: number[];
   agents: RegionAgent[];
 }
@@ -152,12 +153,14 @@ export function RegionMap({
         const imgData = offCtx.createImageData(data.width, data.height);
         const map = data.mapData;
         const infra = data.infraMap || [];
-        const biomeId = data.biomeId ?? 4;
+        const biomeMap = data.biomeMap || [];
+        const defaultBiomeId = data.biomeId ?? 4;
 
         for (let i = 0; i < map.length; i++) {
           const t = map[i] || 0;
           const inf = infra[i] || 0;
-          let hex = getTerrainColor(t, biomeId);
+          const cellBiome = (biomeMap[i] !== undefined ? biomeMap[i] : defaultBiomeId) ?? 4;
+          let hex = getTerrainColor(t, cellBiome);
 
           if (inf === 128) hex = "#334155"; // Battlefield
           else if (inf === 64) hex = "#64748b"; // Refugee camp
@@ -511,7 +514,7 @@ export function RegionMap({
             )}
 
             {/* Hover Tooltip */}
-            {hoveredAgent && (
+            {hoveredAgent ? (
               <div
                 style={{
                   position: "absolute",
@@ -531,7 +534,30 @@ export function RegionMap({
                 </span>{" "}
                 • Cell ({hoveredAgent.rx}, {hoveredAgent.ry}) • Speed {hoveredAgent.speed} c/day
               </div>
-            )}
+            ) : hoveredPos && regionData?.biomeMap ? (
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: 8,
+                  left: 8,
+                  background: "rgba(15, 23, 42, 0.90)",
+                  border: "1px solid #1e293b",
+                  padding: "4px 8px",
+                  borderRadius: 4,
+                  fontSize: 10,
+                  color: "#94a3b8",
+                  pointerEvents: "none"
+                }}
+              >
+                Cell ({hoveredPos.rx}, {hoveredPos.ry}) • Biome:{" "}
+                <strong style={{ color: "#38bdf8" }}>
+                  {(() => {
+                    const bId = regionData.biomeMap[hoveredPos.ry * 100 + hoveredPos.rx];
+                    return (bId !== undefined && BIOME_PALETTES[bId]?.name) || regionData.biome;
+                  })()}
+                </strong>
+              </div>
+            ) : null}
           </div>
 
           {/* ── FOOTER: LIVE TELEMETRY & TACTICAL LOCAL COORDINATE ──── */}

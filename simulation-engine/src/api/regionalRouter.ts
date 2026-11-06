@@ -69,7 +69,44 @@ async function getOrCreateRegionalInstance(cellId: number): Promise<RegionalInst
     if (warRes && warRes.rowCount && warRes.rowCount > 0) isWarzone = true;
   }
 
-  const globalData = { cellId, terrain, burg, features: terrain.cell_features, isWarzone, isFamine, factionName };
+  // Fetch adjacent Voronoi neighbors for organic edge biome & elevation blending
+  const cx = Number(terrain.center_x) || 0;
+  const cy = Number(terrain.center_y) || 0;
+  let neighbors: any[] = [];
+  try {
+    const neighborRes = await pool.query(
+      `SELECT id, biome, elevation, center_x, center_y,
+              atan2(center_y - $3, center_x - $2) as angle
+       FROM sim_cells
+       WHERE id != $1 
+         AND center_x BETWEEN $2 - 65 AND $2 + 65 
+         AND center_y BETWEEN $3 - 65 AND $3 + 65
+       ORDER BY power(center_x - $2, 2) + power(center_y - $3, 2) ASC 
+       LIMIT 8`,
+      [cellId, cx, cy]
+    );
+    neighbors = neighborRes.rows.map(r => ({
+      id: Number(r.id),
+      biome: Number(r.biome),
+      elevation: Number(r.elevation),
+      center_x: Number(r.center_x),
+      center_y: Number(r.center_y),
+      angle: Number(r.angle)
+    }));
+  } catch (err) {
+    console.warn(`[RegionalRouter] Neighbor lookup failed for cell ${cellId}:`, err);
+  }
+
+  const globalData = {
+    cellId,
+    terrain,
+    burg,
+    features: terrain.cell_features,
+    isWarzone,
+    isFamine,
+    factionName,
+    neighbors
+  };
   const instance = new RegionalInstance(cellId, globalData);
   activeRegions.set(cellId, instance);
   return instance;
@@ -108,6 +145,7 @@ regionalRouter.get("/live/:cell_id", async (req, res) => {
       } : null,
       factionName: instance.globalData.factionName || "Wilderness",
       mapData: Array.from(instance.mapData),
+      biomeMap: Array.from(instance.biomeMap),
       infraMap: Array.from(instance.infraMap),
       agents: instance.agents
     });
@@ -152,38 +190,14 @@ regionalRouter.get("/agents/:cell_id", async (req, res) => {
 
 regionalRouter.post("/start/:cell_id", async (req, res) => {
   const cellId = parseInt(req.params.cell_id);
+  if (isNaN(cellId)) return res.status(400).json({ error: "Invalid cell ID" });
   if (activeRegions.has(cellId)) {
     return res.json({ status: "already_running", cellId });
   }
 
   try {
-    const [terrainRes, burgRes, factionRes] = await Promise.all([
-      pool.query(`SELECT * FROM sim_cells WHERE id = $1`, [cellId]),
-      pool.query(`SELECT * FROM sim_burg_economy WHERE cell_id = $1`, [cellId]),
-      pool.query(`SELECT f.name FROM sim_cells c LEFT JOIN sim_factions f ON c.faction_id = f.id WHERE c.id = $1`, [cellId])
-    ]);
-
-    if (terrainRes.rowCount === 0) return res.status(404).json({ error: "Cell not found" });
-
-    const terrain = terrainRes.rows[0];
-    const burg = burgRes.rows[0] || null;
-    const factionName = factionRes.rows[0]?.name || (burg ? "Provincial Realm" : "The Wild Frontier");
-
-    let isWarzone = false;
-    let isFamine = false;
-
-    if (burg) {
-      if (burg.food < 100) isFamine = true;
-      if (burg.unrest > 70) isWarzone = true;
-      
-      const warRes = await pool.query(`SELECT 1 FROM sim_diplomacy WHERE (faction_a_id = $1 OR faction_b_id = $1) AND status = 'WAR' LIMIT 1`, [burg.faction_id]);
-      if (warRes && warRes.rowCount && warRes.rowCount > 0) isWarzone = true;
-    }
-
-    const globalData = { cellId, terrain, burg, features: terrain.cell_features, isWarzone, isFamine, factionName };
-    const instance = new RegionalInstance(cellId, globalData);
-    activeRegions.set(cellId, instance);
-
+    const instance = await getOrCreateRegionalInstance(cellId);
+    if (!instance) return res.status(404).json({ error: "Cell not found" });
     res.json({ status: "started", cellId });
   } catch (err: any) {
     console.error(err);
@@ -201,6 +215,7 @@ regionalRouter.get("/map/:cell_id", (req, res) => {
     width: instance.w,
     height: instance.h,
     mapData: Array.from(instance.mapData),
+    biomeMap: Array.from(instance.biomeMap),
     infraMap: Array.from(instance.infraMap)
   });
 });

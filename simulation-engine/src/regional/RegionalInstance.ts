@@ -1,5 +1,14 @@
 import { SimplexNoise } from "./SimplexNoise";
 
+export interface CellNeighbor {
+  id: number;
+  biome: number;
+  elevation: number;
+  center_x: number;
+  center_y: number;
+  angle: number; // in radians: -Math.PI to +Math.PI
+}
+
 export interface RegionAgent {
   id: number;
   type: string;
@@ -24,6 +33,7 @@ export class RegionalInstance {
   public globalData: any;
   
   public mapData: Uint8Array;
+  public biomeMap: Uint8Array;
   public elevationMap: Float32Array;
   public vegetationMap: Float32Array;
   public chaosMap: Float32Array;
@@ -41,6 +51,7 @@ export class RegionalInstance {
     const numCells = this.w * this.h;
     
     this.mapData = new Uint8Array(numCells);
+    this.biomeMap = new Uint8Array(numCells);
     this.elevationMap = new Float32Array(numCells);
     this.vegetationMap = new Float32Array(numCells);
     this.chaosMap = new Float32Array(numCells);
@@ -54,16 +65,25 @@ export class RegionalInstance {
     const eleNoise = new SimplexNoise(this.cellId);
     const vegNoise = new SimplexNoise(this.cellId + 100);
     const chaosNoise = new SimplexNoise(this.cellId + 200);
+    const blendNoise = new SimplexNoise(this.cellId + 300);
 
     const terrain = this.globalData.terrain || {};
-    const baseEle = Number(terrain.elevation) || 50;
-    const biomeId = Number(terrain.biome) || 4;
+    const centerEle = Number(terrain.elevation) || 50;
+    const centerBiome = Number(terrain.biome) || 4;
+    const neighbors: CellNeighbor[] = this.globalData.neighbors || [];
 
-    // Check if the global cell is oceanic water
-    // In Okasha / FMG:
-    // Biomes: 0=Marine, 13=Shallow Reef, 14=Kelp Forest, 15=Pelagic, 16=Abyssal, 17=Trench, 19=Chaos Water
-    // Elevation < 20 is sea level / ocean
-    const isGlobalWater = baseEle < 20 || [0, 13, 14, 15, 16, 17, 19].includes(biomeId);
+    // Precalculate virtual neighbor positions on the overland grid periphery
+    // (50, 50) is the center of the 100x100 mesh.
+    // Neighbors are projected at radius 65 (just beyond the 50x50 perimeter)
+    const neighborProjections = neighbors.map((n, idx) => ({
+      ...n,
+      vx: 50 + Math.cos(n.angle) * 65,
+      vy: 50 + Math.sin(n.angle) * 65,
+      noiseOffset: (idx + 1) * 37
+    }));
+
+    const isWaterBiome = (b: number) => [0, 13, 14, 15, 16, 17, 19].includes(b);
+    const isGlobalWater = centerEle < 20 || isWaterBiome(centerBiome);
 
     const features = this.globalData.features || {};
     const routes: string[] = features.routes || [];
@@ -71,9 +91,9 @@ export class RegionalInstance {
       r.toLowerCase().includes("river") || r.toLowerCase().includes("waterway")
     );
 
-    // River channel coordinates across Y = 0..99 (ONLY when the global cell actually has a river route)
+    // River channel coordinates across Y = 0..99 (ONLY when the global cell actually has an authentic river route)
     const riverCoords: Set<number> = new Set();
-    if (hasRiver && !isGlobalWater) {
+    if (hasRiver && !isWaterBiome(centerBiome) && centerEle >= 20) {
       for (let y = 0; y < this.h; y++) {
         const rX = Math.floor(50 + Math.sin(y * 0.08) * 14 + Math.cos(y * 0.03) * 6);
         for (let w = -1; w <= 1; w++) {
@@ -85,7 +105,7 @@ export class RegionalInstance {
       }
     }
 
-    // 1. Generate base overland terrain
+    // 1. Generate base overland terrain with organic edge biome & elevation blending
     for (let y = 0; y < this.h; y++) {
       for (let x = 0; x < this.w; x++) {
         const idx = y * this.w + x;
@@ -96,11 +116,56 @@ export class RegionalInstance {
         const veg = vegNoise.noise2D(nx * 2, ny * 2);
         const cha = chaosNoise.noise2D(nx * 0.5, ny * 0.5);
 
-        this.elevationMap[idx] = Math.max(0, Math.min(100, baseEle + ele * 12));
+        const distCenter = Math.hypot(x - 50, y - 50);
+
+        // Biome competition: center weight dominates interior (distCenter < 25)
+        // blendNoise adds organic, interlocking peninsulas along boundaries
+        const centerNoiseVal = blendNoise.noise2D(x / 16, y / 16) * 14;
+        let maxBiomeWeight = Math.max(0, 50 - distCenter + centerNoiseVal);
+        let winningBiome = centerBiome;
+
+        // Elevation weighted average
+        let totalEleWeight = Math.max(0.1, 55 - distCenter);
+        let sumEle = centerEle * totalEleWeight;
+
+        for (const np of neighborProjections) {
+          const distN = Math.hypot(x - np.vx, y - np.vy);
+
+          // Neighbor biome weight
+          const nNoiseVal = blendNoise.noise2D((x + np.noiseOffset) / 16, (y + np.noiseOffset) / 16) * 14;
+          const nBiomeWeight = Math.max(0, 50 - distN + nNoiseVal);
+          if (nBiomeWeight > maxBiomeWeight) {
+            maxBiomeWeight = nBiomeWeight;
+            winningBiome = np.biome;
+          }
+
+          // Neighbor elevation weight
+          const nEleWeight = Math.max(0, 55 - distN);
+          if (nEleWeight > 0) {
+            sumEle += np.elevation * nEleWeight;
+            totalEleWeight += nEleWeight;
+          }
+        }
+
+        const baseEle = sumEle / totalEleWeight;
+        this.biomeMap[idx] = winningBiome;
+
+        // NO PHANTOM WATER RULE:
+        // Land cells never spawn random water blotches from noise dips.
+        // Water ONLY appears if winning biome is ocean/water, or macro base elevation slopes below 20 into ocean.
+        const hasWaterInfluence = isWaterBiome(centerBiome) || isWaterBiome(winningBiome) || centerEle < 20;
+        if (!hasWaterInfluence && baseEle >= 20) {
+          this.elevationMap[idx] = Math.max(20.5, Math.min(100, baseEle + ele * 10));
+        } else {
+          this.elevationMap[idx] = Math.max(0, Math.min(100, baseEle + ele * 10));
+        }
+
         this.vegetationMap[idx] = (veg + 1) / 2;
         this.chaosMap[idx] = (cha + 1) / 2;
 
-        if (isGlobalWater) {
+        const cellIsOcean = this.elevationMap[idx] < 20 || isWaterBiome(winningBiome);
+
+        if (cellIsOcean) {
           // Authentic ocean water cell
           this.mapData[idx] = 3; 
         } else if (riverCoords.has(idx)) {
@@ -108,7 +173,7 @@ export class RegionalInstance {
           this.mapData[idx] = 3;
           this.infraMap[idx] = 32;
         } else {
-          // Authentic land cell matching the global biome
+          // Authentic land cell matching the blended local biome
           const localEle = this.elevationMap[idx];
           if (localEle > 78) {
             this.mapData[idx] = 8; // High mountain rocky crags
@@ -217,8 +282,8 @@ export class RegionalInstance {
     }
   }
 
-  public getBiomeLabel(): string {
-    const bId = Number(this.globalData.terrain?.biome) || 4;
+  public getBiomeLabel(bId?: number): string {
+    const id = bId !== undefined ? bId : (Number(this.globalData.terrain?.biome) || 4);
     const names: Record<number, string> = {
       0: "Marine Ocean",
       1: "Hot Desert",
@@ -241,7 +306,7 @@ export class RegionalInstance {
       18: "Chaos Land",
       19: "Chaos Water"
     };
-    return names[bId] || "Wilderness";
+    return names[id] || "Wilderness";
   }
 
   private spawnAgents() {
@@ -435,6 +500,8 @@ export class RegionalInstance {
 
   public getManifest(rx: number, ry: number) {
     const idx = ry * this.w + rx;
+    const localBiomeId = this.biomeMap ? this.biomeMap[idx] : (Number(this.globalData.terrain?.biome) || 4);
+    const localBiomeName = this.getBiomeLabel(localBiomeId);
     
     // Sort all agents by distance to current sector coordinate, take top 8 closest
     const nearbyAgents = this.agents
@@ -446,8 +513,8 @@ export class RegionalInstance {
     return {
       level_3_seed: `${this.cellId}-${rx}-${ry}`,
       global_context: {
-        biome_id: this.globalData.terrain?.biome || 0,
-        biome_name: this.getBiomeLabel(),
+        biome_id: localBiomeId,
+        biome_name: localBiomeName,
         crime_rate: this.globalData.burg ? this.globalData.burg.crime_rate : "Wilderness",
         faction_owner: this.globalData.burg ? (this.globalData.burg.occupier_faction_id || this.globalData.burg.faction_id) : "Unclaimed",
         isWarzone: this.globalData.isWarzone || false,
@@ -475,7 +542,7 @@ export class RegionalInstance {
         category: a.category || a.type,
         state: "ROAMING",
         disposition: a.disposition,
-        story_hook: `A ${a.speciesName || a.type} roaming the ${this.getBiomeLabel()} wilds.`
+        story_hook: `A ${a.speciesName || a.type} roaming the ${localBiomeName} wilds.`
       }))
     };
   }
