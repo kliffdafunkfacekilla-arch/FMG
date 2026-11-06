@@ -5,7 +5,6 @@ import { resetWorld } from "../engine/resetWorld";
 
 const observerRouter = Router();
 let autoplayTimer: any = null;
-
 observerRouter.post("/autoplay", (req, res) => {
     const { enabled } = req.body;
     if (enabled && !autoplayTimer) {
@@ -33,7 +32,7 @@ let resetInProgress = false;
 observerRouter.get("/map", async (req, res) => {
   try {
     const z = parseInt(req.query.z as string) || 0;
-    const cells = await pool.query(`SELECT id, faction_id, biome, geometry, eco_plants, eco_prey, eco_predators, eco_resources, elevation, z_layer FROM sim_cells WHERE z_layer = $1`, [z]);
+    const cells = await pool.query(`SELECT id, faction_id, biome, center_x, center_y, geometry, eco_plants, eco_prey, eco_predators, eco_resources, elevation, z_layer FROM sim_cells WHERE z_layer = $1`, [z]);
     res.json({ cells: cells.rows.map(c => ({ ...c, geometry: typeof c.geometry === "string" ? (function(){ try { return JSON.parse(c.geometry); } catch(e) { return null; } })() : c.geometry })) });
   } catch(e: any) {
     res.status(500).json({error: e.message});

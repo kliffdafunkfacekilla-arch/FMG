@@ -35,6 +35,111 @@ async function enrichCellChaosTelemetry(cellRow: any) {
 }
 
 
+async function getOrCreateRegionalInstance(cellId: number): Promise<RegionalInstance | null> {
+  if (activeRegions.has(cellId)) {
+    return activeRegions.get(cellId)!;
+  }
+
+  const [terrainRes, burgRes, factionRes] = await Promise.all([
+    pool.query(`SELECT * FROM sim_cells WHERE id = $1`, [cellId]),
+    pool.query(`SELECT * FROM sim_burg_economy WHERE cell_id = $1`, [cellId]),
+    pool.query(`SELECT f.name FROM sim_cells c LEFT JOIN sim_factions f ON c.faction_id = f.id WHERE c.id = $1`, [cellId])
+  ]);
+
+  if (terrainRes.rowCount === 0) return null;
+
+  const terrain = terrainRes.rows[0];
+  const burg = burgRes.rows[0] || null;
+  const factionName = factionRes.rows[0]?.name || (burg ? "Provincial Realm" : "The Wild Frontier");
+
+  let isWarzone = false;
+  let isFamine = false;
+
+  if (burg) {
+    if (burg.food < 100) isFamine = true;
+    if (burg.unrest > 70) isWarzone = true;
+    
+    const warRes = await pool.query(`SELECT 1 FROM sim_diplomacy WHERE (faction_a_id = $1 OR faction_b_id = $1) AND status = 'WAR' LIMIT 1`, [burg.faction_id]);
+    if (warRes && warRes.rowCount && warRes.rowCount > 0) isWarzone = true;
+  }
+
+  const globalData = { cellId, terrain, burg, features: terrain.cell_features, isWarzone, isFamine, factionName };
+  const instance = new RegionalInstance(cellId, globalData);
+  activeRegions.set(cellId, instance);
+  return instance;
+}
+
+regionalRouter.get("/live/:cell_id", async (req, res) => {
+  const cellId = parseInt(req.params.cell_id);
+  if (isNaN(cellId)) return res.status(400).json({ error: "Invalid cell ID" });
+
+  try {
+    const instance = await getOrCreateRegionalInstance(cellId);
+    if (!instance) return res.status(404).json({ error: "Cell not found" });
+
+    const terrain = instance.globalData.terrain || {};
+    const burg = instance.globalData.burg || null;
+
+    res.json({
+      success: true,
+      cellId,
+      width: instance.w,
+      height: instance.h,
+      biome: instance.getBiomeLabel(),
+      biomeId: terrain.biome || 6,
+      elevation: terrain.elevation || 50,
+      currentTemp: terrain.temperature ?? 15,
+      isWarzone: instance.globalData.isWarzone || false,
+      isFamine: instance.globalData.isFamine || false,
+      burg: burg ? {
+        burg_id: burg.burg_id,
+        name: burg.name || `Burg #${burg.burg_id}`,
+        urban_tier: burg.urban_tier || 1,
+        food: burg.food,
+        wealth: burg.wealth,
+        unrest: burg.unrest,
+        crime_rate: burg.crime_rate
+      } : null,
+      factionName: instance.globalData.factionName || "Wilderness",
+      mapData: Array.from(instance.mapData),
+      infraMap: Array.from(instance.infraMap),
+      agents: instance.agents
+    });
+  } catch (err: any) {
+    console.error("Error in regional live:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+regionalRouter.get("/agents/:cell_id", async (req, res) => {
+  const cellId = parseInt(req.params.cell_id);
+  if (isNaN(cellId)) return res.status(400).json({ error: "Invalid cell ID" });
+
+  try {
+    const instance = await getOrCreateRegionalInstance(cellId);
+    if (!instance) return res.status(404).json({ error: "Cell not found" });
+
+    res.json({
+      cellId,
+      agents: instance.agents.map(a => ({
+        id: a.id,
+        type: a.type,
+        speciesName: a.speciesName,
+        category: a.category,
+        color: a.color,
+        speed: a.speed,
+        disposition: a.disposition,
+        x: a.x,
+        y: a.y,
+        tx: a.tx,
+        ty: a.ty
+      }))
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 regionalRouter.post("/start/:cell_id", async (req, res) => {
   const cellId = parseInt(req.params.cell_id);
   if (activeRegions.has(cellId)) {

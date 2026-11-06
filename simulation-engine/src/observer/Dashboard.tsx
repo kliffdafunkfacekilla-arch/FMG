@@ -44,6 +44,8 @@ interface Cell {
   eco_prey: number;
   eco_predators: number;
   elevation: number;
+  center_x?: number;
+  center_y?: number;
 }
 
 interface SimEvent {
@@ -142,6 +144,25 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCe
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const parent = canvas.parentElement;
+    if (!parent) return;
+
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
+          canvas.width = entry.contentRect.width;
+          canvas.height = entry.contentRect.height;
+          setZoom(z => z);
+        }
+      }
+    });
+    ro.observe(parent);
+    return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
@@ -169,11 +190,14 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCe
     ctx.scale(zoom, zoom);
     ctx.translate(-canvas.width / 2, -canvas.height / 2);
 
+    let selectedCellRef: Cell | null = null;
+
     cells.forEach((cell: Cell) => {
       if (!cell.geometry?.coordinates?.[0]) return;
       const coords = cell.geometry.coordinates[0];
       const actualFactionId = economy[cell.id]?.faction_id || cell.faction_id;
       const isSelectedFaction = selectedFactionId && actualFactionId === selectedFactionId;
+      if (cell.id === selectedCellId) selectedCellRef = cell;
 
       if (cell.elevation < 20) {
         ctx.fillStyle = "#0c182b";
@@ -208,18 +232,49 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCe
       // Highlight selected cell or faction border
       if (cell.id === selectedCellId) {
         ctx.strokeStyle = "#38bdf8";
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 3 / zoom;
         ctx.stroke();
       } else if (isSelectedFaction) {
         ctx.strokeStyle = "#fbbf24";
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = 1.5 / zoom;
         ctx.stroke();
       } else {
         ctx.strokeStyle = "rgba(0, 0, 0, 0.25)";
-        ctx.lineWidth = 0.5;
+        ctx.lineWidth = 0.5 / zoom;
         ctx.stroke();
       }
     });
+
+    // Draw high-visibility beacon marker on focused cell center
+    if (selectedCellRef && bounds.current.baseScale) {
+      const cell: Cell = selectedCellRef;
+      let cx = cell.center_x;
+      let cy = cell.center_y;
+      if ((cx === undefined || cy === undefined) && cell.geometry?.coordinates?.[0]) {
+        const poly = cell.geometry.coordinates[0];
+        let sx = 0, sy = 0;
+        for (const pt of poly) { sx += pt[0]; sy += pt[1]; }
+        cx = sx / poly.length;
+        cy = sy / poly.length;
+      }
+      if (cx !== undefined && cy !== undefined) {
+        const px = cx * baseScale + bounds.current.baseOffX;
+        const py = cy * baseScale + bounds.current.baseOffY;
+        ctx.beginPath();
+        ctx.arc(px, py, 7 / zoom, 0, Math.PI * 2);
+        ctx.fillStyle = "#38bdf8";
+        ctx.fill();
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2 / zoom;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(px, py, 14 / zoom, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(56, 189, 248, 0.7)";
+        ctx.lineWidth = 1.5 / zoom;
+        ctx.stroke();
+      }
+    }
 
     ctx.restore();
   }, [cells, factions, viewMode, economy, zoom, offset, selectedCellId, selectedFactionId]);
@@ -249,7 +304,7 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCe
     isDragging.current = false;
 
     // Detect click if mouse barely moved
-    if (moved < 5 && onCellClick && canvasRef.current && bounds.current.baseScale) {
+    if (moved < 6 && onCellClick && canvasRef.current && bounds.current.baseScale) {
       const canvas = canvasRef.current;
       const rect = canvas.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
@@ -263,15 +318,24 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCe
       let nearestCell: any = null;
       let minDist = Infinity;
       for (const c of cells) {
-        if (c.center_x && c.center_y) {
-          const d = (c.center_x - mapX) ** 2 + (c.center_y - mapY) ** 2;
+        let cx = c.center_x;
+        let cy = c.center_y;
+        if ((cx === undefined || cy === undefined) && c.geometry?.coordinates?.[0]) {
+          const poly = c.geometry.coordinates[0];
+          let sx = 0, sy = 0;
+          for (const pt of poly) { sx += pt[0]; sy += pt[1]; }
+          cx = sx / poly.length;
+          cy = sy / poly.length;
+        }
+        if (cx !== undefined && cy !== undefined) {
+          const d = (cx - mapX) ** 2 + (cy - mapY) ** 2;
           if (d < minDist) {
             minDist = d;
             nearestCell = c;
           }
         }
       }
-      if (nearestCell && Math.sqrt(minDist) < 80) {
+      if (nearestCell && Math.sqrt(minDist) < 120) {
         onCellClick(nearestCell.id);
       }
     }
@@ -303,11 +367,16 @@ export function Dashboard() {
   const [hasFetchedMap, setHasFetchedMap] = useState(false);
   const [economyMap, setEconomyMap] = useState<Record<number, any>>({});
   const [factionMap, setFactionMap] = useState<Record<number, Faction>>({});
-  const [activeTab, setActiveTab] = useState<MainTab>("SECTORS");
+  const [activeTab, setActiveTab] = useState<MainTab>("MAP");
   const [viewMode, setViewMode] = useState<ViewMode>("Political");
   const [isPlaying, setIsPlaying] = useState(false);
   const [isBatchRunning, setIsBatchRunning] = useState(false);
   const [selectedFactionId, setSelectedFactionId] = useState<number | null>(null);
+
+  // Regional Meso LOD Floating Window State (10,000 Cells)
+  const [focusedCellId, setFocusedCellId] = useState<number | null>(19561);
+  const [showRegionalWindow, setShowRegionalWindow] = useState<boolean>(true);
+  const [cellSearchInput, setCellSearchInput] = useState<string>("");
 
   // Sector Division State
   const [burgs, setBurgs] = useState<BurgItem[]>([]);
@@ -379,10 +448,11 @@ export function Dashboard() {
       (data.sectorFeatures || []).forEach((f: any) => { sf[f.cell_id] = f.features; });
       setSectorFeatures(sf);
 
-      // Select Triburg or first burg by default if none selected
+      // Select Heartspire or first burg by default if none selected
       if (!selectedBurg && (data.burgs || []).length > 0) {
-        const defaultBurg = data.burgs.find((b: any) => b.burg_id === 244) || data.burgs[0];
+        const defaultBurg = data.burgs.find((b: any) => b.burg_id === 25) || data.burgs[0];
         setSelectedBurg(defaultBurg);
+        setFocusedCellId(prev => prev ?? defaultBurg.cell_id);
       }
     } catch (e) {
       console.error("Fetch sectors error:", e);
@@ -794,9 +864,30 @@ export function Dashboard() {
                       <span style={{ fontSize: 11, background: "#7f1d1d", color: "#fecaca", padding: "2px 8px", borderRadius: 4, fontWeight: 700 }}>WORLD CORE NEXUS</span>
                     </div>
                     <p style={{ fontSize: 12, color: "#94a3b8", margin: "6px 0 10px 0" }}>{convergence?.description}</p>
-                    <div style={{ display: "flex", gap: 16, fontSize: 12 }}>
+                    <div style={{ display: "flex", gap: 16, fontSize: 12, alignItems: "center" }}>
                       <div>Cell ID: <strong>{convergence?.cell_id}</strong></div>
                       <div>Active Leyline Branches: <strong>{convergence?.zones?.length || 10}</strong></div>
+                      {convergence?.cell_id && (
+                        <button
+                          onClick={() => {
+                            setFocusedCellId(convergence.cell_id);
+                            setShowRegionalWindow(true);
+                            setActiveTab("MAP");
+                          }}
+                          style={{
+                            background: "#7f1d1d",
+                            color: "#fecaca",
+                            border: "1px solid #b91c1c",
+                            padding: "3px 8px",
+                            borderRadius: 4,
+                            fontSize: 11,
+                            fontWeight: 700,
+                            cursor: "pointer"
+                          }}
+                        >
+                          🗺️ View Regional Meso Mesh
+                        </button>
+                      )}
                     </div>
                   </div>
                 ) : selectedPrison ? (
@@ -805,10 +896,29 @@ export function Dashboard() {
                       <span style={{ fontSize: 20, fontWeight: 800, color: "#c084fc" }}>Prison of {selectedPrison.dragon_name}</span>
                       <span style={{ fontSize: 11, background: "#581c87", color: "#f3e8ff", padding: "2px 8px", borderRadius: 4, fontWeight: 700 }}>DOMAIN OF {selectedPrison.power_domain.toUpperCase()}</span>
                     </div>
-                    <div style={{ display: "flex", gap: 18, fontSize: 12, marginTop: 8 }}>
+                    <div style={{ display: "flex", gap: 18, fontSize: 12, marginTop: 8, alignItems: "center" }}>
                       <div>Cell ID: <strong>{selectedPrison.cell_id}</strong></div>
                       <div>Cosmic Seal: <strong style={{ color: selectedPrison.seal_strength < 90 ? "#ef4444" : "#22c55e" }}>{selectedPrison.seal_strength}%</strong></div>
                       <div>Wardens Stationed: <strong>Active</strong></div>
+                      <button
+                        onClick={() => {
+                          setFocusedCellId(selectedPrison.cell_id);
+                          setShowRegionalWindow(true);
+                          setActiveTab("MAP");
+                        }}
+                        style={{
+                          background: "#581c87",
+                          color: "#f3e8ff",
+                          border: "1px solid #7e22ce",
+                          padding: "3px 8px",
+                          borderRadius: 4,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: "pointer"
+                        }}
+                      >
+                        🗺️ View Regional Meso Mesh
+                      </button>
                     </div>
                   </div>
                 ) : selectedBurg ? (
@@ -819,6 +929,25 @@ export function Dashboard() {
                           <span style={{ fontSize: 20, fontWeight: 800, color: "#38bdf8" }}>{selectedBurg.name}</span>
                           <span style={{ fontSize: 11, background: "#0c4a6e", color: "#e0f2fe", padding: "2px 8px", borderRadius: 4, fontWeight: 700 }}>BURG #{selectedBurg.burg_id}</span>
                           <span style={{ fontSize: 11, background: "#1e293b", color: "#94a3b8", padding: "2px 8px", borderRadius: 4 }}>Cell {selectedBurg.cell_id}</span>
+                          <button
+                            onClick={() => {
+                              setFocusedCellId(selectedBurg.cell_id);
+                              setShowRegionalWindow(true);
+                              setActiveTab("MAP");
+                            }}
+                            style={{
+                              background: "#0284c7",
+                              color: "#fff",
+                              border: "none",
+                              padding: "3px 8px",
+                              borderRadius: 4,
+                              fontSize: 11,
+                              fontWeight: 700,
+                              cursor: "pointer"
+                            }}
+                          >
+                            🗺️ View Regional Meso Mesh
+                          </button>
                         </div>
                         <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>
                           Faction: <strong style={{ color: selectedBurg.faction_color || "#38bdf8" }}>{selectedBurg.faction_name || "Sovereign Scute"}</strong> • Tier: <strong>{selectedBurg.urban_tier || 1}</strong>
@@ -1373,6 +1502,117 @@ export function Dashboard() {
                 </select>
               </div>
 
+              {/* Direct Regional Cell Inspector */}
+              <div style={{ marginBottom: 14, background: "#080d15", border: "1px solid #1e293b", borderRadius: 8, padding: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#38bdf8", marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>Regional Cell Inspector</span>
+                  <span style={{ fontSize: 9, background: "#0284c7", color: "#fff", padding: "1px 5px", borderRadius: 3, fontWeight: 700 }}>10,000 Cells</span>
+                </div>
+                <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                  <input
+                    type="number"
+                    placeholder="Enter Cell ID..."
+                    value={cellSearchInput}
+                    onChange={(e) => setCellSearchInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && cellSearchInput.trim()) {
+                        const cid = parseInt(cellSearchInput.trim(), 10);
+                        if (!isNaN(cid)) {
+                          setFocusedCellId(cid);
+                          setShowRegionalWindow(true);
+                        }
+                      }
+                    }}
+                    style={{
+                      flex: 1,
+                      background: "#0f172a",
+                      border: "1px solid #1e293b",
+                      borderRadius: 4,
+                      color: "#f8fafc",
+                      padding: "4px 8px",
+                      fontSize: 11
+                    }}
+                  />
+                  <button
+                    onClick={() => {
+                      const cid = parseInt(cellSearchInput.trim(), 10);
+                      if (!isNaN(cid)) {
+                        setFocusedCellId(cid);
+                        setShowRegionalWindow(true);
+                      }
+                    }}
+                    style={{
+                      background: "#0284c7",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: 4,
+                      padding: "4px 10px",
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: "pointer"
+                    }}
+                  >
+                    Go
+                  </button>
+                </div>
+
+                {focusedCellId !== null && (
+                  <div style={{ fontSize: 11, color: "#94a3b8", display: "flex", flexDirection: "column", gap: 4 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span>Active Focus:</span>
+                      <strong style={{ color: "#38bdf8" }}>Cell #{focusedCellId}</strong>
+                    </div>
+                    <button
+                      onClick={() => setShowRegionalWindow(!showRegionalWindow)}
+                      style={{
+                        marginTop: 4,
+                        padding: "4px 8px",
+                        background: showRegionalWindow ? "#1e293b" : "#0284c7",
+                        color: showRegionalWindow ? "#94a3b8" : "#fff",
+                        border: "none",
+                        borderRadius: 4,
+                        fontSize: 10,
+                        fontWeight: 600,
+                        cursor: "pointer"
+                      }}
+                    >
+                      {showRegionalWindow ? "Hide Regional Window" : "Open Regional Window"}
+                    </button>
+                  </div>
+                )}
+
+                <div style={{ marginTop: 8, paddingTop: 6, borderTop: "1px solid #1e293b" }}>
+                  <div style={{ fontSize: 10, color: "#64748b", marginBottom: 4 }}>Quick Jumps:</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {[
+                      { name: "Heartspire", id: 19561 },
+                      { name: "Flute", id: 13408 },
+                      { name: "Crystaldusk", id: 23498 },
+                      { name: "Lumina", id: 24017 }
+                    ].map(loc => (
+                      <button
+                        key={loc.id}
+                        onClick={() => {
+                          setFocusedCellId(loc.id);
+                          setShowRegionalWindow(true);
+                        }}
+                        style={{
+                          background: focusedCellId === loc.id ? "#0369a1" : "#0f172a",
+                          color: focusedCellId === loc.id ? "#fff" : "#94a3b8",
+                          border: "1px solid #1e293b",
+                          borderRadius: 3,
+                          padding: "2px 6px",
+                          fontSize: 10,
+                          cursor: "pointer"
+                        }}
+                      >
+                        {loc.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
               <div style={{ fontSize: 12, fontWeight: 700, color: "#64748b", borderBottom: "1px solid #1e293b", paddingBottom: 6, marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span>Sovereign Factions ({state?.factions?.length || 0})</span>
                 {selectedFactionId && (
@@ -1415,7 +1655,7 @@ export function Dashboard() {
               })}
             </div>
 
-            <div style={{ flex: 1, position: "relative" }}>
+            <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
               <MapCanvas
                 cells={cells}
                 factions={factionMap}
@@ -1423,14 +1663,49 @@ export function Dashboard() {
                 economy={economyMap}
                 selectedFactionId={selectedFactionId}
                 onCellClick={(id: number) => {
+                  setFocusedCellId(id);
+                  setShowRegionalWindow(true);
                   const b = burgs.find(b => b.cell_id === id);
-                  if (b) {
-                    setSelectedBurg(b);
-                    setActiveTab("SECTORS");
-                  }
+                  if (b) setSelectedBurg(b);
                 }}
-                selectedCellId={selectedBurg?.cell_id}
+                selectedCellId={focusedCellId || selectedBurg?.cell_id}
               />
+
+              {/* Floating Regional Meso LOD Simulation Window (10,000 Cells) */}
+              {showRegionalWindow && focusedCellId !== null && (
+                <RegionMap
+                  cellId={focusedCellId}
+                  isFloating={true}
+                  onClose={() => setShowRegionalWindow(false)}
+                />
+              )}
+
+              {/* Minimized / Closed Reopen Pill Button */}
+              {!showRegionalWindow && focusedCellId !== null && (
+                <button
+                  onClick={() => setShowRegionalWindow(true)}
+                  style={{
+                    position: "absolute",
+                    bottom: 24,
+                    right: 24,
+                    background: "#0284c7",
+                    color: "#ffffff",
+                    border: "1px solid #38bdf8",
+                    padding: "8px 14px",
+                    borderRadius: 8,
+                    fontWeight: 700,
+                    fontSize: 12,
+                    cursor: "pointer",
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.7)",
+                    zIndex: 40,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6
+                  }}
+                >
+                  <span>🗺️</span> Open Regional Window (Cell #{focusedCellId})
+                </button>
+              )}
             </div>
           </div>
         )}
