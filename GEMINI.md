@@ -137,6 +137,18 @@ Every Local cell is vertically sandwiched by 3 synchronized layers:
 
 ---
 
+# WORKSPACE AGENT SKILLS
+
+The following 6 dedicated Agent Skills are located in `.agents/skills/` to govern development, architecture enforcement, and testing:
+1. **`simulation-global-macro`**: Global Continental (Macro LOD) simulation layer (541-day calendar, 19 nations, 352 burg economies, 12 Dragon Prisons, Chaos Leys).
+2. **`simulation-regional-meso`**: Regional (Meso LOD) overland layer (10,000 cells at $100 \times 100$, center `(50, 50)`, focused LOD individual agent execution rule).
+3. **`simulation-local-micro`**: Local (Micro LOD) tactical grid layer ($256 \times 256$ battle maps, 3-layer vertical sandwich $Z = -1, 0, +1$, physical POEs, border crossing).
+4. **`concordia-rules-and-stats`**: Concordia mechanical rules engine (12 attributes, 4 derived pools, opposed 1d20 rolls, Tag Matrix physical cascades).
+5. **`concordia-dm-engine`**: Concordia Game Master execution engine (`ConcordiaGM.ts`, sector loading, `/act` arbitration, NPC routines, interior dungeons).
+6. **`aetheria-story-and-quests`**: AI Story & Quest Director (AI Director blueprints, WhatELSE narrative beats, organic lore weaving, `sim_events` logging).
+
+---
+
 # AETHERIA SIMULATION MECHANICS & DESIGN
 
 The backend simulation is driven by an 8-Layer Agentic architecture executed sequentially by `masterOrchestrator.ts`. The simulation runs on a master "Tick" equivalent to **exactly one in-game day (1 Tick = 1 Day)**.
