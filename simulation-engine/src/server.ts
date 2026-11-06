@@ -25,7 +25,7 @@ dotenv.config();
 const app = express();
 // Only the local player client may call the API from a browser.
 // Override with a comma-separated CORS_ORIGINS list in .env if needed.
-const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174')
+const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:3000,http://127.0.0.1:3000')
   .split(',')
   .map((o) => o.trim())
   .filter(Boolean);
@@ -33,6 +33,10 @@ app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../dist-client')));
 app.use(express.static(path.join(__dirname, '../public')));
+
+app.get(['/dashboard', '/observer'], (req, res) => {
+  res.sendFile(path.join(__dirname, '../dist-client/index.html'));
+});
 
 app.use('/api/game', gameRouter);
 app.use('/api/character', characterRouter);
@@ -104,7 +108,7 @@ app.get('/api/world/stream', async (req, res) => {
 const PORT = Number(process.env.PORT) || 3000;
 // Bind to loopback by default so other machines on the network can't reach
 // unauthenticated routes like /api/observer/reset. Set HOST=0.0.0.0 to expose it.
-const HOST = process.env.HOST || '127.0.0.1';
+const HOST = process.env.HOST || '0.0.0.0';
 app.listen(PORT, HOST, () => {
   console.log(`Simulation Engine Server running on http://${HOST}:${PORT}`);
 });
