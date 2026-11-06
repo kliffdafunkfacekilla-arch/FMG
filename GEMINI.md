@@ -13,7 +13,7 @@ The entire system is strictly partitioned into four autonomous, collaborating pi
 |                            THE 4-PILLAR ARCHITECTURE                              |
 +-----------------------------------------------------------------------------------+
 |  PILLAR 1: SIMULATION ENGINE    <==[REST/WS]==>    PILLAR 2: PLAYER INTERFACE     |
-|  - Autonomous Macro/Meso Engine                    - Tactical 256x256 WebGL/2D    |
+|  - Autonomous Macro/Meso Engine                    - Tactical WebGL/2D Local View |
 |  - PostgreSQL Source of Truth                      - Read-Only Projection of State|
 |  - 8-Layer Agentic Tick (1 Day = 1 Tick)          - Sector Survey & Telemetry    |
 |  - 714 Paragons & 207k Demographics                - Sub-Map Layer Navigation     |
@@ -29,6 +29,55 @@ The entire system is strictly partitioned into four autonomous, collaborating pi
 |  - Pure Mechanical Execution (No Hallucinations)  - Feeds Events to `sim_events`  |
 +-----------------------------------------------------------------------------------+
 ```
+
+---
+
+# THE NESTED FRACTAL MAP & SIMULATION HIERARCHY
+
+The world of Ostraka is organized into a strictly nested 3-tier fractal hierarchy, sandwiching the local layer vertically:
+
+```
+                                      [UPPER LOCAL: Z = +1]
+                                      (Ramparts, Parapets, 2nd-Story Lofts, Canopies)
+                                             │
+[GLOBAL: Macro] ──────► [REGIONAL: Meso] ────► [LOCAL: Surface Z = 0]
+ (Continental Realm)     (10,000 Cells)        (Player's Tactical Grid: Objects, NPCs, Props)
+                                             │
+                                      [LOWER LOCAL: Z = -1]
+                                      (Subterranean Cellars, Sewers, Crypts, Vice Dens)
+```
+
+### 1. Global Layer (Macro Continental LOD)
+* Continental scale: ~16,000 Voronoi polygonal cells (`sim_cells`).
+* Continually simulated in the background for all cells worldwide:
+  - 541-day calendar (12 Dragon Months of 44 days + 13-day Shadow Week).
+  - Continental weather, precipitation, and biome ecology.
+  - Sovereign geopolitics and monthly bureaucratic diplomacy across 19 nations.
+  - Macro burg economies (352 burgs), raw/refined supply chains, food stockpiles.
+  - 12 flowing Chaos Leys and 12 self-sustaining Dragon Prisons.
+  - The Grey Wardens (72 total) and Shlaar's Void Cultists (288 total).
+
+### 2. Regional Layer (Meso LOD - 10,000 Cells per Global Cell)
+* Each single Global Cell contains an overland map of **exactly 10,000 regional cells** ($100 \times 100$ grid: `rx: 0..99, ry: 0..99`, centered at `rx: 50, ry: 50`).
+* Generates overland elevation, vegetation density, chaos radiation, and road/infrastructure masks.
+* **FOCUSED LOD SIMULATION RULE**: Individual agent movements, tactical squad paths, and fine-grained meso updates at this 10,000-cell level are **ONLY simulated when the regional map contains the player's location (or an explicitly focused cell)**.
+* When unfocused, global cells do not execute individual agent pathfinding, keeping macro ticks fast (~200ms).
+
+### 3. Local Layer (Micro LOD - The Tactical Experience)
+* The player is located at one specific cell `(rx, ry)` on the Regional map.
+* That cell opens into the **Local Layer** — the tactical grid containing authentic terrain, structures, interactive props, environmental entities, and authentic NPCs from `population_demographics` and `sim_paragons`.
+* This is the layer from which the player directly sees and experiences the world.
+
+### 4. Upper Local & Lower Local Vertical Sandwich
+Every Local cell is vertically sandwiched by 3 synchronized layers:
+* **Upper Local ($Z = +1$)**: Fortified ramparts, parapet walkways, watchtowers, 2nd-story lofts, tree canopies, and sky-bridges.
+* **Local Surface ($Z = 0$)**: Ground level streets, plazas, cottages, workshops, water docks, and wild clearings.
+* **Lower Local ($Z = -1$)**: Subterranean dungeons, storage cellars, municipal drainage/sewer culverts, cartel contraband flues, and catacombs.
+* Players transition between levels via interactive ladders, stairs, trapdoors, and hatches (`GET /api/dm/sector_layer`).
+
+### 5. Seamless Border Transitions
+* Walking off the edge of a Local cell steps into the adjacent Regional cell `(rx ± 1, ry ± 1)` within the 10,000-cell regional map.
+* Walking off the edge of the 100x100 Regional map (`rx = 0` or `99`, `ry = 0` or `99`) seamlessly crosses into the adjacent Global Cell.
 
 ### Pillar 1: The Simulation Engine (Independent Macro & Meso State)
 * Runs independently as a backend process (`simulation-engine/`).
@@ -102,6 +151,9 @@ The backend simulation is driven by an 8-Layer Agentic architecture executed seq
 
 ## 2. Burg Operations (Economy, Logistics, & Population)
 *   **Population Scaling**: Populations are organized strictly into "Groups of 12" workers (12:1 ratio). Burgs scale through Urbanization Tiers: Village (< 1,200 pop), Town (< 12,000 pop), City (> 12,000 pop).
+    *   *Natural Growth*: Calibrated to authentic pre-industrial birth rates (~3.5% annually, accumulating as ~0.000065 daily in `pop_growth_pool`).
+    *   *Child Maturation*: Children take 15 in-game years (not days) to mature into adult laborers (`tick % 541 === 0`).
+    *   *Famine Mortality*: Calibrated to 0.1% daily (preventing wild population wipes in weeks).
 *   **3-Tiered Crafting Economy**: 
     *   *Raw Resources* (Wood, Ore, Herbs, Fiber) gathered by base workers.
     *   *Refined Resources* (Lumber, Steel, Textiles, Potions) processed.
@@ -116,7 +168,7 @@ The backend simulation is driven by an 8-Layer Agentic architecture executed seq
 *   **Hedge Wizards**: Unsanctioned magical practitioners supplying contraband charms and elixirs outside academic/guild authority.
 
 ## 4. Faction Geopolitics (Utility AI Engine)
-*   **Staggered Turns (Bureaucracy)**: Factions evaluate grand strategy periodically (`tick % 10`) to prevent decision spam.
+*   **Staggered Turns (Bureaucracy)**: Sovereign factions evaluate grand strategy once per 44-day Dragon Month on staggered bureaucratic turns (`(tick + f.id * 7) % 44 === 0`) to prevent decision spam. Combat campaign maneuvers resolve weekly (`tick % 7 === 0`), eliminating unhistorical peace-treaty spam.
 *   **Utility AI Matrix**: Every valid geopolitical action (over 40 options like *Declare Golden Age, Trade Embargo, Arrange Royal Marriage, Fabricate Casus Belli*) is evaluated against faction state (Wealth, Military, Traits).
 *   **1d100 Combat Resolution**: Macro armies resolve conflicts via 1d100 rolls factoring in unit strengths, terrain, and supply lines.
 

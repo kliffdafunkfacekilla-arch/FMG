@@ -48,6 +48,48 @@ Welcome to the **Aetheria Fractal Simulation & Concordia TTRPG** system. This do
 +-----------------------------------------------------------------------------------+
 ```
 
+---
+
+## 3. The Nested Fractal Map & Simulation Hierarchy
+
+The world of Ostraka is organized into a strictly nested 3-tier fractal hierarchy, sandwiching the local layer vertically:
+
+```
+                                      [UPPER LOCAL: Z = +1]
+                                      (Ramparts, Parapets, 2nd-Story Lofts, Canopies)
+                                             │
+[GLOBAL: Macro] ──────► [REGIONAL: Meso] ────► [LOCAL: Surface Z = 0]
+ (Continental Realm)     (10,000 Cells)        (Player's Tactical Grid: Objects, NPCs, Props)
+                                             │
+                                      [LOWER LOCAL: Z = -1]
+                                      (Subterranean Cellars, Sewers, Crypts, Vice Dens)
+```
+
+1. **Global Layer (Macro Continental LOD)**:
+   - ~16,000 Voronoi polygonal cells (`sim_cells`).
+   - Runs continually across the entire world: 541-day calendar (12 Dragon Months + Shadow Week), continental weather, sovereign geopolitics, macro burg supply chains, 12 flowing Chaos Leys, and 12 Dragon Prisons.
+
+2. **Regional Layer (Meso LOD - 10,000 Cells per Global Cell)**:
+   - Every single Global Cell breaks down into an overland map of **exactly 10,000 regional cells** ($100 \times 100$ grid: `rx: 0..99, ry: 0..99`, centered at `(50, 50)`).
+   - Generates elevation, vegetation density, chaos radiation, infrastructure/roads, and landmarks.
+   - **FOCUSED LOD SIMULATION RULE**: Individual agent movements, tactical squad paths, and fine-grained meso updates at this 10,000-cell level are **ONLY simulated when the regional map contains the player's location (or an explicitly focused cell)**. When unfocused, global cells do not execute individual agent pathfinding, keeping macro ticks fast (~200ms).
+
+3. **Local Layer (Micro LOD - The Tactical Experience)**:
+   - The player's active position is situated on ONE specific cell `(rx, ry)` within that 10,000-cell Regional map.
+   - This single regional cell expands into the **Local Layer** — the tactical grid where the player experiences the world, with terrain tiles, interactive props, authentic NPCs from `population_demographics`, structures, and environmental hazards.
+
+4. **Upper Local & Lower Local Vertical Sandwich**:
+   - **Upper Local ($Z = +1$)**: Fortified ramparts, parapet walkways, watchtowers, 2nd-story lofts, tree canopies, and sky-bridges.
+   - **Local Surface ($Z = 0$)**: Ground level streets, plazas, cottages, workshops, water docks, and wild clearings.
+   - **Lower Local ($Z = -1$)**: Subterranean dungeons, storage cellars, municipal drainage/sewer culverts, cartel contraband flues, and catacombs.
+   - Players transition between levels via interactive ladders, stairs, trapdoors, and hatches (`GET /api/dm/sector_layer`).
+
+5. **Seamless Border Crossing**:
+   - Walking off the edge of a Local cell steps into the adjacent Regional cell `(rx ± 1, ry ± 1)`.
+   - Walking off the edge of the 100x100 Regional map (`rx = 0` or `99`, `ry = 0` or `99`) seamlessly crosses into the adjacent Global Cell.
+
+---
+
 ### Pillar 1: The Simulation Engine (`simulation-engine/`)
 The simulation engine runs in the background. It does not know or care about DOM, canvas, or UI rendering. It only computes math, physics, economics, and agent behaviors:
 - **Time & Calendar**: A 541-day cosmic year with 12 Dragon Months (44 days each) and a 13-day intercalary solar eclipse ("Shadow Week").
