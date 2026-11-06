@@ -56,7 +56,6 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
     // Ensure each cartel has an active Capo / Paragon
     for (const cartel of cartelsRes.rows) {
         if (cartel.worker_groups === undefined || cartel.worker_groups === null) {
-            await client.query("ALTER TABLE sim_outlaw_factions ADD COLUMN IF NOT EXISTS worker_groups INT DEFAULT 3");
             await client.query("UPDATE sim_outlaw_factions SET worker_groups = 3 WHERE id = $1", [cartel.id]);
             cartel.worker_groups = 3;
         }
@@ -64,10 +63,12 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
         const paragonRes = await client.query("SELECT * FROM sim_paragons WHERE outlaw_id = $1 LIMIT 1", [cartel.id]);
         let paragon = paragonRes.rows[0];
         if (!paragon) {
+            const originBurgRes = await client.query("SELECT burg_id FROM sim_burg_economy WHERE cell_id = $1 LIMIT 1", [cartel.origin_cell_id]);
+            const originBurgId = originBurgRes.rows[0]?.burg_id || 1;
             const traits = JSON.stringify([{ name: "Ruthless", modifier: 0.2 }]);
             const newP = await client.query(
                 `INSERT INTO sim_paragons (outlaw_id, burg_id, title, name, traits) VALUES ($1, $2, 'Syndicate Boss', $3, $4) RETURNING *`,
-                [cartel.id, cartel.origin_burg_id || 0, `${cartel.name} Boss`, traits]
+                [cartel.id, originBurgId, `${cartel.name} Boss`, traits]
             );
             paragon = newP.rows[0];
         }
@@ -1139,10 +1140,12 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
             const lairCountRes = await client.query("SELECT COUNT(*) as total FROM sim_fringe_lairs WHERE faction_id = $1", [cartel.id]);
             if (parseInt(lairCountRes.rows[0].total) === 0) {
                 const peakCell = cartel.origin_cell_id || 13408;
+                const originBurgRes = await client.query("SELECT burg_id FROM sim_burg_economy WHERE cell_id = $1 LIMIT 1", [peakCell]);
+                const originBurgId = originBurgRes.rows[0]?.burg_id || 73;
                 await client.query(`
                     INSERT INTO sim_fringe_lairs (faction_id, cell_id, burg_id, lair_type, manpower, heat)
                     VALUES ($1, $2, $3, 'CENTRAL_PEAK_SPRING_CAVERN', 40, 5)
-                `, [cartel.id, peakCell, cartel.origin_burg_id || 73]);
+                `, [cartel.id, peakCell, originBurgId]);
             }
 
             // Find mountain burgs on either side of the mountain divide

@@ -1,7 +1,9 @@
 import { GoogleGenAI } from '@google/genai';
+import dotenv from 'dotenv';
+dotenv.config();
 
 // Initialize Google GenAI SDK using environment API key
-const ai = new GoogleGenAI();
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
 export interface DMContextPayload {
   worldName: string;

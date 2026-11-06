@@ -1265,6 +1265,7 @@ router.post('/action_stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
 
   try {
     const { actionText, playerId, playerPos, coverBonus, coverLevel, combatType, isStealthed, sneakAttack } = req.body as {

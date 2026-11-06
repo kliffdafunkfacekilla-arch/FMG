@@ -159,7 +159,9 @@ export async function runNPCRoutineAgent(client: PoolClient, tick: number, loreD
   const deceasedProducers = await client.query(`
     SELECT cell_id, role, COUNT(*) as dead_count
     FROM sim_npc_instances
-    WHERE alive = false AND updated_at >= NOW() - INTERVAL '3 days'
+    WHERE alive = false 
+      AND updated_at >= NOW() - INTERVAL '1 day'
+      AND processed_for_economy IS NOT TRUE
     GROUP BY cell_id, role
   `);
 
@@ -178,6 +180,13 @@ export async function runNPCRoutineAgent(client: PoolClient, tick: number, loreD
       `, [Number(d.dead_count), d.cell_id]);
     }
   }
+
+  // Deduplicate: mark all deceased NPCs as processed so their death is not deducted repeatedly on future ticks
+  await client.query(`
+    UPDATE sim_npc_instances
+    SET processed_for_economy = true
+    WHERE alive = false AND processed_for_economy IS NOT TRUE
+  `);
 }
 
 /**

@@ -58,17 +58,34 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
     `);
 
     for (const ward of chargedWardsRes.rows) {
-      // Find a civilian Sparkborn in or near this sector
-      const candidateRes = await client.query(`
+      // Find a civilian Sparkborn in or near this sector (spatial locality)
+      let candidateRes = await client.query(`
         SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation, settlement_id
         FROM population_demographics
         WHERE spark_tier IN ('CHANNELER', 'ADEPT', 'SENSITIVE', 'DORMANT_SPARK')
           AND allegiance_status = 'CIVILIAN'
+          AND settlement_id IN (
+            SELECT burg_id FROM sim_burg_economy
+            ORDER BY ABS(cell_id - $1) ASC
+            LIMIT 10
+          )
         ORDER BY 
           CASE WHEN spark_tier = 'ADEPT' THEN 1 WHEN spark_tier = 'CHANNELER' THEN 2 ELSE 3 END,
           RANDOM()
         LIMIT 1
-      `);
+      `, [ward.cell_id]);
+
+      // Fallback to worldwide civilian sparkborn if local pool exhausted
+      if (candidateRes.rows.length === 0) {
+        candidateRes = await client.query(`
+          SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation, settlement_id
+          FROM population_demographics
+          WHERE spark_tier IN ('CHANNELER', 'ADEPT', 'SENSITIVE', 'DORMANT_SPARK')
+            AND allegiance_status = 'CIVILIAN'
+          ORDER BY RANDOM()
+          LIMIT 1
+        `);
+      }
 
       const dbCitizen = candidateRes.rows[0];
       const citizen = dbCitizen ? {

@@ -24,11 +24,37 @@ import { provisionAllBurgParagons } from "../db/provisionAllBurgParagons";
 const SQLITE_PATH = path.join(__dirname, "../../aetheria.sqlite");
 
 const DDL = `
--- Drop and recreate the public schema to guarantee a clean slate
-DROP SCHEMA public CASCADE;
-CREATE SCHEMA public;
-GRANT ALL ON SCHEMA public TO postgres;
-GRANT ALL ON SCHEMA public TO public;
+-- Drop only simulation tables, strictly preserving player character sheets, game saves, and memorials
+DROP TABLE IF EXISTS sim_active_projects CASCADE;
+DROP TABLE IF EXISTS sim_faction_units CASCADE;
+DROP TABLE IF EXISTS sim_faction_borders CASCADE;
+DROP TABLE IF EXISTS sim_weather_fronts CASCADE;
+DROP TABLE IF EXISTS sim_industrial_stockpiles CASCADE;
+DROP TABLE IF EXISTS sim_burg_economy CASCADE;
+DROP TABLE IF EXISTS sim_cells CASCADE;
+DROP TABLE IF EXISTS sim_factions CASCADE;
+DROP TABLE IF EXISTS sim_calendar CASCADE;
+DROP TABLE IF EXISTS sim_events CASCADE;
+DROP TABLE IF EXISTS sim_outlaw_factions CASCADE;
+DROP TABLE IF EXISTS sim_trade_routes CASCADE;
+DROP TABLE IF EXISTS sim_chaos_zones CASCADE;
+DROP TABLE IF EXISTS sim_sacred_groves CASCADE;
+DROP TABLE IF EXISTS sim_fringe_lairs CASCADE;
+DROP TABLE IF EXISTS sim_ghostwind_dead_drops CASCADE;
+DROP TABLE IF EXISTS sim_paragons CASCADE;
+DROP TABLE IF EXISTS sim_diplomacy CASCADE;
+DROP TABLE IF EXISTS sim_infrastructure CASCADE;
+DROP TABLE IF EXISTS sim_ancient_path_wards CASCADE;
+DROP TABLE IF EXISTS sim_agents CASCADE;
+DROP TABLE IF EXISTS sim_commodity_prices CASCADE;
+DROP TABLE IF EXISTS sim_roads CASCADE;
+DROP TABLE IF EXISTS sim_faction_wars CASCADE;
+DROP TABLE IF EXISTS sim_global_events CASCADE;
+DROP TABLE IF EXISTS sim_chaos_flows CASCADE;
+DROP TABLE IF EXISTS sim_world_vault_sectors CASCADE;
+DROP TABLE IF EXISTS sim_world_landmarks CASCADE;
+DROP TABLE IF EXISTS sim_grind_canyons CASCADE;
+DROP TABLE IF EXISTS sim_sector_layers CASCADE;
 
 DROP TABLE IF EXISTS sim_active_projects CASCADE;
 
@@ -192,7 +218,9 @@ CREATE TABLE sim_outlaw_factions (
   manpower INT DEFAULT 100,
   worker_groups INT DEFAULT 2,
   wealth INT DEFAULT 1000,
-  heat INT DEFAULT 0
+  heat INT DEFAULT 0,
+  description TEXT,
+  contraband_types TEXT[]
 );
 
 CREATE TABLE sim_trade_routes (
@@ -229,7 +257,8 @@ CREATE TABLE IF NOT EXISTS sim_fringe_lairs (
     lair_type VARCHAR(50),
     manpower INT DEFAULT 0,
     heat INT DEFAULT 0,
-    inventory JSONB DEFAULT '{}'::jsonb
+    inventory JSONB DEFAULT '{}'::jsonb,
+    resident_npc_ids TEXT[] DEFAULT '{}'::text[]
 );
 
 CREATE TABLE IF NOT EXISTS sim_ghostwind_dead_drops (
@@ -446,6 +475,7 @@ CREATE TABLE IF NOT EXISTS sim_npc_instances (
     beliefs JSONB DEFAULT '[]'::jsonb,
     social_links JSONB DEFAULT '[]'::jsonb,
     trade_price_mult FLOAT DEFAULT 1.0,
+    processed_for_economy BOOLEAN DEFAULT FALSE,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_sim_npc_instances_loc ON sim_npc_instances(cell_id, current_rx, current_ry);
@@ -725,7 +755,7 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
       ];
       const okashaPath = candidatePaths.find(p => fs.existsSync(p));
       if (okashaPath) {
-        const okashaRaw = fs.readFileSync(okashaPath, "utf8");
+        const okashaRaw = await fs.promises.readFile(okashaPath, "utf8");
         const okashaData = JSON.parse(okashaRaw);
         const jsonBurgs = (okashaData.pack?.burgs || []).filter((b: any) => b && b.name && !b.removed && b.i > 0);
         for (const jb of jsonBurgs) {

@@ -232,6 +232,22 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
           WHERE id = $1
         `, [locCellId]);
 
+        // Intercepted by Grey Warden patrol along the march
+        if (moveResult.collidedWith) {
+          corruption = Math.min(100, corruption + 5);
+          if (Math.random() < 0.35) {
+            await client.query(`
+              INSERT INTO sim_events (tick, type, message, tier, cell_id, lore_date)
+              VALUES ($1, 'CULT_WARDEN_SKIRMISH', $2, 'MINOR', $3, $4)
+            `, [
+              tick,
+              `⚔️ INTERCEPTION: Cultist ${citizenName} (${profession}) was intercepted by Warden Sentinel ${moveResult.collidedWith.name} at Cell #${locCellId}! The cabal was forced into a desperate retreat into the shadows.`,
+              locCellId,
+              loreDate
+            ]);
+          }
+        }
+
         if (moveResult.arrived || locCellId === targetCellId) {
           state = 'BESIEGING_SEAL';
           const groveRes = await client.query("SELECT dragon_name FROM sim_sacred_groves WHERE id = $1", [targetGroveId]);

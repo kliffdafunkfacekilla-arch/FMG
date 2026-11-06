@@ -137,3 +137,4 @@ When inspecting or extending simulation and GM code, always verify:
    - `population_demographics`: `settlement_id` for burgs, `home_cell_id` for cells.
 4. **Spatial Locality for Recruitments**: When an event or ancient ward awakens a citizen, scope the query to nearby burgs rather than querying worldwide with `RANDOM() LIMIT 1`.
 5. **Bidirectional Collision Handling**: When agents move via `stepTowardCell()`, handle collisions on both sides (Wardens and Cultists alike).
+

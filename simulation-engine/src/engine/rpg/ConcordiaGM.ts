@@ -106,8 +106,8 @@ export class ConcordiaGameMaster {
   // Tried in order. Gemini 1.5/2.0 are shut down and 2.5 is being retired, so
   // "gemini-flash-latest" stays last as an alias Google keeps pointed at a live model.
   private readonly CANDIDATE_MODELS = [
-    "gemini-3.5-flash",
-    "gemini-3.1-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-2.5-pro",
     "gemini-flash-latest"
   ];
   private warnedInvalidKey = false;

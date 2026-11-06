@@ -5,6 +5,7 @@ import { resetWorld } from "../engine/resetWorld";
 
 const observerRouter = Router();
 let autoplayTimer: any = null;
+
 observerRouter.post("/autoplay", (req, res) => {
     const { enabled } = req.body;
     if (enabled && !autoplayTimer) {
@@ -44,7 +45,7 @@ observerRouter.get("/state", async (req, res) => {
     const factions = await pool.query("SELECT * FROM sim_factions");
     const events = await pool.query("SELECT * FROM sim_events ORDER BY tick DESC, id DESC LIMIT 100");
     const chaosZones = await pool.query("SELECT * FROM sim_chaos_zones");
-    const economy = await pool.query("SELECT b.burg_id, b.food, b.wealth, b.unrest, b.health, b.pop_null, b.crime_rate, b.military_forces, b.demographics, b.species_demographics, b.cell_id, c.faction_id FROM sim_burg_economy b JOIN sim_cells c ON b.cell_id = c.id");
+    const economy = await pool.query("SELECT b.burg_id, b.name, b.food, b.wealth, b.unrest, b.health, b.pop_null, b.crime_rate, b.military_forces, b.demographics, b.species_demographics, b.cell_id, c.faction_id FROM sim_burg_economy b JOIN sim_cells c ON b.cell_id = c.id");
     const agents = await pool.query("SELECT * FROM sim_agents");
     const sacredGroves = await pool.query("SELECT * FROM sim_sacred_groves");
     const calendar = await pool.query("SELECT * FROM sim_calendar ORDER BY id DESC LIMIT 1");
@@ -444,6 +445,12 @@ observerRouter.post("/reset", async (req, res) => {
   }
   if (resetInProgress) {
     return res.status(429).json({ error: "Reset already in progress." });
+  }
+
+  // Halt background autoplay during world reset to prevent race conditions
+  if (autoplayTimer) {
+    clearInterval(autoplayTimer);
+    autoplayTimer = null;
   }
 
   resetInProgress = true;
