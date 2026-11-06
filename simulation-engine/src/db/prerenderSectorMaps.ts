@@ -116,40 +116,40 @@ export async function prerenderAllSectorMaps() {
       const biomeId = Number(burg.biome) || 6;
       const elevation = Number(burg.elevation) || 50;
 
-      // A. Center Burg Core (rx: 112, ry: 112)
+      // A. Center Burg Core (rx: 50, ry: 50)
       const coreMap = generateBurgSectorMap(burg, factionName, cellId, burgCitizens, burgLairs);
-      addSector(cellId, 112, 112, biomeId, elevation, coreMap);
+      addSector(cellId, 50, 50, biomeId, elevation, coreMap);
 
       // B. Outlying Sectors around the burg:
       // North: Farmlands & Granaries
-      const farmMap = generateOutlyingSectorMap(burg, "FARMLAND", 112, 87, cellId, factionName);
-      addSector(cellId, 112, 87, biomeId, elevation, farmMap);
+      const farmMap = generateOutlyingSectorMap(burg, "FARMLAND", 50, 35, cellId, factionName);
+      addSector(cellId, 50, 35, biomeId, elevation, farmMap);
 
       // South: Rural Hamlet & Cottages
-      const hamletMap = generateOutlyingSectorMap(burg, "HAMLET", 112, 137, cellId, factionName);
-      addSector(cellId, 112, 137, biomeId, elevation, hamletMap);
+      const hamletMap = generateOutlyingSectorMap(burg, "HAMLET", 50, 65, cellId, factionName);
+      addSector(cellId, 50, 65, biomeId, elevation, hamletMap);
 
       // East: Logging Camp & Timber Saws
-      const loggingMap = generateOutlyingSectorMap(burg, "LOGGING", 137, 112, cellId, factionName);
-      addSector(cellId, 137, 112, biomeId, elevation, loggingMap);
+      const loggingMap = generateOutlyingSectorMap(burg, "LOGGING", 65, 50, cellId, factionName);
+      addSector(cellId, 65, 50, biomeId, elevation, loggingMap);
 
       // West: Frontier Watchtower & Beacon
-      const towerMap = generateOutlyingSectorMap(burg, "WATCHTOWER", 87, 112, cellId, factionName);
-      addSector(cellId, 87, 112, biomeId, elevation, towerMap);
+      const towerMap = generateOutlyingSectorMap(burg, "WATCHTOWER", 35, 50, cellId, factionName);
+      addSector(cellId, 35, 50, biomeId, elevation, towerMap);
     }
     console.log(`Pre-rendered ${recordsToInsert.length} burg & outlying sectors.`);
 
     // 3. Pre-render The Verge (Sacred Spire) at Cell 16166
     console.log("Pre-rendering The Verge (Sacred Spire) at Cell 16166...");
     const vergeMap = generateTheVergeSectorMap(16166);
-    addSector(16166, 112, 112, 1, 990, vergeMap);
-    addSector(16166, 43, 121, 1, 990, vergeMap); // Exact landmark coordinate from FMG
+    addSector(16166, 50, 50, 1, 990, vergeMap);
+    addSector(16166, 43, 50, 1, 990, vergeMap); // Landmark coordinate
 
     // 4. Pre-render The Eye / Coral Crown at Cell 16777
     console.log("Pre-rendering The Eye / Coral Crown at Cell 16777...");
     const crownMap = generateCoralCrownSectorMap(16777);
-    addSector(16777, 112, 112, 0, 10, crownMap);
-    addSector(16777, 171, 127, 0, 10, crownMap); // Exact landmark coordinate
+    addSector(16777, 50, 50, 0, 10, crownMap);
+    addSector(16777, 50, 50, 0, 10, crownMap);
 
     // 5. Pre-render the 12 Dragon Prisons
     console.log("Pre-rendering the 12 Dragon Prisons...");
@@ -176,7 +176,7 @@ export async function prerenderAllSectorMaps() {
         description: `Dragon Prison containing ${pr.dragon_name}, primordial avatar of ${pr.power_domain}.`
       });
 
-      addSector(pr.cell_id, 112, 112, 11, 400, prisonMap);
+      addSector(pr.cell_id, 50, 50, 11, 400, prisonMap);
       if (pr.sector_x != null && pr.sector_y != null) {
         addSector(pr.cell_id, pr.sector_x, pr.sector_y, 11, 400, prisonMap);
       }

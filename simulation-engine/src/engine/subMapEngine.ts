@@ -74,8 +74,8 @@ export async function getOrGenerateInteriorSubMap(
       return {
         subMapId: row.sub_map_id,
         parentCellId: row.parent_cell_id,
-        parentRx: row.parent_rx ?? 112,
-        parentRy: row.parent_ry ?? 112,
+        parentRx: row.parent_rx ?? 50,
+        parentRy: row.parent_ry ?? 50,
         parentPropId: row.parent_prop_id,
         name: row.name || "Subterranean Interior",
         interiorType: (row.interior_type as InteriorType) || "CELLAR",
@@ -143,8 +143,8 @@ export async function generateSubMapInterior(params: SubMapParameters): Promise<
   const propId = params.propId || `prop_legacy_${Date.now()}`;
   const interior = await getOrGenerateInteriorSubMap(
     cellId,
-    params.rx ?? 112,
-    params.ry ?? 112,
+    params.rx ?? 50,
+    params.ry ?? 50,
     propId,
     params.propName || "Sub-Map Chamber",
     params.propTags || ["door", "interior"],

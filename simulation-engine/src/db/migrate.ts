@@ -161,8 +161,8 @@ CREATE TABLE IF NOT EXISTS interior_sub_maps (
     sub_map_id SERIAL PRIMARY KEY,
     local_id INT REFERENCES local_cells(local_id) ON DELETE CASCADE,
     parent_cell_id INT,
-    parent_rx INT DEFAULT 112,
-    parent_ry INT DEFAULT 112,
+    parent_rx INT DEFAULT 50,
+    parent_ry INT DEFAULT 50,
     parent_prop_id VARCHAR(150),
     interior_type VARCHAR(64),
     name VARCHAR(150),
@@ -547,8 +547,8 @@ CREATE TABLE IF NOT EXISTS sim_player_mutations (
 CREATE INDEX IF NOT EXISTS idx_player_mutations_pid ON sim_player_mutations(player_id);
 
 ALTER TABLE interior_sub_maps ADD COLUMN IF NOT EXISTS parent_cell_id INT;
-ALTER TABLE interior_sub_maps ADD COLUMN IF NOT EXISTS parent_rx INT DEFAULT 112;
-ALTER TABLE interior_sub_maps ADD COLUMN IF NOT EXISTS parent_ry INT DEFAULT 112;
+ALTER TABLE interior_sub_maps ADD COLUMN IF NOT EXISTS parent_rx INT DEFAULT 50;
+ALTER TABLE interior_sub_maps ADD COLUMN IF NOT EXISTS parent_ry INT DEFAULT 50;
 ALTER TABLE interior_sub_maps ADD COLUMN IF NOT EXISTS parent_prop_id VARCHAR(150);
 ALTER TABLE interior_sub_maps ADD COLUMN IF NOT EXISTS interior_type VARCHAR(64);
 ALTER TABLE interior_sub_maps ADD COLUMN IF NOT EXISTS name VARCHAR(150);

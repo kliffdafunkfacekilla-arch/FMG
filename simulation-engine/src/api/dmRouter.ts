@@ -631,8 +631,8 @@ router.post('/player/permadeath', async (req, res) => {
       p.gold || 0,
       p.equipped_weapon || 'Bare Hands',
       p.equipped_armor || 'Rags',
-      sectorX ?? 105,
-      sectorY ?? 112,
+      sectorX ?? 50,
+      sectorY ?? 50,
       p.difficulty || 'hardcore',
       causeOfDeath || 'Fell in mortal combat'
     ]);
@@ -688,8 +688,8 @@ router.post('/sector_load', async (req, res) => {
   try {
     const context = req.body.context || (req.body.cellId ? req.body : null);
     const targetCellId = Number(context?.cellId) || 13408;
-    const targetRx = context?.rx !== undefined ? Number(context.rx) : 112;
-    const targetRy = context?.ry !== undefined ? Number(context.ry) : 112;
+    const targetRx = context?.rx !== undefined ? Number(context.rx) : 50;
+    const targetRy = context?.ry !== undefined ? Number(context.ry) : 50;
     const rawPhase = (req.body.diurnalPhase || context?.diurnalPhase || 'MORNING').toUpperCase();
     const diurnalPhase: "MORNING" | "MIDDAY" | "EVENING" | "NIGHT" = rawPhase === 'NOON' ? 'MIDDAY' : (['MORNING', 'MIDDAY', 'EVENING', 'NIGHT'].includes(rawPhase) ? rawPhase as any : 'MORNING');
 
@@ -727,39 +727,59 @@ router.post('/sector_load', async (req, res) => {
     const flows = await getActiveChaosFlows(pool);
     const flowProximity = evaluatePointChaosFlowProximity(cx, cy, flows);
 
-    // Check if sector is pre-rendered in sim_world_vault_sectors
+    // Check if sector is in sim_sector_layers (Layer 0 Surface) or pre-rendered in sim_world_vault_sectors
     let preRenderedMap: any = null;
     try {
-      let vaultRes = await pool.query(
-        `SELECT name, poi_type, compressed_terrain, props, npcs, features
-         FROM sim_world_vault_sectors
-         WHERE cell_id = $1 AND rx = $2 AND ry = $3`,
+      const layerRes = await pool.query(
+        `SELECT layer_name, compressed_terrain, props, npcs, features
+         FROM sim_sector_layers
+         WHERE cell_id = $1 AND rx = $2 AND ry = $3 AND z_layer = 0
+         LIMIT 1`,
         [targetCellId, targetRx, targetRy]
       );
-      if ((!vaultRes.rowCount || vaultRes.rowCount === 0) && (targetRx !== 112 || targetRy !== 112)) {
-        // Fallback to central burg core at (112, 112) if specific outlying sector not yet vaulted
-        vaultRes = await pool.query(
+      if (layerRes.rowCount && layerRes.rowCount > 0) {
+        const lyr = layerRes.rows[0];
+        const decompressed = zlib.gunzipSync(lyr.compressed_terrain);
+        preRenderedMap = {
+          name: lyr.layer_name,
+          poiType: 'SETTLEMENT_CORE',
+          grid: Array.from(decompressed),
+          props: lyr.props || [],
+          npcs: lyr.npcs || [],
+          features: lyr.features || {}
+        };
+      } else {
+        let vaultRes = await pool.query(
           `SELECT name, poi_type, compressed_terrain, props, npcs, features
            FROM sim_world_vault_sectors
-           WHERE cell_id = $1 AND rx = 112 AND ry = 112`,
-          [targetCellId]
+           WHERE cell_id = $1 AND rx = $2 AND ry = $3`,
+          [targetCellId, targetRx, targetRy]
         );
-      }
+        if ((!vaultRes.rowCount || vaultRes.rowCount === 0) && (targetRx !== 50 || targetRy !== 50)) {
+          // Fallback to central burg core at (50, 50) if specific outlying sector not yet vaulted
+          vaultRes = await pool.query(
+            `SELECT name, poi_type, compressed_terrain, props, npcs, features
+             FROM sim_world_vault_sectors
+             WHERE cell_id = $1 AND rx = 50 AND ry = 50`,
+            [targetCellId]
+          );
+        }
 
-      if (vaultRes.rowCount && vaultRes.rowCount > 0) {
-        const v = vaultRes.rows[0];
-        const decompressed = zlib.gunzipSync(v.compressed_terrain);
-        preRenderedMap = {
-          name: v.name,
-          poiType: v.poi_type,
-          grid: Array.from(decompressed),
-          props: v.props || [],
-          npcs: v.npcs || [],
-          features: v.features || {}
-        };
+        if (vaultRes.rowCount && vaultRes.rowCount > 0) {
+          const v = vaultRes.rows[0];
+          const decompressed = zlib.gunzipSync(v.compressed_terrain);
+          preRenderedMap = {
+            name: v.name,
+            poiType: v.poi_type,
+            grid: Array.from(decompressed),
+            props: v.props || [],
+            npcs: v.npcs || [],
+            features: v.features || {}
+          };
+        }
       }
     } catch (vaultErr) {
-      console.warn('Could not query vault sectors in sector_load:', vaultErr);
+      console.warn('Could not query sector layers or vault in sector_load:', vaultErr);
     }
 
     // Check if cell contains an active dynamic Grind Canyon Chasm
@@ -1047,8 +1067,8 @@ router.post('/interior/enter', async (req, res) => {
   try {
     const { cellId, rx, ry, propId, propName, propTags, forcedType, parameters } = req.body;
     const targetCellId = Number(cellId) || 13408;
-    const targetRx = rx !== undefined ? Number(rx) : 112;
-    const targetRy = ry !== undefined ? Number(ry) : 112;
+    const targetRx = rx !== undefined ? Number(rx) : 50;
+    const targetRy = ry !== undefined ? Number(ry) : 50;
     const targetPropId = String(propId || 'prop_cellar_hatch');
     const targetPropName = String(propName || 'Subterranean Vault');
     const targetPropTags = Array.isArray(propTags) ? propTags : [];
@@ -1106,8 +1126,8 @@ router.post('/interior/exit', async (req, res) => {
     res.json({
       success: true,
       parentCellId: row.parent_cell_id,
-      parentRx: row.parent_rx ?? 112,
-      parentRy: row.parent_ry ?? 112,
+      parentRx: row.parent_rx ?? 50,
+      parentRy: row.parent_ry ?? 50,
       parentPropId: row.parent_prop_id,
       name: row.name,
       interiorType: row.interior_type

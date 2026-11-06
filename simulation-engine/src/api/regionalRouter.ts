@@ -104,26 +104,44 @@ regionalRouter.get("/manifest/:cell_id", async (req, res) => {
 
   const manifest = instance.getManifest(rx, ry);
 
-  // Check if a pre-rendered vault map exists for this sector
+  // Check if sector layers (Layer 0 Surface) or a pre-rendered vault map exists for this sector
   try {
-    const vaultRes = await pool.query(
-      `SELECT name, poi_type, compressed_terrain, props, npcs, features
-       FROM sim_world_vault_sectors
-       WHERE cell_id = $1 AND rx = $2 AND ry = $3`,
+    const layerRes = await pool.query(
+      `SELECT layer_name, compressed_terrain, props, npcs, features
+       FROM sim_sector_layers
+       WHERE cell_id = $1 AND rx = $2 AND ry = $3 AND z_layer = 0
+       LIMIT 1`,
       [cellId, rx, ry]
     );
-    if (vaultRes.rowCount && vaultRes.rowCount > 0) {
-      const v = vaultRes.rows[0];
-      const decompressed = zlib.gunzipSync(v.compressed_terrain);
+    if (layerRes.rowCount && layerRes.rowCount > 0) {
+      const lyr = layerRes.rows[0];
+      const decompressed = zlib.gunzipSync(lyr.compressed_terrain);
       (manifest as any).pre_rendered = true;
       (manifest as any).grid = Array.from(decompressed);
-      (manifest as any).vault_name = v.name;
-      (manifest as any).poi_type = v.poi_type;
-      (manifest as any).vault_props = v.props;
-      (manifest as any).vault_npcs = v.npcs;
+      (manifest as any).vault_name = lyr.layer_name;
+      (manifest as any).poi_type = "SETTLEMENT_CORE";
+      (manifest as any).vault_props = lyr.props;
+      (manifest as any).vault_npcs = lyr.npcs;
+    } else {
+      const vaultRes = await pool.query(
+        `SELECT name, poi_type, compressed_terrain, props, npcs, features
+         FROM sim_world_vault_sectors
+         WHERE cell_id = $1 AND rx = $2 AND ry = $3`,
+        [cellId, rx, ry]
+      );
+      if (vaultRes.rowCount && vaultRes.rowCount > 0) {
+        const v = vaultRes.rows[0];
+        const decompressed = zlib.gunzipSync(v.compressed_terrain);
+        (manifest as any).pre_rendered = true;
+        (manifest as any).grid = Array.from(decompressed);
+        (manifest as any).vault_name = v.name;
+        (manifest as any).poi_type = v.poi_type;
+        (manifest as any).vault_props = v.props;
+        (manifest as any).vault_npcs = v.npcs;
+      }
     }
   } catch (err) {
-    console.warn("Could not query sim_world_vault_sectors in manifest:", err);
+    console.warn("Could not query sim_sector_layers or vault in manifest:", err);
   }
 
   res.json(manifest);
@@ -132,8 +150,8 @@ regionalRouter.get("/manifest/:cell_id", async (req, res) => {
 // Explicit endpoint to retrieve a pre-rendered sector from sim_world_vault_sectors
 regionalRouter.get("/sector/:cell_id", async (req, res) => {
   const cellId = parseInt(req.params.cell_id);
-  const rx = parseInt(req.query.x as string) || 112;
-  const ry = parseInt(req.query.y as string) || 112;
+  const rx = parseInt(req.query.x as string) || 50;
+  const ry = parseInt(req.query.y as string) || 50;
 
   try {
     const vaultRes = await pool.query(

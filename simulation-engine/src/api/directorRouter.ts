@@ -37,8 +37,8 @@ export async function validateBlueprintMiddleware(req: Request, res: Response, n
         }
 
         const cellId = targetSector?.cellId || 17363;
-        const rx = targetSector?.rx !== undefined ? targetSector.rx : 112;
-        const ry = targetSector?.ry !== undefined ? targetSector.ry : 112;
+        const rx = targetSector?.rx !== undefined ? targetSector.rx : 50;
+        const ry = targetSector?.ry !== undefined ? targetSector.ry : 50;
         const z = targetSector?.z !== undefined ? targetSector.z : 0;
 
         const effectivePayload = inputPayload || await buildDirectorInputPayload(cellId, rx, ry, z);
@@ -71,8 +71,8 @@ export async function validateBlueprintMiddleware(req: Request, res: Response, n
 directorRouter.get('/context_payload', async (req: Request, res: Response): Promise<void> => {
     try {
         const cellId = Number(req.query.cellId) || 17363;
-        const rx = req.query.rx !== undefined ? Number(req.query.rx) : 112;
-        const ry = req.query.ry !== undefined ? Number(req.query.ry) : 112;
+        const rx = req.query.rx !== undefined ? Number(req.query.rx) : 50;
+        const ry = req.query.ry !== undefined ? Number(req.query.ry) : 50;
         const z = req.query.z !== undefined ? Number(req.query.z) : 0;
         const playerId = Number(req.query.playerId) || 1;
 
@@ -112,8 +112,8 @@ directorRouter.post('/generate_arc', async (req: Request, res: Response): Promis
         };
 
         const cellId = targetSector?.cellId || 17363;
-        const rx = targetSector?.rx !== undefined ? targetSector.rx : 112;
-        const ry = targetSector?.ry !== undefined ? targetSector.ry : 112;
+        const rx = targetSector?.rx !== undefined ? targetSector.rx : 50;
+        const ry = targetSector?.ry !== undefined ? targetSector.ry : 50;
         const z = targetSector?.z !== undefined ? targetSector.z : 0;
         const pId = playerId || 1;
 
@@ -160,8 +160,8 @@ directorRouter.post('/manifest_beat', validateBlueprintMiddleware, async (req: R
         };
 
         const cellId = targetSector?.cellId || 17363;
-        const rx = targetSector?.rx !== undefined ? targetSector.rx : 112;
-        const ry = targetSector?.ry !== undefined ? targetSector.ry : 112;
+        const rx = targetSector?.rx !== undefined ? targetSector.rx : 50;
+        const ry = targetSector?.ry !== undefined ? targetSector.ry : 50;
         const z = targetSector?.z !== undefined ? targetSector.z : 0;
 
         const effectiveBlueprint = (req as any).validatedBlueprint || blueprint;
@@ -197,8 +197,8 @@ directorRouter.post('/inject_pass', async (req: Request, res: Response): Promise
         };
 
         const cellId = targetSector?.cellId || 17363;
-        const rx = targetSector?.rx !== undefined ? targetSector.rx : 112;
-        const ry = targetSector?.ry !== undefined ? targetSector.ry : 112;
+        const rx = targetSector?.rx !== undefined ? targetSector.rx : 50;
+        const ry = targetSector?.ry !== undefined ? targetSector.ry : 50;
         const z = targetSector?.z !== undefined ? targetSector.z : 0;
 
         const sectorRes = await pool.query(
