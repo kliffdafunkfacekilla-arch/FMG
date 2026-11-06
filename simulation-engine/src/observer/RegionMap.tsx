@@ -1,15 +1,59 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 
-const REGIONAL_TERRAIN_COLORS: Record<number, string> = {
-  0: "#22c55e", // Plains / Grassland
-  1: "#16a34a", // Light Vegetation
-  2: "#15803d", // Dense Forest
-  3: "#0284c7", // Water (Lake / River)
-  4: "#475569", // Settlement / Burg Core
-  5: "#78716c", // Highway / Paved Road
-  6: "#a8a29e", // Smuggler / Trail Path
-  7: "#9333ea", // Ancient Temple / POI
+export interface BiomePalette {
+  name: string;
+  ground: string;
+  lightVeg: string;
+  denseVeg: string;
+  crag: string;
+}
+
+// Authentic biome color palettes matching Okasha / FMG global layers
+export const BIOME_PALETTES: Record<number, BiomePalette> = {
+  0: { name: "Marine", ground: "#0369a1", lightVeg: "#0284c7", denseVeg: "#0c4a6e", crag: "#082f49" },
+  1: { name: "Hot Desert", ground: "#fbe79f", lightVeg: "#ca8a04", denseVeg: "#a16207", crag: "#78350f" },
+  2: { name: "Cold Desert", ground: "#b5b887", lightVeg: "#78716c", denseVeg: "#57534e", crag: "#44403c" },
+  3: { name: "Savanna", ground: "#d2d082", lightVeg: "#a3e635", denseVeg: "#65a30d", crag: "#713f12" },
+  4: { name: "Grassland", ground: "#c8d68f", lightVeg: "#84cc16", denseVeg: "#22c55e", crag: "#475569" },
+  5: { name: "Tropical Seasonal Forest", ground: "#b6d95d", lightVeg: "#84cc16", denseVeg: "#15803d", crag: "#334155" },
+  6: { name: "Temperate Deciduous Forest", ground: "#29bc56", lightVeg: "#16a34a", denseVeg: "#14532d", crag: "#475569" },
+  7: { name: "Tropical Rainforest", ground: "#7dcb35", lightVeg: "#22c55e", denseVeg: "#052e16", crag: "#1e293b" },
+  8: { name: "Temperate Rainforest", ground: "#409c43", lightVeg: "#16a34a", denseVeg: "#064e3b", crag: "#334155" },
+  9: { name: "Taiga", ground: "#4b6b32", lightVeg: "#3f6212", denseVeg: "#14532d", crag: "#1e293b" },
+  10: { name: "Tundra", ground: "#96784b", lightVeg: "#64748b", denseVeg: "#475569", crag: "#94a3b8" },
+  11: { name: "Glacier", ground: "#d5e7eb", lightVeg: "#cbd5e1", denseVeg: "#94a3b8", crag: "#f8fafc" },
+  12: { name: "Wetland", ground: "#0b9131", lightVeg: "#059669", denseVeg: "#064e3b", crag: "#1e293b" },
+  13: { name: "Shallow Reef", ground: "#006994", lightVeg: "#0284c7", denseVeg: "#0369a1", crag: "#082f49" },
+  14: { name: "Kelp Forest", ground: "#004b49", lightVeg: "#0f766e", denseVeg: "#134e4a", crag: "#042f2e" },
+  15: { name: "Pelagic Ocean", ground: "#000080", lightVeg: "#1e3a8a", denseVeg: "#172554", crag: "#0f172a" },
+  16: { name: "Abyssal Plain", ground: "#000033", lightVeg: "#020617", denseVeg: "#030712", crag: "#000000" },
+  17: { name: "Oceanic Trench", ground: "#000011", lightVeg: "#020617", denseVeg: "#030712", crag: "#000000" },
+  18: { name: "Chaos Land", ground: "#4b0082", lightVeg: "#6b21a8", denseVeg: "#3b0764", crag: "#2e1065" },
+  19: { name: "Chaos Water", ground: "#190033", lightVeg: "#3b0764", denseVeg: "#1e1b4b", crag: "#090514" }
 };
+
+export function getTerrainColor(tile: number, biomeId: number): string {
+  const palette = BIOME_PALETTES[biomeId] || BIOME_PALETTES[4] || {
+    name: "Grassland",
+    ground: "#c8d68f",
+    lightVeg: "#84cc16",
+    denseVeg: "#22c55e",
+    crag: "#475569"
+  };
+
+  switch (tile) {
+    case 0: return palette.ground;
+    case 1: return palette.lightVeg;
+    case 2: return palette.denseVeg;
+    case 3: return "#0284c7"; // Authentic River / Ocean Water
+    case 4: return "#475569"; // Burg Settlement Core
+    case 5: return "#d97706"; // Paved Highway
+    case 6: return "#a855f7"; // Covert Smuggler Trail
+    case 7: return "#9333ea"; // Ancient Temple / POI
+    case 8: return palette.crag; // Mountain rocky crag
+    default: return palette.ground;
+  }
+}
 
 const AGENT_COLORS: Record<string, string> = {
   Predator: "#ef4444",
@@ -27,7 +71,7 @@ const AGENT_COLORS: Record<string, string> = {
   Hermit: "#d97706",
   Scholar: "#6366f1",
   Pilgrim: "#38bdf8",
-  Anomaly: "#ec4899",
+  Anomaly: "#ec4899"
 };
 
 export interface RegionAgent {
@@ -38,6 +82,10 @@ export interface RegionAgent {
   color?: string;
   speed: number;
   disposition: number;
+  rx: number;
+  ry: number;
+  targetRx: number;
+  targetRy: number;
   x: number;
   y: number;
   tx: number;
@@ -64,10 +112,12 @@ export interface RegionLiveState {
 
 export function RegionMap({
   cellId,
+  tick,
   onClose,
   isFloating = true
 }: {
   cellId: number;
+  tick?: number;
   onClose?: () => void;
   isFloating?: boolean;
 }) {
@@ -83,7 +133,7 @@ export function RegionMap({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const terrainCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // 1. Initial full fetch of 10,000-cell terrain + metadata
+  // 1. Initial fetch of full 10,000-cell terrain + metadata
   const fetchFullRegion = useCallback(async (id: number) => {
     setLoading(true);
     try {
@@ -93,7 +143,7 @@ export function RegionMap({
       setRegionData(data);
       setAgents(data.agents || []);
 
-      // Pre-render terrain layer into offscreen canvas for fast 60fps rendering
+      // Pre-render terrain layer into offscreen canvas using authentic biome colors
       const offscreen = document.createElement("canvas");
       offscreen.width = data.width || 100;
       offscreen.height = data.height || 100;
@@ -102,18 +152,18 @@ export function RegionMap({
         const imgData = offCtx.createImageData(data.width, data.height);
         const map = data.mapData;
         const infra = data.infraMap || [];
+        const biomeId = data.biomeId ?? 4;
 
         for (let i = 0; i < map.length; i++) {
           const t = map[i] || 0;
           const inf = infra[i] || 0;
-          let hex = REGIONAL_TERRAIN_COLORS[t] || "#22c55e";
+          let hex = getTerrainColor(t, biomeId);
 
           if (inf === 128) hex = "#334155"; // Battlefield
           else if (inf === 64) hex = "#64748b"; // Refugee camp
-          else if (inf === 32) hex = "#7f1d1d"; // Macabre camp
+          else if (inf === 32) hex = "#0284c7"; // River waterway
           else if (inf === 8) hex = "#7e22ce"; // Main Temple
 
-          // Hex to RGB
           const r = parseInt(hex.slice(1, 3), 16);
           const g = parseInt(hex.slice(3, 5), 16);
           const b = parseInt(hex.slice(5, 7), 16);
@@ -138,12 +188,12 @@ export function RegionMap({
     fetchFullRegion(cellId);
   }, [cellId, fetchFullRegion]);
 
-  // 2. High-speed polling for live agent movement (every 250ms)
+  // 2. Discrete Simulation Step: update agents ONLY when simulation tick advances (1 Tick = 1 Day)
   useEffect(() => {
-    if (!cellId || isMinimized) return;
+    if (!cellId || tick === undefined) return;
     let active = true;
 
-    const interval = setInterval(async () => {
+    async function fetchAgentsForTick() {
       try {
         const res = await fetch(`/api/regional/agents/${cellId}`);
         if (!res.ok) return;
@@ -152,17 +202,15 @@ export function RegionMap({
           setAgents(data.agents);
         }
       } catch (err) {
-        // silent catch during polling
+        // silent catch during tick updates
       }
-    }, 250);
+    }
 
-    return () => {
-      active = false;
-      clearInterval(interval);
-    };
-  }, [cellId, isMinimized]);
+    fetchAgentsForTick();
+    return () => { active = false; };
+  }, [cellId, tick]);
 
-  // 3. Render Canvas
+  // 3. Render Canvas (Discrete 100x100 Grid Cells)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !regionData) return;
@@ -207,33 +255,35 @@ export function RegionMap({
       ctx.strokeRect(hoveredPos.rx * cellW, hoveredPos.ry * cellH, cellW, cellH);
     }
 
-    // Render live roaming agents
+    // Render discrete agents stationed on cells
     if (showAgents) {
       for (const a of agents) {
-        const px = a.x * cellW;
-        const py = a.y * cellH;
+        const rx = a.rx ?? Math.round(a.x);
+        const ry = a.ry ?? Math.round(a.y);
+        const px = (rx + 0.5) * cellW;
+        const py = (ry + 0.5) * cellH;
         const color = AGENT_COLORS[a.type] || a.color || "#ffffff";
 
-        // Agent Halo
+        // Agent Halo marker
         ctx.beginPath();
-        ctx.arc(px, py, a.type === "Predator" ? 5 : 3.5, 0, Math.PI * 2);
+        ctx.arc(px, py, a.type === "Predator" ? 4.5 : 3.2, 0, Math.PI * 2);
         ctx.fillStyle = color;
         ctx.fill();
 
-        ctx.strokeStyle = "rgba(0, 0, 0, 0.8)";
+        ctx.strokeStyle = "rgba(0, 0, 0, 0.85)";
         ctx.lineWidth = 1;
         ctx.stroke();
 
-        // Direction indicator toward target
-        if (a.tx !== undefined && a.ty !== undefined) {
-          const tpx = a.tx * cellW;
-          const tpy = a.ty * cellH;
+        // Discrete direction vector towards target cell
+        if (a.targetRx !== undefined && a.targetRy !== undefined) {
+          const tpx = (a.targetRx + 0.5) * cellW;
+          const tpy = (a.targetRy + 0.5) * cellH;
           const angle = Math.atan2(tpy - py, tpx - px);
           ctx.beginPath();
           ctx.moveTo(px, py);
-          ctx.lineTo(px + Math.cos(angle) * 6, py + Math.sin(angle) * 6);
+          ctx.lineTo(px + Math.cos(angle) * 5, py + Math.sin(angle) * 5);
           ctx.strokeStyle = color;
-          ctx.lineWidth = 1.5;
+          ctx.lineWidth = 1.2;
           ctx.stroke();
         }
       }
@@ -251,9 +301,12 @@ export function RegionMap({
     const ry = Math.max(0, Math.min(99, Math.floor((my / rect.height) * 100)));
     setHoveredPos({ rx, ry });
 
-    // Check if hovering near an agent
-    const agentW = rect.width / 100;
-    const found = agents.find(a => Math.hypot(a.x * agentW - mx, a.y * agentW - my) < 8);
+    // Check if hovering near an agent's cell
+    const found = agents.find(a => {
+      const arx = a.rx ?? Math.round(a.x);
+      const ary = a.ry ?? Math.round(a.y);
+      return Math.abs(arx - rx) <= 1 && Math.abs(ary - ry) <= 1;
+    });
     setHoveredAgent(found || null);
   };
 
@@ -317,6 +370,17 @@ export function RegionMap({
             }}
           >
             Cell #{cellId}
+          </span>
+          <span
+            style={{
+              fontSize: 10,
+              background: "#1e293b",
+              color: "#94a3b8",
+              padding: "1px 6px",
+              borderRadius: 4
+            }}
+          >
+            Tick {tick ?? 0}
           </span>
         </div>
 
@@ -465,7 +529,7 @@ export function RegionMap({
                 <span style={{ color: AGENT_COLORS[hoveredAgent.type] || "#38bdf8", fontWeight: 700 }}>
                   {hoveredAgent.speciesName || hoveredAgent.type}
                 </span>{" "}
-                • {hoveredAgent.category} • Speed {hoveredAgent.speed}
+                • Cell ({hoveredAgent.rx}, {hoveredAgent.ry}) • Speed {hoveredAgent.speed} c/day
               </div>
             )}
           </div>
@@ -525,13 +589,13 @@ export function RegionMap({
               }}
             >
               <span>
-                Focused Micro Grid:{" "}
+                Focused Micro Cell:{" "}
                 <strong style={{ color: "#38bdf8" }}>
                   rx: {selectedLocalCell?.rx ?? 50}, ry: {selectedLocalCell?.ry ?? 50}
                 </strong>{" "}
                 (Tactical 256x256 Z=0)
               </span>
-              <span style={{ color: "#64748b" }}>Click on grid to refocus</span>
+              <span style={{ color: "#64748b" }}>Discrete Step Simulation (1 Tick = 1 Day)</span>
             </div>
           </div>
         </>

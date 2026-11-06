@@ -1,5 +1,24 @@
 import { SimplexNoise } from "./SimplexNoise";
 
+export interface RegionAgent {
+  id: number;
+  type: string;
+  speciesName: string;
+  category: string;
+  color: string;
+  speed: number;
+  disposition: number;
+  rx: number;
+  ry: number;
+  targetRx: number;
+  targetRy: number;
+  // Legacy alias compatibility
+  x: number;
+  y: number;
+  tx: number;
+  ty: number;
+}
+
 export class RegionalInstance {
   public cellId: number;
   public globalData: any;
@@ -10,11 +29,10 @@ export class RegionalInstance {
   public chaosMap: Float32Array;
   public infraMap: Uint8Array;
   
-  public agents: Array<any> = [];
+  public agents: Array<RegionAgent> = [];
   public w = 100;
   public h = 100;
   
-  private simInterval: NodeJS.Timeout | null = null;
   private agentIdCounter = 0;
 
   constructor(cellId: number, globalData: any) {
@@ -30,14 +48,44 @@ export class RegionalInstance {
     
     this.generate();
     this.spawnAgents();
-    this.startSimulation();
   }
 
   private generate() {
     const eleNoise = new SimplexNoise(this.cellId);
     const vegNoise = new SimplexNoise(this.cellId + 100);
     const chaosNoise = new SimplexNoise(this.cellId + 200);
-    
+
+    const terrain = this.globalData.terrain || {};
+    const baseEle = Number(terrain.elevation) || 50;
+    const biomeId = Number(terrain.biome) || 4;
+
+    // Check if the global cell is oceanic water
+    // In Okasha / FMG:
+    // Biomes: 0=Marine, 13=Shallow Reef, 14=Kelp Forest, 15=Pelagic, 16=Abyssal, 17=Trench, 19=Chaos Water
+    // Elevation < 20 is sea level / ocean
+    const isGlobalWater = baseEle < 20 || [0, 13, 14, 15, 16, 17, 19].includes(biomeId);
+
+    const features = this.globalData.features || {};
+    const routes: string[] = features.routes || [];
+    const hasRiver = routes.some((r: string) => 
+      r.toLowerCase().includes("river") || r.toLowerCase().includes("waterway")
+    );
+
+    // River channel coordinates across Y = 0..99 (ONLY when the global cell actually has a river route)
+    const riverCoords: Set<number> = new Set();
+    if (hasRiver && !isGlobalWater) {
+      for (let y = 0; y < this.h; y++) {
+        const rX = Math.floor(50 + Math.sin(y * 0.08) * 14 + Math.cos(y * 0.03) * 6);
+        for (let w = -1; w <= 1; w++) {
+          const cx = rX + w;
+          if (cx >= 0 && cx < this.w) {
+            riverCoords.add(y * this.w + cx);
+          }
+        }
+      }
+    }
+
+    // 1. Generate base overland terrain
     for (let y = 0; y < this.h; y++) {
       for (let x = 0; x < this.w; x++) {
         const idx = y * this.w + x;
@@ -48,144 +96,121 @@ export class RegionalInstance {
         const veg = vegNoise.noise2D(nx * 2, ny * 2);
         const cha = chaosNoise.noise2D(nx * 0.5, ny * 0.5);
 
-        this.elevationMap[idx] = (ele + 1) / 2; 
+        this.elevationMap[idx] = Math.max(0, Math.min(100, baseEle + ele * 12));
         this.vegetationMap[idx] = (veg + 1) / 2;
         this.chaosMap[idx] = (cha + 1) / 2;
 
-        if (ele < -0.3) this.mapData[idx] = 3; 
-        else if (veg > 0.6) this.mapData[idx] = 2; 
-        else if (veg > 0.3) this.mapData[idx] = 1; 
-        else this.mapData[idx] = 0; 
+        if (isGlobalWater) {
+          // Authentic ocean water cell
+          this.mapData[idx] = 3; 
+        } else if (riverCoords.has(idx)) {
+          // Authentic river channel traversing the cell
+          this.mapData[idx] = 3;
+          this.infraMap[idx] = 32;
+        } else {
+          // Authentic land cell matching the global biome
+          const localEle = this.elevationMap[idx];
+          if (localEle > 78) {
+            this.mapData[idx] = 8; // High mountain rocky crags
+          } else if (veg > 0.60) {
+            this.mapData[idx] = 2; // Dense forest canopy / thickets
+          } else if (veg > 0.30) {
+            this.mapData[idx] = 1; // Light vegetation / copses
+          } else {
+            this.mapData[idx] = 0; // Open ground of this biome
+          }
+        }
       }
     }
 
+    // 2. Burg Settlements: Centered at (50, 50)
     const burg = this.globalData.burg;
-    if (burg) {
-      const pop = burg.pop_null || 0;
-      if (pop > 0) {
-        const groupsOf12 = Math.floor(pop / 12);
-        const cx = Math.floor(this.w / 2), cy = Math.floor(this.h / 2);
-        const radius = Math.min(Math.sqrt(groupsOf12), this.w / 3);
+    if (burg && !isGlobalWater) {
+      const tier = burg.urban_tier || 1;
+      const radius = tier >= 3 ? 14 : tier === 2 ? 10 : 6;
+      const cx = Math.floor(this.w / 2);
+      const cy = Math.floor(this.h / 2);
 
-        for (let y = 0; y < this.h; y++) {
-          for (let x = 0; x < this.w; x++) {
-            const dist = Math.sqrt(Math.pow(x - cx, 2) + Math.pow(y - cy, 2));
-            if (dist < radius && (dist < radius * 0.5 || Math.random() < 0.5)) {
-              const idx = y * this.w + x;
-              this.mapData[idx] = 4;
-              this.infraMap[idx] = 1; 
+      for (let y = 0; y < this.h; y++) {
+        for (let x = 0; x < this.w; x++) {
+          const dist = Math.hypot(x - cx, y - cy);
+          if (dist <= radius) {
+            const idx = y * this.w + x;
+            if (!riverCoords.has(idx)) {
+              this.mapData[idx] = 4; // Burg Core Settlement
+              this.infraMap[idx] = 1;
             }
           }
         }
       }
+
+      // Paved Highways (2 cells wide) connecting burg center to borders
+      for (let y = 0; y < this.h; y++) {
+        for (let x = cx - 1; x <= cx; x++) {
+          const idx = y * this.w + x;
+          if (this.mapData[idx] !== 4 && !riverCoords.has(idx)) {
+            this.mapData[idx] = 5;
+            this.infraMap[idx] = 2;
+          }
+        }
+      }
+      for (let x = 0; x < this.w; x++) {
+        for (let y = cy - 1; y <= cy; y++) {
+          const idx = y * this.w + x;
+          if (this.mapData[idx] !== 4 && !riverCoords.has(idx)) {
+            this.mapData[idx] = 5;
+            this.infraMap[idx] = 2;
+          }
+        }
+      }
     }
 
-    const features = this.globalData.features || {};
-    const routes: string[] = features.routes || [];
+    // 3. Highways for non-burg transit cells
     const hasHighway = routes.some((r: string) => 
       r.includes("Highway") || r.includes("Road") || r.includes("Artery") || 
       r.includes("Way") || (r.includes("Route") && !r.includes("Smuggler"))
     );
-
-    if (hasHighway) {
+    if (!burg && hasHighway && !isGlobalWater) {
       const cx = Math.floor(this.w / 2);
       for (let y = 0; y < this.h; y++) {
-        for (let x = cx - 5; x <= cx + 5; x++) {
+        for (let x = cx - 1; x <= cx; x++) {
           const idx = y * this.w + x;
-          this.mapData[idx] = 5; 
-          this.infraMap[idx] = 2; 
+          if (!riverCoords.has(idx)) {
+            this.mapData[idx] = 5;
+            this.infraMap[idx] = 2;
+          }
         }
       }
     }
 
-    if (routes.includes("Smuggler Route")) {
+    // 4. Smuggler Routes: 1-cell covert winding trail
+    if (routes.includes("Smuggler Route") && !isGlobalWater) {
       for (let y = 0; y < this.h; y++) {
-        const wiggle = Math.floor(Math.sin(y * 0.1) * 10);
-        const px = Math.floor(this.w / 3) + wiggle;
-        const idx = y * this.w + px;
-        this.mapData[idx] = 6;
-        this.mapData[idx + 1] = 6;
-        this.infraMap[idx] = 4; 
+        const wiggle = Math.floor(Math.sin(y * 0.12) * 8);
+        const px = Math.floor(this.w / 4) + wiggle;
+        if (px >= 0 && px < this.w) {
+          const idx = y * this.w + px;
+          if (this.mapData[idx] === 0 || this.mapData[idx] === 1) {
+            this.mapData[idx] = 6;
+            this.infraMap[idx] = 4;
+          }
+        }
       }
     }
 
-    if (features.poi) {
-      const cx = Math.floor(this.w / 2), cy = Math.floor(this.h / 2);
-      
-      // 1. Center Cell: The Main Temple (infra = 8)
+    // 5. POI / Sacred Temple
+    if (features.poi && !isGlobalWater) {
+      const cx = Math.floor(this.w / 2);
+      const cy = Math.floor(this.h / 2);
       this.infraMap[cy * this.w + cx] = 8;
       this.mapData[cy * this.w + cx] = 7;
-      
-      // 2. Surrounding cells (radius 1 to 5): Ruined Outskirts / Activity (infra = 16)
-      for (let y = cy - 5; y <= cy + 5; y++) {
-        for (let x = cx - 5; x <= cx + 5; x++) {
-          if (x === cx && y === cy) continue; // skip center
-          const dist = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2);
-          if (dist <= 5) {
+      for (let y = cy - 4; y <= cy + 4; y++) {
+        for (let x = cx - 4; x <= cx + 4; x++) {
+          if (x === cx && y === cy) continue;
+          if (Math.hypot(x - cx, y - cy) <= 4) {
             const idx = y * this.w + x;
-            this.infraMap[idx] = 16; 
-            this.mapData[idx] = 7; // POI terrain
-          }
-        }
-      }
-
-      // 3. Pilgrimage / Ruined Path leading south
-      for (let y = cy + 6; y < this.h; y++) {
-        // Wiggle the path slightly
-        const px = cx + Math.floor(Math.sin(y / 5) * 3);
-        const idx = y * this.w + px;
-        this.infraMap[idx] = 4; // Smuggler/Dirt path
-        // Chaos radiation bleeds down the path
-        this.chaosMap[idx] = Math.max((this.chaosMap[idx] || 0), 0.5);
-      }
-
-      // 4. Chaos Radiation gradient around the temple
-      for (let y = cy - 20; y <= cy + 20; y++) {
-        for (let x = cx - 20; x <= cx + 20; x++) {
-          const dist = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2);
-          if (dist <= 20 && y >= 0 && y < this.h && x >= 0 && x < this.w) {
-            const idx = y * this.w + x;
-            this.chaosMap[idx] = Math.min(1.0, (this.chaosMap[idx] || 0) + (20 - dist) / 20);
-          }
-        }
-      }
-    }
-
-    // War Zone Generation (Battlefields and Refugee Camps)
-    if (this.globalData.isWarzone) {
-      // Battlefield in the center-ish
-      const bx = Math.floor(this.w / 2) + Math.floor(Math.random() * 20 - 10);
-      const by = Math.floor(this.h / 2) + Math.floor(Math.random() * 20 - 10);
-      for (let y = by - 8; y <= by + 8; y++) {
-        for (let x = bx - 8; x <= bx + 8; x++) {
-          if (Math.random() < 0.8 && y >= 0 && y < this.h && x >= 0 && x < this.w) {
-            this.infraMap[y * this.w + x] = 128; // Battlefield footprint
-            this.mapData[y * this.w + x] = 0; // Destroy vegetation
-          }
-        }
-      }
-      
-      // Refugee camp near the edge
-      const rcy = this.h - 15;
-      const rcx = Math.floor(this.w / 2) + Math.floor(Math.random() * 30 - 15);
-      for (let y = rcy - 5; y <= rcy + 5; y++) {
-        for (let x = rcx - 5; x <= rcx + 5; x++) {
-          if (y >= 0 && y < this.h && x >= 0 && x < this.w) {
-            this.infraMap[y * this.w + x] = 64; // Refugee Camp
-          }
-        }
-      }
-    }
-
-    // Famine Generation (Macabre Cannibal Camps)
-    if (this.globalData.isFamine) {
-      // Scatter a few macabre camps in dense vegetation areas
-      for (let i = 0; i < 3; i++) {
-        const mx = Math.floor(Math.random() * (this.w - 20)) + 10;
-        const my = Math.floor(Math.random() * (this.h - 20)) + 10;
-        for (let y = my - 3; y <= my + 3; y++) {
-          for (let x = mx - 3; x <= mx + 3; x++) {
-            this.infraMap[y * this.w + x] = 32; // Macabre Camp
+            this.infraMap[idx] = 16;
+            this.mapData[idx] = 7;
           }
         }
       }
@@ -193,17 +218,34 @@ export class RegionalInstance {
   }
 
   public getBiomeLabel(): string {
-    const bId = String(this.globalData.terrain?.biome || 6);
-    const names: Record<string, string> = {
-      "1": "Hot Desert", "2": "Cold Desert", "3": "Savanna", "4": "Grassland",
-      "5": "Tropical Rainforest", "6": "Temperate Forest", "7": "Boreal Forest",
-      "8": "Tundra", "9": "Glacier", "10": "Wetland", "11": "Scrubland", "12": "Wetland Swamp"
+    const bId = Number(this.globalData.terrain?.biome) || 4;
+    const names: Record<number, string> = {
+      0: "Marine Ocean",
+      1: "Hot Desert",
+      2: "Cold Desert",
+      3: "Savanna",
+      4: "Grassland",
+      5: "Tropical Seasonal Forest",
+      6: "Temperate Deciduous Forest",
+      7: "Tropical Rainforest",
+      8: "Temperate Rainforest",
+      9: "Taiga",
+      10: "Tundra",
+      11: "Glacier",
+      12: "Wetland",
+      13: "Shallow Reef",
+      14: "Kelp Forest",
+      15: "Pelagic Ocean",
+      16: "Abyssal Plain",
+      17: "Oceanic Trench",
+      18: "Chaos Land",
+      19: "Chaos Water"
     };
     return names[bId] || "Wilderness";
   }
 
   private spawnAgents() {
-    const bId = String(this.globalData.terrain?.biome || 6);
+    const bId = String(this.globalData.terrain?.biome || 4);
     const ecologyTable: Record<string, { predators: string[]; prey: string[]; flora: string[] }> = {
       "1": { predators: ["Dune Scythe-Beetle", "Sun-Stalker Vulture"], prey: ["Sand Gazelle", "Spiny Horn-Lizard"], flora: ["Spire Cactus", "Sun-Root"] },
       "2": { predators: ["Grave Skink", "Frost-Fang Jackal"], prey: ["Scree Marmot", "Barren Hare"], flora: ["Brittle Scrub", "Salt Lichen"] },
@@ -211,52 +253,62 @@ export class RegionalInstance {
       "4": { predators: ["Steppe Wolf", "Prairie Falcon"], prey: ["Great Prairie Elk", "Field Hare"], flora: ["Sweet Clover", "Wild Rye"] },
       "5": { predators: ["Emerald Stalker", "Venom Adder"], prey: ["Canopy Macaw", "Tree Glider"], flora: ["Orchid Pod", "Liana Vine"] },
       "6": { predators: ["Shadow Timber-Wolf", "Grizzled Briar Bear"], prey: ["Great Antler Stag", "Spotted Doe"], flora: ["Silverleaf Fern", "Ironwood Nut"] },
-      "7": { predators: ["Ice-Mane Worg", "Frost Lynx"], prey: ["Northern Caribou", "Snowshoe Hare"], flora: ["Pine-Sap Lichen", "Bog Cranberry"] },
-      "8": { predators: ["Glacial Bear", "White-Fang Fox"], prey: ["Tundra Reindeer", "Lichen Grouse"], flora: ["Cotton Grass", "Frost Moss"] },
-      "9": { predators: ["Frost Wyrmling", "Crag Stalker"], prey: ["Snow Beaver", "Ice Gull"], flora: ["Cryo-Spore", "Deep Ice Fern"] },
-      "10": { predators: ["Bog Stalker", "Mire Crocodile"], prey: ["Crested Marsh Elk", "Reed Heron"], flora: ["Fluorescent Bog Lichen", "Sweet-Water Reed"] },
-      "11": { predators: ["Scrub Coyote", "Ridge Vulture"], prey: ["Brush Rabbit", "Rock Partridge"], flora: ["Sage Thicket", "Bitter Berry"] },
-      "12": { predators: ["Marsh Leech-Hound", "Bog Stalker"], prey: ["Mud Tortoise", "Swamp Deer"], flora: ["Willow Bark", "Fever Moss"] }
+      "7": { predators: ["Jaguar", "Emerald Stalker"], prey: ["Capybara", "Tree Glider"], flora: ["Liana Vine", "Fern Tree"] },
+      "8": { predators: ["Shadow Timber-Wolf", "Briar Bear"], prey: ["Great Antler Stag", "Spotted Doe"], flora: ["Silverleaf Fern", "Ironwood Nut"] },
+      "9": { predators: ["Ice-Mane Worg", "Frost Lynx"], prey: ["Northern Caribou", "Snowshoe Hare"], flora: ["Pine-Sap Lichen", "Bog Cranberry"] },
+      "10": { predators: ["Glacial Bear", "White-Fang Fox"], prey: ["Tundra Reindeer", "Lichen Grouse"], flora: ["Cotton Grass", "Frost Moss"] },
+      "11": { predators: ["Frost Wyrmling", "Crag Stalker"], prey: ["Snow Beaver", "Ice Gull"], flora: ["Cryo-Spore", "Deep Ice Fern"] },
+      "12": { predators: ["Bog Stalker", "Mire Crocodile"], prey: ["Crested Marsh Elk", "Reed Heron"], flora: ["Fluorescent Bog Lichen", "Sweet-Water Reed"] },
+      "18": { predators: ["Chaos Hound", "Void Stalker"], prey: ["Twisted Elk", "Blight Hare"], flora: ["Warp Lichen", "Aether Tendril"] }
     };
-    const eco = ecologyTable[bId] || ecologyTable["6"] || {
-      predators: ["Shadow Timber-Wolf", "Grizzled Briar Bear"],
-      prey: ["Great Antler Stag", "Spotted Doe"],
-      flora: ["Silverleaf Fern", "Ironwood Nut"]
+    const eco = ecologyTable[bId] || ecologyTable["4"] || {
+      predators: ["Steppe Wolf", "Prairie Falcon"],
+      prey: ["Great Prairie Elk", "Field Hare"],
+      flora: ["Sweet Clover", "Wild Rye"]
     };
 
-    const spawn = (type: string, speciesName: string, category: string, color: string, speed: number, count: number, disposition: number) => {
+    const spawn = (type: string, speciesName: string, category: string, color: string, speedCells: number, count: number, disposition: number) => {
       for (let i = 0; i < count; i++) {
+        const rx = Math.floor(Math.random() * 88) + 6;
+        const ry = Math.floor(Math.random() * 88) + 6;
+        const targetRx = Math.floor(Math.random() * 88) + 6;
+        const targetRy = Math.floor(Math.random() * 88) + 6;
+
         this.agents.push({
           id: ++this.agentIdCounter,
           type,
           speciesName,
           category,
           color,
-          speed,
+          speed: speedCells, // Discrete cells per day/tick
           disposition,
-          x: Math.random() * this.w,
-          y: Math.random() * this.h,
-          tx: Math.random() * this.w,
-          ty: Math.random() * this.h
+          rx,
+          ry,
+          targetRx,
+          targetRy,
+          x: rx,
+          y: ry,
+          tx: targetRx,
+          ty: targetRy
         });
       }
     };
 
-    // Trophic Fauna: Biome-specific grazing wild game and apex predators
+    // Trophic Fauna: Biome-specific grazing wild game and predators
     for (const preyName of eco.prey) {
-      spawn("Prey", preyName, "Wild Fauna", "#a3e635", 0.45, 3, 0);
+      spawn("Prey", preyName, "Wild Fauna", "#22c55e", 1, 3, 0);
     }
     for (const predName of eco.predators) {
-      spawn("Predator", predName, "Apex Predator", "#dc2626", 0.65, 2, -2);
+      spawn("Predator", predName, "Apex Predator", "#ef4444", 2, 2, -2);
     }
     
     const burg = this.globalData.burg;
     const faction = this.globalData.factionName || "Frontier Sovereignty";
 
     if (!burg || burg.pop_null === 0) {
-      if (Math.random() < 0.3) spawn("Refugees", "Displaced Wanderers", "Wayfarer", "#9ca3af", 0.3, 3, 1);
-      if (Math.random() < 0.2) spawn("Hermit", "Frontier Hermit", "Wayfarer", "#d97706", 0.2, 1, 0);
-      if (Math.random() < 0.3) spawn("Trapper", "Wilderness Trapper", "Hunter", "#a16207", 0.4, 2, 0);
+      if (Math.random() < 0.3) spawn("Refugees", "Displaced Wanderers", "Wayfarer", "#94a3b8", 1, 2, 1);
+      if (Math.random() < 0.2) spawn("Hermit", "Frontier Hermit", "Wayfarer", "#d97706", 1, 1, 0);
+      if (Math.random() < 0.3) spawn("Trapper", "Wilderness Trapper", "Hunter", "#854d0e", 1, 2, 0);
     }
 
     const features = this.globalData.features || {};
@@ -267,68 +319,118 @@ export class RegionalInstance {
     );
 
     if (routes.includes("Smuggler Route")) {
-      spawn("Smuggler", "Shadow Courier", "Outlaw", "#000000", 0.6, 2, -1);
+      spawn("Smuggler", "Shadow Courier", "Outlaw", "#a855f7", 2, 2, -1);
     }
-    if (hasHighway) {
-      spawn("Merchant", "Caravan Master", "Trader", "#fbbf24", 0.4, 1, 1);
-      spawn("DraftBeast", "Caravan Pack-Beast", "Trader", "#d97706", 0.35, 1, 0);
-      spawn("Patrol", `${faction} Vanguard`, "Sovereign Guard", "#1d4ed8", 0.5, 2, 0);
-      if (Math.random() < 0.35) spawn("Pilgrim", "Monastic Wayfarer", "Devotee", "#38bdf8", 0.3, 2, 1);
-      if (Math.random() < 0.25) spawn("Scholar", "Wandering Naturalist", "Scholar", "#818cf8", 0.3, 1, 1);
+    if (hasHighway || burg) {
+      spawn("Merchant", "Caravan Master", "Trader", "#f59e0b", 1, 1, 1);
+      spawn("DraftBeast", "Caravan Pack-Beast", "Trader", "#d97706", 1, 1, 0);
+      spawn("Patrol", `${faction} Vanguard`, "Sovereign Guard", "#3b82f6", 1, 2, 0);
+      if (Math.random() < 0.35) spawn("Pilgrim", "Monastic Wayfarer", "Devotee", "#38bdf8", 1, 2, 1);
+      if (Math.random() < 0.25) spawn("Scholar", "Wandering Naturalist", "Scholar", "#6366f1", 1, 1, 1);
     }
-    if (Math.random() < 0.15) spawn("Anomaly", "Eldritch Rift-Entity", "Anomaly", "#c026d3", 0.1, 1, -2);
+    if (Math.random() < 0.15) spawn("Anomaly", "Eldritch Rift-Entity", "Anomaly", "#ec4899", 1, 1, -2);
     
     // Cultists guard the POI temple
     if (features.poi) {
-      spawn("Cultist", "Dragon-Seal Zealot", "Cultist", "#7e22ce", 0.35, 4, -2);
+      spawn("Cultist", "Dragon-Seal Zealot", "Cultist", "#c026d3", 1, 3, -2);
       const cx = Math.floor(this.w / 2), cy = Math.floor(this.h / 2);
       this.agents.forEach(a => {
         if (a.type === 'Cultist') {
-          a.x = cx + (Math.random() * 10 - 5);
-          a.y = cy + (Math.random() * 10 - 5);
+          a.rx = Math.max(5, Math.min(95, cx + (Math.floor(Math.random() * 9) - 4)));
+          a.ry = Math.max(5, Math.min(95, cy + (Math.floor(Math.random() * 9) - 4)));
+          a.x = a.rx; a.y = a.ry;
         }
       });
     }
 
     if (this.globalData.isWarzone) {
-      spawn("Refugee", "War Refugee", "Refugee", "#d1d5db", 0.3, 6, 1);
-      spawn("Bandit", "Desperate Raider", "Outlaw", "#1f2937", 0.7, 4, -2);
-      
-      this.agents.forEach(a => {
-        if (a.type === 'Refugee') {
-          a.y = this.h - Math.floor(Math.random() * 20);
-        }
-      });
+      spawn("Refugee", "War Refugee", "Refugee", "#94a3b8", 1, 4, 1);
+      spawn("Bandit", "Desperate Raider", "Outlaw", "#e11d48", 2, 3, -2);
     }
 
     if (this.globalData.isFamine) {
-      spawn("Cannibal", "Famine Marauder", "Outlaw", "#991b1b", 0.75, 4, -2);
+      spawn("Cannibal", "Famine Marauder", "Outlaw", "#991b1b", 2, 3, -2);
     }
   }
 
-  private startSimulation() {
-    this.simInterval = setInterval(() => {
-      for (let a of this.agents) {
-        const dx = a.tx - a.x, dy = a.ty - a.y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        if (dist < 1) {
-          a.tx = Math.max(0, Math.min(this.w - 1, a.x + (Math.random() - 0.5) * 40));
-          a.ty = Math.max(0, Math.min(this.h - 1, a.y + (Math.random() - 0.5) * 40));
-        } else {
-          a.x += (dx / dist) * a.speed; a.y += (dy / dist) * a.speed;
-        }
-        if (a.type === "Predator") {
-          let nearestPrey = null, pDist = 20;
-          for (let p of this.agents) {
-            if (p.type === "Prey") {
-              const d = Math.sqrt(Math.pow(p.x - a.x, 2) + Math.pow(p.y - a.y, 2));
+  /**
+   * Discrete Simulation Step: Moves agents cell-by-cell in exact lockstep with master ticks (1 Tick = 1 Day).
+   */
+  public stepTick(currentTick: number) {
+    for (const a of this.agents) {
+      const dx = a.targetRx - a.rx;
+      const dy = a.targetRy - a.ry;
+      const dist = Math.hypot(dx, dy);
+
+      if (dist <= 1.5) {
+        // Destination cell reached: pick new target cell based on role
+        if (a.type === 'Merchant' || a.type === 'DraftBeast') {
+          // Travel north/south along highway (center 50)
+          a.targetRx = 50 + (Math.floor(Math.random() * 3) - 1);
+          a.targetRy = a.ry < 50 ? 92 : 8;
+        } else if (a.type === 'Patrol') {
+          // Patrol perimeter around burg
+          const cx = 50, cy = 50;
+          const angle = Math.random() * Math.PI * 2;
+          const radius = 12 + Math.floor(Math.random() * 6);
+          a.targetRx = Math.max(5, Math.min(95, Math.round(cx + Math.cos(angle) * radius)));
+          a.targetRy = Math.max(5, Math.min(95, Math.round(cy + Math.sin(angle) * radius)));
+        } else if (a.type === 'Predator') {
+          // Stalk nearest prey within hunting range (25 cells)
+          let nearestPrey: RegionAgent | null = null;
+          let pDist = 25;
+          for (const p of this.agents) {
+            if (p.type === 'Prey') {
+              const d = Math.hypot(p.rx - a.rx, p.ry - a.ry);
               if (d < pDist) { pDist = d; nearestPrey = p; }
             }
           }
-          if (nearestPrey) { a.tx = nearestPrey.x; a.ty = nearestPrey.y; }
+          if (nearestPrey) {
+            a.targetRx = nearestPrey.rx;
+            a.targetRy = nearestPrey.ry;
+          } else {
+            a.targetRx = Math.max(5, Math.min(95, a.rx + Math.floor(Math.random() * 21 - 10)));
+            a.targetRy = Math.max(5, Math.min(95, a.ry + Math.floor(Math.random() * 21 - 10)));
+          }
+        } else if (a.type === 'Prey') {
+          // Flee if predator within 8 cells, otherwise graze nearby
+          let threateningPred: RegionAgent | null = null;
+          for (const pred of this.agents) {
+            if (pred.type === 'Predator') {
+              const d = Math.hypot(pred.rx - a.rx, pred.ry - a.ry);
+              if (d < 8) { threateningPred = pred; break; }
+            }
+          }
+          if (threateningPred) {
+            // Flee away from predator
+            const fX = a.rx - (threateningPred.rx - a.rx);
+            const fY = a.ry - (threateningPred.ry - a.ry);
+            a.targetRx = Math.max(5, Math.min(95, fX));
+            a.targetRy = Math.max(5, Math.min(95, fY));
+          } else {
+            // Graze in local grazing pocket
+            a.targetRx = Math.max(5, Math.min(95, a.rx + Math.floor(Math.random() * 11 - 5)));
+            a.targetRy = Math.max(5, Math.min(95, a.ry + Math.floor(Math.random() * 11 - 5)));
+          }
+        } else {
+          a.targetRx = Math.max(5, Math.min(95, a.rx + Math.floor(Math.random() * 17 - 8)));
+          a.targetRy = Math.max(5, Math.min(95, a.ry + Math.floor(Math.random() * 17 - 8)));
         }
+      } else {
+        // Step discrete cells toward target
+        const stepDist = Math.max(1, Math.min(2, Math.round(a.speed)));
+        const stepX = Math.sign(dx) * (Math.abs(dx) >= stepDist ? stepDist : Math.abs(dx));
+        const stepY = Math.sign(dy) * (Math.abs(dy) >= stepDist ? stepDist : Math.abs(dy));
+        a.rx = Math.max(0, Math.min(99, a.rx + stepX));
+        a.ry = Math.max(0, Math.min(99, a.ry + stepY));
       }
-    }, 100);
+
+      // Keep legacy alias coordinates synchronized
+      a.x = a.rx;
+      a.y = a.ry;
+      a.tx = a.targetRx;
+      a.ty = a.targetRy;
+    }
   }
 
   public getManifest(rx: number, ry: number) {
@@ -336,7 +438,7 @@ export class RegionalInstance {
     
     // Sort all agents by distance to current sector coordinate, take top 8 closest
     const nearbyAgents = this.agents
-      .map(a => ({ agent: a, dist: Math.hypot(a.x - rx, a.y - ry) }))
+      .map(a => ({ agent: a, dist: Math.hypot(a.rx - rx, a.ry - ry) }))
       .sort((a, b) => a.dist - b.dist)
       .slice(0, 8)
       .map(item => item.agent);
@@ -379,6 +481,6 @@ export class RegionalInstance {
   }
 
   public destroy() {
-    if (this.simInterval) clearInterval(this.simInterval);
+    // No timer resources to clean up; discrete tick-based
   }
 }

@@ -6,7 +6,13 @@ import { getActiveChaosFlows, evaluatePointChaosFlowProximity } from "../engine/
 
 export const regionalRouter = Router();
 
-const activeRegions = new Map<number, RegionalInstance>();
+export const activeRegions = new Map<number, RegionalInstance>();
+
+export function stepActiveRegions(currentTick: number) {
+  for (const instance of activeRegions.values()) {
+    instance.stepTick(currentTick);
+  }
+}
 
 async function enrichCellChaosTelemetry(cellRow: any) {
   if (!cellRow) return cellRow;
@@ -129,10 +135,14 @@ regionalRouter.get("/agents/:cell_id", async (req, res) => {
         color: a.color,
         speed: a.speed,
         disposition: a.disposition,
-        x: a.x,
-        y: a.y,
-        tx: a.tx,
-        ty: a.ty
+        rx: a.rx,
+        ry: a.ry,
+        targetRx: a.targetRx,
+        targetRy: a.targetRy,
+        x: a.rx,
+        y: a.ry,
+        tx: a.targetRx,
+        ty: a.targetRy
       }))
     });
   } catch (err: any) {

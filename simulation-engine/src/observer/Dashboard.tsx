@@ -1675,6 +1675,7 @@ export function Dashboard() {
               {showRegionalWindow && focusedCellId !== null && (
                 <RegionMap
                   cellId={focusedCellId}
+                  tick={state?.calendar?.tick}
                   isFloating={true}
                   onClose={() => setShowRegionalWindow(false)}
                 />

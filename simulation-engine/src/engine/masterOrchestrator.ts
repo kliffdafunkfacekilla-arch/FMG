@@ -18,6 +18,7 @@ import { runChaosFlowAgent } from "./agents/chaosFlowAgent";
 import { runBackgroundDirectorAgent } from "./agents/backgroundDirector";
 import { backfillBlankPersonas } from "./agents/citizenPersonaHelper";
 import { initSpatialCache } from "./agents/agentMovementHelper";
+import { stepActiveRegions } from "../api/regionalRouter";
 
 export async function executeMasterTick(): Promise<{status: string, currentTick: number}> {
     const client = await pool.connect();
@@ -91,6 +92,9 @@ export async function executeMasterTick(): Promise<{status: string, currentTick:
 
         // 9b. Headless Background Director (Simulates unobserved sector tag collisions and cascades aftermaths)
         await runBackgroundDirectorAgent(client, tick, loreDate);
+
+        // 9c. Focused Regional Meso Simulation Step (Discrete cell-by-cell movement on tick)
+        stepActiveRegions(tick);
 
         // 10. Chronicler
         await runChroniclerAgent(client, tick, loreDate);
