@@ -100,7 +100,7 @@ regionalRouter.get("/manifest/:cell_id", async (req, res) => {
   const instance = activeRegions.get(cellId);
   if (!instance) return res.status(404).json({ error: "Region not active." });
 
-  if (rx < 0 || rx >= 225 || ry < 0 || ry >= 225) return res.status(400).json({ error: "Coordinates out of bounds (0-224)" });
+  if (rx < 0 || rx >= 100 || ry < 0 || ry >= 100) return res.status(400).json({ error: "Coordinates out of bounds (0-99 across 10,000 regional cells)" });
 
   const manifest = instance.getManifest(rx, ry);
 

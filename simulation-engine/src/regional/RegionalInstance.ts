@@ -11,8 +11,8 @@ export class RegionalInstance {
   public infraMap: Uint8Array;
   
   public agents: Array<any> = [];
-  public w = 225;
-  public h = 225;
+  public w = 100;
+  public h = 100;
   
   private simInterval: NodeJS.Timeout | null = null;
   private agentIdCounter = 0;

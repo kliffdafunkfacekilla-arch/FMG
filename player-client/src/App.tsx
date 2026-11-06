@@ -77,7 +77,7 @@ export default function App() {
 
   const [currentCellId, setCurrentCellId] = useState<number>(DEFAULT_START_CELL);
   const [cellTelemetry, setCellTelemetry] = useState<any>(null);
-  const [regionalPos, setRegionalPos] = useState({ rx: 105, ry: 112 });
+  const [regionalPos, setRegionalPos] = useState({ rx: 50, ry: 50 }); // Center of 10,000 regional cells (100x100)
   const [localPos, setLocalPos] = useState({ lx: 128, ly: 128 });
 
   const [manifest, setManifest] = useState<any>(null);
@@ -917,11 +917,11 @@ export default function App() {
         if (ny < 0) { ny = 255; nr_y -= 1; changedRegion = true; }
         if (ny > 255) { ny = 0; nr_y += 1; changedRegion = true; }
 
-        // Check if regional sector crossed global cell boundaries (0 to 224)
+        // Check if regional sector crossed global cell boundaries (0 to 99 across 10,000 regional cells)
         if (nr_x < 0) { cellDir = 'W'; crossedCellBoundary = true; }
-        else if (nr_x >= 225) { cellDir = 'E'; crossedCellBoundary = true; }
+        else if (nr_x >= 100) { cellDir = 'E'; crossedCellBoundary = true; }
         else if (nr_y < 0) { cellDir = 'N'; crossedCellBoundary = true; }
-        else if (nr_y >= 225) { cellDir = 'S'; crossedCellBoundary = true; }
+        else if (nr_y >= 100) { cellDir = 'S'; crossedCellBoundary = true; }
 
         // Collision check
         if (!changedRegion) {
@@ -937,8 +937,8 @@ export default function App() {
           .then(async data => {
             if (data.neighbor) {
               const nextCellId = data.neighbor.id;
-              const nextRx = cellDir === 'W' ? 224 : cellDir === 'E' ? 0 : nr_x;
-              const nextRy = cellDir === 'N' ? 224 : cellDir === 'S' ? 0 : nr_y;
+              const nextRx = cellDir === 'W' ? 99 : cellDir === 'E' ? 0 : nr_x;
+              const nextRy = cellDir === 'N' ? 99 : cellDir === 'S' ? 0 : nr_y;
 
               // Check if crossing into a lethal Primordial Chaos Flow global cell
               if (data.neighbor.is_flow_cell) {
@@ -3417,8 +3417,8 @@ export default function App() {
       return;
     }
     setCurrentCellId(targetCell.id);
-    const targetRx = Math.min(224, Math.max(0, Math.floor((targetCell.p?.[0] || targetCell.center_x || 1400) / 12.5)));
-    const targetRy = Math.min(224, Math.max(0, Math.floor((targetCell.p?.[1] || targetCell.center_y || 740) / 6.6)));
+    const targetRx = Math.min(99, Math.max(0, Math.floor((targetCell.p?.[0] || targetCell.center_x || 1400) / 28.19)));
+    const targetRy = Math.min(99, Math.max(0, Math.floor((targetCell.p?.[1] || targetCell.center_y || 740) / 14.81)));
     setRegionalPos({ rx: targetRx, ry: targetRy });
     setLocalPos({ lx: 128, ly: 128 });
     setCurrentZLayer(0);
@@ -3461,8 +3461,8 @@ export default function App() {
       }
 
       const targetCellId = crossingTargetCell.id;
-      const targetRx = crossingTargetCell.pendingNextRx ?? Math.min(224, Math.max(0, Math.floor((crossingTargetCell.p?.[0] || crossingTargetCell.center_x || 1400) / 12.5)));
-      const targetRy = crossingTargetCell.pendingNextRy ?? Math.min(224, Math.max(0, Math.floor((crossingTargetCell.p?.[1] || crossingTargetCell.center_y || 740) / 6.6)));
+      const targetRx = crossingTargetCell.pendingNextRx ?? Math.min(99, Math.max(0, Math.floor((crossingTargetCell.p?.[0] || crossingTargetCell.center_x || 1400) / 28.19)));
+      const targetRy = crossingTargetCell.pendingNextRy ?? Math.min(99, Math.max(0, Math.floor((crossingTargetCell.p?.[1] || crossingTargetCell.center_y || 740) / 14.81)));
       const targetLx = crossingTargetCell.pendingNx ?? 128;
       const targetLy = crossingTargetCell.pendingNy ?? 128;
 

@@ -925,8 +925,8 @@ router.post('/sector_load', async (req, res) => {
 router.get('/sector_layer', async (req, res) => {
   try {
     const targetCellId = Number(req.query.cellId) || 13408;
-    const targetRx = req.query.rx !== undefined ? Number(req.query.rx) : 112;
-    const targetRy = req.query.ry !== undefined ? Number(req.query.ry) : 112;
+    const targetRx = req.query.rx !== undefined ? Number(req.query.rx) : 50;
+    const targetRy = req.query.ry !== undefined ? Number(req.query.ry) : 50;
     const targetZ = req.query.z !== undefined ? Number(req.query.z) : 0;
 
     // 1. Try to load layer from sim_sector_layers
