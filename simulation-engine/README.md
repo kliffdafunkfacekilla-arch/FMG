@@ -59,19 +59,37 @@ Every execution of `/api/observer/tick` runs this exact agentic sequence:
 
 - `GET /api/observer/state`: Returns the live global world state (tick, date, weather, faction metrics).
 - `POST /api/observer/tick`: Triggers a 1-day simulation step.
-- `GET /api/observer/map`: Returns the macro Voronoi cell geometry, biomes, and borders.
+- `GET /api/observer/map`: Returns the macro Voronoi cell geometry, biomes, center coordinates, and borders.
+- `GET /api/regional/live/:cell_id`: Instantiates and returns the 10,000-cell ($100 \times 100$) regional meso overland mesh, elevation, vegetation, infrastructure (roads/smuggler trails/ruins), and roaming agents.
+- `GET /api/regional/agents/:cell_id`: Lightweight high-frequency endpoint returning live coordinates of regional agents (predators chasing prey, merchant caravans, guards, smugglers, cultists).
 - `GET /api/dm/sector_layer?cellId=...&rx=...&ry=...&z=...`: Generates and retrieves the 256x256 tactical map layer with authentic citizens, military squads of 12, underworld lairs, and paragons.
 
 ---
 
-## 4. Development & Build Scripts
+## 4. Observer Dashboard (Dual-LOD Live Visualization)
+
+The Observer runs at `http://localhost:5174` (via Vite) or `http://127.0.0.1:3000/` (Express static bundle):
+- **Immediate Continental 2D Map**: Renders all ~16,000 Voronoi continental cells with political borders, biomes, civil unrest, and trophic ecology layers.
+- **Interactive Cell Selection**: Click on any cell across the continent (or use the sidebar Cell Inspector) to immediately highlight that cell with a pulsing beacon.
+- **Picture-in-Picture Regional Simulation**: The clicked cell's 10,000-cell regional overland map floats in an interactive window on top of the world map.
+- **Dual-LOD Execution**: Watch predators hunt prey, merchant caravans travel paved highways, and smugglers navigate covert trails in the focused region while global ticks advance across the 19 nations worldwide.
+
+---
+
+## 5. Development & Build Scripts
 
 ```bash
 # Compile TypeScript server
 npm run build:server
 
-# Start the simulation server (port 3000)
-node dist/server.js
+# Build Observer dashboard web client
+npm run build:observer
+
+# Start the simulation server (port 3000, loopback)
+npm run start
+
+# Launch the Observer Vite dev server with proxy (port 5174)
+npm run observer
 
 # Hard reset database and resync from Okasha.json
 npm run reset-world
