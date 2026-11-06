@@ -170,7 +170,11 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
     }
 
     // --- PHASE 2: UTILITY AI ACTION EVALUATION WITH PERSONALITY & TAG WEIGHTING ---
+    // Staggered Bureaucracy: Each sovereign faction evaluates grand strategy ONCE per month
+    // on their own designated day of the 44-day Dragon Month, preventing constant diplomatic flip-flopping.
     for (const f of factions) {
+        if ((tick + f.id * 7) % 44 !== 0) continue;
+
         const state = factionStates.get(f.id);
         if (!state || state.myBurgs.length === 0) continue;
 
@@ -212,66 +216,69 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
     }
 
     // --- PHASE 3: ACTIVE WAR RESOLUTION (Combat Engine) ---
-    const activeWars = diplomacy.filter((d:any) => d.status === 'WAR');
-    for (const war of activeWars) {
-        if (Math.random() > 0.3) continue; 
+    // Military campaign clashes resolve during periodic tactical maneuvers (weekly cycles)
+    if (tick % 7 === 0) {
+        const activeWars = diplomacy.filter((d:any) => d.status === 'WAR');
+        for (const war of activeWars) {
+            if (Math.random() > 0.4) continue; 
 
-        const aggressorId = Math.random() > 0.5 ? war.faction_a_id : war.faction_b_id;
-        const defenderId = aggressorId === war.faction_a_id ? war.faction_b_id : war.faction_a_id;
+            const aggressorId = Math.random() > 0.5 ? war.faction_a_id : war.faction_b_id;
+            const defenderId = aggressorId === war.faction_a_id ? war.faction_b_id : war.faction_a_id;
 
-        const aggState = factionStates.get(aggressorId);
-        const defState = factionStates.get(defenderId);
-        if (!aggState || !defState || aggState.myBurgs.length === 0 || defState.myBurgs.length === 0) continue;
+            const aggState = factionStates.get(aggressorId);
+            const defState = factionStates.get(defenderId);
+            if (!aggState || !defState || aggState.myBurgs.length === 0 || defState.myBurgs.length === 0) continue;
 
-        const launchBurg = aggState.myBurgs[Math.floor(Math.random() * aggState.myBurgs.length)];
-        const targetBurg = defState.myBurgs[Math.floor(Math.random() * defState.myBurgs.length)];
+            const launchBurg = aggState.myBurgs[Math.floor(Math.random() * aggState.myBurgs.length)];
+            const targetBurg = defState.myBurgs[Math.floor(Math.random() * defState.myBurgs.length)];
 
-        let attackerForces: any = {};
-        let defenderForces: any = {};
-        try { if (launchBurg.military_forces) attackerForces = JSON.parse(launchBurg.military_forces); } catch(e){}
-        try { if (targetBurg.military_forces) defenderForces = JSON.parse(targetBurg.military_forces); } catch(e){}
+            let attackerForces: any = {};
+            let defenderForces: any = {};
+            try { if (launchBurg.military_forces) attackerForces = JSON.parse(launchBurg.military_forces); } catch(e){}
+            try { if (targetBurg.military_forces) defenderForces = JSON.parse(targetBurg.military_forces); } catch(e){}
 
-        let strikeForce: any = {};
-        let launchRemaining: any = {};
-        for (const type of Object.keys(attackerForces)) {
-            const count = attackerForces[type as keyof typeof attackerForces] as number;
-            strikeForce[type] = count * 0.5;
-            launchRemaining[type] = count - strikeForce[type];
-        }
+            let strikeForce: any = {};
+            let launchRemaining: any = {};
+            for (const type of Object.keys(attackerForces)) {
+                const count = attackerForces[type as keyof typeof attackerForces] as number;
+                strikeForce[type] = count * 0.5;
+                launchRemaining[type] = count - strikeForce[type];
+            }
 
-        const result = resolveCombat(strikeForce, defenderForces);
+            const result = resolveCombat(strikeForce, defenderForces);
 
-        for (const type of Object.keys(result.attackerForces)) {
-            launchRemaining[type] = (launchRemaining[type] || 0) + result.attackerForces[type];
-        }
+            for (const type of Object.keys(result.attackerForces)) {
+                launchRemaining[type] = (launchRemaining[type] || 0) + result.attackerForces[type];
+            }
 
-        await client.query("UPDATE sim_burg_economy SET military_forces = $1 WHERE burg_id = $2", [JSON.stringify(launchRemaining), launchBurg.burg_id]);
-        await client.query("UPDATE sim_burg_economy SET military_forces = $1 WHERE burg_id = $2", [JSON.stringify(result.defenderForces), targetBurg.burg_id]);
+            await client.query("UPDATE sim_burg_economy SET military_forces = $1 WHERE burg_id = $2", [JSON.stringify(launchRemaining), launchBurg.burg_id]);
+            await client.query("UPDATE sim_burg_economy SET military_forces = $1 WHERE burg_id = $2", [JSON.stringify(result.defenderForces), targetBurg.burg_id]);
 
-        let defRemaining = 0;
-        for (const count of Object.values(result.defenderForces)) defRemaining += Number(count) || 0;
+            let defRemaining = 0;
+            for (const count of Object.values(result.defenderForces)) defRemaining += Number(count) || 0;
 
-        if (defRemaining <= 0) {
-            await client.query("UPDATE sim_cells SET faction_id = $1 WHERE id = $2", [aggressorId, targetBurg.cell_id]);
-            events.push({ 
-                tick, 
-                type: 'SIEGE_WON', 
-                message: `🚩 CONQUEST: The vanguard of ${aggState.name} stormed and conquered ${targetBurg.name || `Burg #${targetBurg.burg_id}`} from ${defState.name}!`, 
-                tier: 'CRITICAL', 
-                faction_id: aggressorId, 
-                burg_id: targetBurg.burg_id, 
-                lore_date: loreDate 
-            });
-        } else {
-            events.push({ 
-                tick, 
-                type: 'BATTLE', 
-                message: `⚔️ FRONTIER CLASH: Forces of ${aggState.name} attacked ${targetBurg.name || `Burg #${targetBurg.burg_id}`} (${defState.name}). Result: ${result.winner} victory (Combat roll: ${result.attackerTotal} vs ${result.defenderTotal}, diff: ${result.difference.toFixed(0)}).`, 
-                tier: 'MAJOR', 
-                faction_id: aggressorId, 
-                burg_id: targetBurg.burg_id, 
-                lore_date: loreDate 
-            });
+            if (defRemaining <= 0) {
+                await client.query("UPDATE sim_cells SET faction_id = $1 WHERE id = $2", [aggressorId, targetBurg.cell_id]);
+                events.push({ 
+                    tick, 
+                    type: 'SIEGE_WON', 
+                    message: `🚩 CONQUEST: The vanguard of ${aggState.name} stormed and conquered ${targetBurg.name || `Burg #${targetBurg.burg_id}`} from ${defState.name}!`, 
+                    tier: 'CRITICAL', 
+                    faction_id: aggressorId, 
+                    burg_id: targetBurg.burg_id, 
+                    lore_date: loreDate 
+                });
+            } else {
+                events.push({ 
+                    tick, 
+                    type: 'BATTLE', 
+                    message: `⚔️ FRONTIER CLASH: Forces of ${aggState.name} attacked ${targetBurg.name || `Burg #${targetBurg.burg_id}`} (${defState.name}). Result: ${result.winner} victory (Combat roll: ${result.attackerTotal} vs ${result.defenderTotal}, diff: ${result.difference.toFixed(0)}).`, 
+                    tier: 'MAJOR', 
+                    faction_id: aggressorId, 
+                    burg_id: targetBurg.burg_id, 
+                    lore_date: loreDate 
+                });
+            }
         }
     }
 

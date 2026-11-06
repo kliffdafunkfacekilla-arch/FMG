@@ -44,14 +44,17 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
   const activeWardensRes = await client.query("SELECT COUNT(*) as total FROM sim_agents WHERE role = 'Warden'");
   const currentWardens = parseInt(activeWardensRes.rows[0].total) || 0;
 
-  // Trigger ancient path wards organically when Sparkborn wander across them
-  if (currentWardens < TARGET_WARDEN_COUNT || Math.random() < 0.25) {
+  // Trigger ancient path wards organically when Sparkborn wander across them.
+  // Wards recharge on generational timescales (~20-30 years).
+  // Natural recruitment produces ~2 to 5 cosmic awakenings / sanity breaks per year worldwide.
+  const shouldTriggerWard = (currentWardens < TARGET_WARDEN_COUNT && Math.random() < 0.04) || (Math.random() < 0.005);
+  if (shouldTriggerWard) {
     const chargedWardsRes = await client.query(`
       SELECT w.id, w.cell_id, w.flow_id, w.path_name
       FROM sim_ancient_path_wards w
       WHERE w.is_charged = true
       ORDER BY RANDOM()
-      LIMIT 2
+      LIMIT 1
     `);
 
     for (const ward of chargedWardsRes.rows) {
@@ -204,8 +207,11 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
     WHERE role = 'Warden'
   `);
 
+  const isYearEnd = (tick % 541 === 0);
+
   for (const w of wardensRes.rows) {
-    const age = (w.age_ticks || 0) + 1;
+    // Wardens age 1 year every 541 days (1 in-game year), not 1 year per day!
+    const age = isYearEnd ? ((w.age_ticks || 0) + 1) : (w.age_ticks || 0);
     let corruption = w.corruption || 0;
     let state = w.state || 'PATROLLING_FLOW';
     let subRole = w.sub_role || 'Warden_Sentinel';
@@ -228,7 +234,9 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
         ], 0);
       }
       // Crypt Elders do not suffer road wear or corruption, nor do they die of old age
-      await client.query("UPDATE sim_agents SET age_ticks = $1 WHERE id = $2", [age, w.id]);
+      if (isYearEnd) {
+        await client.query("UPDATE sim_agents SET age_ticks = $1 WHERE id = $2", [age, w.id]);
+      }
       continue;
     }
 
@@ -482,7 +490,7 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
       const nextCell = randAdj.rows[0]?.id || h.location_cell_id;
 
       await client.query(
-        "UPDATE sim_agents SET location_cell_id = $1, age_ticks = age_ticks + 1 WHERE id = $2",
+        "UPDATE sim_agents SET location_cell_id = $1 WHERE id = $2",
         [nextCell, h.id]
       );
 

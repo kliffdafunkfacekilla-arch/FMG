@@ -93,6 +93,10 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
         const myParagons = paragonsByBurg.get(burg.burg_id) || [];
 
         for (const p of myParagons) {
+            // Administrative Council Cycle: Leaders pass major municipal decrees periodically (bi-weekly council),
+            // staggered by paragon ID to prevent daily decree spam across the realm.
+            if ((tick + p.id * 5) % 14 !== 0) continue;
+
             const domain = p.domain || (
                 p.title?.includes("Commander") || p.title?.includes("Marshal") || 
                 p.title?.includes("Captain") || p.title?.includes("Warden") ? 'Security' : 'Civil'
@@ -488,12 +492,23 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
                 const options: SecurityActionOption[] = [];
 
                 // Option: Iron Curfew & Gate Lock (Harsh response to civil unrest)
-                if (isHighUnrest) {
+                // Cannot declare a new curfew if a nightfall curfew is already active!
+                const isCurfewActive = sectorTags.includes("#NightfallCurfewActive");
+                if (isHighUnrest && !isCurfewActive) {
                     let u = isCriticalUnrest ? 80 : 50;
                     if (isParanoid) u += 35;
                     if (isVengeful) u += 30;
                     if (isCompassionate) u -= 40;
                     options.push({ id: "COMMANDER_IRON_CURFEW", utility: Math.max(5, u), biasReason: isParanoid ? "paranoia of nocturnal rebellion and street barricades" : "suppressing civil riots" });
+                }
+
+                // Option: Lift Iron Curfew (When unrest subsides)
+                if (isCurfewActive && !isHighUnrest) {
+                    options.push({
+                        id: "COMMANDER_LIFT_CURFEW",
+                        utility: 70,
+                        biasReason: "restored civil peace and open commerce"
+                    });
                 }
 
                 // Option: Dockside Contraband Raid (Enforcing law against crime/syndicates)
@@ -549,6 +564,29 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
                         await tagBurgCitizens(client, burg.burg_id, ['#CurfewEnforcer'], 'WARY', `Enforcing ${p.title} ${p.name}'s strict nighttime lockdown.`, '%watch%', 3);
                         await tagBurgCitizens(client, burg.burg_id, ['#CurfewDefier'], 'REBELLIOUS', `Evading armed curfew patrols in the shadowed alleys of ${burg.name}.`, '%laborer%', 3);
                         await tagSectorEnvironment(client, cellId, ['#NightfallCurfewActive']);
+                        break;
+                    }
+                    case "COMMANDER_LIFT_CURFEW": {
+                        unrestDelta -= 5;
+                        events.push({
+                            burg_id: burg.burg_id,
+                            type: chosen.id,
+                            tier: "MINOR",
+                            msg: `🕊️ IRON CURFEW LIFTED: With civil order restored, ${p.title} ${p.name} opened the gates and stood down dusk-to-dawn curfew patrols across ${burg.name}.`
+                        });
+                        await client.query(`
+                            UPDATE sim_sector_layers
+                            SET features = jsonb_set(
+                                features, 
+                                '{environmental_tags}', 
+                                COALESCE((
+                                    SELECT jsonb_agg(elem)
+                                    FROM jsonb_array_elements_text(features->'environmental_tags') elem
+                                    WHERE elem != '#NightfallCurfewActive'
+                                ), '[]'::jsonb)
+                            )
+                            WHERE cell_id = $1 AND z_layer = 0
+                        `, [cellId]);
                         break;
                     }
                     case "COMMANDER_CONTRABAND_RAID": {

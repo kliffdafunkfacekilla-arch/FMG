@@ -146,9 +146,9 @@ async function spawnImmigrant(client: any, burg: any) {
 }
 
 export async function runBurgOperationsAgent(client: any, tick: number, loreDate: string = "") {
-    if (tick % 44 === 0) {
-        // Natural maturation: advance child ages each month
-        await client.query("UPDATE population_demographics SET age = age + 1 WHERE life_stage = 'CHILD'").catch(() => {});
+    if (tick % 541 === 0) {
+        // Natural annual maturation: advance all living citizen ages by 1 year (1 Year = 541 Days)
+        await client.query("UPDATE population_demographics SET age = age + 1 WHERE allegiance_status = 'CIVILIAN'").catch(() => {});
     }
 
     const burgRes = await client.query(`
@@ -312,9 +312,9 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
         let starvationDeaths = 0;
         let militaryDesertions = 0;
         if ((burg.food || 0) + foodDelta < 0) {
-            healthDelta -= 10;
-            unrestDelta += 10;
-            crimeDelta += 5;
+            healthDelta -= 2;
+            unrestDelta += 2;
+            crimeDelta += 1;
             
             // Actually kill off pop/military
             let shortfall = Math.abs((burg.food || 0) + foodDelta);
@@ -322,16 +322,17 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
             // First armies desert
             for (const type of Object.keys(military)) {
                 if (military[type] > 0 && shortfall > 0) {
-                    let desertion = Math.min(military[type], Math.ceil(shortfall / 100)); // Arbitrary equivalent
+                    let desertion = Math.min(military[type], Math.ceil(shortfall / 200));
                     military[type] -= desertion;
-                    shortfall -= desertion * 100;
+                    shortfall -= desertion * 200;
                     militaryDesertions += desertion;
                 }
             }
             
-            // Then civilians suffer realistic famine attrition (5% of shortfall per tick)
+            // Civilians suffer realistic daily famine attrition (~0.1% of shortfall per day)
+            // Prevents massive 25k daily mortality shocks across a single season
             if (shortfall > 0) {
-                starvationDeaths = Math.min(burg.pop_null || 0, Math.max(1, Math.ceil(shortfall * 0.05)));
+                starvationDeaths = Math.min(burg.pop_null || 0, Math.floor(shortfall * 0.001));
             }
         }
 
@@ -650,10 +651,12 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
 
         let births = 0;
         if (newFood > 0 && newHealth >= 40 && newUnrest < 70) {
-            const birthRate = 0.003 * (newHealth / 100) * (1 - newUnrest / 150);
-            births = Math.floor(pop * birthRate);
-            if (pop < 100 && newFood > pop * 2 && Math.random() < 0.6) {
-                births = Math.max(1, births);
+            // Realistic pre-industrial annual birth rate (~3.5% annually) divided across 541 days
+            const annualBirthRate = 0.035 * (newHealth / 100) * (1 - newUnrest / 150);
+            const dailyBirthRate = annualBirthRate / 541;
+            births = pop * dailyBirthRate;
+            if (pop < 100 && newFood > pop * 2 && Math.random() < 0.05) {
+                births = Math.max(0.1, births);
             }
         }
         // 12-to-1 Demographic Growth, Maturation & Immigration

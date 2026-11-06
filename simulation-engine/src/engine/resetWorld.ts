@@ -914,10 +914,11 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
       `, [fIdx]);
 
       for (const c of corridorCellsRes.rows) {
+        const genRecharge = 12000 + Math.floor(Math.random() * 4000); // 20-30 Years (1 Year = 541 Ticks)
         await client.query(`
           INSERT INTO sim_ancient_path_wards (cell_id, flow_id, path_name, is_charged, recharge_ticks)
-          VALUES ($1, $2, $3, true, 150)
-        `, [c.id, g.id, `Ancient Pilgrim Leyway of ${g.dragon_name}`]);
+          VALUES ($1, $2, $3, true, $4)
+        `, [c.id, g.id, `Ancient Pilgrim Leyway of ${g.dragon_name}`, genRecharge]);
       }
     }
 

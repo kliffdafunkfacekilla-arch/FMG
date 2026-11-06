@@ -28,6 +28,14 @@ export async function runTrophicEcologyAgent(
     const moonPhase = calCtx?.cruorbusPhase || "The Waxing Blood";
     const isPeakChaos = moonPhase.includes("Full Blood") || moonPhase.includes("Nightmare");
 
+    // Continental macro-flora dynamics evaluate on weekly intervals (every 7 in-game days)
+    // Multiplies daily botanical delta by 7 to achieve identical ecological equilibrium with 7x speedup
+    if (tick % 7 !== 0 && !isPeakChaos) {
+        return;
+    }
+
+    const intervalDays = 7;
+
     // ── 1. SEASONAL FLORA DYNAMICS (0-100/200 Scale) ──────────────────────────
     let plantGrowthDelta = 1.0;
     switch (season) {
@@ -55,19 +63,21 @@ export async function runTrophicEcologyAgent(
             plantGrowthDelta = 1.0;
     }
 
+    const scaledGrowth = plantGrowthDelta * intervalDays;
+
     // Regrow healthy flora
     await client.query(`
         UPDATE sim_cells
         SET eco_plants = LEAST(COALESCE(eco_max, 100.0), GREATEST(2.0, COALESCE(eco_plants, 50.0) + $1))
         WHERE COALESCE(eco_blight, 0.0) < 40.0
-    `, [plantGrowthDelta]);
+    `, [scaledGrowth]);
 
     // Blighted regions suffer active die-off
     await client.query(`
         UPDATE sim_cells
-        SET eco_plants = GREATEST(1.0, COALESCE(eco_plants, 50.0) - 1.2)
+        SET eco_plants = GREATEST(1.0, COALESCE(eco_plants, 50.0) - $1)
         WHERE COALESCE(eco_blight, 0.0) >= 40.0
-    `);
+    `, [1.2 * intervalDays]);
 
     // ── 2. FLORA MUTAGENESIS UNDER SURGING CHAOS LEYS ────────────────────────
     // When the broken moon Cruorbus enters Full Blood or Nightmare Alignment,
