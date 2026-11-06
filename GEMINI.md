@@ -60,6 +60,8 @@ The world of Ostraka is organized into a strictly nested 3-tier fractal hierarch
 ### 2. Regional Layer (Meso LOD - 10,000 Cells per Global Cell)
 * Each single Global Cell contains an overland map of **exactly 10,000 regional cells** ($100 \times 100$ grid: `rx: 0..99, ry: 0..99`, centered at `rx: 50, ry: 50`).
 * Generates overland elevation, vegetation density, chaos radiation, and road/infrastructure masks.
+* **NO PHANTOM WATER RULE**: Regional terrain tiles derive directly from the global cell's authentic biome and elevation. Water ONLY appears if the global cell is ocean (`elevation < 20` or water biome) or if a river/waterway route explicitly traverses the cell. Land cells must never spawn random noise water blotches.
+* **DISCRETE TICK MOVEMENT RULE**: 1 Tick = 1 Day. Regional agents are stationed at discrete integer cells `(rx, ry)` and advance cell-by-cell in exact lockstep with master simulation ticks. Real-time wall-clock intervals (`setInterval`) and continuous floating-point movement are strictly forbidden.
 * **FOCUSED LOD SIMULATION RULE**: Individual agent movements, tactical squad paths, and fine-grained meso updates at this 10,000-cell level are **ONLY simulated when the regional map contains the player's location (or an explicitly focused cell)**.
 * When unfocused, global cells do not execute individual agent pathfinding, keeping macro ticks fast (~200ms).
 
