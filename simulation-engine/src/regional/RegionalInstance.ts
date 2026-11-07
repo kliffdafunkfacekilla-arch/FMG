@@ -28,6 +28,13 @@ export interface RegionAgent {
   ty: number;
 }
 
+export interface RegionalFacility {
+  type: "FARM" | "LOGGING_CAMP" | "MINE" | "WATCHTOWER";
+  name: string;
+  rx: number;
+  ry: number;
+}
+
 export class RegionalInstance {
   public cellId: number;
   public globalData: any;
@@ -39,6 +46,7 @@ export class RegionalInstance {
   public chaosMap: Float32Array;
   public infraMap: Uint8Array;
   
+  public facilities: RegionalFacility[] = [];
   public agents: Array<RegionAgent> = [];
   public w = 100;
   public h = 100;
@@ -188,7 +196,7 @@ export class RegionalInstance {
       }
     }
 
-    // 2. Burg Settlements: Centered at (50, 50)
+    // 2. Burg Municipal Territory: Centered at (50, 50) with surrounding outposts
     const burg = this.globalData.burg;
     if (burg && !isGlobalWater) {
       const tier = burg.urban_tier || 1;
@@ -196,6 +204,7 @@ export class RegionalInstance {
       const cx = Math.floor(this.w / 2);
       const cy = Math.floor(this.h / 2);
 
+      // Core burg settlement
       for (let y = 0; y < this.h; y++) {
         for (let x = 0; x < this.w; x++) {
           const dist = Math.hypot(x - cx, y - cy);
@@ -228,9 +237,135 @@ export class RegionalInstance {
           }
         }
       }
+
+      // Perimeter Fortified Watchtowers & Outposts along highway approaches
+      const outpostOffsets = [
+        { rx: cx, ry: cy - 32, name: `${burg.name || "Burg"} North Sentry Outpost` },
+        { rx: cx, ry: cy + 32, name: `${burg.name || "Burg"} South Sentry Outpost` },
+        { rx: cx - 32, ry: cy, name: `${burg.name || "Burg"} West Sentry Outpost` },
+        { rx: cx + 32, ry: cy, name: `${burg.name || "Burg"} East Sentry Outpost` }
+      ];
+      for (const op of outpostOffsets) {
+        if (op.rx >= 2 && op.rx < this.w - 2 && op.ry >= 2 && op.ry < this.h - 2) {
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              const idx = (op.ry + dy) * this.w + (op.rx + dx);
+              if (!riverCoords.has(idx)) {
+                this.mapData[idx] = 12; // Watchtower Outpost
+                this.infraMap[idx] = 6;
+              }
+            }
+          }
+          this.facilities.push({ type: "WATCHTOWER", name: op.name, rx: op.rx, ry: op.ry });
+        }
+      }
+
+      // Scattered Farmsteads & Croplands (matching 6/12 Food workforce)
+      const farmCount = tier >= 3 ? 8 : tier === 2 ? 6 : 4;
+      const farmAngles = [0.45, 1.15, 1.95, 2.65, 3.55, 4.25, 5.05, 5.75];
+      for (let f = 0; f < farmCount; f++) {
+        const ang = farmAngles[f] ?? (f * 0.8);
+        const dist = 18 + (f % 3) * 6;
+        const fx = Math.round(cx + Math.cos(ang) * dist);
+        const fy = Math.round(cy + Math.sin(ang) * dist);
+
+        if (fx >= 4 && fx < this.w - 4 && fy >= 4 && fy < this.h - 4) {
+          const fIdx = fy * this.w + fx;
+          if ((this.elevationMap[fIdx] ?? 0) >= 20 && !riverCoords.has(fIdx)) {
+            for (let dy = -1; dy <= 1; dy++) {
+              for (let dx = -1; dx <= 1; dx++) {
+                const cIdx = (fy + dy) * this.w + (fx + dx);
+                if (this.mapData[cIdx] !== 4 && this.mapData[cIdx] !== 5 && !riverCoords.has(cIdx)) {
+                  this.mapData[cIdx] = 9; // Farmstead / Cropland
+                  this.infraMap[cIdx] = 48;
+                }
+              }
+            }
+            let currX = fx;
+            let currY = fy;
+            while (Math.abs(currX - cx) > 1 && Math.abs(currY - cy) > 1) {
+              if (Math.abs(currX - cx) < Math.abs(currY - cy)) {
+                currX += Math.sign(cx - currX);
+              } else {
+                currY += Math.sign(cy - currY);
+              }
+              const pIdx = currY * this.w + currX;
+              if (this.mapData[pIdx] === 0 || this.mapData[pIdx] === 1 || this.mapData[pIdx] === 2) {
+                this.mapData[pIdx] = 5;
+                this.infraMap[pIdx] = 2;
+              }
+            }
+
+            this.facilities.push({
+              type: "FARM",
+              name: `${burg.name || "Burg"} Farmstead #${f + 1}`,
+              rx: fx,
+              ry: fy
+            });
+          }
+        }
+      }
+
+      // Timber Logging Camps (Resource workforce)
+      let loggingCount = 0;
+      const targetLogging = tier >= 3 ? 3 : 2;
+      for (let r = 20; r <= 42 && loggingCount < targetLogging; r += 7) {
+        for (let a = 0; a < Math.PI * 2 && loggingCount < targetLogging; a += 0.9) {
+          const lx = Math.round(cx + Math.cos(a) * r);
+          const ly = Math.round(cy + Math.sin(a) * r);
+          if (lx >= 4 && lx < this.w - 4 && ly >= 4 && ly < this.h - 4) {
+            const lIdx = ly * this.w + lx;
+            if ((this.vegetationMap[lIdx] ?? 0) > 0.50 && this.mapData[lIdx] === 2 && !riverCoords.has(lIdx)) {
+              for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                  const idx = (ly + dy) * this.w + (lx + dx);
+                  this.mapData[idx] = 10; // Timber Logging Camp
+                  this.infraMap[idx] = 24;
+                }
+              }
+              this.facilities.push({
+                type: "LOGGING_CAMP",
+                name: `${burg.name || "Burg"} Logging Camp #${loggingCount + 1}`,
+                rx: lx,
+                ry: ly
+              });
+              loggingCount++;
+            }
+          }
+        }
+      }
+
+      // Mountain Mines & Stone Quarries (Resource workforce)
+      let mineCount = 0;
+      const targetMines = tier >= 3 ? 2 : 1;
+      for (let r = 22; r <= 44 && mineCount < targetMines; r += 7) {
+        for (let a = 0.5; a < Math.PI * 2 && mineCount < targetMines; a += 1.1) {
+          const mx = Math.round(cx + Math.cos(a) * r);
+          const my = Math.round(cy + Math.sin(a) * r);
+          if (mx >= 4 && mx < this.w - 4 && my >= 4 && my < this.h - 4) {
+            const mIdx = my * this.w + mx;
+            if (((this.elevationMap[mIdx] ?? 0) > 60 || this.mapData[mIdx] === 8) && !riverCoords.has(mIdx)) {
+              for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                  const idx = (my + dy) * this.w + (mx + dx);
+                  this.mapData[idx] = 11; // Mine / Quarry
+                  this.infraMap[idx] = 12;
+                }
+              }
+              this.facilities.push({
+                type: "MINE",
+                name: `${burg.name || "Burg"} Mineral Quarry #${mineCount + 1}`,
+                rx: mx,
+                ry: my
+              });
+              mineCount++;
+            }
+          }
+        }
+      }
     }
 
-    // 3. Highways for non-burg transit cells
+        // 3. Highways for non-burg transit cells
     const hasHighway = routes.some((r: string) => 
       r.includes("Highway") || r.includes("Road") || r.includes("Artery") || 
       r.includes("Way") || (r.includes("Route") && !r.includes("Smuggler"))
@@ -416,6 +551,46 @@ export class RegionalInstance {
     if (this.globalData.isFamine) {
       spawn("Cannibal", "Famine Marauder", "Outlaw", "#991b1b", 2, 3, -2);
     }
+
+    // Spawn authentic workers stationed at the burg regional facilities
+    if (burg && this.facilities.length > 0) {
+      for (const fac of this.facilities) {
+        if (fac.type === "FARM") {
+          spawn("Farmer", fac.name, "Food Producer", "#eab308", 1, 1, 1);
+          const ag = this.agents[this.agents.length - 1];
+          if (ag) {
+            ag.rx = fac.rx; ag.ry = fac.ry;
+            ag.x = fac.rx; ag.y = fac.ry;
+            ag.targetRx = fac.rx + (Math.random() < 0.5 ? 1 : -1);
+            ag.targetRy = fac.ry + (Math.random() < 0.5 ? 1 : -1);
+          }
+        } else if (fac.type === "LOGGING_CAMP") {
+          spawn("Woodsman", fac.name, "Resource Worker", "#854d0e", 1, 1, 0);
+          const ag = this.agents[this.agents.length - 1];
+          if (ag) {
+            ag.rx = fac.rx; ag.ry = fac.ry;
+            ag.x = fac.rx; ag.y = fac.ry;
+            ag.targetRx = fac.rx; ag.targetRy = fac.ry;
+          }
+        } else if (fac.type === "MINE") {
+          spawn("Miner", fac.name, "Resource Worker", "#64748b", 1, 1, 0);
+          const ag = this.agents[this.agents.length - 1];
+          if (ag) {
+            ag.rx = fac.rx; ag.ry = fac.ry;
+            ag.x = fac.rx; ag.y = fac.ry;
+            ag.targetRx = fac.rx; ag.targetRy = fac.ry;
+          }
+        } else if (fac.type === "WATCHTOWER") {
+          spawn("WatchGuard", fac.name, "Defense Guard", "#3b82f6", 1, 1, 1);
+          const ag = this.agents[this.agents.length - 1];
+          if (ag) {
+            ag.rx = fac.rx; ag.ry = fac.ry;
+            ag.x = fac.rx; ag.y = fac.ry;
+            ag.targetRx = fac.rx; ag.targetRy = fac.ry;
+          }
+        }
+      }
+    }
   }
 
   /**
@@ -477,6 +652,22 @@ export class RegionalInstance {
             a.targetRx = Math.max(5, Math.min(95, a.rx + Math.floor(Math.random() * 11 - 5)));
             a.targetRy = Math.max(5, Math.min(95, a.ry + Math.floor(Math.random() * 11 - 5)));
           }
+        } else if (a.type === "Farmer") {
+          // Wander within 2 cells of farmstead tending crops
+          a.targetRx = Math.max(2, Math.min(97, a.rx + Math.floor(Math.random() * 5 - 2)));
+          a.targetRy = Math.max(2, Math.min(97, a.ry + Math.floor(Math.random() * 5 - 2)));
+        } else if (a.type === "Woodsman") {
+          // Wander within 2 cells of logging camp
+          a.targetRx = Math.max(2, Math.min(97, a.rx + Math.floor(Math.random() * 5 - 2)));
+          a.targetRy = Math.max(2, Math.min(97, a.ry + Math.floor(Math.random() * 5 - 2)));
+        } else if (a.type === "Miner") {
+          // Wander within 2 cells of quarry
+          a.targetRx = Math.max(2, Math.min(97, a.rx + Math.floor(Math.random() * 5 - 2)));
+          a.targetRy = Math.max(2, Math.min(97, a.ry + Math.floor(Math.random() * 5 - 2)));
+        } else if (a.type === "WatchGuard") {
+          // Sentry patrol between watchtower and road gate
+          a.targetRx = Math.max(2, Math.min(97, a.rx + Math.floor(Math.random() * 7 - 3)));
+          a.targetRy = Math.max(2, Math.min(97, a.ry + Math.floor(Math.random() * 7 - 3)));
         } else {
           a.targetRx = Math.max(5, Math.min(95, a.rx + Math.floor(Math.random() * 17 - 8)));
           a.targetRy = Math.max(5, Math.min(95, a.ry + Math.floor(Math.random() * 17 - 8)));

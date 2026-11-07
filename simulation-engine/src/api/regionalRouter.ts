@@ -147,7 +147,8 @@ regionalRouter.get("/live/:cell_id", async (req, res) => {
       mapData: Array.from(instance.mapData),
       biomeMap: Array.from(instance.biomeMap),
       infraMap: Array.from(instance.infraMap),
-      agents: instance.agents
+      agents: instance.agents,
+      facilities: instance.facilities
     });
   } catch (err: any) {
     console.error("Error in regional live:", err);

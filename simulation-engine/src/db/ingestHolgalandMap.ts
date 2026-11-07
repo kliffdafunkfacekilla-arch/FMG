@@ -16,8 +16,19 @@
 import fs from "fs";
 import path from "path";
 import pool from "./pool";
+import { prerenderWorldPopulation } from "./prerenderWorldPopulation";
+import { provisionAllBurgParagons } from "./provisionAllBurgParagons";
+import { enhanceAllCriminalSyndicates } from "./enhanceAllCriminalSyndicates";
 
-const MAP_PATH = path.resolve(__dirname, "../../data/Holgaland.json");
+const candidatePaths = [
+  path.resolve(__dirname, "../../data/Holgaland.json"),
+  path.resolve(__dirname, "../../../data/Holgaland.json"),
+  path.resolve(process.cwd(), "simulation-engine/data/Holgaland.json"),
+  path.resolve(process.cwd(), "data/Holgaland.json"),
+  "C:/Users/krazy/Desktop/FMG/simulation-engine/data/Holgaland.json",
+  "C:/Users/krazy/Downloads/Holgaland Full 2026-10-21-20-16.json"
+];
+const MAP_PATH: string = candidatePaths.find(p => fs.existsSync(p)) || candidatePaths[0] || "";
 
 // Lore Profiles for Factions (Aggression, Magic, Economy)
 const FACTION_LORE_PROFILES: Record<string, { aggression: number; magic: number; economy: number; species: Record<string, number> }> = {
@@ -52,11 +63,11 @@ const FACTION_LORE_PROFILES: Record<string, { aggression: number; magic: number;
 
 export async function ingestHolgalandMap() {
   console.log(`[Ingest] Reading Holgaland map from: ${MAP_PATH}`);
-  if (!fs.existsSync(MAP_PATH)) {
+  if (!MAP_PATH || !fs.existsSync(MAP_PATH)) {
     throw new Error(`Holgaland map JSON not found at: ${MAP_PATH}`);
   }
 
-  const raw = fs.readFileSync(MAP_PATH, "utf-8");
+  const raw: string = fs.readFileSync(MAP_PATH, "utf-8");
   const data = JSON.parse(raw);
   const pack = data.pack;
 
@@ -65,28 +76,41 @@ export async function ingestHolgalandMap() {
     await client.query("BEGIN");
     console.log("[Ingest] Connected to PostgreSQL. Preparing tables...");
 
-    // Ensure road table has needed columns
+    // Ensure tables have needed columns
     await client.query(`
       ALTER TABLE sim_roads ADD COLUMN IF NOT EXISTS name TEXT;
       ALTER TABLE sim_roads ADD COLUMN IF NOT EXISTS road_group TEXT;
       ALTER TABLE sim_roads ADD COLUMN IF NOT EXISTS length REAL;
       ALTER TABLE sim_roads ADD COLUMN IF NOT EXISTS points JSONB;
-    `);
 
-    // Ensure sim_burg_economy has needed columns
-    await client.query(`
       ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS name TEXT;
       ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS culture_id INT;
       ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS is_capital BOOLEAN DEFAULT FALSE;
       ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS port BOOLEAN DEFAULT FALSE;
+      ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS dominant_domain VARCHAR(50) DEFAULT 'MATERIAL';
+      ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS hierarchy_tier INT DEFAULT 1;
+      ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS pop_growth_pool FLOAT DEFAULT 0.0;
+
+      ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS geometry TEXT;
+      ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS z_layer INT DEFAULT 0;
+      ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS eco_plants REAL DEFAULT 100.0;
+      ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS eco_prey REAL DEFAULT 50.0;
+      ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS eco_predators REAL DEFAULT 10.0;
+      ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS eco_resources REAL DEFAULT 100.0;
+      ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS eco_health REAL DEFAULT 100.0;
+      ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS eco_max REAL DEFAULT 100.0;
     `);
 
-    // Clean dependent simulation tables
+    // Clean dependent simulation tables in foreign-key safe order
     console.log("[Ingest] Clearing previous world geography...");
     await client.query("DELETE FROM sim_sacred_groves");
     await client.query("DELETE FROM sim_chaos_flows");
     await client.query("DELETE FROM sim_roads");
     await client.query("DELETE FROM sim_world_landmarks");
+    await client.query("DELETE FROM sim_paragons");
+    await client.query("DELETE FROM population_demographics");
+    await client.query("DELETE FROM sim_fringe_lairs");
+    await client.query("DELETE FROM sim_sector_layers");
     await client.query("DELETE FROM sim_burg_economy");
     await client.query("DELETE FROM sim_cells");
     await client.query("DELETE FROM sim_factions");
@@ -119,11 +143,11 @@ export async function ingestHolgalandMap() {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 2. INGEST CELLS (Batch unnest)
+    // 2. INGEST CELLS (Batch unnest with Voronoi geometry)
     // ─────────────────────────────────────────────────────────────────────────
-    console.log(`[Ingest] Ingesting ${pack.cells.length} cells in batches...`);
-    const biomesList = pack.biomes || [];
+    console.log(`[Ingest] Ingesting ${pack.cells.length} cells in batches with Voronoi geometry...`);
     const BATCH_SIZE = 1000;
+    const vertices = pack.vertices || [];
 
     for (let i = 0; i < pack.cells.length; i += BATCH_SIZE) {
       const chunk = pack.cells.slice(i, i + BATCH_SIZE);
@@ -135,13 +159,13 @@ export async function ingestHolgalandMap() {
       const centerYs: number[] = [];
       const elevations: number[] = [];
       const temps: number[] = [];
+      const geoms: (string | null)[] = [];
 
       for (const c of chunk) {
         if (!c || c.i === undefined) continue;
         ids.push(c.i);
         factionIds.push(c.state > 0 ? c.state : null);
-        const biomeName = biomesList[c.biome]?.name || "Marine";
-        biomes.push(biomeName);
+        biomes.push(String(c.biome ?? 0));
         pops.push(Math.floor(c.pop || 0));
         centerXs.push(c.p ? c.p[0] : 0);
         centerYs.push(c.p ? c.p[1] : 0);
@@ -151,23 +175,40 @@ export async function ingestHolgalandMap() {
         const latRatio = (c.p ? c.p[1] : 1200) / 2496;
         const baseT = Math.round(30 - Math.abs(latRatio - 0.5) * 35 - ((c.h || 0) > 50 ? ((c.h - 50) * 0.3) : 0));
         temps.push(baseT);
+
+        // Voronoi cell polygon geometry
+        let geomStr: string | null = null;
+        if (Array.isArray(c.v) && c.v.length >= 3 && vertices.length > 0) {
+          const ring = c.v
+            .map((vIdx: number) => vertices[vIdx]?.p)
+            .filter((p: any) => Array.isArray(p) && p.length === 2)
+            .map(([x, y]: [number, number]) => [Math.round(x * 10) / 10, Math.round(y * 10) / 10]);
+
+          if (ring.length >= 3) {
+            if (ring[0][0] !== ring[ring.length - 1][0] || ring[0][1] !== ring[ring.length - 1][1]) {
+              ring.push([ring[0][0], ring[0][1]]);
+            }
+            geomStr = JSON.stringify({ type: "Polygon", coordinates: [ring] });
+          }
+        }
+        geoms.push(geomStr);
       }
 
       await client.query(`
         INSERT INTO sim_cells (
           id, faction_id, biome, population, center_x, center_y,
-          elevation, base_temp, current_temp,
+          elevation, base_temp, current_temp, geometry,
           eco_plants, eco_prey, eco_predators, eco_resources, eco_health, eco_max
         )
         SELECT
           u.id, u.faction_id, u.biome, u.population, u.center_x, u.center_y,
-          u.elevation, u.base_temp, u.base_temp,
+          u.elevation, u.base_temp, u.base_temp, u.geometry,
           100.0, 50.0, 10.0, 100.0, 100.0, 100.0
         FROM UNNEST(
           $1::int[], $2::int[], $3::text[], $4::int[], $5::real[], $6::real[],
-          $7::int[], $8::real[]
-        ) AS u(id, faction_id, biome, population, center_x, center_y, elevation, base_temp)
-      `, [ids, factionIds, biomes, pops, centerXs, centerYs, elevations, temps]);
+          $7::int[], $8::real[], $9::text[]
+        ) AS u(id, faction_id, biome, population, center_x, center_y, elevation, base_temp, geometry)
+      `, [ids, factionIds, biomes, pops, centerXs, centerYs, elevations, temps, geoms]);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -346,13 +387,31 @@ export async function ingestHolgalandMap() {
     }
 
     await client.query("COMMIT");
-    console.log(`[Ingest] SUCCESS! Holgaland map fully ingested:`);
+    console.log(`[Ingest] SUCCESS! Holgaland map baseline ingested:`);
     console.log(`  - ${pack.states.length} Factions`);
     console.log(`  - ${pack.cells.length} Cells`);
     console.log(`  - ${validBurgs.length} Burgs`);
     console.log(`  - 12 Dragon Prisons & Chaos Flows`);
     console.log(`  - ${markers.length} World Landmarks`);
     console.log(`  - ${routes.length} Roads/Highways`);
+
+    // Create fast spatial and query indices
+    console.log("[Ingest] Creating spatial and relational database indices...");
+    await pool.query("CREATE INDEX IF NOT EXISTS idx_sim_cells_coords ON sim_cells (center_x, center_y)");
+    await pool.query("CREATE INDEX IF NOT EXISTS idx_sim_cells_faction ON sim_cells (faction_id)");
+    await pool.query("CREATE INDEX IF NOT EXISTS idx_sim_burg_cell ON sim_burg_economy (cell_id)");
+
+    // Run downstream demographic, paragon, and syndicate pipeline for Holgaland
+    console.log("[Ingest] Initializing 12:1 world population for 345 burgs...");
+    await prerenderWorldPopulation();
+
+    console.log("[Ingest] Provisioning authentic Paragons across all 345 burgs...");
+    await provisionAllBurgParagons();
+
+    console.log("[Ingest] Enhancing 10 Criminal Syndicates & Outlaw Lairs...");
+    await enhanceAllCriminalSyndicates();
+
+    console.log("[Ingest] Holgaland full ingestion and demographic synthesis complete!");
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("[Ingest] FAILED with error:", err);

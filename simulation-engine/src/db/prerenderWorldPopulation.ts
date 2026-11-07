@@ -41,19 +41,34 @@ const LAST_NAMES: Record<string, string[]> = {
   "Plant-Folk": ["Deep-Root", "Green-Bough", "Sap-Flow", "Briar-Twist", "Autumn-Leaf", "Iron-Bark"]
 };
 
-const ADULT_PROFESSIONS = [
-  "Blacksmith", "Weaver", "Miller", "Baker", "Carpenter", "Cobbler", "Stonemason",
-  "Tanner", "Fisherman", "Farmer", "City Watchman", "Gate Sentry", "Town Scribe",
-  "Hedge Herbalist", "Apothecary Apprentice", "Temple Acolyte", "Clockmaker",
-  "Disenfranchised Laborer", "Merchant Trader", "Caravan Drover", "Potter",
-  "Cooper", "Brewmaster", "Foundry Worker", "Armorer", "Bowyer"
+// Authentic Group-of-12 Functional Allocation Ratio:
+//  6 Food-Producing (50%)
+//  2 Resource-Gathering & Refining (~17%)
+//  1 City Maintenance & Trades (~8%)
+//  1 Health & Spiritual Care (~8%)
+//  2 Emergency Services & Defense (~17%)
+// Total = 12 Workers
+const ADULT_PROFESSIONS_FOOD = [
+  "Farmer", "Grain Miller", "Fisherman", "Baker", "Orchardist", "Livestock Herder", "Brewmaster"
+];
+const ADULT_PROFESSIONS_RESOURCE = [
+  "Blacksmith", "Woodcutter", "Lumberjack", "Foundry Worker", "Quarryman", "Weaver", "Tanner", "Potter"
+];
+const ADULT_PROFESSIONS_MAINTENANCE = [
+  "Stonemason", "Carpenter", "Cooper", "Cobbler", "Town Scribe", "Clockmaker", "Disenfranchised Laborer"
+];
+const ADULT_PROFESSIONS_HEALTH_SPIRIT = [
+  "Temple Acolyte", "Hedge Herbalist", "Apothecary Apprentice", "Temple Priest", "Sanctuary Healer"
+];
+const ADULT_PROFESSIONS_DEFENSE = [
+  "City Watchman", "Gate Sentry", "Town Investigator", "Militia Guard", "Garrison Scout", "Armorer"
 ];
 
-const CHILD_ROLES = [
-  "Forge Apprentice", "Weaver Youth", "Temple Ward", "Farm Hand",
-  "Herbalist Gatherer", "Scribe Runner", "Potter Apprentice", "Dock Urchin",
-  "Stable Hand", "Tinker Apprentice", "Kitchen Scullion", "Fisher Boy"
-];
+const CHILD_ROLES_FOOD = ["Farm Hand", "Fisher Boy", "Mill Apprentice", "Orchard Youth"];
+const CHILD_ROLES_RESOURCE = ["Forge Apprentice", "Weaver Youth", "Woodsman Lad", "Potter Apprentice"];
+const CHILD_ROLES_MAINTENANCE = ["Tinker Apprentice", "Mason Apprentice", "Scribe Runner", "Workshop Scullion"];
+const CHILD_ROLES_HEALTH_SPIRIT = ["Herbalist Gatherer", "Temple Ward", "Apothecary Ward"];
+const CHILD_ROLES_DEFENSE = ["Cadet Runner", "Stable Hand", "Lookout Youth"];
 
 const CHILDHOOD_BACKGROUNDS = [
   "Apprenticed early at the forge; blistered palms taught them the stubborn value of endurance.",
@@ -169,6 +184,7 @@ export async function prerenderWorldPopulation() {
       ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS pop_growth_pool FLOAT DEFAULT 0.0;
 
       CREATE INDEX IF NOT EXISTS idx_pop_settlement ON population_demographics(settlement_id);
+      CREATE INDEX IF NOT EXISTS idx_pop_home_cell ON population_demographics(home_cell_id);
       CREATE INDEX IF NOT EXISTS idx_pop_spark ON population_demographics(spark_tier);
       CREATE INDEX IF NOT EXISTS idx_pop_allegiance ON population_demographics(allegiance_status);
       CREATE INDEX IF NOT EXISTS idx_pop_stage ON population_demographics(settlement_id, life_stage);
@@ -326,7 +342,27 @@ export async function prerenderWorldPopulation() {
         const first = pickRandom(FIRST_NAMES[species] || FIRST_NAMES["Human"] || ["Val"], "Elian");
         const last = pickRandom(LAST_NAMES[species] || LAST_NAMES["Human"] || ["Thorne"], "Thorne");
         const name = `${first} ${last}`;
-        const profession = pickRandom(ADULT_PROFESSIONS, "Laborer");
+        
+        // Group of 12 Demographic Ratio Allocation:
+        // Slots 0-5 (6/12 = 50%): Food Production
+        // Slots 6-7 (2/12 = 17%): Raw & Refined Resources
+        // Slot 8    (1/12 =  8%): Municipal Infrastructure & Maintenance
+        // Slot 9    (1/12 =  8%): Health & Spiritual Care
+        // Slots 10-11(2/12 = 17%): Emergency Services & Defense
+        const slot = a % 12;
+        let profession: string;
+        if (slot < 6) {
+          profession = pickRandom(ADULT_PROFESSIONS_FOOD, "Farmer");
+        } else if (slot < 8) {
+          profession = pickRandom(ADULT_PROFESSIONS_RESOURCE, "Blacksmith");
+        } else if (slot === 8) {
+          profession = pickRandom(ADULT_PROFESSIONS_MAINTENANCE, "Carpenter");
+        } else if (slot === 9) {
+          profession = pickRandom(ADULT_PROFESSIONS_HEALTH_SPIRIT, "Temple Acolyte");
+        } else {
+          profession = pickRandom(ADULT_PROFESSIONS_DEFENSE, "City Watchman");
+        }
+
         const age = Math.floor(Math.random() * 45) + 18; // 18 to 62
         const childhood = pickRandom(CHILDHOOD_BACKGROUNDS, "Grew up helping with the daily work of their household.");
 
@@ -413,7 +449,22 @@ export async function prerenderWorldPopulation() {
         const first = pickRandom(FIRST_NAMES[species] || FIRST_NAMES["Human"] || ["Pip"], "Pip");
         const last = burgCitizens.length > 0 ? pickRandom(burgCitizens, burgCitizens[0]!).name.split(" ")[1] || "Thorne" : "Thorne";
         const name = `${first} ${last}`;
-        const profession = pickRandom(CHILD_ROLES, "Apprentice");
+        
+        // Group of 12 Child Apprenticeship Ratio Allocation:
+        const childSlot = c % 12;
+        let profession: string;
+        if (childSlot < 6) {
+          profession = pickRandom(CHILD_ROLES_FOOD, "Farm Hand");
+        } else if (childSlot < 8) {
+          profession = pickRandom(CHILD_ROLES_RESOURCE, "Forge Apprentice");
+        } else if (childSlot === 8) {
+          profession = pickRandom(CHILD_ROLES_MAINTENANCE, "Tinker Apprentice");
+        } else if (childSlot === 9) {
+          profession = pickRandom(CHILD_ROLES_HEALTH_SPIRIT, "Herbalist Gatherer");
+        } else {
+          profession = pickRandom(CHILD_ROLES_DEFENSE, "Cadet Runner");
+        }
+
         const age = Math.floor(Math.random() * 12) + 4; // 4 to 15 years old
         const childhood = pickRandom(CHILDHOOD_BACKGROUNDS, "Learning the traditions of their elders.");
 

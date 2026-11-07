@@ -374,7 +374,7 @@ export function Dashboard() {
   const [selectedFactionId, setSelectedFactionId] = useState<number | null>(null);
 
   // Regional Meso LOD Floating Window State (10,000 Cells)
-  const [focusedCellId, setFocusedCellId] = useState<number | null>(19561);
+  const [focusedCellId, setFocusedCellId] = useState<number | null>(19861);
   const [showRegionalWindow, setShowRegionalWindow] = useState<boolean>(true);
   const [cellSearchInput, setCellSearchInput] = useState<string>("");
 
