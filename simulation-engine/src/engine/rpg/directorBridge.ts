@@ -453,9 +453,64 @@ export async function generateStoryArcWithGemini(
 ): Promise<DirectorOutputBlueprint> {
     const apiKey = process.env.GEMINI_API_KEY;
 
+    // Helper: Ollama local fallback
+    const callOllamaDirector = async (): Promise<DirectorOutputBlueprint | null> => {
+        try {
+            console.log('[AI Director] Querying local Ollama (llama3.2) for dynamic story arc...');
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 6000);
+            const res = await fetch("http://127.0.0.1:11434/api/generate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                signal: controller.signal,
+                body: JSON.stringify({
+                    model: "llama3.2:latest",
+                    prompt: `You are the Stateless AI Director for a tabletop simulation engine.
+Read this simulation state:
+${JSON.stringify(inputPayload, null, 2)}
+
+Synthesize a local Story Arc Framework that bridges the trouble, economy, and assets.
+Output ONLY raw JSON with:
+{
+  "story_arc_framework": {
+    "arc_id": "arc_unique_id",
+    "inciting_incident": "one evocative sentence describing the active crisis",
+    "active_phase": 1,
+    "beats": [
+      {
+        "phase": 1,
+        "objective": "specific goal targeting one of the eligible NPCs or props",
+        "discovery_method": "method to achieve it"
+      }
+    ]
+  },
+  "database_mutations": {
+    "npc_alterations": [],
+    "prop_alterations": []
+  }
+}`,
+                    stream: false,
+                    options: { temperature: 0.6, num_predict: 350 }
+                })
+            });
+            clearTimeout(timeout);
+            const data: any = await res.json();
+            const raw = String(data.response || "").replace(/```json|```/g, "").trim();
+            const parsed = JSON.parse(raw);
+            if (parsed.story_arc_framework && parsed.story_arc_framework.inciting_incident) {
+                return parsed;
+            }
+        } catch (e) {
+            console.log('[AI Director] Ollama fallback skipped, using procedural synthesizer.');
+        }
+        return null;
+    };
+
     try {
         if (!apiKey || apiKey.startsWith('AQ.') || apiKey.length < 20) {
-            console.log('[AI Director] Using procedural fallback generator (no valid external Gemini key).');
+            const ollamaResult = await callOllamaDirector();
+            if (ollamaResult) return ollamaResult;
+            console.log('[AI Director] Using procedural fallback generator.');
             return synthesizeProceduralStoryArc(inputPayload);
         }
 

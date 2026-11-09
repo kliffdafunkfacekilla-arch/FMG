@@ -2199,6 +2199,12 @@ Output ONLY a single valid JSON array of objects with keys: id, title, giver, de
 // ==========================================
 // 4-PLAYER LIVE SESSION SYSTEM (OLLAMA + B.R.U.T.A.L. GM)
 // ==========================================
+import {
+  buildDirectorInputPayload,
+  generateStoryArcWithGemini,
+  validateDirectorMutations,
+  commitDirectorMutations
+} from '../engine/rpg/directorBridge.js';
 
 export interface PartySessionMember {
   id: number;
@@ -2233,6 +2239,12 @@ export interface PartySessionState {
   round: number;
   turnIndex: number;
   members: PartySessionMember[];
+  activeStoryArc?: {
+    arc_id: string;
+    inciting_incident: string;
+    active_phase: number;
+    beats: Array<{ phase: number; objective: string; discovery_method: string }>;
+  };
   history: Array<{
     round: number;
     turn: number;
@@ -2355,32 +2367,56 @@ let livePartySessionState: PartySessionState = {
 // Helper: Query Ollama with fallback
 async function fetchOllamaPlayerIntent(
   member: PartySessionMember,
-  sceneProps: Array<{ name: string; hp: number; tags: string[]; description?: string | undefined }>,
-  sceneNPCs: Array<{ name: string; role: string; disposition: number; weapon?: string | undefined }>,
+  sceneProps: Array<{ id: string; name: string; hp: number; maxHp: number; tags: string[]; description?: string | undefined }>,
+  sceneNPCs: Array<{ id: string; name: string; role: string; disposition: number; weapon?: string | undefined; tags: string[] }>,
+  tacticalSight: string,
+  activeTrouble: string,
+  currentObjective: string,
   recentChronicle: string[]
 ): Promise<{ dialogue: string; action: string }> {
-  const targetsList = [
-    ...sceneProps.map(p => `"${p.name}" (HP: ${p.hp}, Tags: ${p.tags.join(', ')})`),
-    ...sceneNPCs.map(n => `"${n.name}" (${n.role}, armed with ${n.weapon || 'weapon'}, Disposition: ${n.disposition >= 0 ? 'Friendly/Neutral' : 'Hostile/Guarded'})`),
-    '"Surrounding Quay / Rooftops" (high vantage for climbing, scouting or flanking)'
-  ];
+  const propsSummary = sceneProps.length > 0 
+    ? sceneProps.map(p => `- "${p.name}" (HP: ${p.hp}/${p.maxHp}, Tags: ${p.tags.join(', ')})`).join('\n')
+    : "- Open environment (no special props)";
 
-  const prompt = `You are playing ${member.name}, a ${member.species} ${member.role} in a gritty tabletop RPG called B.R.U.T.A.L. set in Ostraka (The Shatterlands).
+  const npcsSummary = sceneNPCs.length > 0
+    ? sceneNPCs.map(n => `- "${n.name}" (${n.role}, Armed with: ${n.weapon || 'unarmed'}, Disposition: ${n.disposition >= 0 ? 'Receptive' : 'Hostile/Guarded'})`).join('\n')
+    : "- No other persons present";
+
+  const prompt = `You are playing ${member.name}, a ${member.species} ${member.role} in a tabletop RPG called B.R.U.T.A.L. set in Ostraka (The Shatterlands).
 Persona: ${member.persona}
 Tactical Focus: ${member.tacticalGoal}
 Equipped Weapon: ${member.weapon} (${member.weaponStat.toUpperCase()})
 Equipped Armor: ${member.armor}
 
-INTERACTIVE TARGETS PRESENT IN THE SCENE:
-${targetsList.map((t, idx) => `${idx + 1}. ${t}`).join('\n')}
+ACTIVE WORLD TROUBLE & SITUATION:
+${activeTrouble || "Civic tension and resource disputes in the district."}
+Current Party Lead / Clue: ${currentObjective || "Investigate the sector and secure an advantage."}
 
-RECENT PARTY ACTIONS & EVENTS:
-${recentChronicle.length > 0 ? recentChronicle.slice(-4).join('\n') : "The party just arrived at the harbor checkpoint."}
+TACTICAL SIGHT & SENSORY ENVIRONMENT:
+${tacticalSight}
+
+VISIBLE PROPS IN SECTOR:
+${propsSummary}
+
+VISIBLE CITIZENS & NPCS IN SECTOR:
+${npcsSummary}
+
+RECENT PARTY ACTIONS & CHRONICLE:
+${recentChronicle.length > 0 ? recentChronicle.slice(-4).join('\n') : "The party just arrived at this sector."}
+
+TOTAL PLAYER AGENCY:
+You are NOT on rails or restricted to a choice list. You have complete freedom to declare ANY action:
+- Sneak, climb walls/rooftops, pick locks, or slip past sentries.
+- Search containers, examine mechanisms, or tamper with structural supports.
+- Interrogate, negotiate, deceive, or bribe citizens/guards.
+- Cast spells, channel resonance, or manipulate elemental conduits.
+- Attack with weapons, grapple, shove, or set traps.
+- Disarm devices, douse light sources, or stage an environmental distraction.
 
 YOUR TURN:
 Give:
 1) One short spoken line of in-character dialogue.
-2) One clear declared action targeting one of the specific interactive targets above (e.g. "I attack the Reinforced Iron Gate Checkpoint", "I search the Salt-Stained Contraband Crate", "I talk to Watch Captain Kenneth Fletcher", "I climb the Rooftops to scout").
+2) One clear declared action describing what you do in natural language (e.g. "I climb the eastern scaffolding to survey the guard patrol routes", "I slip 10 gold to the merchant to ask who locked the sluice", "I smash the rusted padlock with my cleaver").
 
 Output format EXACTLY:
 Dialogue: "your spoken words"
@@ -2388,7 +2424,7 @@ Action: I [what you do]`;
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 4500);
+    const timeout = setTimeout(() => controller.abort(), 5500);
 
     const res = await fetch("http://127.0.0.1:11434/api/generate", {
       method: "POST",
@@ -2398,7 +2434,7 @@ Action: I [what you do]`;
         model: "llama3.2:latest",
         prompt,
         stream: false,
-        options: { temperature: 0.7, num_predict: 100 }
+        options: { temperature: 0.7, num_predict: 120 }
       })
     });
     clearTimeout(timeout);
@@ -2420,26 +2456,29 @@ Action: I [what you do]`;
 
     return { dialogue, action };
   } catch (err) {
-    // Intelligent persona-based fallback
+    // Dynamic sandbox fallback reflecting character role and sector assets
+    const firstNpc = sceneNPCs[0];
+    const firstProp = sceneProps[0];
+
     if (member.name === "Harrow Grist") {
       return {
-        dialogue: "Out of our way, or I'll take this gate off its hinges.",
-        action: "I smash the Reinforced Iron Gate Checkpoint with my Spiked Trench Cleaver"
+        dialogue: "Stand back. If it's in our way, I'll clear it.",
+        action: firstProp ? `I smash ${firstProp.name} with my ${member.weapon}` : "I take a defensive stance and guard the perimeter"
       };
     } else if (member.name === "Lyra Swift-Feather") {
       return {
-        dialogue: "Checking the contraband seals. Something was wedged into the slats.",
-        action: "I search the Salt-Stained Contraband Crate for hidden compartments"
+        dialogue: "Checking high vantage points and scanning for hidden compartments.",
+        action: firstProp ? `I search ${firstProp.name} for concealed compartments or markings` : "I climb to high ground to scout enemy positions"
       };
     } else if (member.name === "Orlo Mind-Weaver") {
       return {
-        dialogue: "Notice the conduit resonance on the sluice winch. The locking mechanism is archaic.",
-        action: "I examine the Harbor Flume Winch to find the release lever"
+        dialogue: "Notice the resonance patterns here. Something is unusual.",
+        action: firstProp ? `I examine the mechanism of ${firstProp.name} using my knowledge` : "I channel my conduit staff to detect active aether flows"
       };
     } else {
       return {
-        dialogue: "Captain, surely the municipal commission doesn't require inspecting every crate at knifepoint.",
-        action: "I talk to Watch Captain Kenneth Fletcher to negotiate safe passage"
+        dialogue: "Let me do the talking. Coin and a smile open more doors than iron.",
+        action: firstNpc ? `I talk to ${firstNpc.name} to negotiate and gather intelligence` : "I blend into the shadows to observe unseen"
       };
     }
   }
@@ -2461,77 +2500,113 @@ router.get('/party_session/state', async (req, res) => {
 router.post('/party_session/init', async (req, res) => {
   try {
     const { cellId = 13408, rx = 50, ry = 50, z = 0 } = req.body || {};
+    const targetCellId = Number(cellId);
+    const targetRx = Number(rx);
+    const targetRy = Number(ry);
+    const targetZ = Number(z);
 
-    // Reset session
+    // 1. Fetch or generate the authentic sector layer from sim_sector_layers
+    let layerRes = await pool.query(
+      `SELECT * FROM sim_sector_layers
+       WHERE cell_id = $1 AND rx = $2 AND ry = $3 AND z_layer = $4 LIMIT 1`,
+      [targetCellId, targetRx, targetRy, targetZ]
+    );
+
+    if (layerRes.rows.length === 0) {
+      // Trigger local sector layer generation
+      await fetch(`http://127.0.0.1:3000/api/dm/sector_layer?cellId=${targetCellId}&rx=${targetRx}&ry=${targetRy}&z=${targetZ}`).catch(() => {});
+      layerRes = await pool.query(
+        `SELECT * FROM sim_sector_layers
+         WHERE cell_id = $1 AND rx = $2 AND ry = $3 AND z_layer = $4 LIMIT 1`,
+        [targetCellId, targetRx, targetRy, targetZ]
+      );
+    }
+
+    const realLayer = layerRes.rows[0];
+
+    // 2. Populate brutalGM with REAL sector props and NPCs
+    brutalGM.activeProps.clear();
+    const rawProps = realLayer?.props || [];
+    for (const p of rawProps) {
+      brutalGM.activeProps.set(p.id, {
+        id: p.id,
+        name: p.name,
+        pos: p.pos || [128, 128],
+        type: "PROP",
+        isDestroyed: p.isDestroyed || (p.hp !== undefined && p.hp <= 0),
+        tags: new Set<string>((p.tags || []).map((t: string) => t.toLowerCase())),
+        hp: p.hp ?? 30,
+        maxHp: p.maxHp ?? 30,
+        description: p.description || p.name
+      });
+    }
+
+    brutalGM.activeNPCs.clear();
+    const rawNPCs = realLayer?.npcs || [];
+    for (const n of rawNPCs) {
+      brutalGM.activeNPCs.set(n.id, {
+        id: n.id,
+        name: n.name,
+        role: n.role || "Citizen",
+        pos: n.pos || [128, 128],
+        tags: n.tags || [],
+        faction: n.faction || "Civilian",
+        hp: n.hp ?? 30,
+        maxHp: n.maxHp ?? 30,
+        disposition: n.disposition ?? 0,
+        alive: n.alive ?? true,
+        equippedWeapon: n.equippedWeapon || "Unarmed",
+        equippedArmor: n.equippedArmor || "Clothing",
+        memoryNotes: n.memoryNotes || []
+      });
+    }
+
+    // 3. Synthesize living AI Director Story Arc anchored to the real burg trouble
+    const directorPayload = await buildDirectorInputPayload(targetCellId, targetRx, targetRy, targetZ, 101);
+    const storyBlueprint = await generateStoryArcWithGemini(directorPayload);
+    const validated = validateDirectorMutations(directorPayload, storyBlueprint);
+    await commitDirectorMutations(targetCellId, targetRx, targetRy, targetZ, validated.sanitizedBlueprint);
+
+    // Apply any validated mutations to in-memory active props/NPCs
+    if (validated.sanitizedBlueprint.database_mutations) {
+      for (const alt of validated.sanitizedBlueprint.database_mutations.npc_alterations || []) {
+        const active = brutalGM.activeNPCs.get(alt.target_id);
+        if (active) {
+          active.tags.push(...(alt.append_tags || []));
+          if (alt.metadata_overrides?.temporary_dialogue_node) {
+            active.memoryNotes = active.memoryNotes || [];
+            active.memoryNotes.push(alt.metadata_overrides.temporary_dialogue_node);
+          }
+        }
+      }
+      for (const alt of validated.sanitizedBlueprint.database_mutations.prop_alterations || []) {
+        const active = brutalGM.activeProps.get(alt.target_id);
+        if (active) {
+          (alt.append_tags || []).forEach((t: string) => active.tags.add(t.toLowerCase()));
+        }
+      }
+    }
+
+    // 4. Initialize session state with real director story arc
     livePartySessionState = {
       active: true,
-      cellId: Number(cellId),
-      rx: Number(rx),
-      ry: Number(ry),
-      z: Number(z),
+      cellId: targetCellId,
+      rx: targetRx,
+      ry: targetRy,
+      z: targetZ,
       round: 1,
       turnIndex: 0,
       members: JSON.parse(JSON.stringify(INITIAL_MEMBERS)),
+      activeStoryArc: validated.sanitizedBlueprint.story_arc_framework,
       history: []
     };
 
-    // Ensure default sector props & NPCs are registered in brutalGM
-    brutalGM.activeProps.clear();
-    brutalGM.activeProps.set("prop_gate_01", {
-      id: "prop_gate_01",
-      name: "Reinforced Iron Gate Checkpoint",
-      pos: [128, 128],
-      type: "PROP",
-      isDestroyed: false,
-      tags: new Set(["iron", "gate", "locked", "heavy"]),
-      hp: 110,
-      maxHp: 120,
-      description: "Heavy iron portcullis barring the harbor flume passage."
-    });
-    brutalGM.activeProps.set("prop_crate_01", {
-      id: "prop_crate_01",
-      name: "Salt-Stained Contraband Crate",
-      pos: [134, 132],
-      type: "PROP",
-      isDestroyed: false,
-      tags: new Set(["wood", "container", "contraband"]),
-      hp: 30,
-      maxHp: 30,
-      description: "Wooden shipping crate stamped with Canal Krewe guild seals."
-    });
-    brutalGM.activeProps.set("prop_winch_01", {
-      id: "prop_winch_01",
-      name: "Harbor Flume Winch",
-      pos: [122, 126],
-      type: "PROP",
-      isDestroyed: false,
-      tags: new Set(["iron", "mechanism", "operable"]),
-      hp: 80,
-      maxHp: 80,
-      description: "Counterweighted gear winch that raises and lowers the sluice gates."
-    });
-
-    brutalGM.activeNPCs.clear();
-    brutalGM.activeNPCs.set("npc_fletcher", {
-      id: "npc_fletcher",
-      name: "Watch Captain Kenneth Fletcher",
-      role: "Garrison Watch Captain",
-      faction: "Roromijima Municipal Guard",
-      pos: [128, 126],
-      tags: ["Guard", "Officer", "Armored"],
-      hp: 40,
-      maxHp: 40,
-      disposition: -1,
-      alive: true,
-      equippedWeapon: "Garrison Halberd",
-      equippedArmor: "Riveted Mail",
-      memoryNotes: ["Refuses uninspected transit", "Suspicious of Canal Krewe smugglers"]
-    });
-
     res.json({
       success: true,
-      message: "Party session initialized at sector.",
-      sessionState: livePartySessionState
+      message: "Party session initialized with live AI Director story arc and real sector assets.",
+      sessionState: livePartySessionState,
+      propsLoaded: brutalGM.activeProps.size,
+      npcsLoaded: brutalGM.activeNPCs.size
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -2552,19 +2627,30 @@ router.post('/party_session/step', async (req, res) => {
       return res.status(400).json({ error: "Invalid turn index" });
     }
 
+    // Retrieve real sector layer for terrain grid
+    const layerRowRes = await pool.query(
+      `SELECT * FROM sim_sector_layers WHERE cell_id = $1 AND rx = $2 AND ry = $3 AND z_layer = $4 LIMIT 1`,
+      [livePartySessionState.cellId, livePartySessionState.rx, livePartySessionState.ry, livePartySessionState.z]
+    );
+    const realLayerData = layerRowRes.rows[0];
+
     // 1. Gather scene props & NPCs
     const activePropsList = Array.from(brutalGM.activeProps.values()).map(p => ({
+      id: p.id,
       name: p.name,
       hp: p.hp,
+      maxHp: p.maxHp,
       tags: Array.from(p.tags),
       description: p.description
     }));
 
     const activeNPCsList = Array.from(brutalGM.activeNPCs.values()).map(n => ({
+      id: n.id,
       name: n.name,
       role: n.role,
       disposition: n.disposition,
-      weapon: n.equippedWeapon
+      weapon: n.equippedWeapon,
+      tags: n.tags || []
     }));
 
     const recentChronicle = livePartySessionState.history.slice(-4).map(
@@ -2572,10 +2658,26 @@ router.post('/party_session/step', async (req, res) => {
     );
 
     // 2. Query Ollama for player dialogue and declared action
+    // Gather tactical sight
+    const unzipped = realLayerData?.compressed_terrain ? zlib.gunzipSync(realLayerData.compressed_terrain) : null;
+    const gridArray = unzipped ? new Uint8Array(unzipped.buffer, unzipped.byteOffset, unzipped.byteLength) : undefined;
+    const tacticalSight = brutalGM.generateTacticalVisualContext(
+      currentMember.pos,
+      gridArray,
+      livePartySessionState.z
+    );
+
+    const activeTrouble = livePartySessionState.activeStoryArc?.inciting_incident || "Local civic unrest.";
+    const currentBeat = livePartySessionState.activeStoryArc?.beats?.[(livePartySessionState.activeStoryArc?.active_phase || 1) - 1];
+    const currentObjective = currentBeat ? currentBeat.objective : "Investigate surroundings and act with full agency.";
+
     const { dialogue, action } = await fetchOllamaPlayerIntent(
       currentMember,
       activePropsList,
       activeNPCsList,
+      tacticalSight,
+      activeTrouble,
+      currentObjective,
       recentChronicle
     );
 

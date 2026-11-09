@@ -951,7 +951,7 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
               )}
             </div>
 
-            {/* Section 2: Concordia GM Live Intent Arbitration (Pillar 3) */}
+            {/* Section 2: B.R.U.T.A.L. Game Master Live Action Console (Pillar 3) */}
             <div style={{
               background: '#0f172a',
               border: '1px solid #1e293b',
@@ -961,196 +961,406 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
               display: 'flex',
               flexDirection: 'column'
             }}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#38bdf8' }}>
-                  🎲 Pillar 3: Concordia GM Live Action Console
-                </h3>
-                <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                  Parses free-speech player actions and resolves against the Concordia 12-Attribute opposed 1d12 engine (B.R.U.T.A.L. v4.9)
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#38bdf8' }}>
+                    🎲 Pillar 3: B.R.U.T.A.L. Game Master Console
+                  </h3>
+                  <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                    B.R.U.T.A.L. v4.9 (1d12 + Stat vs Guard) • Real Sector Simulation
+                  </div>
+                </div>
+
+                {/* Mode Selector */}
+                <div style={{ display: 'flex', gap: 4, background: '#020617', padding: 3, borderRadius: 6 }}>
+                  <button
+                    onClick={() => setSessionMode('PARTY')}
+                    style={{
+                      background: sessionMode === 'PARTY' ? '#2563eb' : 'transparent',
+                      color: sessionMode === 'PARTY' ? '#ffffff' : '#94a3b8',
+                      border: 'none',
+                      borderRadius: 4,
+                      padding: '3px 8px',
+                      fontSize: 10,
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    👥 4-Player AI Session
+                  </button>
+                  <button
+                    onClick={() => setSessionMode('MANUAL')}
+                    style={{
+                      background: sessionMode === 'MANUAL' ? '#2563eb' : 'transparent',
+                      color: sessionMode === 'MANUAL' ? '#ffffff' : '#94a3b8',
+                      border: 'none',
+                      borderRadius: 4,
+                      padding: '3px 8px',
+                      fontSize: 10,
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    👤 Manual Action
+                  </button>
                 </div>
               </div>
 
-              {/* Quick Preset Action Buttons */}
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
-                <button
-                  onClick={() => executeGMAction("Examine surroundings and search for hidden clues")}
-                  disabled={actionLoading}
-                  style={{
-                    background: '#1e293b',
-                    color: '#e2e8f0',
-                    border: '1px solid #334155',
-                    padding: '4px 8px',
-                    borderRadius: 4,
-                    fontSize: 10,
-                    cursor: 'pointer'
-                  }}
-                >
-                  🔍 Search Clues
-                </button>
-                <button
-                  onClick={() => executeGMAction("Strike hostile with Osmium Greatsword")}
-                  disabled={actionLoading}
-                  style={{
-                    background: '#1e293b',
-                    color: '#e2e8f0',
-                    border: '1px solid #334155',
-                    padding: '4px 8px',
-                    borderRadius: 4,
-                    fontSize: 10,
-                    cursor: 'pointer'
-                  }}
-                >
-                  ⚔️ Attack Target
-                </button>
-                <button
-                  onClick={() => executeGMAction("Interrogate local commander about contraband trade routes")}
-                  disabled={actionLoading}
-                  style={{
-                    background: '#1e293b',
-                    color: '#e2e8f0',
-                    border: '1px solid #334155',
-                    padding: '4px 8px',
-                    borderRadius: 4,
-                    fontSize: 10,
-                    cursor: 'pointer'
-                  }}
-                >
-                  🗣️ Interrogate NPC
-                </button>
-                <button
-                  onClick={() => executeGMAction("Inspect and pick lock on the heavy stone chest")}
-                  disabled={actionLoading}
-                  style={{
-                    background: '#1e293b',
-                    color: '#e2e8f0',
-                    border: '1px solid #334155',
-                    padding: '4px 8px',
-                    borderRadius: 4,
-                    fontSize: 10,
-                    cursor: 'pointer'
-                  }}
-                >
-                  🗝️ Pick Chest Lock
-                </button>
-                <button
-                  onClick={() => executeGMAction("Inspect stone stairs leading into subterranean crypt")}
-                  disabled={actionLoading}
-                  style={{
-                    background: '#1e293b',
-                    color: '#e2e8f0',
-                    border: '1px solid #334155',
-                    padding: '4px 8px',
-                    borderRadius: 4,
-                    fontSize: 10,
-                    cursor: 'pointer'
-                  }}
-                >
-                  🪜 Enter Sub-Map
-                </button>
-              </div>
+              {sessionMode === 'PARTY' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', flex: 1, marginTop: 10 }}>
+                  {/* Dynamic AI Director Story Trouble Banner */}
+                  {partySession?.activeStoryArc && (
+                    <div style={{
+                      background: '#030712',
+                      border: '1px solid #6366f1',
+                      borderRadius: 6,
+                      padding: '8px 10px',
+                      marginBottom: 8,
+                      fontSize: 11
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontWeight: 800, color: '#818cf8', fontSize: 11 }}>
+                          📜 ACTIVE WORLD TROUBLE: {partySession.activeStoryArc.arc_id}
+                        </span>
+                        <span style={{ color: '#94a3b8', fontSize: 9 }}>Phase {partySession.activeStoryArc.active_phase ?? 1}</span>
+                      </div>
+                      <div style={{ color: '#e2e8f0', marginTop: 2, fontStyle: 'italic', lineHeight: 1.3 }}>
+                        "{partySession.activeStoryArc.inciting_incident}"
+                      </div>
+                      {partySession.activeStoryArc.beats?.[(partySession.activeStoryArc.active_phase || 1) - 1] && (
+                        <div style={{ marginTop: 4, color: '#38bdf8', fontSize: 10 }}>
+                          🎯 <strong>Objective:</strong> {partySession.activeStoryArc.beats[(partySession.activeStoryArc.active_phase || 1) - 1].objective}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
-              {/* Freeform Action Input */}
-              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                <input
-                  type="text"
-                  value={actionInput}
-                  onChange={(e) => setActionInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') executeGMAction(); }}
-                  placeholder="Type any player action (e.g. 'I cast a sense motive on the guard' or 'I scale the wall')..."
-                  style={{
+                  {/* Controls Toolbar */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#020617', padding: '6px 10px', borderRadius: 6, border: '1px solid #1e293b' }}>
+                    <div style={{ fontSize: 11, color: '#e2e8f0' }}>
+                      <span style={{ fontWeight: 800, color: '#38bdf8' }}>Round {partySession?.round ?? 1}</span>
+                      <span style={{ color: '#64748b', margin: '0 6px' }}>•</span>
+                      <span>Turn: <strong style={{ color: partySession?.members?.[partySession?.turnIndex]?.color || '#f59e0b' }}>
+                        {partySession?.members?.[partySession?.turnIndex]?.name ?? 'Harrow Grist'}
+                      </strong></span>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        onClick={stepPartySession}
+                        disabled={partyStepLoading}
+                        style={{
+                          background: partyStepLoading ? '#475569' : '#10b981',
+                          color: '#ffffff',
+                          border: 'none',
+                          borderRadius: 4,
+                          padding: '4px 10px',
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: partyStepLoading ? 'wait' : 'pointer'
+                        }}
+                      >
+                        {partyStepLoading ? '⏳ Ollama Resolving...' : '▶ Step Next Turn'}
+                      </button>
+                      <button
+                        onClick={() => setAutoPlay(!autoPlay)}
+                        style={{
+                          background: autoPlay ? '#ef4444' : '#334155',
+                          color: '#ffffff',
+                          border: 'none',
+                          borderRadius: 4,
+                          padding: '4px 8px',
+                          fontSize: 11,
+                          fontWeight: 600,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {autoPlay ? '⏸ Pause' : '⚡ Auto-Play'}
+                      </button>
+                      <button
+                        onClick={initPartySession}
+                        disabled={partyStepLoading}
+                        style={{
+                          background: '#1e293b',
+                          color: '#94a3b8',
+                          border: '1px solid #334155',
+                          borderRadius: 4,
+                          padding: '4px 8px',
+                          fontSize: 11,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        🔄 Re-Roll Arc
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Party Member Status Cards */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginTop: 8 }}>
+                    {(partySession?.members || []).map((m: any, idx: number) => {
+                      const isCurrent = partySession?.turnIndex === idx;
+                      return (
+                        <div
+                          key={m.id}
+                          style={{
+                            background: isCurrent ? '#1e293b' : '#090d16',
+                            border: `1px solid ${isCurrent ? m.color : '#1e293b'}`,
+                            borderRadius: 6,
+                            padding: 6,
+                            fontSize: 10,
+                            position: 'relative'
+                          }}
+                        >
+                          {isCurrent && (
+                            <span style={{
+                              position: 'absolute',
+                              top: 4,
+                              right: 4,
+                              background: m.color,
+                              color: '#000',
+                              fontSize: 8,
+                              fontWeight: 900,
+                              padding: '1px 3px',
+                              borderRadius: 2
+                            }}>
+                              ACTIVE
+                            </span>
+                          )}
+                          <div style={{ fontWeight: 700, color: m.color }}>{m.name}</div>
+                          <div style={{ color: '#64748b', fontSize: 9 }}>{m.species} • {m.role}</div>
+                          <div style={{ marginTop: 4, color: '#e2e8f0', display: 'flex', justifyContent: 'space-between' }}>
+                            <span>HP: {m.hp}/{m.maxHp}</span>
+                            <span>Gold: {m.gold ?? 50}g</span>
+                          </div>
+                          <div style={{ color: '#94a3b8', fontSize: 9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            🗡️ {m.weapon}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Live Feed */}
+                  <div style={{
+                    marginTop: 8,
                     flex: 1,
                     background: '#020617',
-                    border: '1px solid #334155',
-                    borderRadius: 4,
-                    padding: '8px 12px',
-                    color: '#f8fafc',
-                    fontSize: 12
-                  }}
-                />
-                <button
-                  onClick={() => executeGMAction()}
-                  disabled={actionLoading}
-                  style={{
-                    background: '#0284c7',
-                    color: '#fff',
-                    border: 'none',
-                    padding: '8px 16px',
-                    borderRadius: 4,
-                    fontWeight: 700,
-                    fontSize: 12,
-                    cursor: 'pointer'
-                  }}
-                >
-                  {actionLoading ? '🎲 Rolling...' : 'Send Action'}
-                </button>
-              </div>
-
-              {/* GM Resolution Output */}
-              <div style={{
-                marginTop: 12,
-                flex: 1,
-                background: '#020617',
-                border: '1px solid #1e293b',
-                borderRadius: 6,
-                padding: 12,
-                overflowY: 'auto',
-                fontSize: 12,
-                color: '#cbd5e1'
-              }}>
-                {actionResult ? (
-                  <div>
-                    {actionResult.rollResults && actionResult.rollResults.length > 0 && (
-                      <div style={{
-                        background: '#0f172a',
-                        border: '1px solid #38bdf8',
-                        borderRadius: 4,
-                        padding: 8,
-                        marginBottom: 10
-                      }}>
-                        <div style={{ fontWeight: 800, color: '#38bdf8', fontSize: 13, marginBottom: 4 }}>
-                          🎲 Opposed 1d12 Resolution (B.R.U.T.A.L. v4.9)
-                        </div>
-                        {actionResult.rollResults.map((r: any, idx: number) => (
-                          <div key={idx} style={{ fontSize: 11, color: '#94a3b8' }}>
-                            <span style={{
-                              color: r.success ? '#22c55e' : '#ef4444',
-                              fontWeight: 700,
-                              marginRight: 6
-                            }}>
-                              [{r.success ? 'SUCCESS' : 'FAILURE'}]
+                    border: '1px solid #1e293b',
+                    borderRadius: 6,
+                    padding: 10,
+                    overflowY: 'auto',
+                    maxHeight: 280,
+                    fontSize: 11,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8
+                  }}>
+                    {partySession?.history && partySession.history.length > 0 ? (
+                      partySession.history.map((h: any, idx: number) => (
+                        <div
+                          key={idx}
+                          style={{
+                            background: '#0f172a',
+                            borderLeft: `3px solid ${h.success ? '#10b981' : '#ef4444'}`,
+                            borderRadius: 4,
+                            padding: 8
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                            <span style={{ fontWeight: 700, color: '#f8fafc' }}>
+                              [R{h.round}:T{h.turn}] {h.characterName}
                             </span>
-                            Roll: <strong>{r.totalRoll ?? r.roll}</strong> vs DC/Defense: <strong>{r.dc ?? r.targetTotal}</strong>
-                            {r.stat && ` • Stat: ${r.stat.toUpperCase()}`}
-                            {r.xpGained ? ` • +${r.xpGained} XP` : ''}
+                            <span style={{
+                              fontWeight: 800,
+                              fontSize: 9,
+                              color: h.success ? '#22c55e' : '#ef4444'
+                            }}>
+                              {h.success ? 'HIT / SUCCESS' : 'FAILED / DEFLECTED'}
+                            </span>
                           </div>
-                        ))}
-                      </div>
-                    )}
-
-                    <div style={{ fontWeight: 700, color: '#f8fafc', marginBottom: 4 }}>
-                      GM Narrative Chronicle:
-                    </div>
-                    <div style={{ fontStyle: 'italic', lineHeight: 1.5, color: '#e2e8f0' }}>
-                      "{actionResult.narrative || actionResult.text || actionResult.message || 'Action executed.'}"
-                    </div>
-
-                    {actionResult.events && actionResult.events.length > 0 && (
-                      <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid #1e293b' }}>
-                        <span style={{ fontWeight: 700, color: '#f59e0b' }}>World Events Injected:</span>
-                        <ul style={{ margin: '4px 0 0 16px', padding: 0, color: '#94a3b8' }}>
-                          {actionResult.events.map((ev: any, idx: number) => (
-                            <li key={idx}>{ev.message || ev.type}</li>
-                          ))}
-                        </ul>
+                          <div style={{ fontStyle: 'italic', color: '#93c5fd', marginBottom: 4 }}>
+                            "{h.dialogue}"
+                          </div>
+                          <div style={{ color: '#cbd5e1', marginBottom: 4 }}>
+                            <strong>Action:</strong> {h.action}
+                          </div>
+                          {h.rollOutcome && (
+                            <div style={{ fontSize: 10, color: '#94a3b8', background: '#020617', padding: '2px 6px', borderRadius: 3, marginBottom: 4 }}>
+                              🎲 1d12 ({h.rollOutcome.playerRoll}) + Stat ({h.rollOutcome.playerStatVal}) = Total {h.rollOutcome.playerRoll + h.rollOutcome.playerStatVal} vs Guard {h.rollOutcome.dcOrDefenderRoll}
+                              {h.rollOutcome.injuryPoints ? ` • ${h.rollOutcome.injuryPoints} structural dmg` : ''}
+                            </div>
+                          )}
+                          <div style={{ color: '#e2e8f0', lineHeight: 1.4 }}>
+                            {h.narrative}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ color: '#64748b', fontStyle: 'italic', textAlign: 'center', marginTop: 30 }}>
+                        Click <strong>"▶ Step Next Turn"</strong> to start the 4-player AI party session in this sector!
                       </div>
                     )}
                   </div>
-                ) : (
-                  <div style={{ color: '#64748b', fontStyle: 'italic', textAlign: 'center', marginTop: 30 }}>
-                    Enter an action or click a preset above to test the Concordia GM opposed 1d12 arbitration engine on this map.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+                  {/* Quick Preset Action Buttons */}
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+                    <button
+                      onClick={() => executeGMAction("Examine surroundings and search for hidden clues")}
+                      disabled={actionLoading}
+                      style={{
+                        background: '#1e293b',
+                        color: '#e2e8f0',
+                        border: '1px solid #334155',
+                        padding: '4px 8px',
+                        borderRadius: 4,
+                        fontSize: 10,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      🔍 Search Clues
+                    </button>
+                    <button
+                      onClick={() => executeGMAction("Strike hostile with Osmium Greatsword")}
+                      disabled={actionLoading}
+                      style={{
+                        background: '#1e293b',
+                        color: '#e2e8f0',
+                        border: '1px solid #334155',
+                        padding: '4px 8px',
+                        borderRadius: 4,
+                        fontSize: 10,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      ⚔️ Attack Target
+                    </button>
+                    <button
+                      onClick={() => executeGMAction("Interrogate local commander about contraband trade routes")}
+                      disabled={actionLoading}
+                      style={{
+                        background: '#1e293b',
+                        color: '#e2e8f0',
+                        border: '1px solid #334155',
+                        padding: '4px 8px',
+                        borderRadius: 4,
+                        fontSize: 10,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      🗣️ Interrogate NPC
+                    </button>
+                    <button
+                      onClick={() => executeGMAction("Inspect and pick lock on the heavy stone chest")}
+                      disabled={actionLoading}
+                      style={{
+                        background: '#1e293b',
+                        color: '#e2e8f0',
+                        border: '1px solid #334155',
+                        padding: '4px 8px',
+                        borderRadius: 4,
+                        fontSize: 10,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      🔓 Pick Lock
+                    </button>
                   </div>
-                )}
-              </div>
+
+                  {/* Free-speech text action bar */}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    <input
+                      type="text"
+                      value={actionInput}
+                      onChange={(e) => setActionInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') executeGMAction(); }}
+                      placeholder="Type a player action (e.g. 'Sneak past sentry to the sewer flume')"
+                      style={{
+                        flex: 1,
+                        background: '#020617',
+                        border: '1px solid #334155',
+                        borderRadius: 4,
+                        padding: '6px 10px',
+                        color: '#f8fafc',
+                        fontSize: 12
+                      }}
+                    />
+                    <button
+                      onClick={() => executeGMAction()}
+                      disabled={actionLoading}
+                      style={{
+                        background: actionLoading ? '#475569' : '#38bdf8',
+                        color: '#0f172a',
+                        fontWeight: 700,
+                        border: 'none',
+                        borderRadius: 4,
+                        padding: '6px 14px',
+                        fontSize: 12,
+                        cursor: actionLoading ? 'wait' : 'pointer'
+                      }}
+                    >
+                      {actionLoading ? 'Arbiter...' : 'Execute'}
+                    </button>
+                  </div>
+
+                  {/* GM Resolution Output */}
+                  <div style={{
+                    marginTop: 12,
+                    flex: 1,
+                    background: '#020617',
+                    border: '1px solid #1e293b',
+                    borderRadius: 6,
+                    padding: 12,
+                    overflowY: 'auto',
+                    fontSize: 12,
+                    color: '#cbd5e1'
+                  }}>
+                    {actionResult ? (
+                      <div>
+                        {actionResult.rollResults && actionResult.rollResults.length > 0 && (
+                          <div style={{
+                            background: '#0f172a',
+                            border: '1px solid #38bdf8',
+                            borderRadius: 4,
+                            padding: 8,
+                            marginBottom: 10
+                          }}>
+                            <div style={{ fontWeight: 800, color: '#38bdf8', fontSize: 13, marginBottom: 4 }}>
+                              🎲 Opposed 1d12 Resolution (B.R.U.T.A.L. v4.9)
+                            </div>
+                            {actionResult.rollResults.map((r: any, idx: number) => (
+                              <div key={idx} style={{ fontSize: 11, color: '#94a3b8' }}>
+                                <span style={{
+                                  color: r.success ? '#22c55e' : '#ef4444',
+                                  fontWeight: 700,
+                                  marginRight: 6
+                                }}>
+                                  [{r.success ? 'SUCCESS' : 'FAILURE'}]
+                                </span>
+                                Roll: <strong>{r.totalRoll ?? r.roll}</strong> vs DC/Defense: <strong>{r.dc ?? r.targetTotal}</strong>
+                                {r.stat && ` • Stat: ${r.stat.toUpperCase()}`}
+                                {r.xpGained ? ` • +${r.xpGained} XP` : ''}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <div style={{ fontWeight: 700, color: '#f8fafc', marginBottom: 4 }}>
+                          GM Narrative Chronicle:
+                        </div>
+                        <div style={{ fontStyle: 'italic', lineHeight: 1.5, color: '#e2e8f0' }}>
+                          "{actionResult.narrative || actionResult.text || actionResult.message || 'Action executed.'}"
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ color: '#64748b', fontStyle: 'italic', textAlign: 'center', marginTop: 30 }}>
+                        Enter an action or click a preset above to test the B.R.U.T.A.L. GM opposed 1d12 arbitration engine on this map.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
