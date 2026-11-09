@@ -79,5 +79,3 @@
 
 ## Out of scope for now (parking lot)
 - Rumor drift, the pacing director, paragon wants (in full) and agent-player measurement: designs in `STORY_IDEAS.md`.
-- A pacing director (tension-based hook timing).
-- Measuring story quality with the agent players.
