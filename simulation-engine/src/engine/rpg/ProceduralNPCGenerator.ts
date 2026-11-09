@@ -13,6 +13,7 @@ import {
   getRandomWeaponForStat,
   getRandomArmorForStat
 } from "./EquipmentRegistry.js";
+import { getFactionSpecialty } from "../economy/factionSpecialties.js";
 import { InjectedNPC, SectorContext, BIOME_ECOLOGY_MATRIX, DRAGON_PRISONS } from "./WhatElseStoryEngine.js";
 
 export class SeededPRNG {
@@ -221,6 +222,39 @@ export class ProceduralNPCGenerator {
         });
       }
 
+      // Add faction signature specialty master artisan
+      const factionSpecialty = getFactionSpecialty(context.factionOwner || (context.burg as any)?.faction_id || 0);
+      if (factionSpecialty && factionSpecialty.factionId !== 0) {
+        municipalRoles.push({
+          slotKey: "specialty_master",
+          roleTitle: factionSpecialty.artisanRole,
+          primaryStat: (function() {
+            switch (factionSpecialty.category) {
+              case "METAPHYSICAL": return "willpower" as StatKey;
+              case "ADVANCED": return "knowledge" as StatKey;
+              case "ENERGY": return "might" as StatKey;
+              case "HEALTH": return "vitality" as StatKey;
+              case "LOGISTICS": return "logic" as StatKey;
+              case "PRESERVATION": return "endurance" as StatKey;
+              case "STRUCTURAL": return "might" as StatKey;
+              default: return "finesse" as StatKey;
+            }
+          })(),
+          offset: [centerPoint[0] - 6, centerPoint[1] + 3] as [number, number],
+          tags: [
+            "artisan",
+            "specialty_master",
+            factionSpecialty.artisanPersonaTag.replace('#', ''),
+            factionSpecialty.category.toLowerCase(),
+            "tradeable",
+            "organic"
+          ],
+          weaponStat: "finesse" as StatKey,
+          armorStat: "fortitude" as StatKey,
+          disposition: 1
+        });
+      }
+
       // Procedurally generate each role
       municipalRoles.forEach((roleDef, idx) => {
         const npcId = `npc_${cellId}_${rx}_${ry}_${roleDef.slotKey}`;
@@ -277,7 +311,9 @@ export class ProceduralNPCGenerator {
           lineage: lineageInfo.lineage,
           homePos: homeOffset,
           workPos: roleDef.offset,
-          currentTask: `Operating ${roleDef.roleTitle}`,
+          currentTask: roleDef.slotKey === "specialty_master"
+            ? `Directing ${factionSpecialty.specialtyName} (${factionSpecialty.harvestMethod})`
+            : `Operating ${roleDef.roleTitle}`,
           scheduleState: "WORK",
           inventory: (function() {
             const map: Record<string, string[]> = {
@@ -287,7 +323,8 @@ export class ProceduralNPCGenerator {
               sentry: [weapon.name, "Watch Horn", "Ration Bread", "Iron Manacles"],
               courier: [weapon.name, "Sealed Courier Satchel", "Trail Provisions", "Wayfarer Cloak"],
               agitator: [weapon.name, "Stale Crust", "Flint Spark", "Crude Seditious Broadsheet"],
-              fence: [weapon.name, "Lockpick Set", "Pouch of 25 Gold", "Smuggled Aetheric Draught"]
+              fence: [weapon.name, "Lockpick Set", "Pouch of 25 Gold", "Smuggled Aetheric Draught"],
+              specialty_master: [weapon.name, factionSpecialty.uniqueGoodName, "Master Artisan Tools", "Trade Manifest"]
             };
             return map[roleDef.slotKey] || [weapon.name, "Trail Provisions"];
           })()

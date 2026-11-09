@@ -6,8 +6,10 @@ import pool from '../db/pool.js';
 import { updateSectorNPCRoutines } from '../engine/agents/npcRoutineAgent.js';
 import { getActiveChaosFlows, evaluatePointChaosFlowProximity } from '../engine/agents/chaosFlowAgent.js';
 import { getLairPropDetails, ensureLairResidents } from '../engine/agents/outlawSyndicates.js';
-import { generateGrindCanyonSectorMap, generateBurgSectorLayers } from '../engine/maps/SectorMapGenerator.js';
+import { generateGrindCanyonSectorMap, generateBurgSectorLayers, generateOutlyingSectorMap, generateTacticalRegionalSectorMap } from '../engine/maps/SectorMapGenerator.js';
 import { getOrGenerateInteriorSubMap } from '../engine/subMapEngine.js';
+import { getOrCreateRegionalInstance } from './regionalRouter.js';
+import { getFactionSpecialty, FACTION_SPECIALTIES, FactionSpecialty } from '../engine/economy/factionSpecialties.js';
 
 dotenv.config({ override: true });
 
@@ -727,7 +729,7 @@ router.post('/sector_load', async (req, res) => {
     const flows = await getActiveChaosFlows(pool);
     const flowProximity = evaluatePointChaosFlowProximity(cx, cy, flows);
 
-    // Check if sector is in sim_sector_layers (Layer 0 Surface) or pre-rendered in sim_world_vault_sectors
+    // Check if sector is in sim_sector_layers (Layer 0 Surface)
     let preRenderedMap: any = null;
     try {
       const layerRes = await pool.query(
@@ -742,109 +744,239 @@ router.post('/sector_load', async (req, res) => {
         const decompressed = zlib.gunzipSync(lyr.compressed_terrain);
         preRenderedMap = {
           name: lyr.layer_name,
-          poiType: 'SETTLEMENT_CORE',
+          poiType: lyr.features?.poiType || 'SECTOR',
           grid: Array.from(decompressed),
           props: lyr.props || [],
           npcs: lyr.npcs || [],
           features: lyr.features || {}
         };
       } else {
-        let vaultRes = await pool.query(
-          `SELECT name, poi_type, compressed_terrain, props, npcs, features
-           FROM sim_world_vault_sectors
-           WHERE cell_id = $1 AND rx = $2 AND ry = $3`,
-          [targetCellId, targetRx, targetRy]
-        );
-        if ((!vaultRes.rowCount || vaultRes.rowCount === 0) && (targetRx !== 50 || targetRy !== 50)) {
-          // Fallback to central burg core at (50, 50) if specific outlying sector not yet vaulted
-          vaultRes = await pool.query(
-            `SELECT name, poi_type, compressed_terrain, props, npcs, features
-             FROM sim_world_vault_sectors
-             WHERE cell_id = $1 AND rx = 50 AND ry = 50`,
+        // Authentically generate procedural sector layers on the fly (Zero Generic Fallbacks!)
+        const [burgRes, regInstance] = await Promise.all([
+          pool.query(
+            `SELECT b.*, c.faction_id, f.name AS faction_name
+             FROM sim_burg_economy b
+             LEFT JOIN sim_cells c ON c.id = b.cell_id
+             LEFT JOIN sim_factions f ON f.id = c.faction_id
+             WHERE b.cell_id = $1 LIMIT 1`,
             [targetCellId]
+          ),
+          getOrCreateRegionalInstance(targetCellId)
+        ]);
+
+        const cellIdx = Math.max(0, Math.min(9999, targetRy * 100 + targetRx));
+        const isBurgSettlement = burgRes.rows.length > 0 && (
+          (targetRx === 50 && targetRy === 50) ||
+          (regInstance?.mapData && regInstance.mapData[cellIdx] === 4)
+        );
+
+        if (isBurgSettlement) {
+          const burg = burgRes.rows[0];
+          const factionName = burg.faction_name || "Provincial Sovereignty";
+          const wardFocus = regInstance?.wardMap?.[cellIdx] || (targetRx === 50 && targetRy === 50 ? 'CITADEL' : 'RESIDENTIAL');
+          const [citRes, lairRes, paragonRes, stockpileRes, eventsRes, cellRes] = await Promise.all([
+            pool.query(`SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation, workplace_type, workplace_name, childhood_background, allegiance_status FROM population_demographics WHERE (home_cell_id = $1 OR settlement_id = $2) AND life_stage = 'ADULT' ORDER BY citizen_id ASC LIMIT 60`, [targetCellId, burg.burg_id]),
+            pool.query(`SELECT l.*, o.name AS cartel_name, o.type AS cartel_type, o.contraband_types FROM sim_fringe_lairs l JOIN sim_outlaw_factions o ON o.id = l.faction_id WHERE l.burg_id = $1 OR l.cell_id = $2`, [burg.burg_id, targetCellId]),
+            pool.query(`SELECT * FROM sim_paragons WHERE burg_id = $1 OR outlaw_id IN (SELECT faction_id FROM sim_fringe_lairs WHERE burg_id = $1 OR cell_id = $2)`, [burg.burg_id, targetCellId]),
+            pool.query(`SELECT * FROM sim_industrial_stockpiles WHERE burg_id = $1 LIMIT 1`, [burg.burg_id]),
+            pool.query(`SELECT * FROM sim_events WHERE burg_id = $1 OR cell_id = $2 ORDER BY id DESC LIMIT 25`, [burg.burg_id, targetCellId]),
+            pool.query(`SELECT id, faction_id, biome, elevation FROM sim_cells WHERE id = $1 LIMIT 1`, [targetCellId])
+          ]);
+
+          const layers = generateBurgSectorLayers(
+            burg,
+            factionName,
+            targetCellId,
+            citRes.rows,
+            lairRes.rows,
+            paragonRes.rows,
+            {
+              stockpile: stockpileRes.rows[0],
+              events: eventsRes.rows,
+              cellData: cellRes.rows[0],
+              biomeId: Number(cellRes.rows[0]?.biome) || 4,
+              rx: targetRx,
+              ry: targetRy,
+              wardFocus
+            }
           );
-        }
 
-        if (vaultRes.rowCount && vaultRes.rowCount > 0) {
-          const v = vaultRes.rows[0];
-          const decompressed = zlib.gunzipSync(v.compressed_terrain);
+          await pool.query(
+            `INSERT INTO sim_sector_layers (cell_id, rx, ry, z_layer, layer_name, compressed_terrain, props, npcs, features)
+           VALUES
+           ($1, $2, $3, -1, $4, $5, $6, $7, $8),
+           ($1, $2, $3, 0, $9, $10, $11, $12, $13),
+           ($1, $2, $3, 1, $14, $15, $16, $17, $18)
+           ON CONFLICT (cell_id, rx, ry, z_layer) DO UPDATE SET
+             compressed_terrain = EXCLUDED.compressed_terrain,
+             props = EXCLUDED.props,
+             npcs = EXCLUDED.npcs;`,
+            [
+              targetCellId, targetRx, targetRy,
+              layers.layerMinus1.name, layers.layerMinus1.compressed, JSON.stringify(layers.layerMinus1.props), JSON.stringify(layers.layerMinus1.npcs), JSON.stringify(layers.layerMinus1.features),
+              layers.layer0.name, layers.layer0.compressed, JSON.stringify(layers.layer0.props), JSON.stringify(layers.layer0.npcs), JSON.stringify(layers.layer0.features),
+              layers.layerPlus1.name, layers.layerPlus1.compressed, JSON.stringify(layers.layerPlus1.props), JSON.stringify(layers.layerPlus1.npcs), JSON.stringify(layers.layerPlus1.features)
+            ]
+          );
+
           preRenderedMap = {
-            name: v.name,
-            poiType: v.poi_type,
-            grid: Array.from(decompressed),
-            props: v.props || [],
-            npcs: v.npcs || [],
-            features: v.features || {}
+            name: layers.layer0.name,
+            poiType: 'SETTLEMENT_CORE',
+            grid: Array.from(layers.layer0.grid),
+            props: layers.layer0.props,
+            npcs: layers.layer0.npcs,
+            features: layers.layer0.features
           };
-        }
-      }
-    } catch (vaultErr) {
-      console.warn('Could not query sector layers or vault in sector_load:', vaultErr);
-    }
+        } else {
+          // Outlying Regional Sector (Farmstead, Logging Camp, Mine, Watchtower, Hamlet, or Wilderness)
+          const [cellRes, citRes, paragonRes, lairRes, eventsRes, stockpileRes] = await Promise.all([
+            pool.query(`SELECT c.*, f.name AS faction_name FROM sim_cells c LEFT JOIN sim_factions f ON f.id = c.faction_id WHERE c.id = $1 LIMIT 1`, [targetCellId]),
+            pool.query(`SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation, workplace_type, workplace_name, childhood_background, allegiance_status FROM population_demographics WHERE (home_cell_id = $1 OR settlement_id = $2) AND life_stage = 'ADULT' ORDER BY citizen_id ASC LIMIT 60`, [targetCellId, burgRes.rows[0]?.burg_id || 0]),
+            pool.query(`SELECT * FROM sim_paragons WHERE burg_id = $1 LIMIT 10`, [burgRes.rows[0]?.burg_id || 0]),
+            pool.query(`SELECT l.*, o.name AS cartel_name, o.type AS cartel_type FROM sim_fringe_lairs l JOIN sim_outlaw_factions o ON o.id = l.faction_id WHERE l.burg_id = $1 OR l.cell_id = $2 LIMIT 10`, [burgRes.rows[0]?.burg_id || 0, targetCellId]),
+            pool.query(`SELECT * FROM sim_events WHERE (burg_id = $1 OR cell_id = $2) ORDER BY id DESC LIMIT 25`, [burgRes.rows[0]?.burg_id || 0, targetCellId]),
+            pool.query(`SELECT * FROM sim_industrial_stockpiles WHERE burg_id = $1 LIMIT 1`, [burgRes.rows[0]?.burg_id || 0])
+          ]);
 
-    // Check if cell contains an active dynamic Grind Canyon Chasm
-    let activeGrindCanyon: any = null;
-    try {
-      const canyonRes = await pool.query(
-        `SELECT * FROM sim_grind_canyons
+            const cellData = cellRes.rows[0] || { id: targetCellId, biome: 4, elevation: 50 };
+            const factionName = cellData.faction_name || "The Wild Frontier";
+            let citizens = citRes.rows;
+            if (citizens.length === 0 && cellData.faction_id) {
+              const facCitRes = await pool.query(
+                `SELECT p.citizen_id, p.name, p.profession, p.species, p.spark_tier, p.temper, p.instinct, p.motivation, p.workplace_type, p.workplace_name, p.childhood_background, p.allegiance_status
+               FROM population_demographics p JOIN sim_cells c ON c.faction_id = p.home_cell_id WHERE c.faction_id = $1 AND p.life_stage = 'ADULT' ORDER BY p.citizen_id ASC LIMIT 60`,
+                [cellData.faction_id]
+              );
+              citizens = facCitRes.rows;
+            }
+
+            const idx = Math.max(0, Math.min(9999, targetRy * 100 + targetRx));
+            const localBiomeId = regInstance?.biomeMap ? regInstance.biomeMap[idx] : (Number(cellData.biome) || 4);
+            const localBiomeName = regInstance ? regInstance.getBiomeLabel(localBiomeId) : "Wilderness";
+            const terrainType = regInstance?.mapData ? regInstance.mapData[idx] : 0;
+            const infraMask = regInstance?.infraMap ? regInstance.infraMap[idx] : 0;
+            const elevation = regInstance?.elevationMap ? regInstance.elevationMap[idx] : (Number(cellData.elevation) || 50);
+            const vegetation = regInstance?.vegetationMap ? regInstance.vegetationMap[idx] : 0.3;
+            const chaos = regInstance?.chaosMap ? regInstance.chaosMap[idx] : 0.0;
+            const facility = regInstance?.facilities?.find((f: any) => (f.rx ?? f.x) === targetRx && (f.ry ?? f.y) === targetRy);
+            const nearbyAgents = regInstance?.agents?.filter((a: any) => Math.hypot(a.rx - targetRx, a.ry - targetRy) <= 5) || [];
+
+            const tacticalMap = generateTacticalRegionalSectorMap({
+              cellId: targetCellId,
+              rx: targetRx,
+              ry: targetRy,
+              z: 0,
+              biomeId: localBiomeId,
+              biomeName: localBiomeName,
+              terrainType,
+              infraMask,
+              elevation,
+              vegetation,
+              chaos,
+              parentBurg: burgRes.rows[0],
+              factionName,
+              facility,
+              nearbyAgents,
+              citizens,
+              paragons: paragonRes.rows,
+              lairs: lairRes.rows,
+              events: eventsRes.rows,
+              stockpile: stockpileRes.rows[0]
+            });
+
+            await pool.query(
+              `INSERT INTO sim_sector_layers (cell_id, rx, ry, z_layer, layer_name, compressed_terrain, props, npcs, features)
+             VALUES ($1, $2, $3, 0, $4, $5, $6, $7, $8)
+             ON CONFLICT (cell_id, rx, ry, z_layer) DO UPDATE SET
+               compressed_terrain = EXCLUDED.compressed_terrain,
+               props = EXCLUDED.props,
+               npcs = EXCLUDED.npcs,
+               features = EXCLUDED.features`,
+              [
+                targetCellId, targetRx, targetRy,
+                tacticalMap.name, tacticalMap.compressed,
+                JSON.stringify(tacticalMap.props), JSON.stringify(tacticalMap.npcs),
+                JSON.stringify(tacticalMap.features)
+              ]
+            );
+
+            preRenderedMap = {
+              name: tacticalMap.name,
+              poiType: tacticalMap.poiType,
+              grid: Array.from(tacticalMap.grid),
+              props: tacticalMap.props,
+              npcs: tacticalMap.npcs,
+              features: tacticalMap.features
+            };
+          }
+        }
+      } catch (vaultErr) {
+        console.warn('Could not query or generate sector layers in sector_load:', vaultErr);
+      }
+
+      // Check if cell contains an active dynamic Grind Canyon Chasm
+      let activeGrindCanyon: any = null;
+      try {
+        const canyonRes = await pool.query(
+          `SELECT * FROM sim_grind_canyons
          WHERE cell_id = $1 AND status IN ('OPEN', 'COLLAPSING')
          LIMIT 1`,
-        [targetCellId]
-      );
-      if (canyonRes.rows.length > 0) {
-        activeGrindCanyon = canyonRes.rows[0];
+          [targetCellId]
+        );
+        if (canyonRes.rows.length > 0) {
+          activeGrindCanyon = canyonRes.rows[0];
+        }
+      } catch (canyonErr) {
+        console.warn('Error checking grind canyons:', canyonErr);
       }
-    } catch (canyonErr) {
-      console.warn('Error checking grind canyons:', canyonErr);
-    }
 
-    if (!preRenderedMap && activeGrindCanyon) {
-      const canyonMap = generateGrindCanyonSectorMap(activeGrindCanyon, targetCellId);
-      preRenderedMap = {
-        name: canyonMap.name,
-        poiType: canyonMap.poiType,
-        grid: Array.from(canyonMap.grid),
-        props: canyonMap.props,
-        npcs: canyonMap.npcs,
-        features: canyonMap.features
-      };
-    }
+      if (!preRenderedMap && activeGrindCanyon) {
+        const canyonMap = generateGrindCanyonSectorMap(activeGrindCanyon, targetCellId);
+        preRenderedMap = {
+          name: canyonMap.name,
+          poiType: canyonMap.poiType,
+          grid: Array.from(canyonMap.grid),
+          props: canyonMap.props,
+          npcs: canyonMap.npcs,
+          features: canyonMap.features
+        };
+      }
 
-    // Merge vaulted props if present
-    const finalProps: any[] = injected.props.map(p => ({
-      id: p.id,
-      name: p.name,
-      pos: p.pos,
-      tags: Array.from(p.tags),
-      hp: p.hp,
-      maxHp: p.maxHp,
-      isDestroyed: p.isDestroyed
-    }));
-    const existingPropIds = new Set(finalProps.map(p => p.id));
-    if (preRenderedMap && Array.isArray(preRenderedMap.props)) {
-      for (const vp of preRenderedMap.props) {
-        if (!existingPropIds.has(vp.id)) {
-          finalProps.push(vp);
-          existingPropIds.add(vp.id);
+      // Merge vaulted props if present
+      const finalProps: any[] = injected.props.map(p => ({
+        id: p.id,
+        name: p.name,
+        pos: p.pos,
+        tags: Array.from(p.tags),
+        hp: p.hp,
+        maxHp: p.maxHp,
+        isDestroyed: p.isDestroyed
+      }));
+      const existingPropIds = new Set(finalProps.map(p => p.id));
+      if (preRenderedMap && Array.isArray(preRenderedMap.props)) {
+        for (const vp of preRenderedMap.props) {
+          if (!existingPropIds.has(vp.id)) {
+            finalProps.push(vp);
+            existingPropIds.add(vp.id);
+          }
         }
       }
-    }
 
-    // Merge vaulted npcs if present
-    const finalNPCs = [...injected.npcs];
-    const existingNpcIds = new Set(finalNPCs.map(n => n.id));
-    if (preRenderedMap && Array.isArray(preRenderedMap.npcs)) {
-      for (const vn of preRenderedMap.npcs) {
-        if (!existingNpcIds.has(vn.id)) {
-          finalNPCs.push(vn);
-          existingNpcIds.add(vn.id);
+      // Merge vaulted npcs if present
+      const finalNPCs = [...injected.npcs];
+      const existingNpcIds = new Set(finalNPCs.map(n => n.id));
+      if (preRenderedMap && Array.isArray(preRenderedMap.npcs)) {
+        for (const vn of preRenderedMap.npcs) {
+          if (!existingNpcIds.has(vn.id)) {
+            finalNPCs.push(vn);
+            existingNpcIds.add(vn.id);
+          }
         }
       }
-    }
 
-    // Dynamic Underworld Lairs & Unique Persistent Outlaw Operatives Injection
-    try {
-      const lairRes = await pool.query(`
+      // Dynamic Underworld Lairs & Unique Persistent Outlaw Operatives Injection
+      try {
+        const lairRes = await pool.query(`
         SELECT l.id, l.faction_id, l.cell_id, l.burg_id, l.lair_type, l.manpower, l.heat,
                o.name AS cartel_name, o.type AS cartel_type
         FROM sim_fringe_lairs l
@@ -852,99 +984,99 @@ router.post('/sector_load', async (req, res) => {
         WHERE l.cell_id = $1
       `, [targetCellId]);
 
-      if (lairRes.rows.length > 0) {
-        for (let idx = 0; idx < lairRes.rows.length; idx++) {
-          const lair = lairRes.rows[idx];
-          const lairPropId = `prop_underworld_lair_${lair.id}`;
-          if (!existingPropIds.has(lairPropId)) {
-            const posX = 164 + (idx * 6);
-            const posY = 164 + (idx * 6);
+        if (lairRes.rows.length > 0) {
+          for (let idx = 0; idx < lairRes.rows.length; idx++) {
+            const lair = lairRes.rows[idx];
+            const lairPropId = `prop_underworld_lair_${lair.id}`;
+            if (!existingPropIds.has(lairPropId)) {
+              const posX = 164 + (idx * 6);
+              const posY = 164 + (idx * 6);
 
-            const propDetails = getLairPropDetails(lair);
-            finalProps.push({
-              id: lairPropId,
-              name: propDetails.name,
-              pos: [posX, posY],
-              tags: propDetails.tags,
-              hp: propDetails.hp,
-              maxHp: propDetails.maxHp,
-              isDestroyed: false,
-              description: propDetails.description
-            });
-            existingPropIds.add(lairPropId);
+              const propDetails = getLairPropDetails(lair);
+              finalProps.push({
+                id: lairPropId,
+                name: propDetails.name,
+                pos: [posX, posY],
+                tags: propDetails.tags,
+                hp: propDetails.hp,
+                maxHp: propDetails.maxHp,
+                isDestroyed: false,
+                description: propDetails.description
+              });
+              existingPropIds.add(lairPropId);
 
-            // Fetch or generate persistent, unique individuals from sim_npc_instances
-            const residents = await ensureLairResidents(pool, lair);
-            for (const npc of residents) {
-              if (npc.alive && !existingNpcIds.has(npc.id)) {
-                finalNPCs.push({
-                  id: npc.id,
-                  name: npc.name,
-                  role: npc.role,
-                  pos: [npc.local_pos[0], npc.local_pos[1]] as [number, number],
-                  tags: Array.isArray(npc.tags) ? npc.tags : (typeof npc.tags === "string" ? JSON.parse(npc.tags) : []),
-                  faction: npc.faction,
-                  hp: npc.hp,
-                  maxHp: npc.max_hp,
-                  disposition: npc.disposition,
-                  alive: npc.alive,
-                  equippedWeapon: npc.equipped_weapon,
-                  equippedArmor: npc.equipped_armor,
-                  statAffinity: npc.stat_affinity,
-                  kingdom: npc.kingdom,
-                  species: npc.species,
-                  lineage: npc.lineage,
-                  inventory: typeof npc.inventory === "string" ? JSON.parse(npc.inventory) : npc.inventory,
-                  memoryNotes: typeof npc.memory_notes === "string" ? JSON.parse(npc.memory_notes) : npc.memory_notes
-                });
-                existingNpcIds.add(npc.id);
+              // Fetch or generate persistent, unique individuals from sim_npc_instances
+              const residents = await ensureLairResidents(pool, lair);
+              for (const npc of residents) {
+                if (npc.alive && !existingNpcIds.has(npc.id)) {
+                  finalNPCs.push({
+                    id: npc.id,
+                    name: npc.name,
+                    role: npc.role,
+                    pos: [npc.local_pos[0], npc.local_pos[1]] as [number, number],
+                    tags: Array.isArray(npc.tags) ? npc.tags : (typeof npc.tags === "string" ? JSON.parse(npc.tags) : []),
+                    faction: npc.faction,
+                    hp: npc.hp,
+                    maxHp: npc.max_hp,
+                    disposition: npc.disposition,
+                    alive: npc.alive,
+                    equippedWeapon: npc.equipped_weapon,
+                    equippedArmor: npc.equipped_armor,
+                    statAffinity: npc.stat_affinity,
+                    kingdom: npc.kingdom,
+                    species: npc.species,
+                    lineage: npc.lineage,
+                    inventory: typeof npc.inventory === "string" ? JSON.parse(npc.inventory) : npc.inventory,
+                    memoryNotes: typeof npc.memory_notes === "string" ? JSON.parse(npc.memory_notes) : npc.memory_notes
+                  });
+                  existingNpcIds.add(npc.id);
+                }
               }
             }
           }
         }
+      } catch (lairErr) {
+        console.warn("Could not query fringe lairs in sector_load:", lairErr);
       }
-    } catch (lairErr) {
-      console.warn("Could not query fringe lairs in sector_load:", lairErr);
-    }
 
-    res.json({
-      success: true,
-      beat: injected.activeBeat,
-      props: finalProps,
-      npcs: finalNPCs,
-      preRendered: Boolean(preRenderedMap),
-      grid: preRenderedMap ? preRenderedMap.grid : undefined,
-      vaultName: preRenderedMap ? preRenderedMap.name : undefined,
-      poiType: preRenderedMap ? preRenderedMap.poiType : undefined,
-      campaignState: concordiaGM.getStoryEngine().getCampaignState(),
-      calendar,
-      chaosFlow: flowProximity,
-      chaosSurge: (injected as any).activeBeat?.context?.activeSurge || null,
-      grindCanyon: activeGrindCanyon ? {
-        id: activeGrindCanyon.id,
-        name: activeGrindCanyon.name,
-        dragonDomain: activeGrindCanyon.dragon_domain,
-        dragonName: activeGrindCanyon.dragon_name,
-        depthMeters: activeGrindCanyon.depth_meters,
-        dragonstoneRichness: activeGrindCanyon.dragonstone_richness,
-        artifactsRemaining: activeGrindCanyon.artifacts_remaining,
-        stabilityDays: activeGrindCanyon.stability_ticks_remaining,
-        status: activeGrindCanyon.status,
-        minerCrew: activeGrindCanyon.miner_crew_name
-      } : null
-    });
-  } catch (e: any) {
-    console.error('Sector load error:', e);
-    res.status(500).json({ error: e.message });
-  }
-});
+      res.json({
+        success: true,
+        beat: injected.activeBeat,
+        props: finalProps,
+        npcs: finalNPCs,
+        preRendered: Boolean(preRenderedMap),
+        grid: preRenderedMap ? preRenderedMap.grid : undefined,
+        vaultName: preRenderedMap ? preRenderedMap.name : undefined,
+        poiType: preRenderedMap ? preRenderedMap.poiType : undefined,
+        campaignState: concordiaGM.getStoryEngine().getCampaignState(),
+        calendar,
+        chaosFlow: flowProximity,
+        chaosSurge: (injected as any).activeBeat?.context?.activeSurge || null,
+        grindCanyon: activeGrindCanyon ? {
+          id: activeGrindCanyon.id,
+          name: activeGrindCanyon.name,
+          dragonDomain: activeGrindCanyon.dragon_domain,
+          dragonName: activeGrindCanyon.dragon_name,
+          depthMeters: activeGrindCanyon.depth_meters,
+          dragonstoneRichness: activeGrindCanyon.dragonstone_richness,
+          artifactsRemaining: activeGrindCanyon.artifacts_remaining,
+          stabilityDays: activeGrindCanyon.stability_ticks_remaining,
+          status: activeGrindCanyon.status,
+          minerCrew: activeGrindCanyon.miner_crew_name
+        } : null
+      });
+    } catch (e: any) {
+      console.error('Sector load error:', e);
+      res.status(500).json({ error: e.message });
+    }
+  });
 
 /**
  * GET /sector_layer - Loads or generates a specific vertical layer (z = -1, 0, 1) for a sector
  */
 router.get('/sector_layer', async (req, res) => {
   try {
-    const targetCellId = Number(req.query.cellId) || 13408;
+    const targetCellId = Number(req.query.cellId || req.query.cell_id) || 13408;
     const targetRx = req.query.rx !== undefined ? Number(req.query.rx) : 50;
     const targetRy = req.query.ry !== undefined ? Number(req.query.ry) : 50;
     const targetZ = req.query.z !== undefined ? Number(req.query.z) : 0;
@@ -976,28 +1108,38 @@ router.get('/sector_layer', async (req, res) => {
     }
 
     // 2. If not stored, check if this is a burg cell and generate all 3 layers
-    const burgRes = await pool.query(
-      `SELECT b.*, f.name AS faction_name
-       FROM sim_burg_economy b
-       LEFT JOIN sim_cells c ON c.id = b.cell_id
-       LEFT JOIN sim_factions f ON f.id = c.faction_id
-       WHERE b.cell_id = $1 LIMIT 1`,
-      [targetCellId]
+    const [burgRes, regInstance] = await Promise.all([
+      pool.query(
+        `SELECT b.*, c.faction_id, f.name AS faction_name
+         FROM sim_burg_economy b
+         LEFT JOIN sim_cells c ON c.id = b.cell_id
+         LEFT JOIN sim_factions f ON f.id = c.faction_id
+         WHERE b.cell_id = $1 LIMIT 1`,
+        [targetCellId]
+      ),
+      getOrCreateRegionalInstance(targetCellId)
+    ]);
+
+    const cellIdx = Math.max(0, Math.min(9999, targetRy * 100 + targetRx));
+    const isBurgSettlement = burgRes.rows.length > 0 && (
+      (targetRx === 50 && targetRy === 50) ||
+      (regInstance?.mapData && regInstance.mapData[cellIdx] === 4)
     );
 
-    if (burgRes.rows.length > 0) {
+    if (isBurgSettlement) {
       const burg = burgRes.rows[0];
       const factionName = burg.faction_name || "Provincial Sovereignty";
+      const wardFocus = regInstance?.wardMap?.[cellIdx] || (targetRx === 50 && targetRy === 50 ? 'CITADEL' : 'RESIDENTIAL');
 
       // Fetch authentic citizens from population_demographics
       const citRes = await pool.query(
         `SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation,
                 workplace_type, workplace_name, childhood_background, allegiance_status
          FROM population_demographics
-         WHERE home_cell_id = $1 AND life_stage = 'ADULT'
+         WHERE (home_cell_id = $1 OR settlement_id = $2) AND life_stage = 'ADULT'
          ORDER BY citizen_id ASC
          LIMIT 60`,
-        [targetCellId]
+        [targetCellId, burg.burg_id]
       );
 
       // Fetch active fringe cartels & underworld lairs for this burg
@@ -1017,7 +1159,30 @@ router.get('/sector_layer', async (req, res) => {
         [burg.burg_id, targetCellId]
       );
 
-      const layers = generateBurgSectorLayers(burg, factionName, targetCellId, citRes.rows, lairRes.rows, paragonRes.rows);
+      // Fetch authentic stockpiles, recent simulation events, and cell geography
+      const [stockpileRes, eventsRes, cellRes] = await Promise.all([
+        pool.query(`SELECT * FROM sim_industrial_stockpiles WHERE burg_id = $1 LIMIT 1`, [burg.burg_id]),
+        pool.query(`SELECT * FROM sim_events WHERE burg_id = $1 OR cell_id = $2 ORDER BY id DESC LIMIT 25`, [burg.burg_id, targetCellId]),
+        pool.query(`SELECT id, faction_id, biome, elevation FROM sim_cells WHERE id = $1 LIMIT 1`, [targetCellId])
+      ]);
+
+      const layers = generateBurgSectorLayers(
+        burg,
+        factionName,
+        targetCellId,
+        citRes.rows,
+        lairRes.rows,
+        paragonRes.rows,
+        {
+          stockpile: stockpileRes.rows[0],
+          events: eventsRes.rows,
+          cellData: cellRes.rows[0],
+          biomeId: Number(cellRes.rows[0]?.biome) || 4,
+          rx: targetRx,
+          ry: targetRy,
+          wardFocus
+        }
+      );
 
       // Persist all 3 layers to sim_sector_layers
       await pool.query(
@@ -1053,7 +1218,129 @@ router.get('/sector_layer', async (req, res) => {
       });
     }
 
-    return res.status(404).json({ error: "Sector layers not found for this cell." });
+    // 3. Authentic Regional Meso Cell: Unique 256x256 map for EVERY regional cell (rx, ry)
+    const [cellRes, _unusedReg, citRes, paragonRes, lairRes, eventsRes, stockpileRes] = await Promise.all([
+      pool.query(
+        `SELECT c.*, f.name AS faction_name
+         FROM sim_cells c
+         LEFT JOIN sim_factions f ON f.id = c.faction_id
+         WHERE c.id = $1 LIMIT 1`,
+        [targetCellId]
+      ),
+      getOrCreateRegionalInstance(targetCellId),
+      pool.query(
+        `SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation,
+                workplace_type, workplace_name, childhood_background, allegiance_status
+         FROM population_demographics
+         WHERE (home_cell_id = $1 OR settlement_id = $2) AND life_stage = 'ADULT'
+         ORDER BY citizen_id ASC
+         LIMIT 60`,
+        [targetCellId, burgRes.rows[0]?.burg_id || 0]
+      ),
+      pool.query(
+        `SELECT * FROM sim_paragons WHERE burg_id = $1 LIMIT 10`,
+        [burgRes.rows[0]?.burg_id || 0]
+      ),
+      pool.query(
+        `SELECT l.*, o.name AS cartel_name, o.type AS cartel_type
+         FROM sim_fringe_lairs l
+         JOIN sim_outlaw_factions o ON o.id = l.faction_id
+         WHERE l.burg_id = $1 OR l.cell_id = $2 LIMIT 10`,
+        [burgRes.rows[0]?.burg_id || 0, targetCellId]
+      ),
+      pool.query(
+        `SELECT * FROM sim_events 
+         WHERE (burg_id = $1 OR cell_id = $2) 
+         ORDER BY id DESC LIMIT 25`,
+        [burgRes.rows[0]?.burg_id || 0, targetCellId]
+      ),
+      pool.query(
+        `SELECT * FROM sim_industrial_stockpiles WHERE burg_id = $1 LIMIT 1`,
+        [burgRes.rows[0]?.burg_id || 0]
+      )
+    ]);
+
+    const cellData = cellRes.rows[0] || { id: targetCellId, biome: 4, elevation: 50 };
+    const factionName = cellData.faction_name || "The Wild Frontier";
+
+    let citizens = citRes.rows;
+    if (citizens.length === 0 && cellData.faction_id) {
+      const facCitRes = await pool.query(
+        `SELECT p.citizen_id, p.name, p.profession, p.species, p.spark_tier, p.temper, p.instinct, p.motivation,
+                p.workplace_type, p.workplace_name, p.childhood_background, p.allegiance_status
+         FROM population_demographics p
+         JOIN sim_cells c ON c.id = p.home_cell_id
+         WHERE c.faction_id = $1 AND p.life_stage = 'ADULT'
+         ORDER BY p.citizen_id ASC
+         LIMIT 60`,
+        [cellData.faction_id]
+      );
+      citizens = facCitRes.rows;
+    }
+
+    const idx = Math.max(0, Math.min(9999, targetRy * 100 + targetRx));
+    const localBiomeId = regInstance?.biomeMap ? regInstance.biomeMap[idx] : (Number(cellData.biome) || 4);
+    const localBiomeName = regInstance ? regInstance.getBiomeLabel(localBiomeId) : "Wilderness";
+    const terrainType = regInstance?.mapData ? regInstance.mapData[idx] : 0;
+    const infraMask = regInstance?.infraMap ? regInstance.infraMap[idx] : 0;
+    const elevation = regInstance?.elevationMap ? regInstance.elevationMap[idx] : (Number(cellData.elevation) || 50);
+    const vegetation = regInstance?.vegetationMap ? regInstance.vegetationMap[idx] : 0.3;
+    const chaos = regInstance?.chaosMap ? regInstance.chaosMap[idx] : 0.0;
+    const facility = regInstance?.facilities?.find((f: any) => (f.rx ?? f.x) === targetRx && (f.ry ?? f.y) === targetRy);
+    const nearbyAgents = regInstance?.agents?.filter((a: any) => Math.hypot(a.rx - targetRx, a.ry - targetRy) <= 5) || [];
+
+    const tacticalMap = generateTacticalRegionalSectorMap({
+      cellId: targetCellId,
+      rx: targetRx,
+      ry: targetRy,
+      z: targetZ,
+      biomeId: localBiomeId,
+      biomeName: localBiomeName,
+      terrainType,
+      infraMask,
+      elevation,
+      vegetation,
+      chaos,
+      parentBurg: burgRes.rows[0],
+      factionName,
+      facility,
+      nearbyAgents,
+      citizens,
+      paragons: paragonRes.rows,
+      lairs: lairRes.rows,
+      events: eventsRes.rows,
+      stockpile: stockpileRes.rows[0]
+    });
+
+    // Save to sim_sector_layers
+    await pool.query(
+      `INSERT INTO sim_sector_layers (cell_id, rx, ry, z_layer, layer_name, compressed_terrain, props, npcs, features)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (cell_id, rx, ry, z_layer) DO UPDATE SET
+         compressed_terrain = EXCLUDED.compressed_terrain,
+         props = EXCLUDED.props,
+         npcs = EXCLUDED.npcs,
+         features = EXCLUDED.features`,
+      [
+        targetCellId, targetRx, targetRy, targetZ,
+        tacticalMap.name, tacticalMap.compressed,
+        JSON.stringify(tacticalMap.props), JSON.stringify(tacticalMap.npcs),
+        JSON.stringify(tacticalMap.features)
+      ]
+    );
+
+    return res.json({
+      success: true,
+      cellId: targetCellId,
+      rx: targetRx,
+      ry: targetRy,
+      z: targetZ,
+      name: tacticalMap.name,
+      grid: Array.from(tacticalMap.grid),
+      props: tacticalMap.props,
+      npcs: tacticalMap.npcs,
+      features: tacticalMap.features
+    });
   } catch (e: any) {
     console.error("Sector layer error:", e);
     res.status(500).json({ error: e.message });
@@ -1229,7 +1516,10 @@ Do not list numbers or mechanics. End with an urgent question of what they do.`;
  */
 router.post('/action', async (req, res) => {
   try {
-    const { actionText, playerId, playerPos, coverBonus, coverLevel, combatType, isStealthed, sneakAttack } = req.body as {
+    const body = req.body || {};
+    const rawAction = body.actionText || body.playerInput || body.action || "";
+    const actionText = String(rawAction).trim();
+    const { playerId, playerPos, coverBonus, coverLevel, combatType, isStealthed, sneakAttack } = body as {
       actionText: string;
       playerId?: number;
       playerPos?: [number, number];
@@ -1329,10 +1619,14 @@ router.get('/trade/catalog', async (req, res) => {
 
     // 1. Fetch nearest burg economy & stockpiles
     const burgRes = await pool.query(
-      `SELECT * FROM sim_burg_economy ORDER BY ABS(cell_id - $1) ASC LIMIT 1`,
+      `SELECT b.*, c.faction_id, f.name AS faction_name
+       FROM sim_burg_economy b
+       LEFT JOIN sim_cells c ON b.cell_id = c.id
+       LEFT JOIN sim_factions f ON c.faction_id = f.id
+       ORDER BY ABS(b.cell_id - $1) ASC LIMIT 1`,
       [cellId]
     );
-    const burg = burgRes.rows[0] || { burg_id: 1, food: 200, wealth: 500, unrest: 15, health: 80, crime_rate: 10 };
+    const burg = burgRes.rows[0] || { burg_id: 1, food: 200, wealth: 500, unrest: 15, health: 80, crime_rate: 10, faction_id: 0, faction_name: "The Realm" };
 
     const stockRes = await pool.query(
       `SELECT * FROM sim_industrial_stockpiles WHERE burg_id = $1`,
@@ -1362,6 +1656,59 @@ router.get('/trade/catalog', async (req, res) => {
     }));
 
     const dynamicWares: any[] = [];
+
+    // Parse complex inventory for signature specialties
+    let complexInv: Record<string, number> = {};
+    if (stockpile.complex_inventory) {
+      if (typeof stockpile.complex_inventory === 'string') {
+        try { complexInv = JSON.parse(stockpile.complex_inventory); } catch {}
+      } else if (typeof stockpile.complex_inventory === 'object') {
+        complexInv = stockpile.complex_inventory;
+      }
+    }
+
+    const categoryIcons: Record<string, string> = {
+      PRESERVATION: '🌾',
+      STRUCTURAL: '⚒️',
+      FOUNDATION: '🧱',
+      ADVANCED: '🔬',
+      HEALTH: '💊',
+      METAPHYSICAL: '✨',
+      LOGISTICS: '📜',
+      ENERGY: '🔥'
+    };
+
+    const specialtyByGood = new Map<string, FactionSpecialty>();
+    for (const s of Object.values(FACTION_SPECIALTIES)) {
+      specialtyByGood.set(s.uniqueGood, s);
+    }
+
+    // A. Local Faction Signature Specialty Ware
+    const localSpec = getFactionSpecialty(burg.faction_id || burg.faction_name || 0);
+    const localStock = complexInv[localSpec.uniqueGood] ?? 24;
+    dynamicWares.push({
+      name: localSpec.uniqueGoodName,
+      type: 'commodity',
+      price: localSpec.baseExportPrice,
+      sellPrice: Math.max(1, Math.round(localSpec.baseExportPrice * 0.7)),
+      desc: `[${localSpec.category}] Local specialty of ${burg.faction_name || 'the province'}. ${localSpec.description} (Stock: ${localStock})`,
+      icon: categoryIcons[localSpec.category] || '📦'
+    });
+
+    // B. Imported Signature Goods from Caravans
+    for (const [goodKey, qty] of Object.entries(complexInv)) {
+      if (qty > 0 && goodKey !== localSpec.uniqueGood && specialtyByGood.has(goodKey)) {
+        const foreignSpec = specialtyByGood.get(goodKey)!;
+        dynamicWares.push({
+          name: foreignSpec.uniqueGoodName,
+          type: 'commodity',
+          price: Math.round(foreignSpec.baseExportPrice * 1.35),
+          sellPrice: Math.max(1, Math.round(foreignSpec.baseExportPrice * 0.85)),
+          desc: `[${foreignSpec.category}] Caravan import from ${foreignSpec.factionName}. ${foreignSpec.description} (Stock: ${qty})`,
+          icon: categoryIcons[foreignSpec.category] || '📦'
+        });
+      }
+    }
 
     // Food & Provisions: price & flavor scale with burg food reserves
     if (burg.food < 100) {

@@ -359,43 +359,117 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
 
     // ── PHASE E: FLOW PATROL & ENVIRONMENTAL CLEANSING ──────────────────────
     if (state === 'PATROLLING_FLOW') {
-      // Step along assigned flow corridor
-      if (!targetCellId || Math.random() < 0.15) {
-        const flowWards = await client.query(
-          "SELECT cell_id FROM sim_ancient_path_wards WHERE flow_id = $1 ORDER BY RANDOM() LIMIT 1",
-          [targetGroveId]
-        );
-        targetCellId = flowWards.rows[0]?.cell_id || CONVERGENCE_SPIRE_CELL;
-      }
-
-      if (targetCellId) {
-        const moveResult = await stepTowardCell(client, locCellId, targetCellId, 65, 'Cultist');
-        locCellId = moveResult.nextCellId;
-        if (moveResult.collidedWith) {
-          // Intercepted a cultist along the movement path!
-          state = 'HUNTING_CULTS';
-          targetCellId = moveResult.collidedWith.location_cell_id;
+      // Priority Grove Defense Check: Wardens sense tremors along the Chaos Flows when a sacred prison seal is threatened
+      if (Math.random() < 0.40) {
+        const endangeredGrove = await client.query(`
+          SELECT g.id, g.cell_id, g.dragon_name, g.seal_strength
+          FROM sim_sacred_groves g
+          WHERE g.seal_strength < 85
+             OR g.id IN (SELECT target_grove_id FROM sim_agents WHERE role = 'Cultist' AND state = 'BESIEGING_SEAL')
+          ORDER BY g.seal_strength ASC
+          LIMIT 1
+        `);
+        if (endangeredGrove.rowCount > 0) {
+          state = 'DEFENDING_SEAL';
+          targetGroveId = endangeredGrove.rows[0].id;
+          targetCellId = endangeredGrove.rows[0].cell_id;
         }
       }
 
-      // Cleanse local eco-blight using Aether-Tech Sigil equipment
-      const blightCleanse = isEyelessElder ? 1.0 : (temper === 'COMPASSIONATE' ? 0.8 : 0.4);
-      await client.query(`
-        UPDATE sim_cells
-        SET eco_blight = GREATEST(0.0, COALESCE(eco_blight, 0.0) - $1)
-        WHERE id = $2
-      `, [blightCleanse, locCellId]);
+      // Step along assigned flow corridor
+      if (state === 'PATROLLING_FLOW') {
+        if (!targetCellId || Math.random() < 0.15) {
+          const flowWards = await client.query(
+            "SELECT cell_id FROM sim_ancient_path_wards WHERE flow_id = $1 ORDER BY RANDOM() LIMIT 1",
+            [targetGroveId]
+          );
+          targetCellId = flowWards.rows[0]?.cell_id || CONVERGENCE_SPIRE_CELL;
+        }
 
-      // Routine patrolling with Aether-Tech produces negligible corruption (only 5% chance of +1)
-      if (Math.random() < 0.05) {
-        corruption += isEyelessElder ? 0 : 1;
+        if (targetCellId) {
+          const moveResult = await stepTowardCell(client, locCellId, targetCellId, 65, 'Cultist');
+          locCellId = moveResult.nextCellId;
+          if (moveResult.collidedWith) {
+            // Intercepted a cultist along the movement path!
+            state = 'HUNTING_CULTS';
+            targetCellId = moveResult.collidedWith.location_cell_id;
+          }
+        }
+
+        // Cleanse local eco-blight using Aether-Tech Sigil equipment
+        const blightCleanse = isEyelessElder ? 1.0 : (temper === 'COMPASSIONATE' ? 0.8 : 0.4);
+        await client.query(`
+          UPDATE sim_cells
+          SET eco_blight = GREATEST(0.0, COALESCE(eco_blight, 0.0) - $1)
+          WHERE id = $2
+        `, [blightCleanse, locCellId]);
+
+        // Routine patrolling with Aether-Tech produces negligible corruption (only 5% chance of +1)
+        if (Math.random() < 0.05) {
+          corruption += isEyelessElder ? 0 : 1;
+        }
+
+        // Check for nearby cultists (hunting Shlaar's cabals)
+        const cultTarget = await getNearestCultistCell(client, locCellId);
+        if (cultTarget) {
+          state = 'HUNTING_CULTS';
+          targetCellId = cultTarget.cell_id;
+        }
       }
+    }
 
-      // Check for nearby cultists (hunting Shlaar's cabals)
-      const cultTarget = await getNearestCultistCell(client, locCellId);
-      if (cultTarget) {
-        state = 'HUNTING_CULTS';
-        targetCellId = cultTarget.cell_id;
+    // ── PHASE E2: DEFENDING ENDANGERED DRAGON PRISONS ────────────────────────
+    else if (state === 'DEFENDING_SEAL') {
+      if (targetCellId) {
+        const moveResult = await stepTowardCell(client, locCellId, targetCellId, 85);
+        locCellId = moveResult.nextCellId;
+
+        if (moveResult.arrived || locCellId === targetCellId) {
+          // Arrived at the endangered Sacred Grove!
+          // 1. Slay besieging cultists in the cell
+          const cultsHere = await client.query(
+            "SELECT id, name FROM sim_agents WHERE role = 'Cultist' AND location_cell_id = $1",
+            [locCellId]
+          );
+
+          if (cultsHere.rowCount > 0) {
+            const slayCount = Math.min(cultsHere.rowCount, isEyelessElder ? 3 : 2);
+            for (let k = 0; k < slayCount; k++) {
+              await client.query("DELETE FROM sim_agents WHERE id = $1", [cultsHere.rows[k].id]);
+            }
+            const weaponDesc = isEyelessElder ? "carved curved-blade sweeps" : "aether-sigil charges";
+            await client.query(`
+              INSERT INTO sim_events (tick, type, message, tier, cell_id, lore_date)
+              VALUES ($1, 'WARDEN_DEFENDS_SEAL', $2, 'MINOR', $3, $4)
+            `, [
+              tick,
+              `🛡️ DEFENSE OF THE PRISON: Warden ${citizenName} (${subRole.replace('_', ' ')}) engaged the besieging cultists with ${weaponDesc}, striking down ${slayCount} Shlaar cabalists!`,
+              locCellId,
+              loreDate
+            ]);
+          }
+
+          // 2. Channel aether-tech to reinforce and recharge the Dragon Seal
+          const repairAmount = isEyelessElder ? 2 : 1;
+          await client.query(`
+            UPDATE sim_sacred_groves
+            SET seal_strength = LEAST(100, seal_strength + $1)
+            WHERE id = $2
+          `, [repairAmount, targetGroveId]);
+
+          // 3. Purge blight at the grove cell
+          await client.query(
+            "UPDATE sim_cells SET eco_blight = GREATEST(0.0, COALESCE(eco_blight, 0.0) - 1.5) WHERE id = $1",
+            [locCellId]
+          );
+
+          // Return to patrol once seal is stabilized and cleared
+          const groveCheck = await client.query("SELECT seal_strength FROM sim_sacred_groves WHERE id = $1", [targetGroveId]);
+          if ((groveCheck.rows[0]?.seal_strength || 0) >= 92 && cultsHere.rowCount <= 1) {
+            state = 'PATROLLING_FLOW';
+            targetCellId = null;
+          }
+        }
       }
     }
 

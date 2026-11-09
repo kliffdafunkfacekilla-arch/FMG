@@ -41,7 +41,7 @@ async function enrichCellChaosTelemetry(cellRow: any) {
 }
 
 
-async function getOrCreateRegionalInstance(cellId: number): Promise<RegionalInstance | null> {
+export async function getOrCreateRegionalInstance(cellId: number): Promise<RegionalInstance | null> {
   if (activeRegions.has(cellId)) {
     return activeRegions.get(cellId)!;
   }
@@ -64,7 +64,7 @@ async function getOrCreateRegionalInstance(cellId: number): Promise<RegionalInst
   if (burg) {
     if (burg.food < 100) isFamine = true;
     if (burg.unrest > 70) isWarzone = true;
-    
+
     const warRes = await pool.query(`SELECT 1 FROM sim_diplomacy WHERE (faction_a_id = $1 OR faction_b_id = $1) AND status = 'WAR' LIMIT 1`, [burg.faction_id]);
     if (warRes && warRes.rowCount && warRes.rowCount > 0) isWarzone = true;
   }
@@ -97,6 +97,37 @@ async function getOrCreateRegionalInstance(cellId: number): Promise<RegionalInst
     console.warn(`[RegionalRouter] Neighbor lookup failed for cell ${cellId}:`, err);
   }
 
+  // Fetch authentic adult citizens for this cell / burg (12:1 worker baseline)
+  let citizens: any[] = [];
+  try {
+    const burgId = burg ? burg.burg_id : null;
+    let citRes;
+    if (burgId) {
+      citRes = await pool.query(
+        `SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation,
+                workplace_type, workplace_name, childhood_background, allegiance_status, unit_size
+         FROM population_demographics
+         WHERE settlement_id = $1 OR home_cell_id = $2
+         ORDER BY citizen_id ASC
+         LIMIT 600`,
+        [burgId, cellId]
+      );
+    } else {
+      citRes = await pool.query(
+        `SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation,
+                workplace_type, workplace_name, childhood_background, allegiance_status, unit_size
+         FROM population_demographics
+         WHERE home_cell_id = $1
+         ORDER BY citizen_id ASC
+         LIMIT 300`,
+        [cellId]
+      );
+    }
+    citizens = citRes.rows;
+  } catch (err) {
+    console.warn(`[RegionalRouter] Demographics lookup failed for cell ${cellId}:`, err);
+  }
+
   const globalData = {
     cellId,
     terrain,
@@ -105,7 +136,8 @@ async function getOrCreateRegionalInstance(cellId: number): Promise<RegionalInst
     isWarzone,
     isFamine,
     factionName,
-    neighbors
+    neighbors,
+    citizens
   };
   const instance = new RegionalInstance(cellId, globalData);
   activeRegions.set(cellId, instance);
@@ -147,6 +179,7 @@ regionalRouter.get("/live/:cell_id", async (req, res) => {
       mapData: Array.from(instance.mapData),
       biomeMap: Array.from(instance.biomeMap),
       infraMap: Array.from(instance.infraMap),
+      wardMap: instance.wardMap,
       agents: instance.agents,
       facilities: instance.facilities
     });
@@ -235,7 +268,7 @@ regionalRouter.get("/manifest/:cell_id", async (req, res) => {
 
   const manifest = instance.getManifest(rx, ry);
 
-  // Check if sector layers (Layer 0 Surface) or a pre-rendered vault map exists for this sector
+  // Check if sector layers (Layer 0 Surface) exists in sim_sector_layers
   try {
     const layerRes = await pool.query(
       `SELECT layer_name, compressed_terrain, props, npcs, features
@@ -250,79 +283,62 @@ regionalRouter.get("/manifest/:cell_id", async (req, res) => {
       (manifest as any).pre_rendered = true;
       (manifest as any).grid = Array.from(decompressed);
       (manifest as any).vault_name = lyr.layer_name;
-      (manifest as any).poi_type = "SETTLEMENT_CORE";
+      (manifest as any).poi_type = lyr.features?.poiType || "SECTOR";
       (manifest as any).vault_props = lyr.props;
       (manifest as any).vault_npcs = lyr.npcs;
-    } else {
-      const vaultRes = await pool.query(
-        `SELECT name, poi_type, compressed_terrain, props, npcs, features
-         FROM sim_world_vault_sectors
-         WHERE cell_id = $1 AND rx = $2 AND ry = $3`,
-        [cellId, rx, ry]
-      );
-      if (vaultRes.rowCount && vaultRes.rowCount > 0) {
-        const v = vaultRes.rows[0];
-        const decompressed = zlib.gunzipSync(v.compressed_terrain);
-        (manifest as any).pre_rendered = true;
-        (manifest as any).grid = Array.from(decompressed);
-        (manifest as any).vault_name = v.name;
-        (manifest as any).poi_type = v.poi_type;
-        (manifest as any).vault_props = v.props;
-        (manifest as any).vault_npcs = v.npcs;
-      }
     }
   } catch (err) {
-    console.warn("Could not query sim_sector_layers or vault in manifest:", err);
+    console.warn("Could not query sim_sector_layers in manifest:", err);
   }
 
   res.json(manifest);
 });
 
-// Explicit endpoint to retrieve a pre-rendered sector from sim_world_vault_sectors
+// Explicit endpoint to retrieve a sector from sim_sector_layers
 regionalRouter.get("/sector/:cell_id", async (req, res) => {
   const cellId = parseInt(req.params.cell_id);
   const rx = parseInt(req.query.x as string) || 50;
   const ry = parseInt(req.query.y as string) || 50;
+  const z = parseInt(req.query.z as string) || 0;
 
   try {
-    const vaultRes = await pool.query(
-      `SELECT name, poi_type, compressed_terrain, props, npcs, features, biome_id, elevation
-       FROM sim_world_vault_sectors
-       WHERE cell_id = $1 AND rx = $2 AND ry = $3`,
-      [cellId, rx, ry]
-    );
+    const layerRes = await pool.query(
+        `SELECT layer_name, compressed_terrain, props, npcs, features
+       FROM sim_sector_layers
+       WHERE cell_id = $1 AND rx = $2 AND ry = $3 AND z_layer = $4 LIMIT 1`,
+        [cellId, rx, ry, z]
+      );
 
-    if (vaultRes.rowCount && vaultRes.rowCount > 0) {
-      const v = vaultRes.rows[0];
-      const decompressed = zlib.gunzipSync(v.compressed_terrain);
-      return res.json({
+      if (layerRes.rowCount && layerRes.rowCount > 0) {
+        const v = layerRes.rows[0];
+        const decompressed = zlib.gunzipSync(v.compressed_terrain);
+        return res.json({
+          success: true,
+          pre_rendered: true,
+          cell_id: cellId,
+          rx,
+          ry,
+          z,
+          name: v.layer_name,
+          grid: Array.from(decompressed),
+          props: v.props || [],
+          npcs: v.npcs || [],
+        features: v.features || {}
+        });
+      }
+
+      res.json({
         success: true,
-        pre_rendered: true,
+        pre_rendered: false,
         cell_id: cellId,
         rx,
-        ry,
-        name: v.name,
-        poi_type: v.poi_type,
-        grid: Array.from(decompressed),
-        props: v.props || [],
-        npcs: v.npcs || [],
-        features: v.features || {},
-        biome_id: v.biome_id,
-        elevation: v.elevation
+      ry,
+        z
       });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
-
-    res.json({
-      success: true,
-      pre_rendered: false,
-      cell_id: cellId,
-      rx,
-      ry
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  });
 
 regionalRouter.get("/cell/:cell_id", async (req, res) => {
   const cellId = parseInt(req.params.cell_id);
@@ -480,9 +496,9 @@ regionalRouter.post("/attempt_crossing", async (req, res) => {
 
     // ON_FOOT_HAZARD - Player attempts to walk across leagues of boiling chaos aether
     const endurance = Number(player.endurance) || 5;
-    const roll = Math.floor(Math.random() * 20) + 1;
+    const roll = Math.floor(Math.random() * 12) + 1;
     const total = roll + endurance;
-    const DC = 25;
+    const DC = 16;
     const passed = total >= DC;
 
     const baseDmg = passed ? 25 : Math.floor(35 + Math.random() * 30);

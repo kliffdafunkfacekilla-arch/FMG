@@ -1,5 +1,19 @@
 import zlib from "zlib";
 import { getLairPropDetails, generateUniqueOutlawOperative } from "../agents/outlawSyndicates";
+import { SimplexNoise } from "../../regional/SimplexNoise";
+import { getFactionSpecialty } from "../economy/factionSpecialties.js";
+import { computeDonjonSettlementCensus, DonjonBusiness, DonjonSettlementCensus } from "../procgen/DonjonSettlementEngine.js";
+import {
+  generateProceduralLoggingSurface,
+  generateProceduralLoggingSubterranean,
+  generateProceduralLoggingUpper,
+  generateProceduralMiningSurface,
+  generateProceduralMiningSubterranean,
+  generateProceduralMiningUpper,
+  generateProceduralWatchtowerSurface,
+  generateProceduralWatchtowerSubterranean,
+  generateProceduralWatchtowerUpper
+} from "./FacilitySectorGenerators.js";
 
 export interface SectorMapResult {
   grid: Uint8Array;
@@ -180,25 +194,78 @@ const WORKPLACE_SPECS: Record<string, WorkplaceSpec> = {
   MARKET_STALL: { type: "MARKET_STALL", title: "Central Trade Exchange Stalls", floorTile: 3, hasCellar: false, hasUpper: false, propTag: ["type:furniture", "type:container", "material:wood", "material:cloth", "market", "commerce", "container", "flammable"], propDesc: "Canopied market stalls heaped with regional produce and goods." }
 };
 
+export interface BurgContextConfig {
+  stockpile?: any;
+  events?: any[];
+  cellData?: any;
+  biomeId?: number;
+  rx?: number;
+  ry?: number;
+  wardFocus?: string;
+}
+
 export function generateBurgSectorLayers(
   burg: any,
   factionName: string,
   cellId: number,
   citizens: any[] = [],
   lairs: any[] = [],
-  paragons: any[] = []
+  paragons: any[] = [],
+  contextConfig?: BurgContextConfig
 ): BurgSectorLayersResult {
   const rand = hashSeed(`burg_${burg.burg_id}_${cellId}`);
+  const burgNoise = new SimplexNoise(burg.burg_id * 1000 + cellId);
   const burgName = burg.name || `Burg #${burg.burg_id}`;
   const tier = Number(burg.urban_tier) || (Number(burg.pop_null) > 12000 ? 3 : Number(burg.pop_null) > 1200 ? 2 : 1);
   const isPort = Boolean(burg.port);
   const hasWalls = tier >= 2;
+  const CENTER = 128;
+
+  // 0. Resolve Biome, Culture, and Architecture Materials
+  const archType = burg.architecture_type || "HALF_TIMBERED";
+  const speciesDemo = String(burg.species_demographics || "");
+  const biomeId = contextConfig?.biomeId ?? Number(contextConfig?.cellData?.biome) ?? 4;
+  const recentEvents = contextConfig?.events || [];
+
+  const isRadial = archType === "RADIAL_SPIRE" || speciesDemo.includes("Avian");
+  const isOrganicMaze = archType === "ADOBE_BRICK" || biomeId === 1 || biomeId === 2;
+  const isGrove = archType === "GROVE_CLUSTER" || archType === "STEPPE_YURT" || speciesDemo.includes("Plant");
+  const isRiverine = isPort || archType === "REED_STILT";
+  const isStone = archType === "ASHLAR_STONE" || archType === "DRYSTONE_CRAG";
+  const isTimber = archType === "TIMBER_FRAMED" || archType === "REED_STILT" || isGrove;
+
+  // Material Palette
+  const wallTile = isTimber ? 7 : 5; // 7: Heavy timber log palisade, 5: Masonry stone / adobe
+  const roadTile = isRiverine ? 8 : (isOrganicMaze ? 3 : (tier >= 2 ? 4 : 3)); // 8: Boardwalk, 4: Cobble, 3: Packed clay/dirt
+  const plazaTile = isRiverine ? 8 : (isOrganicMaze ? 3 : (isGrove ? 0 : (tier >= 2 ? 4 : 3)));
+  const houseWallTile = isTimber ? 7 : 5;
+  const houseFloorTile = isTimber ? 8 : (isOrganicMaze ? 3 : (tier >= 2 ? 4 : 3));
+
+  // Past Event Scans
+  const hasRaidOrWar = recentEvents.some(e =>
+    e.type?.includes("BANDIT") || e.type?.includes("RAID") || e.type?.includes("SIEGE") ||
+    e.type?.includes("WAR") || e.type?.includes("RIOT") || e.type?.includes("ATTACK") || e.type?.includes("HIGHWAY_ROBBERY")
+  );
+  const hasFamine = recentEvents.some(e =>
+    e.type?.includes("FAMINE") || e.type?.includes("STARVATION")
+  );
+  const hasWitchHunt = recentEvents.some(e =>
+    e.type?.includes("WITCH_HUNT") || e.type?.includes("CHAIN_PILGRIMAGE") || e.type?.includes("PURGE")
+  );
+  const hasChaosSurge = recentEvents.some(e =>
+    e.type?.includes("CHAOS") || e.type?.includes("VOID_CULT") || e.type?.includes("BLIGHT")
+  );
+  const hasBoom = recentEvents.some(e =>
+    e.type?.includes("HARVEST_SURPLUS") || e.type?.includes("BOOMTOWN") || e.type?.includes("EXPANSION")
+  );
+  const hasCartel = recentEvents.some(e =>
+    e.type?.includes("CARTEL") || e.type?.includes("NARCOTICS") || e.type?.includes("OTTER") || e.type?.includes("VICE")
+  );
 
   const WALL_LEFT = tier >= 3 ? 24 : 44;
   const WALL_RIGHT = tier >= 3 ? 232 : 212;
   const WALL_TOP = tier >= 3 ? 24 : 44;
   const WALL_BOTTOM = tier >= 3 ? 232 : 212;
-  const CENTER = 128;
 
   // -------------------------------------------------------------------------
   // LAYER 0: SURFACE GROUND LEVEL
@@ -206,115 +273,265 @@ export function generateBurgSectorLayers(
   const grid0 = new Uint8Array(SIZE * SIZE);
   grid0.fill(0); // Natural ground
 
-  // 1. Fortified Walls (Only for Towns Tier 2, Cities Tier 3, and Capitals)
-  if (hasWalls) {
-    for (let x = WALL_LEFT; x <= WALL_RIGHT; x++) {
-      grid0[WALL_TOP * SIZE + x] = 5;
-      grid0[(WALL_TOP + 1) * SIZE + x] = 5;
-      if (!isPort) {
-        grid0[WALL_BOTTOM * SIZE + x] = 5;
-        grid0[(WALL_BOTTOM - 1) * SIZE + x] = 5;
+  // 1. Natural Watercourse / River Anchor (If Port or River Basin)
+  const hasRiver = isPort || isRiverine || Boolean(contextConfig?.cellData?.river);
+  const riverCoords: Set<number> = new Set();
+  const riverBridges: Array<{ cx: number; cy: number }> = [];
+
+  if (hasRiver) {
+    const riverYBase = Math.floor(SIZE * 0.72) + Math.floor(burgNoise.noise2D(cellId, 1) * 18);
+    const riverWidth = 10 + (tier >= 3 ? 4 : 0);
+    for (let x = 0; x < SIZE; x++) {
+      const meander = Math.round(burgNoise.noise2D(x * 0.022, cellId * 0.1) * 15 + Math.sin(x * 0.03) * 8);
+      const ry = Math.max(riverWidth + 4, Math.min(SIZE - riverWidth - 4, riverYBase + meander));
+      for (let w = -Math.floor(riverWidth / 2); w <= Math.floor(riverWidth / 2); w++) {
+        const py = ry + w;
+        if (py >= 0 && py < SIZE) {
+          const idx = py * SIZE + x;
+          grid0[idx] = 2; // Water
+          riverCoords.add(idx);
+        }
+      }
+      // Stone quayside embankment & boardwalk along northern riverbank
+      const quayY = ry - Math.floor(riverWidth / 2) - 1;
+      if (quayY >= 0 && quayY < SIZE) {
+        grid0[quayY * SIZE + x] = isTimber ? 8 : 4; // Boardwalk or stone quay
       }
     }
-    for (let y = WALL_TOP; y <= (isPort ? WALL_BOTTOM - 20 : WALL_BOTTOM); y++) {
-      grid0[y * SIZE + WALL_LEFT] = 5;
-      grid0[y * SIZE + WALL_LEFT + 1] = 5;
-      grid0[y * SIZE + WALL_RIGHT] = 5;
-      grid0[y * SIZE + WALL_RIGHT - 1] = 5;
-    }
+  }
 
-    // Corner Bastions (Tier 3/4 Cities only)
-    if (tier >= 3) {
-      const drawBastion = (cx: number, cy: number) => {
-        for (let dy = -4; dy <= 4; dy++) {
-          for (let dx = -4; dx <= 4; dx++) {
-            const tx = cx + dx, ty = cy + dy;
-            if (tx >= 0 && tx < SIZE && ty >= 0 && ty < SIZE) grid0[ty * SIZE + tx] = 5;
+  // 2. Market Square Focal Point (Anchored at Main Crossroads / Waterfront)
+  const marketCX = CENTER + Math.floor(burgNoise.noise2D(cellId * 2, 0) * 12);
+  const marketCY = hasRiver ? Math.floor(CENTER * 0.82) : CENTER + Math.floor(burgNoise.noise2D(0, cellId * 2) * 12);
+  const marketRad = tier >= 3 ? 16 : tier === 2 ? 12 : 9;
+
+  // 3. Fortified Gates & Organic Wall Envelope
+  const wallRadius = tier >= 3 ? 92 : tier === 2 ? 74 : 54;
+  const gates: Array<{ x: number; y: number; name: string; angle: number }> = [];
+  const gateAngles = hasWalls
+    ? (isRadial ? [0.25, 1.82, 3.39, 4.96] : [Math.PI * 0.5, Math.PI * 1.5, 0.05, Math.PI * 0.95])
+    : [];
+
+  for (let i = 0; i < gateAngles.length; i++) {
+    const ang = gateAngles[i]!;
+    const gx = Math.max(8, Math.min(SIZE - 8, Math.round(marketCX + Math.cos(ang) * (wallRadius + 2))));
+    const gy = Math.max(8, Math.min(SIZE - 8, Math.round(marketCY + Math.sin(ang) * (wallRadius + 2))));
+    const dirName = ang > Math.PI * 1.25 && ang < Math.PI * 1.75 ? "North"
+      : ang >= Math.PI * 0.25 && ang <= Math.PI * 0.75 ? (hasRiver ? "River" : "South")
+      : (gx > marketCX ? "East" : "West");
+    gates.push({ x: gx, y: gy, name: `${dirName} Gate`, angle: ang });
+  }
+
+  // Draw organic streets connecting Gates to Market Square
+  const roadCoords: Set<number> = new Set();
+  const drawOrganicStreet = (startX: number, startY: number, endX: number, endY: number, width: number = 2) => {
+    let curX = startX, curY = startY;
+    const dist = Math.hypot(endX - startX, endY - startY);
+    const steps = Math.ceil(dist * 2.2);
+    for (let s = 0; s <= steps; s++) {
+      const ndx = (endX - curX) / (Math.hypot(endX - curX, endY - curY) || 1);
+      const ndy = (endY - curY) / (Math.hypot(endX - curX, endY - curY) || 1);
+      const meander = burgNoise.noise2D(curX * 0.045, curY * 0.045) * 3;
+      curX += ndx + (-ndy) * meander * 0.22;
+      curY += ndy + (ndx) * meander * 0.22;
+      const ix = Math.round(curX), iy = Math.round(curY);
+      const halfW = Math.floor(width / 2);
+      for (let dy = -halfW; dy <= halfW; dy++) {
+        for (let dx = -halfW; dx <= halfW; dx++) {
+          const px = ix + dx, py = iy + dy;
+          if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) {
+            const idx = py * SIZE + px;
+            if (riverCoords.has(idx)) {
+              grid0[idx] = 4; // Stone Bridge
+              riverBridges.push({ cx: px, cy: py });
+            } else {
+              grid0[idx] = roadTile;
+            }
+            roadCoords.add(idx);
           }
         }
-      };
-      drawBastion(WALL_LEFT, WALL_TOP);
-      drawBastion(WALL_RIGHT, WALL_TOP);
-      if (!isPort) {
-        drawBastion(WALL_LEFT, WALL_BOTTOM);
-        drawBastion(WALL_RIGHT, WALL_BOTTOM);
       }
+      if (Math.hypot(curX - endX, curY - endY) < 1.4) break;
     }
+  };
+
+  for (const g of gates) {
+    drawOrganicStreet(g.x, g.y, marketCX, marketCY, tier >= 3 ? 3 : 2);
   }
 
-  // 2. Cardinal Thoroughfares & Roads
-  const mainRoadWidth = tier >= 3 ? 3 : 2;
-  const roadTile = tier >= 2 ? 4 : 3;
-
-  for (let y = 0; y < SIZE; y++) {
-    for (let dx = -mainRoadWidth; dx <= mainRoadWidth; dx++) {
-      const x = CENTER + dx;
-      if (x >= 0 && x < SIZE) grid0[y * SIZE + x] = roadTile;
-    }
-  }
-  for (let x = 0; x < SIZE; x++) {
-    for (let dy = -mainRoadWidth; dy <= mainRoadWidth; dy++) {
-      const y = CENTER + dy;
-      if (y >= 0 && y < SIZE) grid0[y * SIZE + x] = roadTile;
-    }
-  }
-
-  // 3. Central Marketplace / Common Green
-  const plazaRadius = tier >= 3 ? 16 : tier === 2 ? 10 : 7;
-  const plazaTile = tier >= 2 ? 4 : 3;
-  for (let dy = -plazaRadius; dy <= plazaRadius; dy++) {
-    for (let dx = -plazaRadius; dx <= plazaRadius; dx++) {
-      const px = CENTER + dx, py = CENTER + dy;
-      if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) {
-        grid0[py * SIZE + px] = plazaTile;
-      }
-    }
-  }
-
-  // 4. Harbor Basin / Coastal Waterfront (If Port)
-  if (isPort) {
-    for (let y = WALL_BOTTOM - 14; y < SIZE; y++) {
-      for (let x = 0; x < SIZE; x++) grid0[y * SIZE + x] = 2; // Water
-    }
-    const pierXs = [CENTER - 30, CENTER, CENTER + 30];
-    for (const px of pierXs) {
-      for (let y = WALL_BOTTOM - 18; y < SIZE - 8; y++) {
-        for (let w = -2; w <= 2; w++) {
-          if (px + w >= 0 && px + w < SIZE) grid0[y * SIZE + (px + w)] = 3;
+  // Secondary ring street connecting wards
+  if (tier >= 2) {
+    const ringRad = Math.round(wallRadius * 0.62);
+    for (let deg = 0; deg < 360; deg += 3) {
+      const rad = (deg * Math.PI) / 180;
+      const rxPos = Math.round(marketCX + Math.cos(rad) * (ringRad + burgNoise.noise2D(Math.cos(rad) * 2, Math.sin(rad) * 2) * 4));
+      const ryPos = Math.round(marketCY + Math.sin(rad) * (ringRad + burgNoise.noise2D(Math.cos(rad) * 2, Math.sin(rad) * 2) * 4));
+      if (rxPos >= 0 && rxPos < SIZE && ryPos >= 0 && ryPos < SIZE) {
+        const idx = ryPos * SIZE + rxPos;
+        if (!riverCoords.has(idx)) {
+          grid0[idx] = roadTile;
+          roadCoords.add(idx);
         }
       }
     }
   }
 
-  // 5. Dynamic Workplaces Derived from Actual Citizen Demographics
-  const citizensByWorkplace = new Map<string, any[]>();
-  for (const c of citizens) {
-    const wt = c.workplace_type || "FARMSTEAD";
-    if (!citizensByWorkplace.has(wt)) citizensByWorkplace.set(wt, []);
-    citizensByWorkplace.get(wt)!.push(c);
+  // Draw Paved Market Square
+  for (let dy = -marketRad; dy <= marketRad; dy++) {
+    for (let dx = -marketRad; dx <= marketRad; dx++) {
+      const d = Math.hypot(dx, dy) + burgNoise.noise2D((marketCX + dx) * 0.1, (marketCY + dy) * 0.1) * 2.5;
+      if (d <= marketRad) {
+        const px = marketCX + dx, py = marketCY + dy;
+        if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) {
+          const idx = py * SIZE + px;
+          if (!riverCoords.has(idx)) {
+            grid0[idx] = plazaTile;
+            roadCoords.add(idx);
+          }
+        }
+      }
+    }
   }
 
-  let activeWorkplaceTypes = Array.from(citizensByWorkplace.keys());
-  if (activeWorkplaceTypes.length === 0) {
-    activeWorkplaceTypes = tier >= 2
-      ? ["FARMSTEAD", "BAKERY", "BARRACKS", "CARPENTRY", "MARKET_STALL"]
-      : ["FARMSTEAD", "BAKERY", "CARPENTRY"];
+  // Pier Boardwalks into River
+  if (hasRiver) {
+    const pierXs = [marketCX - 28, marketCX, marketCX + 28];
+    for (const px of pierXs) {
+      for (let y = Math.floor(SIZE * 0.68); y < Math.floor(SIZE * 0.78); y++) {
+        for (let w = -1; w <= 1; w++) {
+          const ppx = px + w;
+          if (ppx >= 0 && ppx < SIZE && y >= 0 && y < SIZE) {
+            grid0[y * SIZE + ppx] = 8; // Boardwalk
+          }
+        }
+      }
+    }
   }
 
-  const candidatePlots: Array<{ cx: number; cy: number; w: number; h: number }> = [
-    { cx: CENTER - 26, cy: CENTER - 26, w: 7, h: 6 }, // NW Inner (Often Barracks)
-    { cx: CENTER + 26, cy: CENTER - 26, w: 7, h: 6 }, // NE Inner (Often Town Hall/Registry)
-    { cx: CENTER - 26, cy: CENTER + 26, w: 7, h: 6 }, // SW Inner
-    { cx: CENTER + 26, cy: CENTER + 26, w: 7, h: 6 }, // SE Inner
-    { cx: CENTER - 48, cy: CENTER - 24, w: 7, h: 6 }, // NW Outer
-    { cx: CENTER + 48, cy: CENTER - 24, w: 7, h: 6 }, // NE Outer
-    { cx: CENTER - 48, cy: CENTER + 24, w: 7, h: 6 }, // SW Outer
-    { cx: CENTER + 48, cy: CENTER + 24, w: 7, h: 6 }, // SE Outer
-    { cx: CENTER - 24, cy: CENTER - 48, w: 6, h: 6 }, // North-West Far
-    { cx: CENTER + 24, cy: CENTER - 48, w: 6, h: 6 }, // North-East Far
-    { cx: CENTER - 24, cy: CENTER + 48, w: 6, h: 6 }, // South-West Far
-    { cx: CENTER + 24, cy: CENTER + 48, w: 6, h: 6 }  // South-East Far
-  ];
+  // 4. Defensive Walls & Bastions (Contour-Hugging Organic Envelope)
+  if (hasWalls) {
+    for (let deg = 0; deg < 360; deg += 1) {
+      const rad = (deg * Math.PI) / 180;
+      const nearGate = gates.some(g => {
+        let diff = Math.abs(rad - g.angle);
+        if (diff > Math.PI) diff = Math.PI * 2 - diff;
+        return diff < 0.12;
+      });
+      if (nearGate) continue; // Gate portal gap
+
+      const noiseMod = burgNoise.noise2D(Math.cos(rad) * 2.5, Math.sin(rad) * 2.5) * 11;
+      const r = wallRadius + noiseMod;
+      const wx = Math.round(marketCX + Math.cos(rad) * r);
+      const wy = Math.round(marketCY + Math.sin(rad) * r);
+      if (wx >= 4 && wx < SIZE - 4 && wy >= 4 && wy < SIZE - 4) {
+        const idx = wy * SIZE + wx;
+        if (!riverCoords.has(idx)) {
+          grid0[idx] = wallTile;
+          if (tier >= 3) {
+            const inX = Math.round(marketCX + Math.cos(rad) * (r - 1));
+            const inY = Math.round(marketCY + Math.sin(rad) * (r - 1));
+            if (inX >= 0 && inX < SIZE && inY >= 0 && inY < SIZE && !riverCoords.has(inY * SIZE + inX)) {
+              grid0[inY * SIZE + inX] = 4; // Parapet walkway
+            }
+          }
+        }
+      }
+    }
+
+    // Gatehouse flanking watchtowers
+    for (const g of gates) {
+      const pNormX = -Math.sin(g.angle);
+      const pNormY = Math.cos(g.angle);
+      for (const side of [-3, 3]) {
+        const twX = Math.round(g.x + pNormX * side);
+        const twY = Math.round(g.y + pNormY * side);
+        for (let dy = -2; dy <= 2; dy++) {
+          for (let dx = -2; dx <= 2; dx++) {
+            const px = twX + dx, py = twY + dy;
+            if (px >= 0 && px < SIZE && py >= 0 && py < SIZE && !riverCoords.has(py * SIZE + px)) {
+              grid0[py * SIZE + px] = wallTile;
+            }
+          }
+        }
+      }
+    }
+
+    // Wall Bastions at corner intervals
+    for (let deg = 30; deg < 360; deg += 60) {
+      const rad = (deg * Math.PI) / 180;
+      const nearGate = gates.some(g => {
+        let diff = Math.abs(rad - g.angle);
+        if (diff > Math.PI) diff = Math.PI * 2 - diff;
+        return diff < 0.25;
+      });
+      if (!nearGate) {
+        const r = wallRadius + burgNoise.noise2D(Math.cos(rad) * 2.5, Math.sin(rad) * 2.5) * 11;
+        const bx = Math.round(marketCX + Math.cos(rad) * r);
+        const by = Math.round(marketCY + Math.sin(rad) * r);
+        for (let dy = -2; dy <= 2; dy++) {
+          for (let dx = -2; dx <= 2; dx++) {
+            const px = bx + dx, py = by + dy;
+            if (px >= 0 && px < SIZE && py >= 0 && py < SIZE && !riverCoords.has(py * SIZE + px)) {
+              grid0[py * SIZE + px] = wallTile;
+            }
+          }
+        }
+      }
+    }
+
+    // Historical Raid Breach (Wall Damaged by Past Conflict)
+    if (hasRaidOrWar) {
+      const breachAng = 0.45;
+      const bDist = wallRadius;
+      const bcx = Math.round(marketCX + Math.cos(breachAng) * bDist);
+      const bcy = Math.round(marketCY + Math.sin(breachAng) * bDist);
+      for (let dy = -4; dy <= 4; dy++) {
+        for (let dx = -4; dx <= 4; dx++) {
+          const px = bcx + dx, py = bcy + dy;
+          if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) {
+            if (grid0[py * SIZE + px] === wallTile) {
+              grid0[py * SIZE + px] = 3; // Collapsed rubble
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 5. Donjon Demographic Census & Purposeful Ward Zoning
+  const censusConfig = {
+    ...contextConfig,
+    factionOwner: factionName,
+    factionId: burg.faction_id || (contextConfig as any)?.cellData?.faction_id
+  };
+  const donjonCensus = computeDonjonSettlementCensus(burg, citizens, censusConfig);
+
+  const mapBizToSpec = (bizType: string): WorkplaceSpec => {
+    if (bizType === "TAVERN") return WORKPLACE_SPECS.BREWERY || WORKPLACE_SPECS.FARMSTEAD!;
+    if (bizType === "BLACKSMITH") return WORKPLACE_SPECS.FORGE!;
+    if (bizType === "BAKERY") return WORKPLACE_SPECS.BAKERY!;
+    if (bizType === "CARPENTER") return WORKPLACE_SPECS.CARPENTRY!;
+    if (bizType === "WEAVER") return WORKPLACE_SPECS.WEAVERY!;
+    if (bizType === "MASON") return WORKPLACE_SPECS.MASONRY!;
+    if (bizType === "POTTER") return WORKPLACE_SPECS.POTTERY!;
+    if (bizType === "TANNER") return WORKPLACE_SPECS.TANNERY!;
+    if (bizType === "APOTHECARY") return WORKPLACE_SPECS.APOTHECARY!;
+    if (bizType === "TEMPLE") return WORKPLACE_SPECS.TEMPLE!;
+    if (bizType === "REGISTRY") return WORKPLACE_SPECS.REGISTRY!;
+    if (bizType === "BARRACKS") return WORKPLACE_SPECS.BARRACKS!;
+    if (bizType === "FISHERY") return WORKPLACE_SPECS.FISHERY!;
+    if (bizType === "MARKET_STALL") return WORKPLACE_SPECS.MARKET_STALL!;
+    if (bizType === "SPECIALTY_GUILD") {
+      const fSpec = getFactionSpecialty(burg.faction_id || (contextConfig as any)?.factionId || (contextConfig as any)?.factionOwner || 0);
+      if (fSpec.category === "STRUCTURAL" || fSpec.category === "ENERGY") return WORKPLACE_SPECS.FORGE!;
+      if (fSpec.category === "FOUNDATION") return WORKPLACE_SPECS.MASONRY || WORKPLACE_SPECS.CARPENTRY!;
+      if (fSpec.category === "PRESERVATION") return WORKPLACE_SPECS.BAKERY || WORKPLACE_SPECS.BREWERY!;
+      if (fSpec.category === "HEALTH") return WORKPLACE_SPECS.APOTHECARY!;
+      if (fSpec.category === "ADVANCED" || fSpec.category === "METAPHYSICAL" || fSpec.category === "LOGISTICS") return WORKPLACE_SPECS.REGISTRY || WORKPLACE_SPECS.WEAVERY!;
+      return WORKPLACE_SPECS.FORGE!;
+    }
+    return WORKPLACE_SPECS.FARMSTEAD!;
+  };
 
   interface PlacedBuilding {
     spec: WorkplaceSpec;
@@ -323,40 +540,252 @@ export function generateBurgSectorLayers(
     w: number;
     h: number;
     citizens: any[];
+    biz: DonjonBusiness;
   }
   const placedBuildings: PlacedBuilding[] = [];
 
-  if (tier >= 2 && !activeWorkplaceTypes.includes("REGISTRY")) {
-    activeWorkplaceTypes.unshift("REGISTRY");
+  // Assign buildings to specific functional wards
+  // A. Citadel / Keep Ward (Northwest High Ground)
+  const citadelCX = marketCX - Math.round(wallRadius * 0.45);
+  const citadelCY = marketCY - Math.round(wallRadius * 0.45);
+
+  // B. Temple Precinct Ward (Northeast)
+  const templeCX = marketCX + Math.round(wallRadius * 0.45);
+  const templeCY = marketCY - Math.round(wallRadius * 0.42);
+
+  // C. Craftsmen & Artisan Wynd (Southeast)
+  const artisanCX = marketCX + Math.round(wallRadius * 0.38);
+  const artisanCY = marketCY + Math.round(wallRadius * 0.35);
+
+  // D. Waterfront / Harbor Ward (Southwest)
+  const waterfrontCX = marketCX - Math.round(wallRadius * 0.35);
+  const waterfrontCY = marketCY + Math.round(wallRadius * 0.38);
+
+  const placedPositions: Array<{ x: number; y: number; w: number; h: number }> = [];
+  const checkOverlap = (x: number, y: number, w: number, h: number) => {
+    return placedPositions.some(p => Math.abs(p.x - x) < (p.w + w + 3) && Math.abs(p.y - y) < (p.h + h + 3));
+  };
+
+  const donjonBusinesses = donjonCensus.businesses.slice(0, 24);
+  for (let i = 0; i < donjonBusinesses.length; i++) {
+    const biz = donjonBusinesses[i]!;
+    const spec = mapBizToSpec(biz.type);
+    const assignedCitizens = biz.proprietorCitizenId
+      ? citizens.filter(c => c.citizen_id === biz.proprietorCitizenId)
+      : [];
+
+    const bW = biz.buildingWidth;
+    const bH = biz.buildingHeight;
+
+    let targetBaseX = marketCX;
+    let targetBaseY = marketCY;
+
+    if (biz.ward === "CITADEL") {
+      const offset = (i % 3) * 12 - 12;
+      targetBaseX = citadelCX + (biz.type === "REGISTRY" ? -6 : biz.type === "BARRACKS" ? 8 : offset);
+      targetBaseY = citadelCY + (biz.type === "REGISTRY" ? -4 : biz.type === "BARRACKS" ? 6 : offset);
+    } else if (biz.ward === "TEMPLE") {
+      targetBaseX = templeCX + (biz.type === "TEMPLE" ? 0 : 8);
+      targetBaseY = templeCY + (biz.type === "TEMPLE" ? -6 : 8);
+    } else if (biz.ward === "ARTISAN") {
+      const craftOffset = (i % 6) * 11 - 25;
+      targetBaseX = artisanCX + craftOffset;
+      targetBaseY = artisanCY + Math.floor((i % 3) * 9);
+    } else if (biz.ward === "WATERFRONT") {
+      targetBaseX = waterfrontCX + Math.floor((rand() - 0.5) * 18);
+      targetBaseY = waterfrontCY + (hasRiver ? 6 : -6);
+    } else if (biz.ward === "MARKET") {
+      const ang = (i % 6) * (Math.PI / 3) + 0.3;
+      targetBaseX = Math.round(marketCX + Math.cos(ang) * (marketRad + 6));
+      targetBaseY = Math.round(marketCY + Math.sin(ang) * (marketRad + 6));
+    } else {
+      // Residential street frontage along roads
+      const ang = (i * 0.75) + rand() * 0.3;
+      const dist = 20 + Math.floor(rand() * (wallRadius * 0.5));
+      targetBaseX = Math.round(marketCX + Math.cos(ang) * dist);
+      targetBaseY = Math.round(marketCY + Math.sin(ang) * dist);
+    }
+
+    // Clamp inside walls and avoid river
+    const bcx = Math.max(bW + 8, Math.min(SIZE - bW - 8, targetBaseX));
+    let bcy = Math.max(bH + 8, Math.min(SIZE - bH - 8, targetBaseY));
+    if (riverCoords.has(bcy * SIZE + bcx)) {
+      bcy = Math.max(12, bcy - 16);
+    }
+
+    if (!checkOverlap(bcx, bcy, bW, bH)) {
+      placedPositions.push({ x: bcx, y: bcy, w: bW, h: bH });
+      placedBuildings.push({ spec, cx: bcx, cy: bcy, w: bW, h: bH, citizens: assignedCitizens, biz });
+    }
   }
 
-  for (let i = 0; i < activeWorkplaceTypes.length && i < candidatePlots.length; i++) {
-    const wt = activeWorkplaceTypes[i]!;
-    const spec = WORKPLACE_SPECS[wt] || WORKPLACE_SPECS.FARMSTEAD!;
-    const plot = candidatePlots[i]!;
-    const assignedCitizens = citizensByWorkplace.get(wt) || [];
+  // Connect Citadel, Temple, and Artisan districts to Market Square with dedicated paved lanes
+  drawOrganicStreet(citadelCX, citadelCY, marketCX, marketCY, 2);
+  drawOrganicStreet(templeCX, templeCY, marketCX, marketCY, 2);
+  drawOrganicStreet(artisanCX, artisanCY, marketCX, marketCY, 2);
+  if (hasRiver) drawOrganicStreet(waterfrontCX, waterfrontCY, marketCX, marketCY, 2);
 
-    placedBuildings.push({
-      spec,
-      cx: plot.cx,
-      cy: plot.cy,
-      w: plot.w,
-      h: plot.h,
-      citizens: assignedCitizens
+  const props0: SectorMapResult["props"] = [];
+
+  // 6. Context-Aware Water & Civic Centerpiece (NOT a well on every map!)
+  if (isGrove) {
+    props0.push({
+      id: `prop_heart_tree_${burg.burg_id}`,
+      name: `Ancient Sacred Heart-Tree of ${burgName}`,
+      pos: [marketCX, marketCY],
+      tags: ["type:structure", "material:wood", "sacred", "hallowed", "interactive"],
+      hp: 1000,
+      maxHp: 1000,
+      description: "An immense thousand-year-old elder tree whose roots pulse with tranquil vegetative spark."
     });
-  }
-
-  const props0: SectorMapResult["props"] = [
-    {
+  } else if (isRadial) {
+    props0.push({
+      id: `prop_celestial_sundial_${burg.burg_id}`,
+      name: `Celestial Dragon-Hour Sundial & Spire of ${burgName}`,
+      pos: [marketCX, marketCY],
+      tags: ["type:mechanism", "material:stone", "material:bronze", "astronomy", "civic"],
+      hp: 500,
+      maxHp: 500,
+      description: "A monumental brass gnomon projecting shadows across 44 carved dragon-month astronomical glyphs."
+    });
+  } else if (hasRiver) {
+    props0.push({
+      id: `prop_quayside_steps_${burg.burg_id}`,
+      name: `Stone River Quayside Steps & Mooring Slip`,
+      pos: [marketCX, hasRiver ? Math.floor(SIZE * 0.68) : marketCY],
+      tags: ["type:waterway", "material:stone", "water", "quayside", "interactive"],
+      hp: 350,
+      maxHp: 350,
+      description: `Broad granite water steps descending into the flowing river with heavy iron mooring rings where barges and water-carriers dock.`
+    });
+    props0.push({
+      id: `prop_market_cross_${burg.burg_id}`,
+      name: `Carved Guild Market Cross of ${burgName}`,
+      pos: [marketCX, marketCY],
+      tags: ["type:structure", "material:stone", "civic", "market"],
+      hp: 200,
+      maxHp: 200,
+      description: "A tall carved limestone market cross where provincial decrees and price tariffs are read."
+    });
+  } else if (isStone) {
+    props0.push({
+      id: `prop_lion_fountain_${burg.burg_id}`,
+      name: `Carved Lion-Headed Stone Basin Fountain of ${burgName}`,
+      pos: [marketCX, marketCY],
+      tags: ["type:waterway", "material:stone", "water", "civic", "drinkable"],
+      hp: 250,
+      maxHp: 250,
+      description: `A monumental granite basin fed by hillside mountain aqueducts, pouring crystal spring water from twin sculpted lion heads.`
+    });
+  } else if (isOrganicMaze) {
+    props0.push({
+      id: `prop_bazaar_cistern_${burg.burg_id}`,
+      name: `Shaded Sun-Baked Aljibe Cistern of ${burgName}`,
+      pos: [marketCX, marketCY],
+      tags: ["type:waterway", "material:stone", "material:clay", "water", "drinkable"],
+      hp: 300,
+      maxHp: 300,
+      description: "A cool shaded domed brick cistern catching mountain runoff to supply the sun-baked bazaar."
+    });
+  } else {
+    props0.push({
       id: `prop_fountain_${burg.burg_id}`,
       name: tier >= 3 ? `Grand Public Fountain of ${burgName}` : `Central Well of ${burgName}`,
-      pos: [CENTER, CENTER],
+      pos: [marketCX, marketCY],
       tags: ["type:waterway", "type:container", "material:stone", "stone", "water", "civic", "container", "fountain", "drinkable"],
       hp: 150,
       maxHp: 150,
       description: `A communal stone water well providing clear drinking water to the citizens of ${burgName}.`
+    });
+  }
+
+  // --- PAST EVENT SCARS & LIVING WORLD MANIFESTATIONS ---
+  if (hasRaidOrWar) {
+    const breachAng = 0;
+    const bDist = tier >= 3 ? 92 : 72;
+    props0.push({
+      id: `prop_breach_rubble_${burg.burg_id}`,
+      name: "Breached Rampart & Shattered Masonry Rubble",
+      pos: [Math.round(CENTER + bDist), CENTER],
+      tags: ["type:structure", "material:stone", "rubble", "damaged", "climbable"],
+      hp: 300,
+      maxHp: 300,
+      description: "A jagged breach torn through the defenses during recent hostile raids, littered with broken stones."
+    });
+    props0.push({
+      id: `prop_street_barricade_${burg.burg_id}`,
+      name: "Makeshift Defense Barricade & Spikes",
+      pos: [Math.round(CENTER + bDist - 12), CENTER],
+      tags: ["type:structure", "material:wood", "material:stone", "defensive", "cover"],
+      hp: 180,
+      maxHp: 180,
+      description: "Heavy timber beams, stone blocks, and sharpened stakes hastily thrown together to halt invaders."
+    });
+  }
+
+  if (hasFamine) {
+    props0.push({
+      id: `prop_famine_cauldron_${burg.burg_id}`,
+      name: "Communal Famine Relief Soup Cauldron & Benches",
+      pos: [CENTER + 5, CENTER - 4],
+      tags: ["type:container", "material:iron", "food", "communal"],
+      hp: 80,
+      maxHp: 80,
+      description: "A bubbling cast-iron kettle boiling turnip broth and parched grain for hungry citizens amidst recent food shortages."
+    });
+  }
+
+  if (hasWitchHunt) {
+    props0.push({
+      id: `prop_witch_gibbet_${burg.burg_id}`,
+      name: "Inquisitorial Charred Stake & Iron Gibbet",
+      pos: [CENTER - 5, CENTER + 4],
+      tags: ["type:structure", "material:iron", "material:wood", "intimidating", "sacred"],
+      hp: 120,
+      maxHp: 120,
+      description: "An iron hanging cage and soot-blackened stake bearing the sovereign inquisitor's sigil, following recent witch hunts."
+    });
+  }
+
+  if (hasChaosSurge) {
+    const fy = CENTER + 18;
+    for (let fx = CENTER - 12; fx <= CENTER + 12; fx++) {
+      grid0[fy * SIZE + fx] = 6; // Chaos Conduit
     }
-  ];
+    props0.push({
+      id: `prop_chaos_crystals_${burg.burg_id}`,
+      name: "Crystalline Void Conduits & Aether Spores",
+      pos: [CENTER, fy],
+      tags: ["type:hazard", "material:crystal", "chaos", "illuminating"],
+      hp: 150,
+      maxHp: 150,
+      description: "Luminescent violet crystal needles protruding from fractured paving stones, humming with residual chaos."
+    });
+  }
+
+  if (hasBoom) {
+    props0.push({
+      id: `prop_festival_canopy_${burg.burg_id}`,
+      name: "Bountiful Trade Festival Pennants & Produce Wagons",
+      pos: [CENTER + 8, CENTER + 6],
+      tags: ["type:furniture", "material:cloth", "material:wood", "festive"],
+      hp: 60,
+      maxHp: 60,
+      description: "Banners of dyed silk and harvest sheaves celebrating recent trade expansion and economic surplus."
+    });
+  }
+
+  if (hasCartel) {
+    props0.push({
+      id: `prop_cartel_drop_${burg.burg_id}`,
+      name: "Clandestine Syndicate Contraband Drop Barrel",
+      pos: [CENTER - 16, CENTER + 18],
+      tags: ["type:container", "material:wood", "contraband", "hidden"],
+      hp: 60,
+      maxHp: 60,
+      description: "A weathered rain-barrel marked with chalk thieves' cant concealing uninspected contraband spirits."
+    });
+  }
 
   const npcs0: SectorMapResult["npcs"] = [];
   const npcsPlus1: SectorMapResult["npcs"] = [];
@@ -475,68 +904,96 @@ export function generateBurgSectorLayers(
 
   // D. STATION LIVING CITIZENS FROM POPULATION_DEMOGRAPHICS IN WORKPLACES
   for (const b of placedBuildings) {
-    const wallTile = tier === 1 ? 7 : 5;
-    const floorTile = b.spec.floorTile;
+    const bWallTile = houseWallTile;
+    const bFloorTile = isTimber ? 8 : (isOrganicMaze ? 3 : b.spec.floorTile);
 
     for (let dy = -b.h; dy <= b.h; dy++) {
       for (let dx = -b.w; dx <= b.w; dx++) {
         const px = b.cx + dx, py = b.cy + dy;
         if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) {
           if (Math.abs(dx) === b.w || Math.abs(dy) === b.h) {
-            grid0[py * SIZE + px] = wallTile;
+            grid0[py * SIZE + px] = bWallTile;
           } else {
-            grid0[py * SIZE + px] = floorTile;
+            grid0[py * SIZE + px] = bFloorTile;
           }
         }
       }
     }
     const doorX = b.cx + (b.cx < CENTER ? b.w : -b.w);
     const doorY = b.cy;
-    grid0[doorY * SIZE + doorX] = floorTile;
+    grid0[doorY * SIZE + doorX] = bFloorTile;
 
-    if (b.spec.hasOven) {
+    // Connect door towards plaza center via walkway
+    const pAng = Math.atan2(CENTER - b.cy, CENTER - b.cx);
+    for (let step = 1; step <= 6; step++) {
+      const stepX = Math.round(doorX + Math.cos(pAng) * step);
+      const stepY = Math.round(doorY + Math.sin(pAng) * step);
+      if (stepX >= 0 && stepX < SIZE && stepY >= 0 && stepY < SIZE) {
+        if (grid0[stepY * SIZE + stepX] === 0) grid0[stepY * SIZE + stepX] = roadTile;
+      }
+    }
+
+    if (b.spec.hasOven || b.biz?.hasOven) {
       grid0[(b.cy - b.h + 2) * SIZE + (b.cx - b.w + 2)] = 8;
     }
-    if (b.spec.hasAltar) {
+    if (b.spec.hasAltar || b.biz?.hasAltar) {
       grid0[b.cy * SIZE + b.cx] = 10;
     }
 
+    const buildingTitle = b.biz ? b.biz.name : `${b.spec.title} of ${burgName}`;
+    const buildingDesc = b.biz
+      ? `${b.biz.atmosphere} Specialties: ${b.biz.specialty} Master ${b.biz.proprietorProfession}: ${b.biz.proprietorName || 'Local Guild Artisan'}.`
+      : b.spec.propDesc;
+
     props0.push({
-      id: `prop_${b.spec.type.toLowerCase()}_${burg.burg_id}`,
-      name: `${b.spec.title} of ${burgName}`,
+      id: `prop_${b.biz?.id || b.spec.type.toLowerCase()}_${burg.burg_id}`,
+      name: buildingTitle,
       pos: [b.cx, b.cy],
-      tags: [...b.spec.propTag, "interactive"],
-      hp: 120,
-      maxHp: 120,
-      description: b.spec.propDesc
+      tags: [...b.spec.propTag, "interactive", ...(b.biz ? [`ward:${b.biz.ward.toLowerCase()}`, `quality:${b.biz.quality}`] : [])],
+      hp: 140,
+      maxHp: 140,
+      description: buildingDesc
     });
 
-    if (b.spec.hasCellar) {
+    if (b.spec.hasCellar || b.biz?.hasCellar) {
       props0.push({
-        id: `prop_cellar_hatch_${b.spec.type.toLowerCase()}_${burg.burg_id}`,
-        name: `${b.spec.title} Cellar Trapdoor`,
+        id: `prop_cellar_hatch_${b.biz?.id || b.spec.type.toLowerCase()}_${burg.burg_id}`,
+        name: `${buildingTitle} Cellar Trapdoor`,
         pos: [b.cx + 2, b.cy + 1],
         tags: ["type:portal", "material:wood_oak", "material:iron", "wood", "hatch", "down", "stairs_down", "cellar", "subterranean", "openable", "lockable", "flammable"],
         hp: 60,
         maxHp: 60,
-        description: `Iron-strapped oak trapdoor opening down into the ${b.spec.title.toLowerCase()} basement.`
+        description: `Iron-strapped oak trapdoor opening down into the ${buildingTitle} basement storage vaults.`
       });
     }
 
-    if (b.spec.hasUpper) {
+    if (b.spec.hasUpper || b.biz?.hasUpper) {
       props0.push({
-        id: `prop_stairs_up_${b.spec.type.toLowerCase()}_${burg.burg_id}`,
-        name: `${b.spec.title} Upper Flight Stairs`,
+        id: `prop_stairs_up_${b.biz?.id || b.spec.type.toLowerCase()}_${burg.burg_id}`,
+        name: `${buildingTitle} Upper Floor Stairs`,
         pos: [b.cx - 2, b.cy - 1],
         tags: ["type:portal", "material:wood_oak", "wood", "stairs_up", "up", "elevated", "climbable", "flammable"],
         hp: 80,
         maxHp: 80,
-        description: `Stair flight ascending to the second floor of the ${b.spec.title.toLowerCase()}.`
+        description: `Stair flight ascending to the second floor of ${buildingTitle}.`
       });
     }
 
-    for (let ci = 0; ci < b.citizens.length && ci < 2; ci++) {
-      const c = b.citizens[ci]!;
+    // Station Master Proprietor & Apprentice / Staff
+    const staffCitizens = b.citizens.length > 0 ? b.citizens : (b.biz?.proprietorName ? [{
+      citizen_id: b.biz.proprietorCitizenId || 999000 + placedBuildings.indexOf(b),
+      name: b.biz.proprietorName,
+      profession: b.biz.proprietorProfession,
+      species: b.biz.proprietorSpecies || "Human",
+      temper: b.biz.proprietorTemper || "Sanguine",
+      instinct: "Self-Preservation",
+      motivation: "Craftsmanship & Commerce",
+      allegiance_status: "LOYAL",
+      spark_tier: "NONE"
+    }] : []);
+
+    for (let ci = 0; ci < staffCitizens.length && ci < 2; ci++) {
+      const c = staffCitizens[ci]!;
       const stats = computeCitizenConcordiaStats(c, rand);
 
       // Determine emotional & physiological status from burg indicators
@@ -548,15 +1005,20 @@ export function generateBurgSectorLayers(
       if (burgUnrest > 70) statusTags.push("panicked");
       if (burgUnrest > 85) statusTags.push("rebellious");
 
+      const isSpecialtyMaster = b.biz?.type === "SPECIALTY_GUILD";
+      const fSpec = isSpecialtyMaster ? getFactionSpecialty(burg.faction_id || (contextConfig as any)?.factionId || (contextConfig as any)?.factionOwner || 0) : null;
+
       const citizenTags = [
         c.species ? c.species.toLowerCase() : "human",
         "civilian",
-        c.workplace_type ? c.workplace_type.toLowerCase() : "trade",
+        c.workplace_type ? c.workplace_type.toLowerCase() : (b.biz?.category || "trade"),
         c.temper ? c.temper.toLowerCase() : "sanguine",
         c.instinct ? c.instinct.toLowerCase() : "fight",
         c.motivation ? `motivation:${c.motivation.toLowerCase().replace(/\s+/g, '_')}` : "motivation:duty",
         c.allegiance_status ? c.allegiance_status.toLowerCase() : "loyalist",
         c.spark_tier && c.spark_tier !== 'NONE' ? `spark:${c.spark_tier.toLowerCase()}` : "spark:null",
+        ...(b.biz ? [`ward:${b.biz.ward.toLowerCase()}`, "proprietor"] : []),
+        ...(fSpec ? ["specialty_master", fSpec.artisanPersonaTag.replace('#', ''), fSpec.category.toLowerCase()] : []),
         ...statusTags
       ];
 
@@ -571,13 +1033,15 @@ export function generateBurgSectorLayers(
         maxHp: 25,
         disposition: statusTags.includes("rebellious") ? -1 : 1,
         alive: true,
-        equippedWeapon: c.profession.includes("Smith") ? "Heavy Blacksmith Hammer" : c.profession.includes("Guard") ? "City Watch Spear" : "Carved Wooden Cudgel",
+        equippedWeapon: fSpec
+          ? (fSpec.category === "STRUCTURAL" ? "Master Blacksmith Forge Hammer" : fSpec.category === "ADVANCED" ? "Precision Calibrated Transit" : "Fine Carved Artisan Mallet")
+          : (c.profession.includes("Smith") ? "Heavy Blacksmith Hammer" : c.profession.includes("Guard") ? "City Watch Spear" : b.biz?.type === "TAVERN" ? "Oak Rolling Pin & Dagger" : "Carved Wooden Cudgel"),
         equippedArmor: c.profession.includes("Guard") ? "Studded Leather Cuirass" : "Woven Wool Tunic & Apron",
         statAffinity: c.temper ? c.temper.toLowerCase() : "vitality",
         memoryNotes: [
-          c.childhood_background || "Raised locally among the workshops of the province.",
-          c.motivation || "Devoted to their daily labor and community.",
-          `Employed at ${c.workplace_name || b.spec.title}.`,
+          b.biz ? `Master proprietor of ${buildingTitle} in ${donjonCensus.wards[b.biz.ward]?.name || 'the town'}.` : `Employed at ${c.workplace_name || b.spec.title}.`,
+          fSpec ? `Master artisan of ${fSpec.specialtyName}. Production method: ${fSpec.harvestMethod}. Producing ${fSpec.uniqueGoodName} (${fSpec.progressRoleDescription}).` : (b.biz?.atmosphere || c.childhood_background || "Raised locally among the workshops of the province."),
+          b.biz?.specialty ? `Specialties: ${b.biz.specialty}` : c.motivation || "Devoted to their daily labor and community.",
           `Temper: ${c.temper || 'Sanguine'} | Instinct: ${c.instinct || 'Self-Preservation'}`
         ],
         stats
@@ -626,7 +1090,9 @@ export function generateBurgSectorLayers(
     props: props0,
     npcs: npcs0,
     poiType: "BURG_CORE",
-    name: `${burgName} (Surface Ground Level)`,
+    name: contextConfig?.wardFocus
+      ? `${burgName} - ${contextConfig.wardFocus.charAt(0) + contextConfig.wardFocus.slice(1).toLowerCase()} Ward (Surface r[${contextConfig.rx ?? 50}, ${contextConfig.ry ?? 50}])`
+      : `${burgName} (Surface Ground Level)`,
     features: {
       burgId: burg.burg_id,
       urbanTier: tier,
@@ -634,7 +1100,14 @@ export function generateBurgSectorLayers(
       wealth: burg.wealth,
       unrest: burg.unrest,
       factionName,
-      zLayer: 0
+      zLayer: 0,
+      donjonCensus: {
+        wards: donjonCensus.wards,
+        businesses: donjonCensus.businesses,
+        tavernList: donjonCensus.tavernList,
+        artisanList: donjonCensus.artisanList,
+        notableLocations: donjonCensus.notableLocations
+      }
     }
   };
 
@@ -807,7 +1280,9 @@ export function generateBurgSectorLayers(
     props: propsMinus1,
     npcs: npcsMinus1,
     poiType: "SUBTERRANEAN_SECTOR",
-    name: `${burgName} (Subterranean Basements & Underworld)`,
+    name: contextConfig?.wardFocus
+      ? `${burgName} - ${contextConfig.wardFocus.charAt(0) + contextConfig.wardFocus.slice(1).toLowerCase()} Under-Vaults (Subterranean Z=-1)`
+      : `${burgName} (Subterranean Basements & Underworld)`,
     features: {
       burgId: burg.burg_id,
       urbanTier: tier,
@@ -955,7 +1430,9 @@ export function generateBurgSectorLayers(
     props: propsPlus1,
     npcs: npcsPlus1,
     poiType: "ELEVATED_SECTOR",
-    name: `${burgName} (Upper Floors, Ramparts & Sky-Bridges)`,
+    name: contextConfig?.wardFocus
+      ? `${burgName} - ${contextConfig.wardFocus.charAt(0) + contextConfig.wardFocus.slice(1).toLowerCase()} Ramparts & Sky-Bridges (Upper Z=+1)`
+      : `${burgName} (Upper Floors, Ramparts & Sky-Bridges)`,
     features: {
       burgId: burg.burg_id,
       urbanTier: tier,
@@ -979,15 +1456,1736 @@ export function generateBurgSectorMap(
   factionName: string,
   cellId: number,
   citizens: any[] = [],
-  lairs: any[] = []
+  lairs: any[] = [],
+  contextConfig?: BurgContextConfig
 ): SectorMapResult {
-  const layers = generateBurgSectorLayers(burg, factionName, cellId, citizens, lairs);
+  const layers = generateBurgSectorLayers(burg, factionName, cellId, citizens, lairs, [], contextConfig);
   return layers.layer0;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. OUTLYING REGION GENERATORS (Hamlets, Farmlands, Logging, Watchtowers)
 // ─────────────────────────────────────────────────────────────────────────────
+
+export interface TacticalRegionalSectorConfig {
+  cellId: number;
+  rx: number;
+  ry: number;
+  z?: number | undefined;
+  biomeId?: number | undefined;
+  biomeName?: string | undefined;
+  terrainType?: number | undefined;
+  infraMask?: number | undefined;
+  elevation?: number | undefined;
+  vegetation?: number | undefined;
+  chaos?: number | undefined;
+  parentBurg?: any;
+  factionName?: string | undefined;
+  facility?: any;
+  nearbyAgents?: any[] | undefined;
+  citizens?: any[] | undefined;
+  paragons?: any[] | undefined;
+  lairs?: any[] | undefined;
+  events?: any[] | undefined;
+  stockpile?: any | undefined;
+}
+
+interface FarmlandSurfaceConfig {
+  grid: Uint8Array;
+  poiCX: number;
+  poiCY: number;
+  cellId: number;
+  rx: number;
+  ry: number;
+  rand: () => number;
+  biomeId: number;
+  biomeName: string;
+  parentName: string;
+  facility: any;
+  facilityMasterCitizen: any;
+  props: SectorMapResult["props"];
+  npcs: SectorMapResult["npcs"];
+  pickCitizen: (prefProfessions?: string[]) => any;
+  makeDemographicNpc: (citizen: any, pos: [number, number], overrideRole?: string, weapon?: string) => any;
+}
+
+function generateProceduralFarmlandSurface(cfg: FarmlandSurfaceConfig): string {
+  const {
+    grid, poiCX, poiCY, cellId, rx, ry, rand, biomeId, biomeName, parentName,
+    facility, facilityMasterCitizen, props, npcs, pickCitizen, makeDemographicNpc
+  } = cfg;
+
+  const farmNoise = new SimplexNoise(cellId * 1000 + rx * 53 + ry * 31);
+  const professionStr = (facilityMasterCitizen?.profession || facility?.citizenProfession || "").toLowerCase();
+  const facilityNameStr = (facility?.name || "").toLowerCase();
+
+  // 1. Determine authentic farm archetype & architectural typology
+  let specType: "CEREAL" | "ORCHARD" | "PASTORAL" | "MARKET_GARDEN" | "VINEYARD";
+  if (professionStr.includes("orchard") || professionStr.includes("fruit") || professionStr.includes("pomona") || facilityNameStr.includes("orchard")) {
+    specType = "ORCHARD";
+  } else if (professionStr.includes("herd") || professionStr.includes("shepherd") || professionStr.includes("cattle") || professionStr.includes("dairy") || professionStr.includes("pasture") || facilityNameStr.includes("ranch") || facilityNameStr.includes("pasture")) {
+    specType = "PASTORAL";
+  } else if (professionStr.includes("vine") || professionStr.includes("wine") || professionStr.includes("vintner") || professionStr.includes("brew") || facilityNameStr.includes("vineyard")) {
+    specType = "VINEYARD";
+  } else if (professionStr.includes("herb") || professionStr.includes("vegetable") || professionStr.includes("garden") || professionStr.includes("apothecary") || facilityNameStr.includes("garden")) {
+    specType = "MARKET_GARDEN";
+  } else {
+    const roll = rand();
+    if (roll < 0.45) specType = "CEREAL";
+    else if (roll < 0.65) specType = "ORCHARD";
+    else if (roll < 0.80) specType = "PASTORAL";
+    else if (roll < 0.92) specType = "MARKET_GARDEN";
+    else specType = "VINEYARD";
+  }
+
+  // Choose 1 of 4 fundamentally distinct architectural typologies:
+  // 1. STRASSENDORF: Ribbon / Roadside Farm (strung along winding country highway with strip fields)
+  // 2. VIERKANTHOF: Fortified Quadrangle Courtyard Farm (enclosed 4-wing courtyard steading)
+  // 3. MILL_FARM: Watermill / Windmill Farm (mill race, flume, waterwheel, gristmill)
+  // 4. CLACHAN: Clustered Crofting Hamlet (3-4 small detached cottages scattered around common pasture)
+  type AgrarianTypology = "STRASSENDORF" | "VIERKANTHOF" | "MILL_FARM" | "CLACHAN";
+  let typology: AgrarianTypology;
+
+  if (professionStr.includes("mill") || professionStr.includes("miller") || facilityNameStr.includes("mill") || facilityNameStr.includes("sluice")) {
+    typology = "MILL_FARM";
+  } else if (professionStr.includes("herd") || professionStr.includes("shepherd") || facilityNameStr.includes("croft") || facilityNameStr.includes("clachan")) {
+    typology = "CLACHAN";
+  } else if (specType === "VINEYARD" || specType === "ORCHARD" || facilityNameStr.includes("steading") || facilityNameStr.includes("estate")) {
+    typology = "VIERKANTHOF";
+  } else {
+    const typeRoll = Math.abs(cellId * 19 + rx * 37 + ry * 43) % 4;
+    typology = typeRoll === 0 ? "STRASSENDORF" : typeRoll === 1 ? "VIERKANTHOF" : typeRoll === 2 ? "MILL_FARM" : "CLACHAN";
+  }
+
+  let barnX = poiCX, barnY = poiCY;
+
+  // =========================================================================
+  // TYPOLOGY 1: STRASSENDORF (Ribbon / Roadside Farm with Strip Fields)
+  // =========================================================================
+  if (typology === "STRASSENDORF") {
+    // A. Winding diagonal country lane traversing the sector
+    for (let t = 0; t <= 1; t += 0.004) {
+      const lx = 20 + t * 215;
+      const meander = farmNoise.noise2D(t * 3, 0) * 16;
+      const ly = Math.round(poiCY - 30 + t * 65 + meander);
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const px = Math.round(lx) + dx, py = ly + dy;
+          if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) grid[py * SIZE + px] = 3; // Dirt lane
+        }
+      }
+    }
+
+    // B. Long parallel strip fields (rig-and-furrow) extending north and south of the lane
+    const stripStartX = Math.max(15, poiCX - 65);
+    const stripEndX = Math.min(240, poiCX + 65);
+    for (let x = stripStartX; x < stripEndX; x += 12) {
+      const isCropA = ((x / 12) | 0) % 2 === 0;
+      for (let y = Math.max(10, poiCY - 80); y < poiCY - 35; y++) {
+        if (grid[y * SIZE + x] === 0) {
+          for (let w = 0; w < 10; w++) {
+            const px = x + w;
+            if (px < stripEndX) grid[y * SIZE + px] = isCropA ? 9 : 3; // 9: ripe crop, 3: plowed furrow
+          }
+        }
+      }
+      for (let y = poiCY + 35; y < Math.min(245, poiCY + 80); y++) {
+        if (grid[y * SIZE + x] === 0) {
+          for (let w = 0; w < 10; w++) {
+            const px = x + w;
+            if (px < stripEndX) grid[y * SIZE + px] = isCropA ? 3 : 9;
+          }
+        }
+      }
+    }
+
+    // C. Farmhouse Longhouse on North side of road
+    const houseW = 16, houseH = 8;
+    const houseX = poiCX - 18, houseY = poiCY - 28;
+    for (let by = 0; by < houseH; by++) {
+      for (let bx = 0; bx < houseW; bx++) {
+        const px = houseX + bx, py = houseY + by;
+        grid[py * SIZE + px] = (bx === 0 || bx === houseW - 1 || by === 0 || by === houseH - 1) ? 5 : 7;
+      }
+    }
+    grid[(houseY + houseH - 1) * SIZE + (houseX + 8)] = 3; // Door onto road
+    grid[(houseY + 1) * SIZE + (houseX + 1)] = 8; // Stone hearth
+
+    // D. Heavy Timber Threshing Barn on South side of road
+    barnX = poiCX + 4;
+    barnY = poiCY + 14;
+    const barnW = 18, barnH = 10;
+    for (let by = 0; by < barnH; by++) {
+      for (let bx = 0; bx < barnW; bx++) {
+        const px = barnX + bx, py = barnY + by;
+        grid[py * SIZE + px] = (bx === 0 || bx === barnW - 1 || by === 0 || by === barnH - 1) ? 7 : 7;
+      }
+    }
+    grid[barnY * SIZE + (barnX + 9)] = 3; // Barn double doors
+
+    // E. Raised Granary on Staddle Stones
+    const granaryX = poiCX - 32, granaryY = poiCY + 16;
+    for (let by = 0; by < 6; by++) {
+      for (let bx = 0; bx < 8; bx++) {
+        grid[(granaryY + by) * SIZE + (granaryX + bx)] = 7;
+      }
+    }
+
+    // F. Props (Roadside flume water trough - NOT a stone well!)
+    props.push({
+      id: `prop_roadside_trough_${cellId}_${rx}_${ry}`,
+      name: "Roadside Timber Water Trough & Hillside Flume",
+      pos: [poiCX, poiCY - 12],
+      tags: ["type:waterway", "material:wood", "water", "livestock", "drinkable"],
+      hp: 120,
+      maxHp: 120,
+      description: "A hollowed cedar log trough fed by a hillside wooden flume, providing sweet mountain water for cart horses and drovers."
+    });
+
+    props.push({
+      id: `prop_farmhouse_${cellId}_${rx}_${ry}`,
+      name: facilityMasterCitizen ? `${facilityMasterCitizen.name}'s Thatched Longhouse Dwelling` : "Thatched Stone-and-Timber Longhouse",
+      pos: [houseX + 8, houseY + 4],
+      tags: ["type:structure", "material:stone", "material:wood", "shelter", "enterable"],
+      hp: 220,
+      maxHp: 220,
+      description: `Two-room stone longhouse of ${facilityMasterCitizen?.name || 'the farmer'} and their 12-worker agricultural household.`
+    });
+
+    props.push({
+      id: `prop_barn_${cellId}_${rx}_${ry}`,
+      name: facilityMasterCitizen ? `${facilityMasterCitizen.name}'s Timber Threshing Barn` : "Timber Post-and-Beam Barn",
+      pos: [barnX + 9, barnY + 5],
+      tags: ["type:structure", "material:wood", "agricultural", "enterable"],
+      hp: 200,
+      maxHp: 200,
+      description: "Massive timber post-and-beam barn with a central wooden threshing floor."
+    });
+
+    props.push({
+      id: `prop_cellar_poe_${cellId}_${rx}_${ry}`,
+      name: "North Yard Root Cellar Trapdoor (Subterranean Entry)",
+      pos: [houseX + 2, houseY - 2],
+      tags: ["type:portal", "material:iron", "material:wood", "affordances:openable", "stairs_down"],
+      hp: 150,
+      maxHp: 150,
+      description: "Iron-banded hatch leading down into the cool root vegetable storage vaults."
+    });
+
+  // =========================================================================
+  // TYPOLOGY 2: VIERKANTHOF (Fortified Quadrangle Courtyard Steading)
+  // =========================================================================
+  } else if (typology === "VIERKANTHOF") {
+    const quadW = 38, quadH = 34;
+    const qX = poiCX - Math.floor(quadW / 2);
+    const qY = poiCY - Math.floor(quadH / 2);
+
+    // Enclosed cobbled courtyard inside
+    for (let dy = 4; dy < quadH - 4; dy++) {
+      for (let dx = 4; dx < quadW - 4; dx++) {
+        grid[(qY + dy) * SIZE + (qX + dx)] = 4; // Cobblestone court
+      }
+    }
+
+    // North Wing: Two-story living farmhouse (depth 5)
+    for (let dy = 0; dy < 5; dy++) {
+      for (let dx = 0; dx < quadW; dx++) {
+        const px = qX + dx, py = qY + dy;
+        grid[py * SIZE + px] = (dx === 0 || dx === quadW - 1 || dy === 0 || dy === 4) ? 5 : 7;
+      }
+    }
+    grid[(qY + 1) * SIZE + (qX + 4)] = 8; // Hearth
+    grid[(qY + 4) * SIZE + (qX + Math.floor(quadW / 2))] = 4; // Door to court
+
+    // East Wing: Cow Byre & Horse Stables (depth 5)
+    for (let dy = 4; dy < quadH; dy++) {
+      for (let dx = quadW - 5; dx < quadW; dx++) {
+        const px = qX + dx, py = qY + dy;
+        grid[py * SIZE + px] = (dx === quadW - 5 || dx === quadW - 1 || dy === quadH - 1) ? 5 : 7;
+      }
+    }
+
+    // West Wing: Grain Threshing Barn & Mow (depth 5)
+    barnX = qX + 2;
+    barnY = qY + 14;
+    for (let dy = 4; dy < quadH; dy++) {
+      for (let dx = 0; dx < 5; dx++) {
+        const px = qX + dx, py = qY + dy;
+        grid[py * SIZE + px] = (dx === 0 || dx === 4 || dy === quadH - 1) ? 5 : 7;
+      }
+    }
+
+    // South Wing: Gatehouse & Equipment Shed (depth 5 with central arched carriage portal)
+    for (let dy = quadH - 5; dy < quadH; dy++) {
+      for (let dx = 0; dx < quadW; dx++) {
+        const px = qX + dx, py = qY + dy;
+        // Central carriage archway (4 cells wide)
+        if (Math.abs(dx - Math.floor(quadW / 2)) <= 2) {
+          grid[py * SIZE + px] = 4; // Road through gate
+        } else {
+          grid[py * SIZE + px] = (dy === quadH - 5 || dy === quadH - 1) ? 5 : 7;
+        }
+      }
+    }
+
+    // Surrounding outer orchard trees and pastures
+    for (let deg = 0; deg < 360; deg += 18) {
+      const rad = (deg * Math.PI) / 180;
+      const ox = Math.round(poiCX + Math.cos(rad) * 44);
+      const oy = Math.round(poiCY + Math.sin(rad) * 44);
+      if (ox >= 6 && ox < SIZE - 6 && oy >= 6 && oy < SIZE - 6 && grid[oy * SIZE + ox] === 0) {
+        grid[oy * SIZE + ox] = (deg % 36 === 0) ? 1 : 0; // Fruit tree or pasture
+      }
+    }
+
+    // Props (Central courtyard rainwater cistern & dungstead - NOT a bored well!)
+    props.push({
+      id: `prop_quad_cistern_${cellId}_${rx}_${ry}`,
+      name: "Courtyard Copper-Lined Rainwater Catchment Cistern",
+      pos: [poiCX - 4, poiCY],
+      tags: ["type:waterway", "material:stone", "water", "interactive"],
+      hp: 250,
+      maxHp: 250,
+      description: "A deep stone cistern fed by roof gutters from all four wings of the quadrangle steading."
+    });
+
+    props.push({
+      id: `prop_manure_pit_${cellId}_${rx}_${ry}`,
+      name: "Steading Straw & Manure Compost Pit",
+      pos: [poiCX + 6, poiCY + 2],
+      tags: ["type:hazard", "material:straw", "fertilizer", "flammable"],
+      hp: 80,
+      maxHp: 80,
+      description: "Walled dungstead composting stable straw and manure for spring soil enrichment."
+    });
+
+    props.push({
+      id: `prop_quad_gate_${cellId}_${rx}_${ry}`,
+      name: "Iron-Banded Timber Carriage Portal Gates",
+      pos: [poiCX, qY + quadH - 2],
+      tags: ["type:portal", "material:wood_oak", "material:iron", "affordances:openable", "defensive"],
+      hp: 300,
+      maxHp: 300,
+      description: "Heavy double-leaf oak carriage gates securing the enclosed steading courtyard."
+    });
+
+    props.push({
+      id: `prop_cellar_poe_${cellId}_${rx}_${ry}`,
+      name: "North Wing Stone Cellar Trapdoor (Subterranean Entry)",
+      pos: [qX + 8, qY + 4],
+      tags: ["type:portal", "material:iron", "material:stone", "affordances:openable", "stairs_down"],
+      hp: 200,
+      maxHp: 200,
+      description: "Heavy granite flight descending beneath the living quarters into the vaulted root pantry."
+    });
+
+  // =========================================================================
+  // TYPOLOGY 3: MILL_FARM (Watermill on Mill Race or Hilltop Windmill)
+  // =========================================================================
+  } else if (typology === "MILL_FARM") {
+    const isWatermill = (biomeId !== 1 && biomeId !== 2);
+
+    if (isWatermill) {
+      // Mill Race: Stone-banked canal cutting diagonally across the sector
+      for (let t = 0; t <= 1; t += 0.005) {
+        const mx = 20 + t * 215;
+        const my = Math.round(poiCY - 40 + t * 80 + Math.sin(t * Math.PI * 2) * 8);
+        for (let w = -3; w <= 3; w++) {
+          const px = Math.round(mx), py = my + w;
+          if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) {
+            grid[py * SIZE + px] = Math.abs(w) === 3 ? 5 : 2; // 5: Stone mill race wall, 2: Water
+          }
+        }
+      }
+
+      // Two-story Granite Gristmill directly spanning the mill race
+      const millW = 16, millH = 14;
+      const millX = poiCX - 6, millY = poiCY - 10;
+      for (let dy = 0; dy < millH; dy++) {
+        for (let dx = 0; dx < millW; dx++) {
+          const px = millX + dx, py = millY + dy;
+          grid[py * SIZE + px] = (dx === 0 || dx === millW - 1 || dy === 0 || dy === millH - 1) ? 5 : 4;
+        }
+      }
+      grid[(millY + 6) * SIZE + (millX + millW - 1)] = 3; // Entrance door
+
+      // Miller's Cottage beside the mill
+      const cottageW = 12, cottageH = 8;
+      const cotX = poiCX - 28, cotY = poiCY - 8;
+      for (let dy = 0; dy < cottageH; dy++) {
+        for (let dx = 0; dx < cottageW; dx++) {
+          const px = cotX + dx, py = cotY + dy;
+          grid[py * SIZE + px] = (dx === 0 || dx === cottageW - 1 || dy === 0 || dy === cottageH - 1) ? 5 : 7;
+        }
+      }
+      grid[(cotY + 1) * SIZE + (cotX + 1)] = 8; // Hearth
+
+      // Props (Waterwheel, Sluice Gate, Dipping Steps - NO well!)
+      props.push({
+        id: `prop_waterwheel_${cellId}_${rx}_${ry}`,
+        name: "Massive Iron-Braced Oak Mill Waterwheel",
+        pos: [millX + 8, millY - 2],
+        tags: ["type:mechanism", "material:wood_oak", "material:iron", "industrial", "water"],
+        hp: 350,
+        maxHp: 350,
+        description: "A gigantic churning wooden wheel turned by the surging flume, driving the heavy granite millstones inside."
+      });
+
+      props.push({
+        id: `prop_mill_steps_${cellId}_${rx}_${ry}`,
+        name: "Stone Mill Race Dipping Steps",
+        pos: [cotX + 8, cotY + cottageH + 2],
+        tags: ["type:waterway", "material:stone", "water", "interactive"],
+        hp: 200,
+        maxHp: 200,
+        description: "Granite steps descending directly into the clear flowing mill race where buckets are filled with cold river water."
+      });
+
+      props.push({
+        id: `prop_flour_wagon_${cellId}_${rx}_${ry}`,
+        name: "Four-Wheeled Flour Sack Wagon",
+        pos: [millX + millW + 4, millY + 4],
+        tags: ["type:container", "material:wood", "food", "flour"],
+        hp: 80,
+        maxHp: 80,
+        description: "Heavy timber freight wagon loaded with linen sacks of freshly ground white flour."
+      });
+
+      props.push({
+        id: `prop_cellar_poe_${cellId}_${rx}_${ry}`,
+        name: "Mill Gear Pit & Sluice Trapdoor (Subterranean Entry)",
+        pos: [millX + 4, millY + 4],
+        tags: ["type:portal", "material:iron", "stairs_down"],
+        hp: 250,
+        maxHp: 250,
+        description: "Iron grate descending into the churning underwater gear vaults."
+      });
+
+    } else {
+      // Hilltop Windmill
+      const millRad = 8;
+      for (let dy = -millRad; dy <= millRad; dy++) {
+        for (let dx = -millRad; dx <= millRad; dx++) {
+          const d = Math.hypot(dx, dy);
+          const px = poiCX + dx, py = poiCY + dy;
+          if (d <= millRad) {
+            grid[py * SIZE + px] = d >= millRad - 1.5 ? 5 : 4; // Stone tower wall
+          }
+        }
+      }
+      grid[(poiCY + millRad - 1) * SIZE + poiCX] = 3; // Entrance door
+
+      props.push({
+        id: `prop_windmill_${cellId}_${rx}_${ry}`,
+        name: "Four-Sailed Crest Windmill & Grist Tower",
+        pos: [poiCX, poiCY],
+        tags: ["type:structure", "material:stone", "material:wood", "industrial"],
+        hp: 400,
+        maxHp: 400,
+        description: "A towering circular limestone mill with four turning canvas-covered sails catching the ridge winds."
+      });
+
+      props.push({
+        id: `prop_grain_cribs_${cellId}_${rx}_${ry}`,
+        name: "Slatted Elevated Grain Cribs",
+        pos: [poiCX + 14, poiCY],
+        tags: ["type:container", "material:wood", "food"],
+        hp: 140,
+        maxHp: 140,
+        description: "Slatted wooden drying cribs filled with freshly harvested sheaf bundles."
+      });
+
+      props.push({
+        id: `prop_cellar_poe_${cellId}_${rx}_${ry}`,
+        name: "Windmill Foundation Cellar Trapdoor (Subterranean Entry)",
+        pos: [poiCX - 2, poiCY - 2],
+        tags: ["type:portal", "material:wood_oak", "stairs_down"],
+        hp: 200,
+        maxHp: 200,
+        description: "Heavy oak trapdoor descending into the bedrock grain storage vaults."
+      });
+    }
+
+  // =========================================================================
+  // TYPOLOGY 4: CLACHAN (Clustered Crofting Hamlet on Open Common)
+  // =========================================================================
+  } else {
+    // Open common green pasture in center
+    const greenRad = 24;
+    for (let dy = -greenRad; dy <= greenRad; dy++) {
+      for (let dx = -greenRad; dx <= greenRad; dx++) {
+        if (Math.hypot(dx, dy) <= greenRad) {
+          const px = poiCX + dx, py = poiCY + dy;
+          if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) grid[py * SIZE + px] = 0; // Grassy common
+        }
+      }
+    }
+
+    // 3 to 4 distinct drystone thatched cottages scattered organically around green
+    const cottageConfigs = [
+      { ox: -24, oy: -18, w: 10, h: 7, name: "North Croft Cottage" },
+      { ox: 22, oy: -14, w: 11, h: 7, name: "East Croft Cottage" },
+      { ox: -18, oy: 20, w: 9, h: 6, name: "South Byre Croft" },
+      { ox: 20, oy: 22, w: 10, h: 7, name: "Weaver's Croft" }
+    ];
+
+    for (const cc of cottageConfigs) {
+      const cx = poiCX + cc.ox, cy = poiCY + cc.oy;
+      for (let dy = 0; dy < cc.h; dy++) {
+        for (let dx = 0; dx < cc.w; dx++) {
+          const px = cx + dx, py = cy + dy;
+          grid[py * SIZE + px] = (dx === 0 || dx === cc.w - 1 || dy === 0 || dy === cc.h - 1) ? 5 : 7;
+        }
+      }
+      grid[(cy + cc.h - 1) * SIZE + (cx + Math.floor(cc.w / 2))] = 3; // Door
+      grid[(cy + 1) * SIZE + (cx + 1)] = 8; // Hearth
+    }
+
+    // Drystone sheep fold
+    const foldX = poiCX - 36, foldY = poiCY;
+    for (let dy = -8; dy <= 8; dy++) {
+      for (let dx = -8; dx <= 8; dx++) {
+        if (Math.abs(dx) === 8 || Math.abs(dy) === 8) {
+          if (!(dx === 8 && Math.abs(dy) <= 1)) { // Gate gap
+            grid[(foldY + dy) * SIZE + (foldX + dx)] = 5; // Drystone wall
+          }
+        }
+      }
+    }
+
+    // Props (Freshwater Spring Pool, Communal Bread Oven, Grain Kiln - NO bored well!)
+    props.push({
+      id: `prop_spring_pool_${cellId}_${rx}_${ry}`,
+      name: "Natural Rock-Carved Spring Pool",
+      pos: [poiCX + 2, poiCY - 2],
+      tags: ["type:waterway", "material:stone", "water", "drinkable", "interactive"],
+      hp: 300,
+      maxHp: 300,
+      description: "A crystal-clear freshwater spring bubbling up among limestone boulders, surrounded by flagstone dipping shelves."
+    });
+
+    props.push({
+      id: `prop_bread_oven_${cellId}_${rx}_${ry}`,
+      name: "Communal Stone Domed Bread Oven",
+      pos: [poiCX - 6, poiCY + 4],
+      tags: ["type:workstation", "material:stone", "material:clay", "food", "fire"],
+      hp: 180,
+      maxHp: 180,
+      description: "A shared clay-and-stone beehive oven heated with gorse brush for baking the clachan's barley bannocks."
+    });
+
+    props.push({
+      id: `prop_grain_kiln_${cellId}_${rx}_${ry}`,
+      name: "Drystone Corn-Drying Kiln",
+      pos: [poiCX + 14, poiCY + 12],
+      tags: ["type:workstation", "material:stone", "agricultural", "heat"],
+      hp: 150,
+      maxHp: 150,
+      description: "A circular stone kiln bowl where damp harvested grain is gently dried over peat embers."
+    });
+
+    props.push({
+      id: `prop_cellar_poe_${cellId}_${rx}_${ry}`,
+      name: "Earthen Root Dugout Hatch (Subterranean Entry)",
+      pos: [poiCX - 22, poiCY - 16],
+      tags: ["type:portal", "material:wood", "stairs_down"],
+      hp: 120,
+      maxHp: 120,
+      description: "Turf-covered timber hatch opening down into the clachan's shared winter root cellar."
+    });
+  }
+
+  // Spawn 2 Authentic Demographically Assigned Citizens
+  const leadCitizen = facilityMasterCitizen || pickCitizen(["Farmer", "Farm Hand", "Agriculture", "Laborer", "Herder", "Orchardist"]);
+  if (leadCitizen) {
+    const roleName = facilityMasterCitizen ? (facility?.citizenProfession || "Master Farmer") : "Master Farmer";
+    npcs.push(makeDemographicNpc(leadCitizen, [poiCX, poiCY], roleName, "Iron Pitchfork"));
+  }
+
+  const cit2 = pickCitizen(["Laborer", "Farm Hand", "Herder", "Peasant"]);
+  if (cit2) {
+    npcs.push(makeDemographicNpc(cit2, [barnX + 4, barnY + 4], "Farm Laborer", "Wooden Flail"));
+  }
+
+  // Dynamic Sector Title reflecting authentic typology
+  const typoTitle = typology === "STRASSENDORF" ? "Ribbon Roadside Steading"
+    : typology === "VIERKANTHOF" ? "Enclosed Quadrangle Steading"
+    : typology === "MILL_FARM" ? "River Flume Gristmill"
+    : "Clachan Crofting Steading";
+
+  return facility?.name
+    ? `${facility.name} (r[${rx}, ${ry}])`
+    : `${parentName} ${typoTitle} (r[${rx}, ${ry}])`;
+}
+
+function generateProceduralFarmlandSubterranean(
+  grid: Uint8Array,
+  cavernCX: number,
+  cavernCY: number,
+  cellId: number,
+  rx: number,
+  ry: number,
+  rand: () => number,
+  parentName: string,
+  facilityMasterCitizen: any,
+  props: SectorMapResult["props"],
+  npcs: SectorMapResult["npcs"],
+  pickCitizen: (prefProfessions?: string[]) => any,
+  makeDemographicNpc: (citizen: any, pos: [number, number], overrideRole?: string, weapon?: string) => any
+): string {
+  grid.fill(6); // Solid bedrock
+
+  // Procedural main vault dimensions
+  const mainW = 16 + Math.floor(rand() * 8);
+  const mainH = 14 + Math.floor(rand() * 6);
+  const halfW = Math.floor(mainW / 2);
+  const halfH = Math.floor(mainH / 2);
+
+  for (let dy = -halfH; dy <= halfH; dy++) {
+    for (let dx = -halfW; dx <= halfW; dx++) {
+      grid[(cavernCY + dy) * SIZE + (cavernCX + dx)] = 1; // Flagstone floor
+    }
+  }
+
+  // Secondary arched alcove extending North or East
+  const alcoveEast = rand() < 0.5;
+  const alcoveW = 10 + Math.floor(rand() * 6);
+  const alcoveH = 8 + Math.floor(rand() * 4);
+  const alcoveCX = alcoveEast ? cavernCX + halfW + Math.floor(alcoveW / 2) - 1 : cavernCX;
+  const alcoveCY = !alcoveEast ? cavernCY - halfH - Math.floor(alcoveH / 2) + 1 : cavernCY;
+
+  for (let dy = -Math.floor(alcoveH / 2); dy <= Math.floor(alcoveH / 2); dy++) {
+    for (let dx = -Math.floor(alcoveW / 2); dx <= Math.floor(alcoveW / 2); dx++) {
+      const px = alcoveCX + dx, py = alcoveCY + dy;
+      if (px >= 2 && px < 254 && py >= 2 && py < 254) {
+        grid[py * SIZE + px] = 1;
+      }
+    }
+  }
+
+  // Masonry support pillars spaced symmetrically
+  const pillarX = Math.floor(halfW * 0.55);
+  const pillarY = Math.floor(halfH * 0.55);
+  const pillarOffsets: Array<[number, number]> = [
+    [-pillarX, -pillarY], [pillarX, -pillarY],
+    [-pillarX, pillarY], [pillarX, pillarY]
+  ];
+  for (const [px, py] of pillarOffsets) {
+    grid[(cavernCY + py) * SIZE + (cavernCX + px)] = 5; // Stone pillar
+  }
+
+  // Natural cold-spring basin in corner
+  const springX = cavernCX - halfW + 3;
+  const springY = cavernCY + halfH - 3;
+  for (let dy = -2; dy <= 2; dy++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      if (dx * dx + dy * dy <= 4) grid[(springY + dy) * SIZE + (springX + dx)] = 2; // Water
+    }
+  }
+
+  // Props
+  props.push({
+    id: `prop_sub_stairs_${cellId}_${rx}_${ry}`,
+    name: "Stone Stairs Ascending to Surface Farmstead",
+    pos: [cavernCX - halfW + 2, cavernCY - halfH + 2],
+    tags: ["stone", "portal", "climbable", "stairs_up"],
+    hp: 500,
+    maxHp: 500,
+    description: "Heavy granite flight of stairs worn smooth by work boots, leading up to the surface farmstead trapdoor."
+  });
+
+  props.push({
+    id: `prop_sub_bins_${cellId}_${rx}_${ry}`,
+    name: "Slatted Root Vegetable & Grain Storage Cribs",
+    pos: [cavernCX + Math.floor(halfW * 0.5), cavernCY - 4],
+    tags: ["type:container", "material:wood", "food", "lootable"],
+    hp: 120,
+    maxHp: 120,
+    description: "Dry timber bins stacked with winter grain, barley sacks, parsnips, and turnips buried in dry sand."
+  });
+
+  props.push({
+    id: `prop_sub_casks_${cellId}_${rx}_${ry}`,
+    name: "Oak Cider & Pickling Brine Casks",
+    pos: [alcoveCX, alcoveCY],
+    tags: ["type:container", "material:wood_oak", "liquid", "food"],
+    hp: 90,
+    maxHp: 90,
+    description: "Row of iron-hooped oak barrels on chocked timbers filled with cider, ale, and brine preserves."
+  });
+
+  props.push({
+    id: `prop_sub_cistern_${cellId}_${rx}_${ry}`,
+    name: "Cold-Spring Aquifer Fresh Basin",
+    pos: [springX, springY],
+    tags: ["type:container", "material:stone", "water"],
+    hp: 300,
+    maxHp: 300,
+    description: "Deep stone catchment basin capturing cold sweet seepage from an underground limestone spring."
+  });
+
+  const cit = facilityMasterCitizen || pickCitizen(["Miller", "Farm", "Laborer"]);
+  if (cit) {
+    npcs.push(makeDemographicNpc(cit, [cavernCX + 2, cavernCY], facilityMasterCitizen ? "Homestead Cellar Keeper" : "Cellar Granary Keeper"));
+  }
+
+  return facilityMasterCitizen
+    ? `${facilityMasterCitizen.name}'s Granary Vaults & Root Cellar (r[${rx}, ${ry}] Z=-1)`
+    : `${parentName} Agrarian Root Cellars & Granary Vaults (r[${rx}, ${ry}] Z=-1)`;
+}
+
+function generateProceduralFarmlandUpper(
+  grid: Uint8Array,
+  platCX: number,
+  platCY: number,
+  cellId: number,
+  rx: number,
+  ry: number,
+  rand: () => number,
+  parentName: string,
+  facilityMasterCitizen: any,
+  props: SectorMapResult["props"],
+  npcs: SectorMapResult["npcs"],
+  pickCitizen: (prefProfessions?: string[]) => any,
+  makeDemographicNpc: (citizen: any, pos: [number, number], overrideRole?: string, weapon?: string) => any
+): string {
+  grid.fill(0); // Open sky
+  const loftW = 14 + Math.floor(rand() * 8);
+  const loftH = 12 + Math.floor(rand() * 6);
+  const halfW = Math.floor(loftW / 2);
+  const halfH = Math.floor(loftH / 2);
+
+  // Timber floorboard
+  for (let dy = -halfH; dy <= halfH; dy++) {
+    for (let dx = -halfW; dx <= halfW; dx++) {
+      grid[(platCY + dy) * SIZE + (platCX + dx)] = 8; // Timber floorboard
+    }
+  }
+  // Rafter perimeter
+  for (let dx = -halfW; dx <= halfW; dx++) {
+    grid[(platCY - halfH) * SIZE + (platCX + dx)] = 7;
+    grid[(platCY + halfH) * SIZE + (platCX + dx)] = 7;
+  }
+  for (let dy = -halfH; dy <= halfH; dy++) {
+    grid[(platCY + dy) * SIZE + (platCX - halfW)] = 7;
+    grid[(platCY + dy) * SIZE + (platCX + halfW)] = 7;
+  }
+
+  props.push({
+    id: `prop_upper_ladder_${cellId}_${rx}_${ry}`,
+    name: "Barn Loft Timber Ladder Descending to Floor",
+    pos: [platCX - halfW + 3, platCY - halfH + 3],
+    tags: ["wood", "portal", "climbable", "ladder_down"],
+    hp: 250,
+    maxHp: 250,
+    description: "Knotted oak ladder descending down into the barn threshing floor."
+  });
+
+  props.push({
+    id: `prop_upper_hay_bales_${cellId}_${rx}_${ry}`,
+    name: "Dried Alfalfa Hay Bales & Herb Sheaves",
+    pos: [platCX + 3, platCY + 2],
+    tags: ["type:container", "material:straw", "flammable"],
+    hp: 40,
+    maxHp: 40,
+    description: "Piles of fragrant summer hay and dried healing moss hanging from the rafters."
+  });
+
+  const cit = facilityMasterCitizen || pickCitizen(["Farm", "Laborer"]);
+  if (cit) {
+    npcs.push(makeDemographicNpc(cit, [platCX + 2, platCY - 2], "Hayloft Laborer", "Pitchfork"));
+  }
+
+  return facilityMasterCitizen
+    ? `${facilityMasterCitizen.name}'s Thatched Granary Loft (r[${rx}, ${ry}] Z=+1)`
+    : `${parentName} Farmstead: Hayloft (r[${rx}, ${ry}] Z=+1)`;
+}
+
+export function generateTacticalRegionalSectorMap(config: TacticalRegionalSectorConfig): SectorMapResult {
+  const {
+    cellId,
+    rx,
+    ry,
+    z = 0,
+    biomeId = 4,
+    biomeName = "Wilderness",
+    terrainType = 0,
+    infraMask = 0,
+    elevation = 50,
+    vegetation = 0.3,
+    chaos = 0.0,
+    parentBurg,
+    factionName = "Provincial Sovereignty",
+    facility,
+    nearbyAgents = [],
+    citizens = [],
+    paragons = [],
+    lairs = [],
+    events = [],
+    stockpile = {}
+  } = config;
+
+  const rand = hashSeed(`tactical_${cellId}_${rx}_${ry}_${z}`);
+  const grid = new Uint8Array(SIZE * SIZE);
+  const CENTER = 128;
+  const parentName = parentBurg?.name || `Sector #${cellId}`;
+
+  const props: SectorMapResult["props"] = [];
+  const npcs: SectorMapResult["npcs"] = [];
+
+  // 1. Determine authentic POI type matching RegionalInstance definitions
+  let poiType: "HAMLET" | "FARMLAND" | "LOGGING" | "MINE" | "SHRINE" | "WATCHTOWER" | "SMUGGLER_DEN" | "WILDERNESS" = "WILDERNESS";
+  if (facility && (facility.type === "MINE" || String(facility.type).includes("MINE"))) poiType = "MINE";
+  else if (facility && (facility.type === "LOGGING_CAMP" || String(facility.type).includes("LOGGING"))) poiType = "LOGGING";
+  else if (facility && (facility.type === "FARM" || String(facility.type).includes("FARM"))) poiType = "FARMLAND";
+  else if (facility && (facility.type === "WATCHTOWER" || String(facility.type).includes("WATCH"))) poiType = "WATCHTOWER";
+  else if (terrainType === 4 || (infraMask & 1)) poiType = "HAMLET";
+  else if (terrainType === 9 || (infraMask & 48)) poiType = "FARMLAND";
+  else if (terrainType === 10 || (infraMask & 24)) poiType = "LOGGING";
+  else if (terrainType === 11 || (infraMask & 12)) poiType = "MINE";
+  else if (terrainType === 12 || (infraMask & 6)) poiType = "WATCHTOWER";
+  else if (terrainType === 7 || (infraMask & 8) || (infraMask & 16)) poiType = "SHRINE";
+  else if (terrainType === 6 || (infraMask & 4)) poiType = "SMUGGLER_DEN";
+
+  // 1b. Resolve authentic primary citizen master if facility is linked to a demographic worker unit
+  const facilityMasterCitizen = facility?.citizenId
+    ? (citizens.find(c => c.citizen_id === facility.citizenId) || {
+        citizen_id: facility.citizenId,
+        name: facility.citizenName,
+        profession: facility.citizenProfession,
+        unit_size: facility.workerCount || 12
+      })
+    : null;
+
+  // Helper to pick authentic citizens from population_demographics deterministically rotated by (rx, ry, z)
+  const offset = citizens.length > 0 ? Math.abs((cellId * 37 + rx * 19 + ry * 43 + (z + 2) * 11)) % citizens.length : 0;
+  const availableCitizens = citizens.length > 0 ? [...citizens.slice(offset), ...citizens.slice(0, offset)] : [];
+  if (facilityMasterCitizen && facilityMasterCitizen.citizen_id) {
+    const fIdx = availableCitizens.findIndex(c => c.citizen_id === facilityMasterCitizen.citizen_id);
+    if (fIdx !== -1) availableCitizens.splice(fIdx, 1);
+  }
+
+  let citCounter = 0;
+  const pickCitizen = (prefProfessions: string[] = []): any | null => {
+    if (availableCitizens.length === 0) return null;
+    if (prefProfessions.length > 0) {
+      const idx = availableCitizens.findIndex(c =>
+        prefProfessions.some(p => c.profession?.toLowerCase().includes(p.toLowerCase()))
+      );
+      if (idx !== -1) {
+        const match = availableCitizens[idx];
+        availableCitizens.splice(idx, 1);
+        return match;
+      }
+    }
+    return availableCitizens.shift() || null;
+  };
+
+  const makeDemographicNpc = (
+    citizen: any,
+    pos: [number, number],
+    overrideRole?: string,
+    weapon?: string
+  ): SectorMapResult["npcs"][0] => {
+    const name = citizen?.name || `${factionName} Resident #${citCounter + 1}`;
+    const role = overrideRole || citizen?.profession || "Provincial Citizen";
+    const species = citizen?.species || "Human";
+    const temper = citizen?.temper || "steady";
+    const instinct = citizen?.instinct || "wary";
+    const motivation = citizen?.motivation || "duty";
+    const unitSize = citizen?.unit_size || 12;
+    const tags = [
+      `species:${species.toLowerCase()}`,
+      `profession:${role.toLowerCase().replace(/[\s-]+/g, '_')}`,
+      `temper:${temper.toLowerCase()}`,
+      `instinct:${instinct.toLowerCase()}`,
+      `motivation:${motivation.toLowerCase()}`,
+      citizen?.spark_tier ? `spark:${citizen.spark_tier.toLowerCase()}` : "spark:null"
+    ];
+
+    const isGuard = role.includes("Guard") || role.includes("Watch") || role.includes("Sentry") || role.includes("Warder");
+    const isFarmer = role.includes("Farm") || role.includes("Granary") || role.includes("Miller");
+    const isWoodsman = role.includes("Wood") || role.includes("Lumber") || role.includes("Sawyer") || role.includes("Carpenter");
+    const isMiner = role.includes("Mine") || role.includes("Quarry") || role.includes("Blacksmith") || role.includes("Delver");
+
+    return {
+      id: `npc_demographic_${citizen?.citizen_id || `${cellId}_${rx}_${ry}_${citCounter++}`}`,
+      name,
+      role,
+      pos,
+      tags,
+      faction: factionName,
+      hp: citizen?.spark_tier === "PARAGON" ? 45 : isGuard ? 30 : 24,
+      maxHp: citizen?.spark_tier === "PARAGON" ? 45 : isGuard ? 30 : 24,
+      disposition: temper.toLowerCase().includes("friendly") || temper.toLowerCase().includes("calm") ? 1 :
+                   temper.toLowerCase().includes("hostile") || temper.toLowerCase().includes("suspicious") ? -1 : 0,
+      alive: true,
+      equippedWeapon: weapon || (isGuard ? "Broadsword & Shield" : isFarmer ? "Iron Pitchfork" : isWoodsman ? "Two-Handed Felling Axe" : isMiner ? "Heavy Mining Pick" : "Hunting Knife"),
+      statAffinity: isGuard ? "awareness" : isFarmer || isWoodsman ? "might" : isMiner ? "endurance" : "finesse",
+      stats: {
+        childhood_background: citizen?.childhood_background,
+        allegiance_status: citizen?.allegiance_status || "LOYAL",
+        unit_size: unitSize
+      },
+      memoryNotes: [
+        `Authentic demographic citizen of ${parentName}. Profession: ${role}.`,
+        `Represents an authentic worker unit baseline of ${unitSize} people living and working here.`
+      ]
+    };
+  };
+
+  const poiCX = 90 + Math.floor(rand() * 76);
+  const poiCY = 90 + Math.floor(rand() * 76);
+
+  // =========================================================================
+  // SUBTERRANEAN LAYER (Z = -1): Authentic Sub-Level Customized to Surface Facility
+  // =========================================================================
+  if (z === -1) {
+    grid.fill(6); // Solid bedrock
+    const cavernCX = poiCX;
+    const cavernCY = poiCY;
+
+    if (poiType === "FARMLAND") {
+      const layerName = generateProceduralFarmlandSubterranean(
+        grid, cavernCX, cavernCY, cellId, rx, ry, rand, parentName,
+        facilityMasterCitizen, props, npcs, pickCitizen, makeDemographicNpc
+      );
+
+      return {
+        grid,
+        compressed: zlib.gzipSync(Buffer.from(grid)),
+        props,
+        npcs,
+        poiType,
+        name: layerName,
+        features: { cellId, rx, ry, z: -1, biomeId, poiType }
+      };
+
+    } else if (poiType === "HAMLET") {
+      // Masonry Root Cellar & Granary Storage Vaults
+      for (let dy = -16; dy <= 16; dy++) {
+        for (let dx = -20; dx <= 20; dx++) {
+          grid[(cavernCY + dy) * SIZE + (cavernCX + dx)] = 1; // Flagstone floor
+        }
+      }
+      // Vaulted support pillars
+      const pillarOffsets: Array<[number, number]> = [[-10, -8], [10, -8], [-10, 8], [10, 8]];
+      for (const [px, py] of pillarOffsets) {
+        grid[(cavernCY + py) * SIZE + (cavernCX + px)] = 5; // Stone pillar
+      }
+
+      props.push({
+        id: `prop_sub_stairs_${cellId}_${rx}_${ry}`,
+        name: "Stone Stairs Ascending to Surface Farmstead",
+        pos: [cavernCX - 16, cavernCY - 12],
+        tags: ["stone", "portal", "climbable", "stairs_up"],
+        hp: 500,
+        maxHp: 500,
+        description: "Heavy granite flight of stairs worn smooth by work boots, leading up to the surface farmstead trapdoor."
+      });
+      props.push({
+        id: `prop_sub_grain_bins_${cellId}_${rx}_${ry}`,
+        name: "Communal Threshed Grain Bins & Sacks",
+        pos: [cavernCX + 10, cavernCY - 8],
+        tags: ["type:container", "material:wood", "food", "granary", "lootable"],
+        hp: 120,
+        maxHp: 120,
+        description: "Dry timber bins stacked with winter grain, barley seed sacks, and winnowing sieves."
+      });
+      props.push({
+        id: `prop_sub_casks_${cellId}_${rx}_${ry}`,
+        name: "Oak Cider & Pickling Brine Casks",
+        pos: [cavernCX + 12, cavernCY + 8],
+        tags: ["type:container", "material:wood_oak", "liquid", "food"],
+        hp: 80,
+        maxHp: 80,
+        description: "Row of iron-hooped oak barrels filled with pressed cider and winter root preserves."
+      });
+      props.push({
+        id: `prop_sub_cistern_${cellId}_${rx}_${ry}`,
+        name: "Cold-Spring Aquifer Water Cistern",
+        pos: [cavernCX - 8, cavernCY + 10],
+        tags: ["type:container", "material:stone", "water"],
+        hp: 300,
+        maxHp: 300,
+        description: "Deep stone catchment basin capturing seepage from an underground freshwater spring."
+      });
+
+      const cit = facilityMasterCitizen || pickCitizen(["Miller", "Farm", "Laborer"]);
+      if (cit) {
+        npcs.push(makeDemographicNpc(cit, [cavernCX + 2, cavernCY], facilityMasterCitizen ? "Homestead Cellar Keeper" : "Cellar Granary Keeper"));
+      }
+
+      const layerName = facilityMasterCitizen
+        ? `${facilityMasterCitizen.name}'s Granary Vaults & Root Cellar (r[${rx}, ${ry}] Z=-1)`
+        : `${parentName} Agrarian Root Cellars & Granary Vaults (r[${rx}, ${ry}] Z=-1)`;
+
+      return {
+        grid,
+        compressed: zlib.gzipSync(Buffer.from(grid)),
+        props,
+        npcs,
+        poiType,
+        name: layerName,
+        features: { cellId, rx, ry, z: -1, biomeId, poiType }
+      };
+
+    } else if (poiType === "LOGGING") {
+      const layerName = generateProceduralLoggingSubterranean(
+        grid, cavernCX, cavernCY, cellId, rx, ry, rand, parentName,
+        facilityMasterCitizen, props, npcs, pickCitizen, makeDemographicNpc
+      );
+
+      return {
+        grid,
+        compressed: zlib.gzipSync(Buffer.from(grid)),
+        props,
+        npcs,
+        poiType,
+        name: layerName,
+        features: { cellId, rx, ry, z: -1, biomeId, poiType }
+      };
+
+    } else if (poiType === "MINE") {
+      const layerName = generateProceduralMiningSubterranean(
+        grid, cavernCX, cavernCY, cellId, rx, ry, rand, parentName,
+        facilityMasterCitizen, props, npcs, pickCitizen, makeDemographicNpc
+      );
+
+      return {
+        grid,
+        compressed: zlib.gzipSync(Buffer.from(grid)),
+        props,
+        npcs,
+        poiType,
+        name: layerName,
+        features: { cellId, rx, ry, z: -1, biomeId, poiType }
+      };
+
+    } else if (poiType === "WATCHTOWER") {
+      const layerName = generateProceduralWatchtowerSubterranean(
+        grid, cavernCX, cavernCY, cellId, rx, ry, rand, parentName,
+        facilityMasterCitizen, props, npcs, pickCitizen, makeDemographicNpc
+      );
+
+      return {
+        grid,
+        compressed: zlib.gzipSync(Buffer.from(grid)),
+        props,
+        npcs,
+        poiType,
+        name: layerName,
+        features: { cellId, rx, ry, z: -1, biomeId, poiType }
+      };
+
+    } else if (poiType === "SMUGGLER_DEN") {
+      // Underworld Cache & Contraband Cellar
+      for (let dy = -12; dy <= 12; dy++) {
+        for (let dx = -14; dx <= 14; dx++) {
+          grid[(cavernCY + dy) * SIZE + (cavernCX + dx)] = 1;
+        }
+      }
+
+      props.push({
+        id: `prop_sub_trapdoor_${cellId}_${rx}_${ry}`,
+        name: "Concealed Floor Hatch Ascending to Surface Brush",
+        pos: [cavernCX - 8, cavernCY - 6],
+        tags: ["wood", "portal", "climbable", "ladder_up", "hidden"],
+        hp: 200,
+        maxHp: 200,
+        description: "A camouflaged trapdoor covered in lichen and soil leading up into dense brush."
+      });
+      props.push({
+        id: `prop_sub_contraband_${cellId}_${rx}_${ry}`,
+        name: "Sealed Contraband Cask Cache",
+        pos: [cavernCX + 6, cavernCY + 4],
+        tags: ["type:container", "material:wood", "contraband", "lootable"],
+        hp: 90,
+        maxHp: 90,
+        description: "Unmarked barrels containing uncut crystal, unstamped trade goods, and contraband spirits."
+      });
+
+      const cit = pickCitizen(["Disenfranchised", "Outcast", "Laborer"]);
+      if (cit) {
+        npcs.push(makeDemographicNpc(cit, [cavernCX, cavernCY], "Covert Syndicate Courier", "Dagger & Hand Crossbow"));
+      }
+
+      return {
+        grid,
+        compressed: zlib.gzipSync(Buffer.from(grid)),
+        props,
+        npcs,
+        poiType,
+        name: `${parentName} Border Flue: Contraband Vault (r[${rx}, ${ry}] Z=-1)`,
+        features: { cellId, rx, ry, z: -1, biomeId, poiType }
+      };
+
+    } else if (poiType === "SHRINE") {
+      // Crypt of the Ancient Dragon Seals
+      for (let dy = -18; dy <= 18; dy++) {
+        for (let dx = -18; dx <= 18; dx++) {
+          if (dx * dx + dy * dy <= 324) {
+            grid[(cavernCY + dy) * SIZE + (cavernCX + dx)] = 4; // Temple stone floor
+          }
+        }
+      }
+
+      props.push({
+        id: `prop_sub_crypt_stairs_${cellId}_${rx}_${ry}`,
+        name: "Ancient Stone Steps Ascending to Megaliths",
+        pos: [cavernCX, cavernCY - 12],
+        tags: ["stone", "portal", "climbable", "stairs_up"],
+        hp: 600,
+        maxHp: 600,
+        description: "Ancient basalt steps worn by centuries of pilgrims leading up to the megalith ring."
+      });
+      props.push({
+        id: `prop_sub_sarcophagus_${cellId}_${rx}_${ry}`,
+        name: "Carved Dragon-Stone Sarcophagus",
+        pos: [cavernCX, cavernCY],
+        tags: ["type:altar", "material:stone", "sacred", "relic"],
+        hp: 800,
+        maxHp: 800,
+        description: "Monolithic stone tomb sealed with lead seals and carved with archaic celestial constellations."
+      });
+
+      const cit = pickCitizen(["Herbalist", "Acolyte", "Pious"]);
+      if (cit) {
+        npcs.push(makeDemographicNpc(cit, [cavernCX + 4, cavernCY + 4], "Ancient Crypt Keeper", "Sacred Quarterstaff"));
+      }
+
+      return {
+        grid,
+        compressed: zlib.gzipSync(Buffer.from(grid)),
+        props,
+        npcs,
+        poiType,
+        name: `Subterranean Crypt of the Ancient Seals (r[${rx}, ${ry}] Z=-1)`,
+        features: { cellId, rx, ry, z: -1, biomeId, poiType }
+      };
+
+    } else {
+      // WILDERNESS / NATURAL KARST CAVE SYSTEM
+      for (let dy = -28; dy <= 28; dy++) {
+        for (let dx = -32; dx <= 32; dx++) {
+          const d = Math.hypot(dx, dy);
+          const noise = Math.sin(dx * 0.15) * Math.cos(dy * 0.15) * 6;
+          if (d <= 22 + noise) {
+            grid[(cavernCY + dy) * SIZE + (cavernCX + dx)] = 1; // Cave floor
+          }
+        }
+      }
+      for (let dy = -6; dy <= 6; dy++) {
+        for (let dx = -8; dx <= 8; dx++) {
+          if (dx * dx + dy * dy <= 36) {
+            grid[(cavernCY + 8 + dy) * SIZE + (cavernCX - 10 + dx)] = 5; // Water
+          }
+        }
+      }
+
+      props.push({
+        id: `prop_sub_fissure_ledge_${cellId}_${rx}_${ry}`,
+        name: "Natural Rock Ledges Ascending to Surface Fissure",
+        pos: [cavernCX + 14, cavernCY - 10],
+        tags: ["stone", "portal", "climbable", "stairs_up"],
+        hp: 500,
+        maxHp: 500,
+        description: "Tiered natural limestone ledges offering natural climbing handholds up to the surface."
+      });
+      props.push({
+        id: `prop_sub_grotto_lichen_${cellId}_${rx}_${ry}`,
+        name: "Luminescent Grotto Moss Cluster",
+        pos: [cavernCX - 12, cavernCY + 8],
+        tags: ["type:hazard", "material:flora", "illuminating"],
+        hp: 20,
+        maxHp: 20,
+        description: "Phosphorescent emerald moss glowing softly along the damp limestone water's edge."
+      });
+
+      const isHostile = rand() < 0.5;
+      npcs.push({
+        id: `npc_cave_beast_${cellId}_${rx}_${ry}`,
+        name: isHostile ? "Grotto Cave Stalker" : "Subterranean Scree Marmot",
+        role: isHostile ? "Apex Cave Predator" : "Subterranean Fauna",
+        pos: [cavernCX + 2, cavernCY + 4],
+        tags: ["beast", "wild", isHostile ? "hostile" : "fearful"],
+        faction: "Wilderness",
+        hp: isHostile ? 32 : 12,
+        maxHp: isHostile ? 32 : 12,
+        disposition: isHostile ? -2 : 0,
+        alive: true,
+        statAffinity: "vitality",
+        memoryNotes: [`Roams the limestone grotto beneath Sector [${rx}, ${ry}].`]
+      });
+
+      return {
+        grid,
+        compressed: zlib.gzipSync(Buffer.from(grid)),
+        props,
+        npcs,
+        poiType,
+        name: `${biomeName} Subterranean Karst Caverns (r[${rx}, ${ry}] Z=-1)`,
+        features: { cellId, rx, ry, z: -1, biomeId, poiType }
+      };
+    }
+  }
+
+  // =========================================================================
+  // UPPER LAYER (Z = 1): Lofts, Lookouts, Canopy Platforms, Ramparts
+  // =========================================================================
+  if (z === 1) {
+    grid.fill(0); // Open sky
+    const platCX = poiCX;
+    const platCY = poiCY;
+
+    if (poiType === "WATCHTOWER") {
+      const layerName = generateProceduralWatchtowerUpper(
+        grid, platCX, platCY, cellId, rx, ry, rand, parentName,
+        facilityMasterCitizen, props, npcs, pickCitizen, makeDemographicNpc
+      );
+
+      return {
+        grid,
+        compressed: zlib.gzipSync(Buffer.from(grid)),
+        props,
+        npcs,
+        poiType,
+        name: layerName,
+        features: { cellId, rx, ry, z: 1, biomeId, poiType }
+      };
+
+    } else if (poiType === "LOGGING") {
+      const layerName = generateProceduralLoggingUpper(
+        grid, platCX, platCY, cellId, rx, ry, rand, parentName,
+        facilityMasterCitizen, props, npcs, pickCitizen, makeDemographicNpc
+      );
+
+      return {
+        grid,
+        compressed: zlib.gzipSync(Buffer.from(grid)),
+        props,
+        npcs,
+        poiType,
+        name: layerName,
+        features: { cellId, rx, ry, z: 1, biomeId, poiType }
+      };
+
+    } else if (poiType === "MINE") {
+      const layerName = generateProceduralMiningUpper(
+        grid, platCX, platCY, cellId, rx, ry, rand, parentName,
+        facilityMasterCitizen, props, npcs, pickCitizen, makeDemographicNpc
+      );
+
+      return {
+        grid,
+        compressed: zlib.gzipSync(Buffer.from(grid)),
+        props,
+        npcs,
+        poiType,
+        name: layerName,
+        features: { cellId, rx, ry, z: 1, biomeId, poiType }
+      };
+
+    } else if (poiType === "FARMLAND") {
+      const layerName = generateProceduralFarmlandUpper(
+        grid, platCX, platCY, cellId, rx, ry, rand, parentName,
+        facilityMasterCitizen, props, npcs, pickCitizen, makeDemographicNpc
+      );
+
+      return {
+        grid,
+        compressed: zlib.gzipSync(Buffer.from(grid)),
+        props,
+        npcs,
+        poiType,
+        name: layerName,
+        features: { cellId, rx, ry, z: 1, biomeId, poiType }
+      };
+
+    } else {
+      // Tree Canopy Platform / Elevated Lookout
+      for (let dy = -10; dy <= 10; dy++) {
+        for (let dx = -10; dx <= 10; dx++) {
+          if (Math.abs(dx) === 10 || Math.abs(dy) === 10) {
+            grid[(platCY + dy) * SIZE + (platCX + dx)] = 7; // Timber rail
+          } else {
+            grid[(platCY + dy) * SIZE + (platCX + dx)] = 8; // Timber planking
+          }
+        }
+      }
+
+      props.push({
+        id: `prop_upper_ladder_${cellId}_${rx}_${ry}`,
+        name: "Knotted Rope Ladder Descending to Ground",
+        pos: [platCX, platCY],
+        tags: ["wood", "portal", "climbable", "ladder_down"],
+        hp: 200,
+        maxHp: 200,
+        description: "Heavy woven hemp and hardwood ladder descending down into the forest."
+      });
+
+      const cit = pickCitizen(["Scout", "Hunter", "Woodcutter"]);
+      if (cit) {
+        npcs.push(makeDemographicNpc(cit, [platCX + 3, platCY - 3], "Canopy Scout", "Hunting Bow"));
+      }
+
+      return {
+        grid,
+        compressed: zlib.gzipSync(Buffer.from(grid)),
+        props,
+        npcs,
+        poiType,
+        name: `${biomeName} Canopy Platform (r[${rx}, ${ry}] Z=+1)`,
+        features: { cellId, rx, ry, z: 1, biomeId, poiType }
+      };
+    }
+  }
+
+  // =========================================================================
+  // SURFACE GROUND LAYER (Z = 0): Authentic Biome & Terrain Synthesis
+  // =========================================================================
+  // 1. Fill base ground
+  if (biomeId === 0 || terrainType === 3) {
+    grid.fill(2); // Water
+  } else if (biomeId === 1 || biomeId === 2) {
+    grid.fill(0); // Sand / arid
+  } else if (biomeId === 10 || biomeId === 11) {
+    grid.fill(0); // Tundra / snow
+  } else {
+    grid.fill(0); // Grassland / soil
+  }
+
+  // 2. SCATTER VEGETATION & TREES
+  if (biomeId !== 0 && terrainType !== 3) {
+    const vegFactor = Math.max(0.05, Math.min(0.85, vegetation));
+    const treeTile = (biomeId === 9 || biomeId === 10) ? 1 : 1; // Trees
+    for (let y = 0; y < SIZE; y += 2) {
+      for (let x = 0; x < SIZE; x += 2) {
+        if (hashSeed(`veg_${cellId}_${rx}_${ry}_${x}_${y}`)() < vegFactor * 0.45) {
+          grid[y * SIZE + x] = treeTile;
+          if (x + 1 < SIZE) grid[y * SIZE + (x + 1)] = treeTile;
+          if (y + 1 < SIZE) grid[(y + 1) * SIZE + x] = treeTile;
+        }
+      }
+    }
+  }
+
+  // 3. OVERLAND TRADE HIGHWAY / RUSTIC ROAD
+  const hasRoad = terrainType === 5 || terrainType === 6 || (infraMask & 6) !== 0 || facility;
+  if (hasRoad && biomeId !== 0 && terrainType !== 3) {
+    const roadAngle = ((rx * 7 + ry * 13) % 180) * (Math.PI / 180);
+    const roadTile = terrainType === 5 ? 4 : 3;
+    const rStartX = CENTER - Math.round(Math.cos(roadAngle) * 128);
+    const rStartY = CENTER - Math.round(Math.sin(roadAngle) * 128);
+    const rEndX = CENTER + Math.round(Math.cos(roadAngle) * 128);
+    const rEndY = CENTER + Math.round(Math.sin(roadAngle) * 128);
+
+    for (let t = 0; t <= 1; t += 0.005) {
+      const rxPos = Math.round(rStartX + (rEndX - rStartX) * t);
+      const ryPos = Math.round(rStartY + (rEndY - rStartY) * t);
+      const curve = Math.sin(t * Math.PI * 3 + rx) * 5;
+      const fx = Math.round(rxPos + Math.cos(roadAngle + Math.PI / 2) * curve);
+      const fy = Math.round(ryPos + Math.sin(roadAngle + Math.PI / 2) * curve);
+
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const px = fx + dx, py = fy + dy;
+          if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) {
+            grid[py * SIZE + px] = roadTile;
+          }
+        }
+      }
+    }
+  }
+
+  // 4. MOUNTAIN CRAGS & ROCKY RIDGES
+  if ((elevation > 65 || terrainType === 8 || terrainType === 11) && biomeId !== 0) {
+    const ridgeX = 70 + Math.floor(rand() * 110);
+    for (let y = 0; y < SIZE; y++) {
+      const cx = Math.floor(ridgeX + Math.sin(y * 0.03 + rx) * 25);
+      for (let w = -6; w <= 6; w++) {
+        const x = cx + w;
+        if (x >= 0 && x < SIZE && grid[y * SIZE + x] !== 2 && grid[y * SIZE + x] !== 4) {
+          grid[y * SIZE + x] = 5; // Stone Cliff Wall
+        }
+      }
+    }
+  }
+
+  // 5. CHAOS CORRUPTION FISSURE
+  if (chaos > 0.35 && biomeId !== 0) {
+    const riftX = 60 + Math.floor(rand() * 130);
+    for (let y = 20; y < SIZE - 20; y++) {
+      const cx = Math.floor(riftX + Math.sin(y * 0.05 + ry) * 18);
+      for (let w = -1; w <= 1; w++) {
+        const x = cx + w;
+        if (x >= 0 && x < SIZE) grid[y * SIZE + x] = 6; // Chaos Conduit
+      }
+    }
+  }
+
+  // 6. PROCEDURAL POINT OF INTEREST (POI) PLACEMENT ON SURFACE
+  let sectorName = facility?.name ? `${facility.name} (r[${rx}, ${ry}])` : "";
+
+  if (poiType === "HAMLET") {
+    sectorName = `${parentName} Outskirts: Hamlet (r[${rx}, ${ry}])`;
+
+    // 1. Organic curving country highway traversing through hamlet center
+    for (let t = 0; t <= 1; t += 0.005) {
+      const hx = 20 + t * 215;
+      const meander = Math.sin(t * Math.PI * 2) * 14 + hashSeed(`h_meander_${cellId}_${rx}_${ry}`)() * 4;
+      const hy = Math.round(poiCY - 20 + t * 45 + meander);
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const px = Math.round(hx) + dx, py = hy + dy;
+          if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) grid[py * SIZE + px] = 3; // Dirt lane
+        }
+      }
+    }
+
+    // 2. Wayside Hamlet Common / Meeting Green
+    const greenRad = 15;
+    for (let dy = -greenRad; dy <= greenRad; dy++) {
+      for (let dx = -greenRad; dx <= greenRad; dx++) {
+        const d = Math.hypot(dx, dy);
+        if (d <= greenRad) {
+          const px = poiCX + dx, py = poiCY + dy;
+          if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) {
+            grid[py * SIZE + px] = d <= 6 ? 4 : 3; // Cobblestone center, dirt perimeter
+          }
+        }
+      }
+    }
+
+    // 3. 4 to 6 uniquely sized cottages lining the country highway
+    const hamletBuildings = [
+      { ox: -26, oy: -18, w: 11, h: 7, name: "Wayside Tavern & Drover Inn", type: "tavern" },
+      { ox: 22, oy: -16, w: 9, h: 6, name: "Village Blacksmith & Shoeing Forge", type: "forge" },
+      { ox: -20, oy: 20, w: 10, h: 7, name: "Reeve's Homestead Cottage", type: "dwelling" },
+      { ox: 24, oy: 18, w: 9, h: 6, name: "Weaver's Thatched Cottage", type: "dwelling" },
+      { ox: -4, oy: -32, w: 12, h: 7, name: "Communal Timber Granary", type: "granary" }
+    ];
+
+    for (const b of hamletBuildings) {
+      const cx = poiCX + b.ox, cy = poiCY + b.oy;
+      for (let dy = 0; dy < b.h; dy++) {
+        for (let dx = 0; dx < b.w; dx++) {
+          const px = cx + dx, py = cy + dy;
+          if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) {
+            grid[py * SIZE + px] = (dx === 0 || dx === b.w - 1 || dy === 0 || dy === b.h - 1) ? 5 : 7;
+          }
+        }
+      }
+      grid[(cy + b.h - 1) * SIZE + (cx + Math.floor(b.w / 2))] = 3; // Doorway
+      if (b.type === "forge" || b.type === "tavern") {
+        grid[(cy + 1) * SIZE + (cx + 1)] = 8; // Hearth / Forge fire
+      }
+    }
+
+    // 4. Context-Aware Water Source (Not a generic well everywhere!)
+    const hasStream = (biomeId === 6 || biomeId === 8 || biomeId === 12);
+    if (hasStream) {
+      props.push({
+        id: `prop_brook_dock_${cellId}_${rx}_${ry}`,
+        name: "Fresh Brook Timber Dipping Dock & Water Sluice",
+        pos: [poiCX, poiCY],
+        tags: ["type:waterway", "material:wood", "water", "interactive", "drinkable"],
+        hp: 150,
+        maxHp: 150,
+        description: "A notched oak dipping platform extending over a clear spring-fed brook with wooden buckets."
+      });
+    } else if (biomeId === 1 || biomeId === 2) {
+      props.push({
+        id: `prop_hamlet_aljibe_${cellId}_${rx}_${ry}`,
+        name: "Domed Brick Rainwater Aljibe Cistern",
+        pos: [poiCX, poiCY],
+        tags: ["type:waterway", "material:brick", "water", "drinkable"],
+        hp: 200,
+        maxHp: 200,
+        description: "A cool underground brick cistern catching precious seasonal rainwater with iron dipping scoops."
+      });
+    } else {
+      props.push({
+        id: `prop_spring_trough_${cellId}_${rx}_${ry}`,
+        name: "Limestone Spring Catchment Basin & Trough",
+        pos: [poiCX, poiCY],
+        tags: ["type:waterway", "material:stone", "water", "drinkable"],
+        hp: 180,
+        maxHp: 180,
+        description: "A carved limestone basin catching water from an underground rock spring with a wooden horse trough."
+      });
+    }
+
+    props.push({
+      id: `prop_tavern_sign_${cellId}_${rx}_${ry}`,
+      name: "The Weary Carter Drover Inn & Outdoor Benches",
+      pos: [poiCX - 26 + 5, poiCY - 18 + 4],
+      tags: ["type:structure", "material:wood", "tavern", "rest", "enterable"],
+      hp: 180,
+      maxHp: 180,
+      description: "A rustic timber tavern with a painted wooden sign, hitching rail for draft oxen, and oak ale benches."
+    });
+
+    props.push({
+      id: `prop_granary_${cellId}_${rx}_${ry}`,
+      name: "Communal Stone-Pillared Grain Storehouse",
+      pos: [poiCX - 4 + 6, poiCY - 32 + 3],
+      tags: ["type:container", "material:stone", "material:wood", "food", "granary"],
+      hp: 220,
+      maxHp: 220,
+      description: "Elevated timber storehouse on stone pillars stocked with communal seed grain, barley sacks, and scythes."
+    });
+
+    props.push({
+      id: `prop_cellar_poe_${cellId}_${rx}_${ry}`,
+      name: "Granary Foundation Cellar Trapdoor (Subterranean Entry)",
+      pos: [poiCX - 4 + 2, poiCY - 32 - 1],
+      tags: ["type:portal", "material:iron", "material:wood", "affordances:openable", "stairs_down"],
+      hp: 150,
+      maxHp: 150,
+      description: "Heavy iron-strapped cellar hatch descending into the communal winter root vaults."
+    });
+
+    // Spawn 2 authentic citizens
+    const cit1 = pickCitizen(["Elder", "Reeve", "Mayor", "Leader", "Merchant"]);
+    if (cit1) npcs.push(makeDemographicNpc(cit1, [poiCX - 20 + 5, poiCY + 20 + 3], "Hamlet Reeve"));
+
+    const cit2 = pickCitizen(["Guard", "Watch", "Sentry", "Militia", "Blacksmith"]);
+    if (cit2) npcs.push(makeDemographicNpc(cit2, [poiCX + 22 + 4, poiCY - 16 + 3], "Hamlet Blacksmith & Watchman", "Heavy Blacksmith Hammer"));
+
+  } else if (poiType === "FARMLAND") {
+    sectorName = generateProceduralFarmlandSurface({
+      grid,
+      poiCX,
+      poiCY,
+      cellId,
+      rx,
+      ry,
+      rand,
+      biomeId,
+      biomeName,
+      parentName,
+      facility,
+      facilityMasterCitizen,
+      props,
+      npcs,
+      pickCitizen,
+      makeDemographicNpc
+    });
+
+  } else if (poiType === "LOGGING") {
+    sectorName = generateProceduralLoggingSurface({
+      grid, poiCX, poiCY, cellId, rx, ry, rand, biomeId, biomeName, parentName,
+      facility, facilityMasterCitizen, props, npcs, pickCitizen, makeDemographicNpc
+    });
+
+  } else if (poiType === "MINE") {
+    sectorName = generateProceduralMiningSurface({
+      grid, poiCX, poiCY, cellId, rx, ry, rand, biomeId, biomeName, parentName,
+      facility, facilityMasterCitizen, props, npcs, pickCitizen, makeDemographicNpc
+    });
+
+  } else if (poiType === "SHRINE") {
+    sectorName = `Ancient Megalithic Ring of Power (r[${rx}, ${ry}])`;
+    for (let deg = 0; deg < 360; deg += 30) {
+      const rad = (deg * Math.PI) / 180;
+      const sx = Math.round(poiCX + Math.cos(rad) * 18);
+      const sy = Math.round(poiCY + Math.sin(rad) * 18);
+      grid[sy * SIZE + sx] = 5;
+    }
+
+    props.push({
+      id: `prop_altar_${cellId}_${rx}_${ry}`,
+      name: "Runic Megalithic Offering Altar",
+      pos: [poiCX, poiCY],
+      tags: ["type:structure", "material:stone", "sacred", "hallowed"],
+      hp: 500,
+      maxHp: 500,
+      description: "An immense block of dark granite carved with glowing celestial ley constellations."
+    });
+
+    props.push({
+      id: `prop_crypt_stairs_${cellId}_${rx}_${ry}`,
+      name: "Basalt Crypt Steps (Subterranean Entry)",
+      pos: [poiCX - 8, poiCY - 8],
+      tags: ["type:portal", "material:stone", "affordances:climbable", "stairs_down"],
+      hp: 600,
+      maxHp: 600,
+      description: "Ancient basalt steps descending into the tomb beneath the stones."
+    });
+
+    const cit = pickCitizen(["Herbalist", "Acolyte", "Pious", "Monk"]);
+    if (cit) npcs.push(makeDemographicNpc(cit, [poiCX + 4, poiCY + 4], "Shrine Acolyte", "Sacred Staff"));
+
+  } else if (poiType === "WATCHTOWER") {
+    sectorName = generateProceduralWatchtowerSurface({
+      grid, poiCX, poiCY, cellId, rx, ry, rand, biomeId, biomeName, parentName,
+      facility, facilityMasterCitizen, props, npcs, pickCitizen, makeDemographicNpc
+    });
+
+  } else if (poiType === "SMUGGLER_DEN") {
+    sectorName = `${parentName} Border Outskirts: Covert Cache (r[${rx}, ${ry}])`;
+    for (let dy = -3; dy <= 3; dy++) {
+      for (let dx = -4; dx <= 4; dx++) {
+        grid[(poiCY + dy) * SIZE + (poiCX + dx)] = 7;
+      }
+    }
+
+    props.push({
+      id: `prop_smuggler_cache_${cellId}_${rx}_${ry}`,
+      name: "Camouflaged Underworld Flue (Subterranean Entry)",
+      pos: [poiCX + 6, poiCY],
+      tags: ["type:portal", "material:wood", "affordances:openable", "affordances:climbable", "stairs_down", "hidden"],
+      hp: 150,
+      maxHp: 150,
+      description: "A dirt-covered cellar hatch concealed beneath brambles and rough stones."
+    });
+
+    const cit = pickCitizen(["Disenfranchised", "Outcast", "Laborer"]);
+    if (cit) npcs.push(makeDemographicNpc(cit, [poiCX, poiCY + 4], "Covert Syndicate Courier", "Dagger & Crossbow"));
+
+  } else {
+    // WILDERNESS / OPEN NATURAL LANDSCAPE
+    sectorName = `${biomeName} Frontier Wilds (Sector #${cellId} r[${rx}, ${ry}])`;
+    grid[poiCY * SIZE + poiCX] = 8;
+    grid[(poiCY - 2) * SIZE + poiCX] = 3;
+
+    props.push({
+      id: `prop_campfire_${cellId}_${rx}_${ry}`,
+      name: "Smoking Stone Campfire & Spit",
+      pos: [poiCX, poiCY],
+      tags: ["type:hazard", "material:stone", "fire", "illuminating"],
+      hp: 40,
+      maxHp: 40,
+      description: "A ring of soot-stained river stones around glowing hardwood embers with a roasting spit."
+    });
+
+    props.push({
+      id: `prop_natural_fissure_poe_${cellId}_${rx}_${ry}`,
+      name: "Natural Limestone Fissure (Subterranean Entry)",
+      pos: [poiCX + 14, poiCY - 10],
+      tags: ["type:portal", "material:stone", "affordances:climbable", "stairs_down"],
+      hp: 500,
+      maxHp: 500,
+      description: "A narrow rocky crevice descending into natural limestone caverns and underground pools."
+    });
+
+    if (nearbyAgents && nearbyAgents.length > 0) {
+      for (let i = 0; i < Math.min(3, nearbyAgents.length); i++) {
+        const ag = nearbyAgents[i];
+        const offsetDist = 15 + i * 18;
+        const offsetAngle = (i * 2.1) + rand();
+        const ax = Math.max(10, Math.min(245, Math.round(poiCX + Math.cos(offsetAngle) * offsetDist)));
+        const ay = Math.max(10, Math.min(245, Math.round(poiCY + Math.sin(offsetAngle) * offsetDist)));
+
+        npcs.push({
+          id: `npc_wild_${ag.id || `${cellId}_${rx}_${ry}_${i}`}`,
+          name: ag.speciesName || ag.type || "Wild Predator",
+          role: ag.category || ag.type || "Fauna",
+          pos: [ax, ay],
+          tags: ["beast", "wild", ag.type === "Predator" ? "hostile" : "fearful"],
+          faction: "Wilderness",
+          hp: ag.type === "Predator" ? 32 : 18,
+          maxHp: ag.type === "Predator" ? 32 : 18,
+          disposition: ag.type === "Predator" ? -1 : 0,
+          alive: true,
+          statAffinity: "vitality",
+          memoryNotes: [`Roams the regional overland corridor of Sector [${rx}, ${ry}].`]
+        });
+      }
+    } else {
+      const isPredator = rand() < 0.4;
+      const beastName = isPredator ? "Shadow Timber-Wolf" : "Wild Highland Elk";
+      npcs.push({
+        id: `npc_wild_beast_${cellId}_${rx}_${ry}`,
+        name: beastName,
+        role: isPredator ? "Apex Predator" : "Wild Game",
+        pos: [poiCX + 12, poiCY + 12],
+        tags: ["beast", "wild", isPredator ? "hostile" : "peaceful"],
+        faction: "Wilderness",
+        hp: isPredator ? 28 : 16,
+        maxHp: isPredator ? 28 : 16,
+        disposition: isPredator ? -1 : 0,
+        alive: true,
+        statAffinity: "vitality"
+      });
+    }
+  }
+
+  // Inject Past Event impacts onto regional tactical map
+  if (events && events.length > 0) {
+    const hasRaid = events.some((e: any) =>
+      e.type?.includes("BANDIT") || e.type?.includes("RAID") || e.type?.includes("SIEGE") ||
+      e.type?.includes("WAR") || e.type?.includes("CARAVAN_AMBUSH") || e.type?.includes("HIGHWAY_ROBBERY")
+    );
+    const hasPilgrimage = events.some((e: any) =>
+      e.type?.includes("WITCH_HUNT") || e.type?.includes("CHAIN_PILGRIMAGE")
+    );
+    const hasChaosEvent = chaos > 0.4 || events.some((e: any) =>
+      e.type?.includes("CHAOS") || e.type?.includes("VOID_CULT")
+    );
+
+    if (hasRaid) {
+      props.push({
+        id: `prop_skirmish_debris_${cellId}_${rx}_${ry}`,
+        name: "Skirmish Debris & Overturned Cart",
+        pos: [Math.max(10, poiCX - 15), Math.max(10, poiCY + 12)],
+        tags: ["type:structure", "material:wood", "debris", "damaged"],
+        hp: 75,
+        maxHp: 75,
+        description: "An overturned supply handcart and scattered gear left behind following recent highway raids."
+      });
+    }
+
+    if (hasPilgrimage) {
+      props.push({
+        id: `prop_pilgrim_cairn_${cellId}_${rx}_${ry}`,
+        name: "Inscribed Pilgrim Waymarker Cairn",
+        pos: [Math.min(245, poiCX + 14), Math.max(10, poiCY - 14)],
+        tags: ["type:structure", "material:stone", "sacred", "trail_marker"],
+        hp: 150,
+        maxHp: 150,
+        description: "A stack of river stones bound with prayer rags and inscribed with ancient warden glyphs."
+      });
+    }
+
+    if (hasChaosEvent) {
+      props.push({
+        id: `prop_void_outcrop_${cellId}_${rx}_${ry}`,
+        name: "Glowing Aetherite Crystal Cluster",
+        pos: [Math.min(245, poiCX + 16), Math.min(245, poiCY + 16)],
+        tags: ["type:hazard", "material:crystal", "chaos", "illuminating"],
+        hp: 120,
+        maxHp: 120,
+        description: "Luminescent violet crystal clusters humming with residual chaos energy along the ground."
+      });
+    }
+  }
+
+  return {
+    grid,
+    compressed: zlib.gzipSync(Buffer.from(grid)),
+    props,
+    npcs,
+    poiType,
+    name: sectorName,
+    features: {
+      cellId,
+      rx,
+      ry,
+      z,
+      biomeId,
+      biomeName,
+      terrainType,
+      infraMask,
+      elevation,
+      vegetation,
+      chaos,
+      parentBurgName: parentBurg?.name,
+      factionName
+    }
+  };
+}
 
 export function generateOutlyingSectorMap(
   parentBurg: any,
@@ -997,328 +3195,25 @@ export function generateOutlyingSectorMap(
   cellId: number,
   factionName: string
 ): SectorMapResult {
-  const rand = hashSeed(`outlying_${cellId}_${rx}_${ry}_${sectorType}`);
-  const grid = new Uint8Array(SIZE * SIZE);
-  grid.fill(0);
-
-  const CENTER = 128;
-  const parentName = parentBurg?.name || `Burg #${parentBurg?.burg_id || 1}`;
-
-  const props: SectorMapResult["props"] = [];
-  const npcs: SectorMapResult["npcs"] = [];
-  let sectorName = "";
-
-  if (sectorType === "HAMLET") {
-    sectorName = `${parentName} Outskirts: Hamlet of Oakhaven`;
-    // Crossroad of dirt roads (tile 3)
-    for (let i = 0; i < SIZE; i++) {
-      for (let w = -2; w <= 2; w++) {
-        if (CENTER + w >= 0 && CENTER + w < SIZE) {
-          grid[i * SIZE + (CENTER + w)] = 3;
-          grid[(CENTER + w) * SIZE + i] = 3;
-        }
-      }
-    }
-    // Small communal green in center (cobblestone around well)
-    for (let dy = -6; dy <= 6; dy++) {
-      for (let dx = -6; dx <= 6; dx++) {
-        if (Math.hypot(dx, dy) <= 6) grid[(CENTER + dy) * SIZE + (CENTER + dx)] = 4;
-      }
-    }
-    // 8-12 Rustic Cottages and barns along the crossroads
-    const cottageOffsets: Array<[number, number]> = [
-      [-25, -20], [-25, 20], [25, -20], [25, 20],
-      [-45, -15], [45, 15], [-15, -45], [15, 45],
-      [-35, 40], [35, -40]
-    ];
-    for (const [ox, oy] of cottageOffsets) {
-      const cx = CENTER + ox, cy = CENTER + oy;
-      for (let by = -4; by <= 4; by++) {
-        for (let bx = -5; bx <= 5; bx++) {
-          grid[(cy + by) * SIZE + (cx + bx)] = 7; // Cottage roof
-        }
-      }
-    }
-    // Trees scattered around village perimeter
-    for (let i = 0; i < 400; i++) {
-      const tx = Math.floor(rand() * SIZE);
-      const ty = Math.floor(rand() * SIZE);
-      if (Math.hypot(tx - CENTER, ty - CENTER) > 40 && grid[ty * SIZE + tx] === 0) {
-        grid[ty * SIZE + tx] = 1;
-      }
-    }
-
-    props.push(
-      {
-        id: `prop_hamlet_well_${cellId}_${rx}_${ry}`,
-        name: "Communal Stone Well & Trough",
-        pos: [CENTER, CENTER],
-        tags: ["stone", "water", "container", "village_well"],
-        hp: 100,
-        maxHp: 100,
-        description: "A moss-covered stone well drawing from an underground coldwater spring."
-      },
-      {
-        id: `prop_hamlet_granary_${cellId}_${rx}_${ry}`,
-        name: "Cooperative Timber Granary & Hay Barn",
-        pos: [CENTER + 20, CENTER - 25],
-        tags: ["wood", "food", "granary", "container"],
-        hp: 120,
-        maxHp: 120,
-        description: "Elevated timber storehouse filled with grain sacks, dried barley, and farm implements."
-      },
-      {
-        id: `prop_hamlet_shrine_${cellId}_${rx}_${ry}`,
-        name: "Wayside Earth-Mother Shrine",
-        pos: [CENTER - 18, CENTER + 18],
-        tags: ["stone", "sacred", "shrine"],
-        hp: 80,
-        maxHp: 80,
-        description: "Carved boundary stone hung with woven straw dolls and seasonal wildflowers."
-      }
-    );
-
-    npcs.push(
-      {
-        id: `npc_hamlet_elder_${cellId}_${rx}_${ry}`,
-        name: "Elder Theresa of the Green",
-        role: "Hamlet Reeve",
-        pos: [CENTER + 3, CENTER + 3],
-        tags: ["leader", "villager", "farmer"],
-        faction: factionName,
-        hp: 20,
-        maxHp: 20,
-        disposition: 1,
-        alive: true,
-        statAffinity: "intuition",
-        memoryNotes: [`Leads the hamlet attached to ${parentName}.`]
-      },
-      {
-        id: `npc_hamlet_guard_${cellId}_${rx}_${ry}`,
-        name: "Militia Yeoman Thomas",
-        role: "Hamlet Warder",
-        pos: [CENTER, CENTER - 12],
-        tags: ["guard", "militia", "armed"],
-        faction: factionName,
-        hp: 25,
-        maxHp: 25,
-        disposition: 1,
-        alive: true,
-        equippedWeapon: "Shortbow & Hunting Spear",
-        statAffinity: "finesse"
-      }
-    );
-  } else if (sectorType === "FARMLAND") {
-    sectorName = `${parentName} Agrarian Valley: Granary Fields`;
-    // Gridded crop fields with furrows and stone hedgerows
-    for (let y = 20; y < SIZE - 20; y++) {
-      for (let x = 20; x < SIZE - 20; x++) {
-        if (x % 32 === 0 || y % 32 === 0) {
-          grid[y * SIZE + x] = 5; // Stone low wall / hedgerow
-        } else if (x % 4 === 0) {
-          grid[y * SIZE + x] = 3; // Furrow line
-        }
-      }
-    }
-    // Main wagon cart road cutting diagonally
-    for (let i = 0; i < SIZE; i++) {
-      for (let w = -2; w <= 2; w++) {
-        const x = i + w;
-        if (x >= 0 && x < SIZE) grid[i * SIZE + x] = 3;
-      }
-    }
-    // Central Threshing Farmstead and Windmill
-    for (let dy = -8; dy <= 8; dy++) {
-      for (let dx = -10; dx <= 10; dx++) {
-        grid[(CENTER + dy) * SIZE + (CENTER + dx)] = 7; // Granary building
-      }
-    }
-    // Windmill round stone tower
-    for (let dy = -5; dy <= 5; dy++) {
-      for (let dx = -5; dx <= 5; dx++) {
-        if (Math.hypot(dx, dy) <= 5) grid[(CENTER - 25 + dy) * SIZE + (CENTER + 25 + dx)] = 5;
-      }
-    }
-
-    props.push(
-      {
-        id: `prop_farm_mill_${cellId}_${rx}_${ry}`,
-        name: "High Windmill & Grain Grinder",
-        pos: [CENTER + 25, CENTER - 25],
-        tags: ["stone", "wood", "mill", "industrial"],
-        hp: 200,
-        maxHp: 200,
-        description: "A towering windmill turning massive granite millstones to produce coarse flour."
-      },
-      {
-        id: `prop_farm_hay_${cellId}_${rx}_${ry}`,
-        name: "Heavy Farm Wagon & Hay Wains",
-        pos: [CENTER + 5, CENTER + 12],
-        tags: ["wood", "cargo", "flammable"],
-        hp: 50,
-        maxHp: 50,
-        description: "Four-wheeled wooden farm wagons stacked with freshly reaped golden sheaves."
-      }
-    );
-
-    npcs.push({
-      id: `npc_miller_${cellId}_${rx}_${ry}`,
-      name: "Miller Garret",
-      role: "Head Grain-Master",
-      pos: [CENTER + 22, CENTER - 20],
-      tags: ["artisan", "farmer", "miller"],
-      faction: factionName,
-      hp: 24,
-      maxHp: 24,
-      disposition: 1,
-      alive: true,
-      statAffinity: "might"
-    });
-  } else if (sectorType === "LOGGING") {
-    sectorName = `${parentName} Timberlands: Clearcut Sawmill`;
-    // Dense surrounding forest
-    for (let i = 0; i < SIZE * SIZE; i++) {
-      if (rand() < 0.6) grid[i] = 1; // Dense woods
-    }
-    // Cleared central glade (30 radius)
-    for (let dy = -40; dy <= 40; dy++) {
-      for (let dx = -40; dx <= 40; dx++) {
-        if (Math.hypot(dx, dy) <= 38) {
-          const idx = (CENTER + dy) * SIZE + (CENTER + dx);
-          grid[idx] = rand() < 0.2 ? 11 : 0; // Cleared ground / mud
-        }
-      }
-    }
-    // Dirt timber hauling trail
-    for (let y = 0; y < SIZE; y++) {
-      for (let w = -3; w <= 3; w++) {
-        grid[y * SIZE + (CENTER + w)] = 3;
-      }
-    }
-    // Sawmill structure
-    for (let dy = -6; dy <= 6; dy++) {
-      for (let dx = -12; dx <= 12; dx++) {
-        grid[(CENTER + dy) * SIZE + (CENTER - 18 + dx)] = 7;
-      }
-    }
-
-    props.push(
-      {
-        id: `prop_sawmill_${cellId}_${rx}_${ry}`,
-        name: "Water-Powered Timber Saws & Log Flume",
-        pos: [CENTER - 18, CENTER],
-        tags: ["wood", "metal", "industrial", "sawmill"],
-        hp: 180,
-        maxHp: 180,
-        description: "Heavy iron blades cutting giant hardwood trunks into standard lumber beams for city construction."
-      },
-      {
-        id: `prop_log_pyre_${cellId}_${rx}_${ry}`,
-        name: "Massive Stack of Seasoned Hardwood Logs",
-        pos: [CENTER + 15, CENTER + 10],
-        tags: ["wood", "flammable", "raw_material"],
-        hp: 150,
-        maxHp: 150,
-        description: "Pyramids of seasoned oak and pine trunks branded with the official seal of the forestry guild."
-      }
-    );
-
-    npcs.push({
-      id: `npc_foreman_${cellId}_${rx}_${ry}`,
-      name: "Timber Foreman Torren",
-      role: "Logging Master",
-      pos: [CENTER - 10, CENTER],
-      tags: ["worker", "logger", "armed"],
-      faction: factionName,
-      hp: 30,
-      maxHp: 30,
-      disposition: 1,
-      alive: true,
-      equippedWeapon: "Two-Handed Felling Axe",
-      statAffinity: "might"
-    });
-  } else {
-    // WATCHTOWER
-    sectorName = `${parentName} High Frontier: Outpost Watchtower`;
-    // Mountain/rocky elevation around watchtower
-    for (let i = 0; i < 300; i++) {
-      const rx = Math.floor(rand() * SIZE), ry = Math.floor(rand() * SIZE);
-      grid[ry * SIZE + rx] = 5; // Rubble
-    }
-    // Wooden palisade wall ring (radius 22)
-    for (let deg = 0; deg < 360; deg += 3) {
-      const rad = (deg * Math.PI) / 180;
-      const wx = Math.round(CENTER + Math.cos(rad) * 24);
-      const wy = Math.round(CENTER + Math.sin(rad) * 24);
-      if (deg < 80 || deg > 100) { // Gap for southern gate
-        grid[wy * SIZE + wx] = 5;
-      }
-    }
-    // High central stone tower (10x10)
-    for (let dy = -5; dy <= 5; dy++) {
-      for (let dx = -5; dx <= 5; dx++) {
-        grid[(CENTER + dy) * SIZE + (CENTER + dx)] = 5;
-      }
-    }
-    // Top beacon brazier at tower center
-    grid[CENTER * SIZE + CENTER] = 8; // Blazing beacon
-
-    props.push(
-      {
-        id: `prop_beacon_${cellId}_${rx}_${ry}`,
-        name: "High Signal Beacon Brazier",
-        pos: [CENTER, CENTER],
-        tags: ["metal", "fire", "beacon", "signal"],
-        hp: 200,
-        maxHp: 200,
-        description: `An iron brazier charged with alchemical pitch to signal alerts across the frontier to ${parentName}.`
-      },
-      {
-        id: `prop_ballista_${cellId}_${rx}_${ry}`,
-        name: "Heavy Swivel Ballista Mount",
-        pos: [CENTER, CENTER - 18],
-        tags: ["wood", "metal", "weapon", "siege"],
-        hp: 120,
-        maxHp: 120,
-        description: "A torsion siege engine capable of launching steel-tipped bolts against raiding warbands or beasts."
-      }
-    );
-
-    npcs.push({
-      id: `npc_watch_commander_${cellId}_${rx}_${ry}`,
-      name: "Watch Commander Kael",
-      role: "Frontier Sentry Commander",
-      pos: [CENTER, CENTER + 10],
-      tags: ["guard", "soldier", "officer", "armed"],
-      faction: factionName,
-      hp: 32,
-      maxHp: 32,
-      disposition: 0,
-      alive: true,
-      equippedWeapon: "Heavy Composite Longbow & Broadsword",
-      statAffinity: "awareness"
-    });
-  }
-
-  return {
-    grid,
-    compressed: zlib.gzipSync(Buffer.from(grid)),
-    props,
-    npcs,
-    poiType: `OUTLYING_${sectorType}`,
-    name: sectorName,
-    features: {
-      parentBurgId: parentBurg?.burg_id,
-      parentBurgName: parentName,
-      sectorType,
-      rx,
-      ry,
-      factionName
-    }
+  const terrainTypeMap = {
+    "HAMLET": 4,
+    "FARMLAND": 5,
+    "LOGGING": 6,
+    "WATCHTOWER": 0
   };
+  return generateTacticalRegionalSectorMap({
+    cellId,
+    rx,
+    ry,
+    z: 0,
+    terrainType: terrainTypeMap[sectorType] ?? 0,
+    infraMask: sectorType === "HAMLET" ? 1 : sectorType === "FARMLAND" ? 2 : sectorType === "LOGGING" ? 4 : 0,
+    parentBurg,
+    factionName
+  });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+
 // 3. THE VERGE (THE SACRED SPIRE, CELL 16166)
 // ─────────────────────────────────────────────────────────────────────────────
 

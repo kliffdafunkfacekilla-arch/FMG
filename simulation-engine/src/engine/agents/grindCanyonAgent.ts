@@ -33,6 +33,10 @@ export async function runGrindCanyonAgent(client: PoolClient, tick: number, lore
       extractedStone = Math.min(Number(canyon.dragonstone_richness), 12 + Math.floor(Math.random() * 8));
       extractedGold = extractedStone * 25; // Dragonstone is extremely valuable
 
+      // Abyssal chasm diving incurs high operational costs: ropes, harnesses, breath-filters, and provisions
+      const expeditionOverhead = Math.floor(extractedGold * 0.50);
+      const netMiningProfit = extractedGold - expeditionOverhead;
+
       await client.query(`
         UPDATE sim_grind_canyons
         SET dragonstone_richness = GREATEST(0, dragonstone_richness - $1),
@@ -40,12 +44,19 @@ export async function runGrindCanyonAgent(client: PoolClient, tick: number, lore
         WHERE id = $3
       `, [extractedStone, stability, canyon.id]);
 
-      // Fund the Grind Canyon Corps (Outlaw Faction ID 9)
+      // Re-inject expedition expenses into nearby local burgs for provisions and smith repairs
+      await client.query(`
+        UPDATE sim_burg_economy
+        SET wealth = wealth + $1, raw_materials = raw_materials + 15
+        WHERE cell_id = $2
+      `, [expeditionOverhead, canyon.cell_id]);
+
+      // Fund the Grind Canyon Corps (Outlaw Faction ID 9) with net profit
       await client.query(`
         UPDATE sim_outlaw_factions
         SET wealth = wealth + $1
         WHERE id = 9
-      `, [extractedGold]);
+      `, [netMiningProfit]);
 
       // Check if entering collapsing state
       if (stability === 1) {

@@ -12,6 +12,7 @@ import { runChroniclerAgent } from "./agents/chroniclerAgent";
 import { runCartelAgent } from "./agents/cartelAgent";
 import { runGrindCanyonAgent } from "./agents/grindCanyonAgent";
 import { runBurgExpansionAgent } from "./agents/burgExpansionAgent";
+import { runInterFactionTradeEngine } from "./economy/interFactionTradeEngine";
 import { runTrophicEcologyAgent } from "./agents/trophicEcologyAgent";
 import { runNPCRoutineAgent } from "./agents/npcRoutineAgent";
 import { runChaosFlowAgent } from "./agents/chaosFlowAgent";
@@ -71,6 +72,9 @@ export async function executeMasterTick(): Promise<{status: string, currentTick:
         // 5b. Burg Expansion (found new settlements when rich & stable)
         await runBurgExpansionAgent(client, tick, loreDate);
 
+        // 5c. Inter-Faction Commodity Trade & Embargo Engine
+        await runInterFactionTradeEngine(client, tick, loreDate);
+
         // 6. Wardens
         await runWardenAgent(client, tick, loreDate);
 
@@ -108,6 +112,18 @@ export async function executeMasterTick(): Promise<{status: string, currentTick:
         await client.query("DELETE FROM sim_industrial_stockpiles WHERE burg_id IN (SELECT burg_id FROM sim_burg_economy WHERE pop_null <= 0 AND pop_attuned <= 0)");
         // Strip the faction ownership from ruins so they revert to neutral territory
         await client.query("UPDATE sim_burg_economy SET occupier_faction_id = NULL WHERE pop_null <= 0 AND pop_attuned <= 0");
+
+        // 12. Event Retention & Storage Maintenance
+        // Every Dragon Month (44 ticks), maintain a rolling buffer of routine minor events (~25,000 recent logs)
+        // Keeps all CRITICAL and MAJOR historical lore forever, preventing multi-million row table bloat
+        if (tick % 44 === 0) {
+            await client.query(`
+                DELETE FROM sim_events
+                WHERE tier = 'MINOR' AND id < COALESCE((
+                    SELECT id FROM sim_events WHERE tier = 'MINOR' ORDER BY id DESC OFFSET 25000 LIMIT 1
+                ), 0)
+            `);
+        }
 
         await client.query('COMMIT');
         return { status: "success", currentTick: tick };

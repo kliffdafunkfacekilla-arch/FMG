@@ -295,7 +295,7 @@ export async function updateSectorNPCRoutines(
 
     await client.query(`
       UPDATE sim_npc_instances
-      SET local_pos = ARRAY[$1, $2],
+      SET local_pos = ARRAY[$1::integer, $2::integer],
           schedule_state = $3,
           current_task = $4,
           needs = $5,

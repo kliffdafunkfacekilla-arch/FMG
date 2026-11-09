@@ -25,14 +25,21 @@ const TARGET_INFILTRATOR_COUNT = 144;
 const TARGET_BESIEGER_COUNT = 144;
 
 export async function runCultistAgent(client: any, tick: number, loreDate: string) {
-  // Self-Sustaining Dragon Prisons: The 12 prisons naturally recharge and hold containment from the flowing chaos.
-  // During Shadow Week (Days 529-541), ambient chaos calms, pausing self-regeneration and creating vulnerability.
+  // Self-Sustaining Dragon Prisons: The 12 prisons naturally recharge slowly from ambient leys
+  // ONLY if no cultist cabal is actively besieging the perimeter!
+  // During Shadow Week (Days 529-541), ambient chaos calms, completely halting self-repair.
   const isShadowWeek = loreDate.includes('Shadow Week');
   if (!isShadowWeek) {
     await client.query(`
       UPDATE sim_sacred_groves
       SET seal_strength = LEAST(100, seal_strength + 1)
       WHERE seal_strength > 0 AND seal_strength < 100
+        AND id NOT IN (
+          SELECT DISTINCT target_grove_id 
+          FROM sim_agents 
+          WHERE role = 'Cultist' AND state = 'BESIEGING_SEAL' AND target_grove_id IS NOT NULL
+        )
+        AND RANDOM() < 0.15
     `);
   }
 
@@ -278,17 +285,45 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
       }
 
       const isPriest = subRole === 'Cult_Priest';
-      // Balanced drain: Priests channel with 60% chance, Zealots chant with 15% chance
-      const doesDrain = isPriest ? (Math.random() < 0.60) : (Math.random() < 0.15);
-      const drainAmt = doesDrain ? (isPriest ? 1.0 * sealDrainBonus : 1.0) : 0;
+      // Balanced probabilistic integer drain:
+      // Priests channel with 35% chance to drain 1-2 points
+      // Zealots chant with 15% chance to drain 1 point
+      const doesDrain = isPriest ? (Math.random() < 0.35) : (Math.random() < 0.15);
+      const drainAmt = doesDrain ? (isPriest ? (Math.random() < 0.5 ? 2 : 1) * sealDrainBonus : 1) : 0;
 
-      // Drain Dragon Seal Strength
+      // Drain Dragon Seal Strength (integer points)
       if (targetGroveId && drainAmt > 0) {
-        await client.query(`
+        const updateRes = await client.query(`
           UPDATE sim_sacred_groves
           SET seal_strength = GREATEST(0, seal_strength - $1)
           WHERE id = $2
+          RETURNING seal_strength, dragon_name, cell_id
         `, [drainAmt, targetGroveId]);
+
+        const updatedSeal = updateRes.rows[0];
+        if (updatedSeal) {
+          const strength = updatedSeal.seal_strength;
+          // Radiation of ambient chaos as seal cracks
+          if (strength <= 50) {
+            await client.query(`
+              INSERT INTO sim_chaos_zones (cell_id, intensity, type)
+              VALUES ($1, $2, 'CRACKED_DRAGON_SEAL_LEAK')
+              ON CONFLICT (cell_id, type) DO UPDATE SET intensity = EXCLUDED.intensity
+            `, [updatedSeal.cell_id, Math.round((100 - strength) * 0.9)]);
+          }
+
+          if ((strength === 50 || strength === 25 || strength === 10) && (tick % 3 === 0)) {
+            await client.query(`
+              INSERT INTO sim_events (tick, type, message, tier, cell_id, lore_date)
+              VALUES ($1, 'DRAGON_SEAL_CRACKING', $2, 'CRITICAL', $3, $4)
+            `, [
+              tick,
+              `⚠️ SEAL VULNERABILITY ALERT: The sacred seal binding ${updatedSeal.dragon_name} has weakened to ${strength}% integrity! Ambient chaos torrents are leaking across Cell #${updatedSeal.cell_id}!`,
+              updatedSeal.cell_id,
+              loreDate
+            ]);
+          }
+        }
       }
 
       // Ecological chaos blight
@@ -338,7 +373,7 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
       ]);
 
       // Cataclysmic global effects:
-      await client.query("UPDATE sim_burg_economy SET unrest = 100");
+      await client.query("UPDATE sim_burg_economy SET unrest = LEAST(100, unrest + 40)");
       await client.query("UPDATE sim_cells SET eco_blight = 100.0 WHERE id = $1", [bg.cell_id]);
 
       await tagSectorEnvironment(client, bg.cell_id, [

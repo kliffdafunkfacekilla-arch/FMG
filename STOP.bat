@@ -3,19 +3,13 @@ title Fantasy Map Generator - Stop Services
 color 0E
 
 echo ========================================================
-echo    STOPPING FANTASY MAP GENERATOR SERVICES
+echo    STOPPING SIMULATION ENGINE & OBSERVER SERVICES
 echo ========================================================
 echo.
 
 :: Kill Port 3000 (Simulation Engine)
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr :3000 ^| findstr LISTENING') do (
     echo Stopping Simulation Engine (PID: %%a)...
-    taskkill /f /pid %%a >nul 2>&1
-)
-
-:: Kill Port 5173 (Player Client Vite)
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr :5173 ^| findstr LISTENING') do (
-    echo Stopping Player Client (PID: %%a)...
     taskkill /f /pid %%a >nul 2>&1
 )
 
@@ -26,6 +20,6 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr :5174 ^| findstr LISTENING') 
 )
 
 echo.
-echo All FMG services have been stopped.
+echo All Aetheria simulation services have been stopped.
 echo.
 pause

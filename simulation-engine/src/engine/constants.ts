@@ -23,7 +23,7 @@ export const FACTIONS = {
 export const FRINGE_GROUPS = {
     BANK: "Gilded Compass",
     SMUGGLERS: "Free Sky-Barons",
-    TOLL_AUTHORITY: "The Ivory-Gate Syndicate",
+    TOLL_AUTHORITY: "The Fuvuiku Legions",
     RAIDERS: "Ghostwind",
 };
 
@@ -38,7 +38,7 @@ export const FACTION_DEMOGRAPHICS: Record<number, Record<string, number>> = {
     [FACTIONS.IRON_CALADRA]: { "Dwarf": 0.6, "Goblin": 0.3, "Troll": 0.1 },
     [FACTIONS.SUMP_KIN]: { "Toad": 0.5, "Frog": 0.3, "Lizardfolk": 0.1, "Slime-Mold": 0.1 },
     [FACTIONS.THEOCRACY]: { "Deep Troll": 0.4, "Abyssal Merfolk": 0.4, "Leviathan-kin": 0.2 },
-    [FACTIONS.CANOPY_CLANS]: { "Panther": 0.4, "Macaw": 0.3, "Tree-Frog": 0.2, "Sloth": 0.1 },
+    [FACTIONS.CANOPY_CLANS]: { "Fox": 0.25, "Simian": 0.20, "Tarsier": 0.15, "Red Panda": 0.10, "Frog-Folk": 0.10, "Pangolin": 0.10, "Sloth": 0.10 },
     [FACTIONS.SCUTE]: { "Tortoise": 0.4, "Turtle": 0.3, "Armadillo": 0.2, "Pangolin": 0.1 },
     [FACTIONS.HIVE_COMMONWEALTH]: { "Wasp": 0.4, "Bee": 0.4, "Ant": 0.1, "Mantis": 0.1 },
     [FACTIONS.DUSK_HUSK_RIDERS]: { "Beetle": 0.4, "Moth": 0.3, "Spider": 0.2, "Scorpion": 0.1 },

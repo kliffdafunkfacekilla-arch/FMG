@@ -193,10 +193,12 @@ export async function runMandateAgent(client: any, tick: number, loreDate: strin
         targetCellId = homeCellRes.rows[0]?.cell_id || locCellId;
       }
 
-      await client.query(`
-        INSERT INTO sim_events (tick, type, message, tier, lore_date)
-        VALUES ($1, 'CHAIN_PURIFICATION_IRON', $2, 'MAJOR', $3)
-      `, [tick, `⛓️ THE IRON REINFORCEMENT: ${citizenName} (${profession}) knelt before the Prison of ${dragonName}, discharging their glowing chains! Convinced they purged a demonic font, their stolen spark energy has reinforced the ancient cosmic seal (+${strengthBonus}% Seal Strength)!`, loreDate]);
+      if (Number(groveRes.rows[0]?.seal_strength || 100) < 40 || (tick + wb.id) % 15 === 0) {
+        await client.query(`
+          INSERT INTO sim_events (tick, type, message, tier, lore_date)
+          VALUES ($1, 'CHAIN_PURIFICATION_IRON', $2, 'MINOR', $3)
+        `, [tick, `⛓️ THE IRON REINFORCEMENT: ${citizenName} (${profession}) knelt before the Prison of ${dragonName}, discharging their glowing chains! Convinced they purged a demonic font, their stolen spark energy has reinforced the ancient cosmic seal (+${strengthBonus}% Seal Strength)!`, loreDate]);
+      }
     }
 
     // Persist updated state

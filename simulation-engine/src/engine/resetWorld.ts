@@ -648,11 +648,11 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
     await ingestHolgalandMap();
 
     const [factionsRes, cellsRes, burgsRes, paragonsRes, citizensRes] = await Promise.all([
-      pool.query("SELECT COUNT(id) as c FROM sim_factions"),
-      pool.query("SELECT COUNT(id) as c FROM sim_cells"),
-      pool.query("SELECT COUNT(burg_id) as c FROM sim_burg_economy"),
-      pool.query("SELECT COUNT(id) as c FROM sim_paragons"),
-      pool.query("SELECT COUNT(id) as c FROM population_demographics")
+      pool.query("SELECT COUNT(*) as c FROM sim_factions"),
+      pool.query("SELECT COUNT(*) as c FROM sim_cells"),
+      pool.query("SELECT COUNT(*) as c FROM sim_burg_economy"),
+      pool.query("SELECT COUNT(*) as c FROM sim_paragons"),
+      pool.query("SELECT COUNT(*) as c FROM population_demographics")
     ]);
 
     const stats = {

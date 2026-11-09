@@ -24,7 +24,7 @@ The entire system is strictly partitioned into four autonomous, collaborating pi
 |  PILLAR 3: INDEPENDENT GM ENGINE                   PILLAR 4: AI STORY GENERATOR   |
 |  - Concordia 12-Attribute Matrix                   - Gemini Natural Language Arbiter|
 |  - 4 Derived Pools (HP, Stamina, Composure, Focus) - Free-Speech Intent Parser    |
-|  - Opposed 1d20 Resolution                         - Narrative Drama & Organic Lore|
+|  - Opposed 1d12 Net Margin Resolution             - Narrative Drama & Organic Lore|
 |  - Physical Tag Matrix Cascades                    - Connects Any Two Entities    |
 |  - Pure Mechanical Execution (No Hallucinations)  - Feeds Events to `sim_events`  |
 +-----------------------------------------------------------------------------------+
@@ -89,21 +89,21 @@ Every Local cell is vertically sandwiched by 3 synchronized layers:
 * Military units (`military_forces`) are structured strictly into units of 12 combatants with rendering data.
 * Underworld syndicates (Obsidian Cartel, Otter Mafia, Ghostwind Raiders, Sky-Barons, Grind Canyon Corps, Hedge Wizards) siphon unrest and build subterranean lairs.
 
-### Pillar 2: The Player Interface (Tactical 256x256 View)
-* Runs in the browser on port 5173 (`player-client/`).
-* A **pure read-only visual projection** of the live simulation state. It must **NEVER** hallucinate or invent fake map elements unbacked by the simulation or database.
-* Features a 256x256 tactical tile grid with seamless border crossing into adjacent hexagonal cells (Zelda-style regional border transitions).
-* Supports 3-layer vertical navigation:
+### Pillar 2: The Observer Dashboard & Tactical Map Viewer
+* Runs in the browser on port 5174 / 3000 (self-contained in `simulation-engine/src/observer/`).
+* A **pure read-only visual projection** of the live simulation state. It visualizes continental Voronoi cells, macro demographics, sovereign borders, cartel heat, and tactical sector grids. It must **NEVER** hallucinate or invent fake map elements unbacked by the simulation or database.
+* Features real-time telemetry streaming, interactive regional maps, and tactical sandbox modals (`TacticalSandboxModal.tsx`).
+* Supports 3-layer vertical navigation inspection ($Z = -1, 0, +1$):
   - `Layer -1`: Subterranean (cellars, sewer networks, underworld vice dens, smuggler flues).
   - `Layer 0`: Surface ground level (streets, market stalls, guildhalls, docks, gates).
   - `Layer +1`: Upper level (ramparts, catwalks, second-story lofts, watchtowers, sky-bridges).
-* Procedural Points of Entry (POEs) open sub-maps for crypts, dungeons, ruins, and Grind Canyons based on simulation seeds.
+* Procedural Points of Entry (POEs) inspect sub-maps for crypts, dungeons, ruins, and Grind Canyons based on simulation seeds.
 
 ### Pillar 3: The Independent GM Engine (Mechanical Arbiter)
 * Deterministic rules engine (`ConcordiaGM.ts`, `TagMatrixEngine.ts`, `RulesEngine.ts`).
 * 12 Attributes: Might, Endurance, Finesse, Reflex, Vitality, Fortitude, Knowledge, Logic, Awareness, Intuition, Charm, Willpower.
 * 4 Derived Pools: Health, Stamina, Composure, Focus.
-* Opposed 1d20 resolution: `Attacker 1d20 + Stat + Mod` vs `Defender 1d20 + Stat + Mod`.
+* Opposed 1d12 Net Margin resolution (B.R.U.T.A.L. v4.9): `Attacker 1d12 + Stat + Mod` vs `Defender 1d12 + Stat + Mod` (or Guard passive). Graze (1), Minor (2-5), Major (6-9), Critical (10+). Stars on Nat 12, Scars on Nat 1.
 * Pure mechanical calculation with zero AI hallucination.
 * **The Universal Tag Matrix**: Connective tissue governing all physical, psychological, and systemic interactions across the world:
   - **Physical Entity Triad**: Every prop, item, obstacle, and structure carries:
@@ -112,6 +112,28 @@ Every Local cell is vertically sandwiched by 3 synchronized layers:
     - *Affordances, Capabilities & States*: What it can do or have done to it (`climbable`, `openable`, `lockable`, `locked`, `flammable`, `fragile`, `conductive`, `buoyant`, `sharp`, `blunt`, `piercing`, `corrosive`, `illuminating`, `toxic`, `burning`, `wet`, `frozen`, `corroded`, `void_tainted`, `hallowed`).
   - **Citizen Persona & Status Tags**: Every NPC is tagged with authentic personality (`pious`, `greedy`, `cowardly`, `brave`, `cynical`, `loyal`, `rebellious`), temperament & instinct (`temper:*`, `instinct:*`, `motivation:*`), and dynamic condition (`starving`, `exhausted`, `injured`, `panicked`, `drunk`, `corrupted_by_void`, `mourning`, `celebrating`, `sheltered`, `alert`, `imprisoned`, `fugitive`).
   - **Simulated Event Tags & Data Collision Reactions**: Macro and regional events emit tags (`#MartialLawCurfew`, `#FamineCrisis`, `#FullBloodStorm`, `#CultistWhisper`, `#DebtJubilee`, `#DragonSurge`) that collide directly with citizen tags in `narrativeReactionEngine.ts`, causing them to react naturally and systematically (rioting, hiding, praying, price-gouging, reporting heresy) without LLM hallucinations.
+
+### 6. Procedural Architecture, Biome & Culture Materials, and Past Event Scars
+* **Authentic Material Construction Rules (`burgOperationsAgent.ts`)**:
+  - Settlements do NOT upgrade or expand via generic raw tokens. Settlement tier upgrades (`urban_tier`) and infrastructure maintenance specifically consume authentic local construction materials: Timber (`wood`, `lumber`), Masonry (`stone`, `cut_stone`), Brick/Adobe (`clay`, `bricks`), Structural Metal (`iron`, `forged_steel`), and Roofing Thatch (`fibre`, `thread`).
+  - The dominant available building materials, local biome, and cell geography dynamically set `architecture_type` in `sim_burg_economy`:
+    - `ADOBE_BRICK`: Arid/desert biomes with sun-baked clay, flat courtyard roofs, and oasis cisterns.
+    - `HALF_TIMBERED` & `TIMBER_FRAMED`: Forested biomes with heavy oak framing, steep slate/shingle roofs, and timber floors.
+    - `ASHLAR_STONE` & `DRYSTONE_CRAG`: High elevation crags, montane ridges, and Bear-Folk enclaves with cyclopean stone masonry and deep cellar vaults.
+    - `REED_STILT`: Wetland, swamp, riverine, and coastal port settlements featuring elevated timber boardwalks and water docks.
+    - `GROVE_CLUSTER`: Plant-Folk and nature-aligned settlements centered around an ancient thousand-year-old Sacred Heart-Tree with living-timber roundhouses.
+    - `RADIAL_SPIRE`: Avian and high spire cultures featuring concentric circular ramparts, radiating spoke avenues, and central Celestial Sundials.
+* **Procedural Tactical Map Generation (`SectorMapGenerator.ts`)**:
+  - Eliminates all hardcoded square boxes and straight N/S/E/W cross roads.
+  - Generates topographically perturbed walls, organic meandering thoroughfares, secondary residential lanes, and procedurally dimensioned building plots.
+* **Living Past Event Scars (`sim_events` Collision)**:
+  - Tactical map generation directly queries `sim_events` for recent historical events in that burg or sector:
+    - *Raids / Wars / Sieges*: Carves jagged wall breaches filled with rubble (`tile: 3`), makeshift defensive barricades, and scorched ruins.
+    - *Famines / Shortages*: Spawns communal relief soup cauldrons and guarded emergency grain depots in the town square.
+    - *Witch Hunts / Inquisitions*: Places charred execution stakes and iron gibbets in the plaza with chalk ward runes at city gates.
+    - *Chaos Surges / Void Incursions*: Opens luminescent purple Chaos Conduit fissures (`tile: 6`) along alleys with void crystal clusters.
+    - *Boomtowns / Harvest Surpluses*: Erects colorful silk festival pennants and bountiful harvest grain wagons.
+    - *Syndicate Contraband*: Hides covert dead-drop barrels in back alleys and secret smuggler tunnels burrowed beneath outer ramparts.
 
 ### Pillar 4: The AI Story Generator (Narrative Weaver)
 * Gemini-powered narrative engine that reads simulation state and player history to weave emergent drama and natural dialogue.
@@ -141,7 +163,7 @@ Every Local cell is vertically sandwiched by 3 synchronized layers:
    * Every spawned humanoid must be an authentic citizen from `population_demographics`, a military detachment of 12 from `military_forces`, or an authentic Paragon from `sim_paragons` (714 active paragons: Mayors, Commanders, Syndicate Bosses).
    * Monsters and beasts are synthesized strictly from live biome trophic ecology.
 6. **Documentation Mandate:**
-   * Keep memory and plain-word documentation updated in every directory (`GEMINI.md`, `SYSTEM_OVERVIEW.md`, `simulation-engine/README.md`, `player-client/README.md`) after completing major tasks so any developer can understand the full architecture.
+   * Keep memory and plain-word documentation updated in every directory (`GEMINI.md`, `SYSTEM_OVERVIEW.md`, `simulation-engine/README.md`) after completing major tasks so any developer can understand the full architecture.
 
 ---
 
@@ -151,7 +173,7 @@ The following 6 dedicated Agent Skills are located in `.agents/skills/` to gover
 1. **`simulation-global-macro`**: Global Continental (Macro LOD) simulation layer (541-day calendar, 19 nations, 352 burg economies, 12 Dragon Prisons, Chaos Leys).
 2. **`simulation-regional-meso`**: Regional (Meso LOD) overland layer (10,000 cells at $100 \times 100$, center `(50, 50)`, focused LOD individual agent execution rule).
 3. **`simulation-local-micro`**: Local (Micro LOD) tactical grid layer ($256 \times 256$ battle maps, 3-layer vertical sandwich $Z = -1, 0, +1$, physical POEs, border crossing).
-4. **`concordia-rules-and-stats`**: Concordia mechanical rules engine (12 attributes, 4 derived pools, opposed 1d20 rolls, Tag Matrix physical cascades).
+4. **`concordia-rules-and-stats`**: Concordia mechanical rules engine (12 attributes, 4 derived pools, opposed 1d12 Net Margin rolls, Tag Matrix physical cascades).
 5. **`concordia-dm-engine`**: Concordia Game Master execution engine (`ConcordiaGM.ts`, sector loading, `/act` arbitration, NPC routines, interior dungeons).
 6. **`aetheria-story-and-quests`**: AI Story & Quest Director (AI Director blueprints, WhatELSE narrative beats, organic lore weaving, `sim_events` logging).
 

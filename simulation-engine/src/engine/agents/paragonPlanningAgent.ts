@@ -58,6 +58,7 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
 
     const burgUpdates: any[] = [];
     const events: any[] = [];
+    const paragonScoreUpdates = new Map<number, number>();
 
     for (const burg of burgRes.rows) {
         const pop = burg.pop_null || 0;
@@ -114,6 +115,26 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
             const isScholarly = traits.some(t => t.includes("SCHOLARLY") || t.includes("LOGICIAN") || t.includes("BUREAUCRATIC") || t.includes("CALCULATED"));
             const isStoic = traits.some(t => t.includes("STOIC") || t.includes("PRAGMATIC") || t.includes("RESOLUTE") || t.includes("INDUSTRIOUS"));
             const isVengeful = traits.some(t => t.includes("VENGEFUL") || t.includes("BITTER") || t.includes("HARSH") || t.includes("TYRANNICAL"));
+
+            // Natural corruption drift: Greedy/tyrannical leaders slowly accumulate corruption over time
+            if (isGreedy || isVengeful) {
+                p.corruption_score = Math.min(100, corruption + 2);
+                paragonScoreUpdates.set(p.id, p.corruption_score);
+            } else if (isCompassionate && corruption > 0) {
+                p.corruption_score = Math.max(0, corruption - 1);
+                paragonScoreUpdates.set(p.id, p.corruption_score);
+            }
+
+            // High corruption naturally triggers Gilded Compass / Iron Bank trade embargoes
+            if (p.corruption_score >= 65 && !sectorTags.some(t => t.includes("CompassEmbargo"))) {
+                await tagSectorEnvironment(client, cellId, ['#CompassEmbargo', '#TradeBlockaded']);
+                events.push({
+                    burg_id: burg.burg_id,
+                    type: "COMPASS_TRADE_EMBARGO",
+                    tier: "MAJOR",
+                    msg: `⚖️ GILDED COMPASS TRADE EMBARGO: Outraged by municipal embezzlement, extortionate kickbacks, and unpaid mercantile notes under ${p.title} ${p.name}, the Gilded Compass has declared a punitive trade embargo on ${burg.name}! Commercial shipping and grain imports are frozen until debts are settled.`
+                });
+            }
 
             // =========================================================================
             // 1. CIVIL PARAGONS (MAYORS, REEVES, BURGOMASTERS, HEADMEN)
@@ -191,8 +212,8 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
                     options.push({ id: "MAYOR_TAX_LEVY_AUDIT", utility: Math.max(5, u), biasReason: isGreedy ? "insatiable greed to squeeze coin from local merchants" : "empty treasury coffers" });
                 }
 
-                // Option: Fortify Citadel Ramparts & Bastions (Paranoid defense measure)
-                if (isParanoid || sectorTags.some(t => t.includes("Bandit") || t.includes("War"))) {
+                // Option: Fortify Citadel Ramparts & Bastions (Periodic municipal defense project)
+                if ((tick + p.id) % 22 === 0 && (isParanoid || sectorTags.some(t => t.includes("Bandit") || t.includes("War")))) {
                     let u = 40;
                     if (isParanoid) u += 50;
                     if (isStoic) u += 20;
@@ -285,7 +306,7 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
                         wealthDelta += 85;
                         unrestDelta += 12;
                         p.corruption_score = Math.min(100, corruption + 4);
-                        await client.query("UPDATE sim_paragons SET corruption_score = $1 WHERE id = $2", [p.corruption_score, p.id]);
+                        paragonScoreUpdates.set(p.id, p.corruption_score);
                         events.push({
                             burg_id: burg.burg_id,
                             type: chosen.id,
@@ -392,8 +413,8 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
                     case "MAYOR_TOLERATE_SHADOW_WAREHOUSE": {
                         wealthDelta += 110;
                         crimeDelta += 12;
-                        p.corruption_score = Math.min(100, corruption + 5);
-                        await client.query("UPDATE sim_paragons SET corruption_score = $1 WHERE id = $2", [p.corruption_score, p.id]);
+                        p.corruption_score = Math.min(100, corruption + 8);
+                        paragonScoreUpdates.set(p.id, p.corruption_score);
                         events.push({
                             burg_id: burg.burg_id,
                             type: chosen.id,
@@ -402,6 +423,17 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
                         });
                         await tagBurgCitizens(client, burg.burg_id, ['#CartelCollaborator', '#BribedDockClerk'], 'COMPLICIT', `Facilitating uninspected warehouse transfers under Mayor ${p.name}'s blind eye.`, '%trader%', 3);
                         await tagSectorEnvironment(client, cellId, ['#CartelInfiltration']);
+
+                        // If corruption exceeds critical threshold, Gilded Compass / Iron Bank issues punitive trade embargo
+                        if (p.corruption_score >= 65 && !sectorTags.some(t => t.includes("CompassEmbargo"))) {
+                            await tagSectorEnvironment(client, cellId, ['#CompassEmbargo', '#TradeBlockaded']);
+                            events.push({
+                                burg_id: burg.burg_id,
+                                type: "COMPASS_TRADE_EMBARGO",
+                                tier: "MAJOR",
+                                msg: `⚖️ GILDED COMPASS TRADE EMBARGO: Outraged by municipal embezzlement, extortionate kickbacks, and unpaid mercantile notes by Mayor ${p.name}, the Gilded Compass has declared a punitive trade embargo on ${burg.name}! Commercial shipping and grain imports are frozen until debts are settled.`
+                            });
+                        }
                         break;
                     }
                     case "MAYOR_CHARTER_BLOCKADE_RUNNERS": {
@@ -605,7 +637,7 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
                         wealthDelta += 65;
                         crimeDelta += 14;
                         p.corruption_score = Math.min(100, corruption + 6);
-                        await client.query("UPDATE sim_paragons SET corruption_score = $1 WHERE id = $2", [p.corruption_score, p.id]);
+                        paragonScoreUpdates.set(p.id, p.corruption_score);
                         events.push({
                             burg_id: burg.burg_id,
                             type: chosen.id,
@@ -643,13 +675,16 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
                     default: {
                         unrestDelta -= 3;
                         crimeDelta -= 6;
-                        events.push({
-                            burg_id: burg.burg_id,
-                            type: "COMMANDER_GARRISON_DRILL",
-                            tier: "MINOR",
-                            msg: `🛡️ GARRISON MARTIAL DRILL: Guided by ${chosen.biasReason}, ${p.title} ${p.name} conducted shield wall and pike drills on the ramparts of ${burg.name}, honing combat discipline.`
-                        });
-                        await tagBurgCitizens(client, burg.burg_id, ['#GarrisonDrilled'], 'DEVOUT', `Drilling with shields and spears under ${p.title} ${p.name}.`, '%watch%', 3);
+                        // Only log routine rampart drills periodically to prevent event bloat
+                        if ((tick + p.id) % 20 === 0) {
+                            events.push({
+                                burg_id: burg.burg_id,
+                                type: "COMMANDER_GARRISON_DRILL",
+                                tier: "MINOR",
+                                msg: `🛡️ GARRISON MARTIAL DRILL: Guided by ${chosen.biasReason}, ${p.title} ${p.name} conducted shield wall and pike drills on the ramparts of ${burg.name}, honing combat discipline.`
+                            });
+                            await tagBurgCitizens(client, burg.burg_id, ['#GarrisonDrilled'], 'DEVOUT', `Drilling with shields and spears under ${p.title} ${p.name}.`, '%watch%', 3);
+                        }
                         break;
                     }
                 }
@@ -711,13 +746,33 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
         ]);
     }
 
-    // Insert logged events
+    // Bulk Update paragon corruption scores
+    if (paragonScoreUpdates.size > 0) {
+        const ids = Array.from(paragonScoreUpdates.keys());
+        const scores = Array.from(paragonScoreUpdates.values());
+        await client.query(`
+            UPDATE sim_paragons AS p SET
+              corruption_score = v.score
+            FROM (
+              SELECT unnest($1::int[]) as id,
+                     unnest($2::int[]) as score
+            ) AS v
+            WHERE p.id = v.id
+        `, [ids, scores]);
+    }
+
+    // Bulk Insert logged events
     if (events.length > 0) {
-        for (const ev of events) {
-            await client.query(
-                "INSERT INTO sim_events (tick, type, message, tier, burg_id, lore_date) VALUES ($1, $2, $3, $4, $5, $6)", 
-                [tick, ev.type, ev.msg, ev.tier || 'MINOR', ev.burg_id, loreDate]
-            );
-        }
+        await client.query(`
+            INSERT INTO sim_events (tick, type, message, tier, burg_id, lore_date)
+            SELECT unnest($1::int[]), unnest($2::text[]), unnest($3::text[]), unnest($4::text[]), unnest($5::int[]), unnest($6::text[])
+        `, [
+            events.map(() => tick),
+            events.map(ev => ev.type),
+            events.map(ev => ev.msg),
+            events.map(ev => ev.tier || 'MINOR'),
+            events.map(ev => ev.burg_id),
+            events.map(() => loreDate)
+        ]);
     }
 }

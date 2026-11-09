@@ -2,8 +2,39 @@ import { Router } from "express";
 import pool from "../db/pool";
 import { executeMasterTick } from "../engine/masterOrchestrator";
 import { resetWorld } from "../engine/resetWorld";
+import { FACTION_SPECIALTIES } from "../engine/economy/factionSpecialties";
 
 const observerRouter = Router();
+
+observerRouter.get("/economy/specialties", async (req, res) => {
+    try {
+        const embargoesRes = await pool.query(`
+            SELECT d.id, d.faction_a_id, d.faction_b_id, d.status, d.tension,
+                   f1.name AS faction1_name, f2.name AS faction2_name
+            FROM sim_diplomacy d
+            JOIN sim_factions f1 ON d.faction_a_id = f1.id
+            JOIN sim_factions f2 ON d.faction_b_id = f2.id
+            WHERE d.status = 'WAR'
+            ORDER BY d.id DESC
+        `);
+
+        const tradeEventsRes = await pool.query(`
+            SELECT id, tick, type, message, tier, lore_date, burg_id, faction_id
+            FROM sim_events
+            WHERE type IN ('CARAVAN_DISPATCH', 'TRADE_EMBARGO_CHOKEPOINT')
+            ORDER BY id DESC LIMIT 25
+        `);
+
+        res.json({
+            status: "ok",
+            specialties: Object.values(FACTION_SPECIALTIES),
+            activeEmbargoes: embargoesRes.rows,
+            recentTradeEvents: tradeEventsRes.rows
+        });
+    } catch (e: any) {
+        res.status(500).json({ error: e.message });
+    }
+});
 let autoplayTimer: any = null;
 observerRouter.post("/autoplay", (req, res) => {
     const { enabled } = req.body;
@@ -434,6 +465,213 @@ observerRouter.get("/metaphysics", async (req, res) => {
       recent_events: recentEventsRes.rows
     });
   } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Trigger Controlled Instability Crises (Famine & Bandits, Chaos Surge & Abandonment, Hard Winter, Corrupt Leader Embargo, Border War)
+observerRouter.post("/trigger_crisis", async (req, res) => {
+  try {
+    const { type, cellId: rawCellId, burgId: rawBurgId, intensity = 85 } = req.body;
+    let cellId = Number(rawCellId) || 0;
+    let burgId = Number(rawBurgId) || 0;
+
+    // Resolve cell/burg if only one provided
+    if (burgId && !cellId) {
+      const bRes = await pool.query("SELECT cell_id FROM sim_burg_economy WHERE burg_id = $1", [burgId]);
+      if (bRes.rows.length > 0) cellId = Number(bRes.rows[0].cell_id);
+    } else if (cellId && !burgId) {
+      const bRes = await pool.query("SELECT burg_id FROM sim_burg_economy WHERE cell_id = $1", [cellId]);
+      if (bRes.rows.length > 0) burgId = Number(bRes.rows[0].burg_id);
+    }
+
+    if (!cellId) cellId = 11081; // Default Holgaland core cell
+
+    const calRes = await pool.query("SELECT tick, year, month_name, day_of_month FROM sim_calendar ORDER BY id DESC LIMIT 1");
+    const row = calRes.rows[0];
+    const tick = Number(row?.tick || 1);
+    const loreDate = row ? `Year ${row.year}, ${row.month_name} Day ${row.day_of_month}` : `Year 31, Month 12, Day 40`;
+
+    let eventMessage = "";
+    let eventType = type;
+    let eventTier = "MAJOR";
+
+    switch (type) {
+      case "CHAOS_SURGE": {
+        eventType = "CHAOS_SURGE";
+        eventTier = "CRITICAL";
+        // 1. Spike chaos zone intensity to 95
+        await pool.query(`
+          INSERT INTO sim_chaos_zones (cell_id, intensity, type)
+          VALUES ($1, $2, 'PRIMORDIAL_CHAOS_SURGE')
+          ON CONFLICT (cell_id, type) DO UPDATE SET intensity = EXCLUDED.intensity
+        `, [cellId, Math.max(85, intensity)]);
+
+        // 2. Infect burg with unrest & blight
+        if (burgId) {
+          await pool.query(`
+            UPDATE sim_burg_economy
+            SET unrest = LEAST(100, unrest + 35),
+                health = GREATEST(10, health - 30),
+                food = GREATEST(0, food - 500)
+            WHERE burg_id = $1
+          `, [burgId]);
+        }
+
+        eventMessage = `⚡ PRIMORDIAL CHAOS SURGE: An unpredictable aether rupture tore through Cell #${cellId}! Reality warped at ${intensity}% intensity, withering local crops and driving citizens into chaos panic!`;
+        break;
+      }
+
+      case "DEEP_COLD_FREEZE": {
+        eventType = "HARSH_WINTER_FREEZE";
+        eventTier = "MAJOR";
+        // 1. Shift calendar to The Deep Cold
+        await pool.query(`
+          UPDATE sim_calendar
+          SET season = 'The Deep Cold', month_name = 'Lophex'
+          WHERE id = (SELECT id FROM sim_calendar ORDER BY id DESC LIMIT 1)
+        `);
+
+        // 2. Drop cell temperature to sub-zero
+        await pool.query(`UPDATE sim_cells SET current_temp = -18 WHERE id = $1`, [cellId]);
+
+        // 3. Freeze burg granaries and food stores
+        if (burgId) {
+          await pool.query(`
+            UPDATE sim_burg_economy
+            SET food = GREATEST(0, (food * 0.4)::int),
+                unrest = LEAST(100, unrest + 20)
+            WHERE burg_id = $1
+          `, [burgId]);
+        }
+
+        eventMessage = `❄️ DEEP COLD BLIZZARD: A catastrophic arctic freeze gripped Cell #${cellId} (-18°C)! Farmlands froze solid, granary reserves rotted in uninsulated silos, and severe food rationing commenced!`;
+        break;
+      }
+
+      case "FAMINE_BANDIT_REVOLT": {
+        eventType = "BANDIT_RAIDERS_EMERGE";
+        eventTier = "CRITICAL";
+        // 1. Empty burg food
+        if (burgId) {
+          await pool.query(`
+            UPDATE sim_burg_economy
+            SET food = 0,
+                unrest = LEAST(100, unrest + 40),
+                pop_null = GREATEST(12, pop_null - 60)
+            WHERE burg_id = $1
+          `, [burgId]);
+        }
+
+        // 2. Siphon 60 defectors into outlaw cartels
+        await pool.query(`
+          UPDATE sim_outlaw_factions
+          SET manpower = manpower + 60
+          WHERE id = (SELECT id FROM sim_outlaw_factions ORDER BY RANDOM() LIMIT 1)
+        `);
+
+        eventMessage = `🍞 FAMINE & BANDIT REBELLION: Total grain exhaustion in Cell #${cellId} drove 60 starving laborers and garrison deserters into the surrounding hills as roving highway bandits, cutting off supply lines!`;
+        break;
+      }
+
+      case "CORRUPT_EMBEZZLE_EMBARGO": {
+        eventType = "COMPASS_TRADE_EMBARGO";
+        eventTier = "MAJOR";
+        // 1. Corrupt the local mayor
+        if (burgId) {
+          await pool.query(`
+            UPDATE sim_paragons
+            SET corruption_score = 95
+            WHERE burg_id = $1 AND title ILIKE '%Mayor%'
+          `, [burgId]);
+
+          // 2. Empty municipal treasury
+          await pool.query(`
+            UPDATE sim_burg_economy
+            SET wealth = GREATEST(0, wealth - 400),
+                unrest = LEAST(100, unrest + 25)
+            WHERE burg_id = $1
+          `, [burgId]);
+        }
+
+        // 3. Inject CompassEmbargo tag into sector features
+        await pool.query(`
+          UPDATE sim_sector_layers
+          SET features = jsonb_set(
+            COALESCE(features, '{}'::jsonb),
+            '{environmental_tags}',
+            COALESCE(features->'environmental_tags', '[]'::jsonb) || '["#CompassEmbargo", "#TradeBlockaded"]'::jsonb
+          )
+          WHERE cell_id = $1
+        `, [cellId]);
+
+        eventMessage = `⚖️ GILDED COMPASS TRADE EMBARGO: Local authorities in Cell #${cellId} were caught embezzling municipal treasury funds and defaulting on mercantile credit! The Gilded Compass has declared an immediate trade blockade, freezing commercial shipping!`;
+        break;
+      }
+
+      case "BORDER_WAR": {
+        eventType = "DECLARE_WAR";
+        eventTier = "CRITICAL";
+        // 1. Find cell faction and adjacent rival faction
+        const cellRes = await pool.query("SELECT faction_id FROM sim_cells WHERE id = $1", [cellId]);
+        const myFactionId = Number(cellRes.rows[0]?.faction_id || 1);
+
+        const borderRes = await pool.query(`
+          SELECT CASE WHEN faction_a = $1 THEN faction_b ELSE faction_a END AS enemy_id
+          FROM sim_faction_borders
+          WHERE faction_a = $1 OR faction_b = $1
+          LIMIT 1
+        `, [myFactionId]);
+
+        const enemyFactionId = Number(borderRes.rows[0]?.enemy_id || (myFactionId === 1 ? 2 : 1));
+        const fA = Math.min(myFactionId, enemyFactionId);
+        const fB = Math.max(myFactionId, enemyFactionId);
+
+        // 2. Set diplomacy to WAR with max tension
+        await pool.query(`
+          INSERT INTO sim_diplomacy (faction_a_id, faction_b_id, status, tension)
+          VALUES ($1, $2, 'WAR', 100)
+          ON CONFLICT (faction_a_id, faction_b_id) DO UPDATE SET status = 'WAR', tension = 100
+        `, [fA, fB]);
+
+        const [fName1, fName2] = await Promise.all([
+          pool.query("SELECT name FROM sim_factions WHERE id = $1", [myFactionId]),
+          pool.query("SELECT name FROM sim_factions WHERE id = $1", [enemyFactionId])
+        ]);
+
+        const n1 = fName1.rows[0]?.name || `Faction ${myFactionId}`;
+        const n2 = fName2.rows[0]?.name || `Faction ${enemyFactionId}`;
+
+        eventMessage = `⚔️ BORDER WAR ERUPTION: Geopolitical tensions along the frontier of Cell #${cellId} have ignited! ${n1} and ${n2} have entered open WAR, deploying legion detachments to the front!`;
+        break;
+      }
+
+      default:
+        return res.status(400).json({ error: `Unknown crisis type: ${type}` });
+    }
+
+    // Insert logged event
+    await pool.query(
+      `INSERT INTO sim_events (tick, type, message, tier, cell_id, burg_id, lore_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [tick, eventType, eventMessage, eventTier, cellId, burgId || null, loreDate]
+    );
+
+    res.json({
+      success: true,
+      crisis: type,
+      cellId,
+      burgId,
+      event: {
+        tick,
+        type: eventType,
+        tier: eventTier,
+        message: eventMessage,
+        loreDate
+      }
+    });
+  } catch (err: any) {
+    console.error("Crisis trigger error:", err);
     res.status(500).json({ error: err.message });
   }
 });

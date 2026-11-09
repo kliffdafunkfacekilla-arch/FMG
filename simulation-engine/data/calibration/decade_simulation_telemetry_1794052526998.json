@@ -1,0 +1,132 @@
+{
+  "snapshots": [
+    {
+      "tick": 1,
+      "year": 1,
+      "dayOfYear": 1,
+      "season": "The Bloom",
+      "loreDate": "Year 1, Month 1 (Lophex), Day 1 (The Bloom)",
+      "totalPopulation": 5963508,
+      "popNull": 2981754,
+      "popAttuned": 2981754,
+      "activeBurgs": 345,
+      "ruinedBurgs": 0,
+      "famineBurgs": 0,
+      "totalFood": 1148788,
+      "totalWealth": 91503,
+      "totalRawMaterials": 801693,
+      "totalRefinedGoods": 517500,
+      "avgUnrest": 0,
+      "avgHealth": 100,
+      "avgCrime": 0,
+      "activeWars": 0,
+      "topFactionName": "Neutrals",
+      "topFactionTreasury": 10000,
+      "minSealStrength": 100,
+      "avgSealStrength": 100,
+      "lowestSealDragon": "Eldra",
+      "apocalypseTriggered": false,
+      "activeWardens": 0,
+      "eyelessElders": 0,
+      "voidCultists": 0,
+      "cultInfiltrators": 0,
+      "cultBesiegers": 0,
+      "kamikazeCount": 0,
+      "newWardenVows": 0,
+      "madHermits": 0,
+      "totalCartelLairs": 15,
+      "totalCartelManpower": 1719,
+      "topCartelName": "The Ivory-Gate Syndicate",
+      "totalEvents": 0
+    },
+    {
+      "tick": 66,
+      "year": 1,
+      "dayOfYear": 65,
+      "season": "The Bloom",
+      "loreDate": "Year 1, Month 2 (Carulkem), Day 21 (The Bloom)",
+      "totalPopulation": 5936940,
+      "popNull": 2963680,
+      "popAttuned": 2973260,
+      "activeBurgs": 357,
+      "ruinedBurgs": 0,
+      "famineBurgs": 126,
+      "totalFood": 22260710,
+      "totalWealth": 52499925,
+      "totalRawMaterials": 817828,
+      "totalRefinedGoods": 538420,
+      "avgUnrest": 99.8,
+      "avgHealth": 97.3,
+      "avgCrime": 0,
+      "activeWars": 0,
+      "topFactionName": "Scute Confederacy",
+      "topFactionTreasury": 94221,
+      "minSealStrength": 12,
+      "avgSealStrength": 73.3,
+      "lowestSealDragon": "Vecelo",
+      "apocalypseTriggered": true,
+      "activeWardens": 72,
+      "eyelessElders": 0,
+      "voidCultists": 291,
+      "cultInfiltrators": 0,
+      "cultBesiegers": 291,
+      "kamikazeCount": 0,
+      "newWardenVows": 0,
+      "madHermits": 0,
+      "totalCartelLairs": 20,
+      "totalCartelManpower": 2104,
+      "topCartelName": "The Legion",
+      "totalEvents": 16415
+    }
+  ],
+  "anomalyLog": [
+    {
+      "tick": 66,
+      "year": 1,
+      "loreDate": "Year 1, Month 2 (Carulkem), Day 21 (The Bloom)",
+      "severity": "CRITICAL",
+      "category": "DRAGON_SEALS",
+      "message": "WORLD_ENDING_APOCALYPSE triggered! Dragon Seal collapsed to 0% (Vecelo)",
+      "metrics": {
+        "minSealStrength": 12,
+        "dragon": "Vecelo"
+      }
+    },
+    {
+      "tick": 66,
+      "year": 1,
+      "loreDate": "Year 1, Month 2 (Carulkem), Day 21 (The Bloom)",
+      "severity": "HIGH",
+      "category": "DRAGON_SEALS",
+      "message": "Dragon Prison for Vecelo critically degraded to 12%!",
+      "metrics": {
+        "minSealStrength": 12,
+        "avgSealStrength": 73.3
+      }
+    },
+    {
+      "tick": 66,
+      "year": 1,
+      "loreDate": "Year 1, Month 2 (Carulkem), Day 21 (The Bloom)",
+      "severity": "CRITICAL",
+      "category": "ECONOMY",
+      "message": "Continental Famine Epidemic: 126 burgs are at 0 food!",
+      "metrics": {
+        "famineBurgs": 126,
+        "totalFood": 22260710
+      }
+    },
+    {
+      "tick": 66,
+      "year": 1,
+      "loreDate": "Year 1, Month 2 (Carulkem), Day 21 (The Bloom)",
+      "severity": "HIGH",
+      "category": "ECONOMY",
+      "message": "Widespread Continental Rebellion: Average municipal unrest reached 99.8%!",
+      "metrics": {
+        "avgUnrest": 99.8,
+        "avgCrime": 0
+      }
+    }
+  ]
+}

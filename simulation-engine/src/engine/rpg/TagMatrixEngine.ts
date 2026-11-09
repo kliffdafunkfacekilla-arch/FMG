@@ -95,7 +95,7 @@ export const TAG_REACTION_RULES: TagReactionRule[] = [
     triggerVerbs: ["IGNITE", "CAST_FIRE"],
     triggerActionTags: ["fire", "burning", "heat"],
     targetRequiresAny: ["flammable", "wood", "cloth", "dry", "tinder", "oil"],
-    targetResistsAny: ["stone", "metal", "water", "wet"],
+    targetResistsAny: ["stone", "metal", "water", "wet", "clay", "adobe", "brick"],
     applyTags: ["burning"],
     damage: 4,
     successLog: (name) => `SUCCESS: '${name}' catches fire and begins burning!`,

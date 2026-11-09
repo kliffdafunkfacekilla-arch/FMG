@@ -1,14 +1,15 @@
 /**
- * SOCIAL & SANITY COMBAT RESOLUTION ENGINE
- * ========================================
- * Parallels physical combat by resolving opposed 1d20 checks targeting Composure pools.
- * - Social Attacks: 1d20 + Stat + Social Weapon Mod vs 1d20 + Defender Stat + Social Armor Mod
- * - Cosmic Dread: 1d20 + Willpower/Fortitude + Social Armor Mod vs Environmental Horror DC
+ * SOCIAL & SANITY COMBAT RESOLUTION ENGINE (B.R.U.T.A.L. v4.9)
+ * ============================================================
+ * Parallels physical combat by resolving opposed 1d12 checks targeting Composure pools.
+ * - Social Attacks: 1d12 + Stat + Social Weapon Mod vs 1d12 + Defender Stat + Social Armor Mod
+ * - Cosmic Dread: 1d12 + Willpower/Fortitude + Social Armor Mod vs Environmental Horror DC
  * - Morale Breakdown: When Composure reaches 0, target surrenders, flees, or enters Panic.
  */
 
 import { getSocialWeapon, getSocialArmor, SocialWeaponDef, SocialArmorDef } from './rpg/SocialEquipmentRegistry.js';
 import { StatKey } from './rpg/EquipmentRegistry.js';
+import { rollD12 } from './combatResolutionEngine.js';
 
 export interface SocialCombatant {
   id?: string | number;
@@ -68,19 +69,19 @@ export function resolveOpposedSocialContest(
   const atkPassiveBonus = (atkSkillRanks[`pass_soc_${effectiveAtkStat}`] || 0) >= 2 ? 1 : 0;
   const defPassiveCDR = (defSkillRanks[`pass_san_${defStat}`] || 0) >= 2 ? 1 : 0;
 
-  const atkRoll = Math.floor(Math.random() * 20) + 1;
-  const defRoll = Math.floor(Math.random() * 20) + 1;
+  const atkRoll = rollD12().final;
+  const defRoll = rollD12().final;
 
   const advantage = options.advantageMod || 0;
   const attackerTotal = atkRoll + atkStatVal + socialWeapon.mod + advantage;
   const defenderTotal = defRoll + defStatVal + socialArmor.mod;
 
   const difference = attackerTotal - defenderTotal;
-  const hit = difference >= 0;
+  const hit = difference >= 1;
 
   let composureDamage = 0;
   if (hit) {
-    const rawInjury = difference >= 10 ? 4 : (difference >= 6 ? 3 : (difference >= 3 ? 2 : 1));
+    const rawInjury = difference >= 10 ? 4 : (difference >= 6 ? 3 : (difference >= 2 ? 2 : 1));
     const effectiveCDR = Math.max(0, socialArmor.composureReduction + defPassiveCDR);
     composureDamage = Math.max(1, rawInjury + socialWeapon.composureDamageBonus + atkPassiveBonus - effectiveCDR);
   }
@@ -132,7 +133,7 @@ export function resolveCosmicDreadCheck(
   const armorSpecRank = (player.skillRanks || {})[`spec_san_armor_${defenseStat}`] || 0;
   const passiveCDR = ((player.skillRanks || {})[`pass_san_${defenseStat}`] || 0) >= 2 ? 1 : 0;
 
-  const roll = Math.floor(Math.random() * 20) + 1;
+  const roll = rollD12().final;
   const totalRoll = roll + statVal + socialArmor.mod;
   const passed = totalRoll >= horrorDC;
 

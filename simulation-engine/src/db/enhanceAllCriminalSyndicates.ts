@@ -62,6 +62,41 @@ export async function enhanceAllCriminalSyndicates() {
       }
     }
 
+    // 3b. Align existing lairs with authentic lore types
+    console.log("Aligning existing lairs with authentic syndicate roles...");
+    // Fuvuiku Legions (ID 3)
+    await client.query(`
+      UPDATE sim_fringe_lairs
+      SET lair_type = 'TOLL_BLOCKADE'
+      WHERE faction_id = 3 AND lair_type IN ('COASTAL_PEAK_YARD', 'ENFORCER_DEN')
+    `);
+    // Silk-Sovereign Syndicate (ID 4) - Vice, gambling, narcotics
+    await client.query(`
+      UPDATE sim_fringe_lairs
+      SET lair_type = CASE (id % 3)
+        WHEN 0 THEN 'VICE_DEN'
+        WHEN 1 THEN 'GAMBLING_HALL'
+        ELSE 'NARCOTIC_PARLOR'
+      END
+      WHERE faction_id = 4 AND lair_type IN ('TOLL_BLOCKADE', 'ENFORCER_DEN')
+    `);
+    // Obsidian Cartel (ID 6) - Legitimate fronts
+    await client.query(`
+      UPDATE sim_fringe_lairs
+      SET lair_type = CASE (id % 3)
+        WHEN 0 THEN 'LICENSED_APOTHECARY_FRONT'
+        WHEN 1 THEN 'GEM_EXCHANGE_FRONT'
+        ELSE 'COUNTING_HOUSE_FRONT'
+      END
+      WHERE faction_id = 6 AND lair_type = 'BUSINESS_FRONT'
+    `);
+    // Otters (Canal Krewes) (ID 7) - Water stilt dens
+    await client.query(`
+      UPDATE sim_fringe_lairs
+      SET lair_type = 'WATER_STILT_DEN'
+      WHERE faction_id = 7 AND lair_type = 'RIVER_TAVERN'
+    `);
+
     // 4. Seed initial lairs strictly aligned with each syndicate's lore and mechanics
     console.log("Seeding authentic starting lairs tailored to syndicate lore...");
     for (const syn of OUTLAW_SYNDICATES) {
@@ -88,7 +123,7 @@ export async function enhanceAllCriminalSyndicates() {
           `, [syn.id, syn.originCellId, syn.originBurgId]);
           console.log(`   + Established strictly 1 TRAVELING_CIRCUS_CARAVAN for ${syn.name} at origin burg #${syn.originBurgId}`);
         } else if (syn.id === 7) {
-          // The Otter Mafia: 2 authentic River Taverns along riverways
+          // The Otters (Canal Krewes): 2 authentic River Taverns along riverways
           const riverBurgs = await client.query(`
             SELECT b.burg_id, b.cell_id, b.name
             FROM sim_burg_economy b
@@ -111,7 +146,7 @@ export async function enhanceAllCriminalSyndicates() {
           `, [syn.id, syn.originCellId, syn.originBurgId]);
           console.log(`   + Established strictly 1 CENTRAL_PEAK_SPRING_CAVERN for ${syn.name} in central mountain peaks (Burg #${syn.originBurgId})`);
         } else {
-          // Other syndicates (Gilded Compass, Sky-Barons, Legion, Ivory-Gate, Obsidian)
+          // Other syndicates (Gilded Compass, Sky-Barons, Fuvuiku Legions, Silk-Sovereign, Obsidian)
           const candidateBurgs = await client.query(`
             SELECT b.burg_id, b.cell_id, b.name
             FROM sim_burg_economy b

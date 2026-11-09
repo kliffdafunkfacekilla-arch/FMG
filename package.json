@@ -14,13 +14,12 @@
 	"author": "Azgaar",
 	"main": "main.js",
 	"scripts": {
-		"dev": "npm --prefix player-client run dev",
-		"client": "npm --prefix player-client run dev",
-		"engine": "npm --prefix simulation-engine run dev",
-		"start:engine": "npm --prefix simulation-engine run start",
+		"dev": "npm --prefix simulation-engine run observer",
 		"observer": "npm --prefix simulation-engine run observer",
-		"build": "npm --prefix simulation-engine run build:server && npm --prefix simulation-engine run build:observer && npm --prefix player-client run build",
-		"build:client": "npm --prefix player-client run build",
+		"engine": "npm --prefix simulation-engine run dev",
+		"start": "npm --prefix simulation-engine run start",
+		"start:engine": "npm --prefix simulation-engine run start",
+		"build": "npm --prefix simulation-engine run build:server && npm --prefix simulation-engine run build:observer",
 		"build:engine": "npm --prefix simulation-engine run build:server",
 		"build:observer": "npm --prefix simulation-engine run build:observer",
 		"lint": "biome check --write"

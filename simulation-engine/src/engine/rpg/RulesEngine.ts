@@ -1,3 +1,13 @@
+/**
+ * B.R.U.T.A.L. TTRPG Core Rules Engine (v4.9)
+ * ============================================
+ * Canonical Opposed Combat Resolution Bridge.
+ * Core Die: 1d12 (Net Margin = Attacker Total - Defender Total).
+ * Defenses: Active (1d12 + stat + armor) vs Guard (static stat + armor, no die).
+ */
+
+import { rollD12, BrutalInjuryTier } from "../combatResolutionEngine.js";
+
 export interface CombatRollDetails {
     attackerRoll: number;
     attackerStatVal: number;
@@ -10,14 +20,20 @@ export interface CombatRollDetails {
     difference: number;
     injuryPoints: number;
     hit: boolean;
+    tier?: BrutalInjuryTier;
+    starGained?: boolean;
+    scarIncurred?: boolean;
 }
 
 export interface CombatOptions {
     attackerDisadvantaged?: boolean;
+    attackerAdvantaged?: boolean;
     defenderDisadvantaged?: boolean;
+    defenderAdvantaged?: boolean;
     attackerWeaponSpecRank?: number; // 1-4
     defenderArmorSpecRank?: number;  // 1-4
     isSecondActionInRound?: boolean;
+    useGuard?: boolean;              // Hits Guard (passive static score, no die)
 }
 
 export function resolveMeleeAttack(
@@ -38,49 +54,59 @@ export function resolveOpposedCombat(
     defenderMod: number,
     options?: CombatOptions
 ): CombatRollDetails {
-    const rollD20 = () => Math.floor(Math.random() * 20) + 1;
-    const rollDisadvantage = () => Math.min(rollD20(), rollD20());
-
     const wSpec = options?.attackerWeaponSpecRank || 0;
     const aSpec = options?.defenderArmorSpecRank || 0;
 
-    // Disadvantage resolution:
-    // Rank 1: Attacking with weapon does not disadvantage defense this round (or vice versa)
-    // Rank 2: Does not take disadvantage if attacking or defending a second time in a round
     let attackerHasDisadv = !!options?.attackerDisadvantaged;
     let defenderHasDisadv = !!options?.defenderDisadvantaged;
+    let attackerHasAdv = !!options?.attackerAdvantaged;
+    let defenderHasAdv = !!options?.defenderAdvantaged;
 
     if (options?.isSecondActionInRound) {
         if (wSpec >= 2) attackerHasDisadv = false;
         if (aSpec >= 2) defenderHasDisadv = false;
     }
 
-    const attackerRoll = attackerHasDisadv ? rollDisadvantage() : rollD20();
-    const defenderRoll = defenderHasDisadv ? rollDisadvantage() : rollD20();
+    // Roll canonical 1d12 with Star (12) and Scar (1)
+    const atkRollRes = rollD12(attackerHasAdv, attackerHasDisadv);
+    const defRollRes = options?.useGuard ? null : rollD12(defenderHasAdv, defenderHasDisadv);
+
+    const attackerRoll = atkRollRes.final;
+    const defenderRoll = defRollRes ? defRollRes.final : 0;
+
     const attackerTotal = attackerRoll + attackerStat + attackerMod;
-    const defenderTotal = defenderRoll + defenderStat + defenderMod;
+    // Guard: static score (stat + mod) without die
+    const defenderTotal = defRollRes ? (defenderRoll + defenderStat + defenderMod) : (defenderStat + defenderMod);
 
     const difference = attackerTotal - defenderTotal;
 
     let injuryPoints = 0;
+    let tier: BrutalInjuryTier = 'NONE';
+
     if (difference >= 10) {
-        injuryPoints = 4; // Major/Critical
+        injuryPoints = 4; // Critical
+        tier = 'CRITICAL';
     } else if (difference >= 6) {
-        injuryPoints = 3;
-    } else if (difference >= 3) {
+        injuryPoints = 3; // Major
+        tier = 'MAJOR';
+    } else if (difference >= 2) {
         injuryPoints = 2; // Minor Injury
-    } else if (difference >= 1) {
-        // Graze tier (diff 1-2)
-        // Check Armor Spec Rank 4: Enemy Grazes count as complete Misses
+        tier = 'MINOR';
+    } else if (difference === 1) {
+        // Graze tier
         if (aSpec >= 4) {
             injuryPoints = 0;
-        }
-        // Check Weapon Spec Rank 4: Your Grazes count as Minor Injuries (2 pts instead of 1)
-        else if (wSpec >= 4) {
+            tier = 'NONE';
+        } else if (wSpec >= 4) {
             injuryPoints = 2;
+            tier = 'MINOR';
         } else {
             injuryPoints = 1;
+            tier = 'GRAZE';
         }
+    } else {
+        injuryPoints = 0;
+        tier = 'NONE';
     }
 
     return {
@@ -94,7 +120,9 @@ export function resolveOpposedCombat(
         defenderTotal,
         difference,
         injuryPoints,
-        hit: injuryPoints > 0
+        hit: injuryPoints > 0,
+        tier,
+        starGained: atkRollRes.isStar,
+        scarIncurred: atkRollRes.isScar
     };
 }
-

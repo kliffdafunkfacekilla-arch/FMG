@@ -1,85 +1,84 @@
 ---
 name: concordia-rules-and-stats
 description: >-
-  Governs the Concordia TTRPG mechanical rules, 12-attribute system, 4 derived pools, opposed 1d20 resolution,
-  skill progression trees, equipment catalogs, and the Universal Tag Matrix (physical triad, citizen persona/status, and event collision cascades).
-  Use when calculating combat rolls, skill checks, derived character stats, physical damage cascades, or equipment modifiers.
+  Governs the canonical B.R.U.T.A.L. TTRPG mechanical rules (v4.9), 12-attribute system, 4 derived pools (Health, Composure, Stamina, Focus),
+  4 derived senses (Perception, Speed/Dodge, Stealth, Balance/Footing), opposed 1d12 Net Margin resolution, Guard vs Active Defense,
+  the 6 Clash stances, injury capacity loss & energy shredding, and magical healing stamina tradeoffs.
 ---
 
-# Concordia Rules & Stats Mechanics Skill
+# B.R.U.T.A.L. TTRPG Rules & Stats Mechanics Skill (v4.9)
 
-This skill governs Pillar 3 of the architecture: the deterministic, mechanical rules engine of Concordia and the Aetheria simulation.
+This skill governs Pillar 3 of the architecture: the deterministic, mechanical rules engine of B.R.U.T.A.L. and the Aetheria simulation, aligned 100% with `C:\Users\krazy\Desktop\Shatterlands\Rules\BRUTAL_Rulebook_v3.md` and `Rules_Digest.md`.
 
-## 1. Architectural Scope & Responsibilities
-- **Zero Hallucination Mandate**:
-  All combat, skill checks, physical damage, and health pool calculations are strictly deterministic mathematical computations executed by TypeScript functions. The AI Story Generator never invents dice rolls or overrides damage mechanics.
-- **The Concordia 12-Attribute Matrix**:
-  - **Physical**: Might (brute force), Endurance (stamina/breath), Finesse (precision/dexterity), Reflex (reaction speed/agility).
-  - **Metabolic/Endurance**: Vitality (metabolism/recovery), Fortitude (body toughness/poison resistance).
-  - **Mental**: Knowledge (memory/lore), Logic (reasoning/tactics), Awareness (perception/alertness), Intuition (instinct/reading intents).
-  - **Social/Spiritual**: Charm (presence/persuasion), Willpower (discipline/resolve against corruption).
-- **The 4 Derived Pools**:
-  - **Health (HP)**: Physical life force ($f(\text{Vitality}, \text{Fortitude})$).
-  - **Stamina**: Physical exertion pool ($f(\text{Endurance}, \text{Might})$).
-  - **Composure**: Mental and emotional defense against terror, intimidation, and chaos madness ($f(\text{Willpower}, \text{Charm}, \text{Intuition})$).
-  - **Focus**: Cognitive pool for channeling reality powers, tactical maneuvers, and precision aim ($f(\text{Logic}, \text{Knowledge}, \text{Awareness})$).
-- **Opposed 1d20 Resolution**:
-  $$\text{Action Roll} = 1d20 + \text{Attribute Modifier} + \text{Skill Rank} + \text{Equipment Modifier}$$
-  Opposed by:
-  $$\text{Defense Roll} = 1d20 + \text{Defense Modifier} + \text{Counter-Skill Rank} \quad \text{or Static DC}$$
+## 1. Architectural Scope & Core Resolution (The d12 Engine)
+- **Zero Hallucination Mandate**: All combat, checks, damage, and health calculations are strictly deterministic mathematical computations executed in TypeScript.
+- **The Core Die**: Everything uses a **d12**.
+- **Contested Rolls**:
+  $$\text{Net Margin} = (\text{Attacker } 1d12 + \text{Stat} + \text{Weapon Value}) - (\text{Defender } 1d12 + \text{Stat} + \text{Armor Value})$$
+  - $\text{Margin} < 0$: Defender wins (parried/dodged).
+  - $\text{Margin} = 0$: **The Clash** (locked weapons).
+  - $\text{Margin} \ge 1$: Attacker wins; margin determines the injury tier.
+- **Advantage / Disadvantage**: Roll $2d12$, keep higher / lower.
+- **Stars & Scars**: Natural 12 on a success = **Star** (growth pip). Natural 1 = **Scar** (failure learning pip).
+- **Uncontested Checks**: $1d12 + \text{Stat} (+ \text{Tool})$ vs Easy 8, Standard 11, Hard 14, Extreme 17. Margin 1–2 is Success at a Cost.
+- **Defending & Guard**:
+  - Each round: **one active defense** (rolled $1d12$) against physical, and one against Composure.
+  - Every other attack hits **Guard**: $\text{Defense Stat} + \text{Armor Value}$ (static, **NO die rolled**).
 
 ---
 
-## 2. THE UNIVERSAL TAG MATRIX (The Connective Tissue of Ostraka)
-Tags are how everything in Ostraka interacts with everything else to create an emergent, living world. Every entity, citizen, prop, and event must carry semantic tags according to strict taxonomy rules:
+## 2. The 12 Attributes, 4 Derived Pools & 4 Senses (v4.2+ Rebuild)
+Every attribute feeds exactly two derived stats: one pool and one sense.
 
-### A. The Physical Entity Tag Triad
-Every physical prop, item, obstacle, and structural entity in the tactical battle map must possess tags covering three mandatory dimensions:
-1. **Type (Functional Archetype)**:
-   `type:container`, `type:portal`, `type:furniture`, `type:workstation`, `type:mechanism`, `type:structure`, `type:hazard`, `type:waterway`, `type:weapon`, `type:armor`, `type:foliage`, `type:resource`.
-2. **Material (Physical Substance)**:
-   `material:stone`, `material:iron`, `material:steel`, `material:osmium`, `material:wood_oak`, `material:wood_pine`, `material:obsidian`, `material:dragonstone`, `material:leather`, `material:cloth`, `material:glass`, `material:flesh`, `material:bone`, `material:water`, `material:oil`, `material:ice`.
-3. **Affordances, Capabilities & States (What it can do, or what can be done to it)**:
-   - **Affordances** (Actions it accepts): `climbable`, `openable`, `lockable`, `locked`, `ignitable/flammable`, `fragile/breakable`, `conductive`, `buoyant`, `portable`, `throwable`, `edible`, `drinkable`, `siphonable`, `readable`, `dismantleable`, `restable`.
-   - **Capabilities** (Forces it exerts): `cutting/sharp`, `blunt/crushing`, `piercing`, `corrosive`, `illuminating`, `incendiary`, `toxic/poisonous`, `restraining`, `shielding/cover`.
-   - **Current Physical State**: `burning`, `wet`, `frozen`, `corroded`, `electrified`, `void_tainted`, `hallowed`, `decaying`, `collapsed`.
-
-### B. Citizen Persona, Traits & Current Status Tags
-Citizens are never generic placeholders; their tags govern their psychological and physiological presence:
-1. **Personality Traits**: `pious`, `greedy`, `cowardly`, `brave`, `cynical`, `loyal`, `rebellious`, `suspicious`, `superstitious`, `fanatical`, `generous`.
-2. **Temperament & Instinct**: `temper:choleric`, `temper:phlegmatic`, `temper:melancholic`, `temper:sanguine`, `instinct:fight`, `instinct:flight`, `instinct:herd`, `instinct:hoard`, `instinct:scheme`.
-3. **Motivation & Allegiance**: `motivation:wealth`, `motivation:faith`, `motivation:duty`, `motivation:family`, `motivation:vengeance`, `motivation:survival`, `allegiance:loyalist`, `allegiance:cartel`, `allegiance:rebel`.
-4. **Current Status & Emotional Condition**: `starving`, `exhausted`, `injured`, `panicked`, `drunk`, `frenzied`, `corrupted_by_void`, `mourning`, `celebrating`, `sheltered`, `alert`, `imprisoned`, `fugitive`.
-
-### C. Simulated Event Tags & Data Collision Reactions
-Macro and regional events inject active event tags into sectors (e.g. `#MartialLawCurfew`, `#FamineCrisis`, `#FullBloodStorm`, `#CultistWhisper`, `#DebtJubilee`, `#PublicExecution`, `#TavernBrawl`, `#PlagueOutbreak`, `#DragonSurge`, `#FestivalRevelry`).
-- In `narrativeReactionEngine.ts`, **Event Tags collide with Citizen Tags** to produce systemic, emergent reactions without LLM hallucinations:
-  - `#MartialLawCurfew` + `rebellious` $\rightarrow$ defies curfew, frequents black market, gains `#Fugitive` if spotted.
-  - `#MartialLawCurfew` + `cowardly` $\rightarrow$ shutters home, gains `sheltered` and `panicked`.
-  - `#CultistWhisper` + `pious` $\rightarrow$ reports heresy to temple or joins an Inquisition vigil.
-  - `#CultistWhisper` + `desperate` / `corrupted_by_void` $\rightarrow$ sneaks out to midnight void gathering.
-  - `#FamineCrisis` + `greedy` merchant $\rightarrow$ hoards grain, raises prices, siphons food to cartel.
-  - `#FamineCrisis` + `starving` laborer $\rightarrow$ joins riots, loots storehouse, or flees to the woods as bandit.
+| Derived Stat | Type | Canonical Formula | Operational Role |
+|---|---|---|---|
+| **Health** | Pool | $\text{Vitality} + \text{Fortitude} + \text{Intuition}$ | Physical body integrity. Wounds reduce max capacity. |
+| **Composure** | Pool | $\text{Willpower} + \text{Awareness} + \text{Endurance}$ | Mental resilience against dread, anxiety, and social attacks. |
+| **Stamina** | Pool | $\text{Might} + \text{Reflex} + \text{Charm}$ | Physical energy for techniques, doubling beats, and healing. |
+| **Focus** | Pool | $\text{Logic} + \text{Knowledge} + \text{Finesse}$ | Mental energy for spellcasting workings, overwatch, and tactics. |
+| **Perception** | Sense | $\text{Awareness} + \text{Intuition} + \text{Finesse}$ | Hearing, seeing traps; sets round declaration order (lowest first). |
+| **Speed** | Sense | $\text{Reflex} + \text{Vitality} + \text{Logic}$ | Action resolution order (highest first). Move = 1 space / 5 Speed. **Dodge Guard** = $\lfloor \text{Speed}/2 \rfloor + 5$. |
+| **Stealth** | Sense | $\text{Knowledge} + \text{Charm} + \text{Endurance}$ | Hiding: $1d12 + \lfloor \text{Stealth}/2 \rfloor$ vs $\lfloor \text{Perception}/2 \rfloor + 5$. |
+| **Balance** | Sense | $\text{Might} + \text{Fortitude} + \text{Willpower}$ | Shoves/trips roll against **Footing Guard** = $\lfloor \text{Balance}/2 \rfloor + 5$. |
 
 ---
 
-## 3. Key Codebase Anchors
-- Rules Engine: `simulation-engine/src/engine/rpg/RulesEngine.ts`
-- Tag Reaction Cascade Engine: `simulation-engine/src/engine/rpg/TagMatrixEngine.ts`
-- Universal Tag Registry: `simulation-engine/src/engine/rpg/TagRegistry.ts`, `tagRegistry.ts`
-- Narrative Collision Engine: `simulation-engine/src/engine/rpg/narrativeReactionEngine.ts`, `narrativeTagEngine.ts`
-- Character Data & Attribute Math: `simulation-engine/src/engine/rpg/CharacterData.ts`
-- Skill Progression Tracks: `simulation-engine/src/engine/rpg/MasterSkillProgression.ts`, `SocialSkillProgression.ts`
-- Equipment & Gear Registries: `simulation-engine/src/engine/rpg/EquipmentRegistry.ts`, `SocialEquipmentRegistry.ts`
+## 3. Injury Tiers & Energy Shredding
 
-## 4. Mandatory Invariants
-1. **The Triad Invariant**: Every interactive prop must carry at least one `type`, one `material`, and relevant `affordance/capability` tags.
-2. **Citizen Persona Invariant**: Every spawned NPC must carry authentic personality tags derived from their `population_demographics` record (`temper`, `instinct`, `motivation`, `allegiance`).
-3. **Deterministic Cascades**: Physical cascades (fire + flammable = burning; blunt + fragile = broken) and event collisions must be computed mathematically through `TagMatrixEngine.ts` and `narrativeReactionEngine.ts`.
-4. **Derived Stat Synchronization**: When base attributes change, all 4 derived pools (HP, Stamina, Composure, Focus) must be recomputed via `calcDerivedStats()`.
+| Margin | Tier | Capacity Lost | Energy Shredded | Mechanical Effect |
+|---|---|---|---|---|
+| **1** | **Graze** | 0 | 1 | Near miss: $-2$ Composure (Anxiety). |
+| **2–5** | **Minor** | 4 | 2 | Disadvantage on next roll. Hidden wound card. |
+| **6–9** | **Major** | 8 | 4 | **Bleed**: lose 1 token at start of each turn. Wound card revealed. |
+| **10+** | **Critical** | 12 | 6 | Staggered! Body part destroyed until proper treatment; needs stabilizing. |
 
-## 5. Verification Workflow
-1. Verify Tag Matrix cascades pass unit checks in `TagMatrixEngine.ts`.
-2. Verify narrative collision reactions trigger correctly:
-   `npx --prefix simulation-engine tsx -e "import { NarrativeReactionTable } from './src/engine/rpg/narrativeReactionEngine.js'; console.log('Reaction rules loaded:', NarrativeReactionTable.length);"`
-3. Ensure zero TypeScript errors across `simulation-engine` (`npx tsc -p simulation-engine/tsconfig.json --noEmit`).
+- **Capacity Loss**: Comes off Health (or Composure) **maximum** until treated.
+- **Energy Shredded**: Body injuries shred Stamina; Composure injuries shred Focus.
+- **Magical Healing Tradeoff (§8.2, v4.6)**:
+  - Healing costs the healer's Focus **and the patient's Stamina**: **2 Stamina to knit a Minor, 4 Stamina for a Major**.
+  - Leaves a **Knitted wound**: capacity is restored, but a Major+ strike to that location tears it open.
+
+---
+
+## 4. The Clash (Margin = 0)
+Both combatants secretly choose a stance and roll $1d12 + \text{stat}$ (no gear).
+
+| Stance | Stat Pair | Winner Benefit | Loser Penalty |
+|---|---|---|---|
+| **Press** | Might / Knowledge | Pushes 1 space forward, lands a Minor | Next hit on them is $+1$ tier |
+| **Hold** | Endurance / Logic | Strikes from fixed stance (Minor) | Channeled power detonates |
+| **Maneuver** | Reflex / Intuition | Shifts and lands flanking strike (Minor) | Takes a Graze |
+| **Trick** | Finesse / Awareness | Next hit ignores armor value | `[STUNNED]`: loses next Body beat |
+| **Feint** | Fortitude / Willpower | Swaps places with target | `[STAGGERED]`: next strike is unopposed |
+| **Disengage** | Vitality / Charm | Parting Graze + leaps 1 space back | `[OFF-BALANCE]`: thrown 1 space |
+
+---
+
+## 5. Key Codebase Anchors
+- Rules Engine: `simulation-engine/src/engine/customRulesEngine.ts`
+- Combat & Clash Resolution: `simulation-engine/src/engine/combatResolutionEngine.ts`
+- Injury & Healing: `simulation-engine/src/engine/injuryEngine.ts`
+- Social & Dread: `simulation-engine/src/engine/socialCombat.ts`
+- REST API Router: `simulation-engine/src/api/rulesRouter.ts`
+- Observer Dashboard UI: `simulation-engine/src/observer/RulesLabTab.tsx`
+- Verification Script: `simulation-engine/src/scripts/testTTRPGRules.ts`

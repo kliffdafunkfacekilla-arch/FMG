@@ -48,7 +48,7 @@ export { getCartelLairType };
  *    - Never recruit or group up in covens; new wizards emerge when starving sparkborn learn survival on the road.
  *    - Peddles charms across 4 tiers: useless junk, useful remedies, powerful unintentional surges, and oops disasters.
  *
- * 7-10. Otter Mafia, Grind Canyon Corps, Ivory-Gate Syndicate, Ghostspring Operation Network.
+ * 7-10. The Otters (Canal Krewes), Grind Canyon Corps, The Fuvuiku Legions, Ghostspring Subterrane.
  */
 export async function runCartelAgent(client: PoolClient, tick: number, loreDate: string) {
     const cartelsRes = await client.query("SELECT * FROM sim_outlaw_factions ORDER BY id ASC");
@@ -284,16 +284,17 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
         // 3. THE LEGION / DEVIL'S CHOICE (ID 3): Mercenary & Trade Corporation
         // =========================================================================
         else if (cartelId === 3 || cartelName.includes("Legion") || cartelName.includes("Devil")) {
-            // A. Open Recruitment & Extreme Martial Training
-            if (tick % 3 === 0) {
-                const recruitBurg = burgs.find(b => (b.pop_null || 0) >= 12 || b.unrest >= 8);
-                if (recruitBurg) {
+            // A. Open Recruitment & Extreme Martial Training (Subject to 2,500 active capacity)
+            if (tick % 5 === 0) {
+                const currentMp = Number(cartel.manpower || 0);
+                const recruitBurg = burgs.find(b => (b.pop_null || 0) >= 12 && (b.unrest || 0) >= 30);
+                if (recruitBurg && currentMp < 2500) {
                     await client.query(`
                         UPDATE sim_burg_economy
                         SET pop_null = GREATEST(0, pop_null - 12)
                         WHERE burg_id = $1
                     `, [recruitBurg.burg_id]);
-                    await client.query("UPDATE sim_outlaw_factions SET manpower = manpower + 12 WHERE id = $1", [cartel.id]);
+                    await client.query("UPDATE sim_outlaw_factions SET manpower = LEAST(2500, manpower + 12) WHERE id = $1", [cartel.id]);
 
                     await tagBurgCitizens(
                         client,
@@ -310,7 +311,7 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
                         VALUES ($1, 'LEGION_DRILL_TRAINING', $2, 'MAJOR', $3, $4, $5)
                     `, [
                         tick,
-                        `🛡️ LEGION DRILL & TRAINING: The Legion opened recruitment in ${recruitBurg.name}, taking in 12 willing recruits and subjecting them to grueling martial conditioning, turning raw recruits into disciplined fighting machines!`,
+                        `🛡️ LEGION DRILL & TRAINING: The Legion opened recruitment in ${recruitBurg.name}, taking in 12 recruits and subjecting them to grueling martial conditioning under centurions.`,
                         cartel.id, recruitBurg.burg_id, loreDate
                     ]);
                 }
@@ -320,41 +321,50 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
             await handleLairEstablishment(client, cartel, burgs, tick, loreDate, "MERC_TRADE_BASTION", false);
 
             // C. Strong-Arming Markets & Monopoly Trade
-            if (tick % 3 === 0) {
-                const marketBurg = burgs.find(b => b.wealth > 250);
+            if (tick % 4 === 0) {
+                const marketBurg = burgs.find(b => b.wealth > 300);
                 if (marketBurg) {
                     await client.query(`
-                        UPDATE sim_burg_economy SET wealth = GREATEST(0, wealth - 40) WHERE burg_id = $1
+                        UPDATE sim_burg_economy SET wealth = GREATEST(0, wealth - 35) WHERE burg_id = $1
                     `, [marketBurg.burg_id]);
-                    await client.query("UPDATE sim_outlaw_factions SET wealth = COALESCE(wealth, 0) + 110 WHERE id = $1", [cartel.id]);
+                    await client.query("UPDATE sim_outlaw_factions SET wealth = COALESCE(wealth, 0) + 70 WHERE id = $1", [cartel.id]);
 
                     await client.query(`
                         INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
                         VALUES ($1, 'LEGION_MARKET_STRONGARM', $2, 'MINOR', $3, $4, $5)
                     `, [
                         tick,
-                        `🔨 MARKET STRONG-ARM: Heavily armored Legion shock-troopers occupied the central trade plaza in ${marketBurg.name}, strong-arming merchants to enforce favorable price floors for Legion grain shipments.`,
+                        `🔨 MARKET STRONG-ARM: Heavily armored Legion shock-troopers occupied the central trade plaza in ${marketBurg.name}, enforcing price floors for Legion grain shipments.`,
                         cartel.id, marketBurg.burg_id, loreDate
                     ]);
                 }
             }
 
-            // D. Pure Loyal Mercenary Muscle for Hire
+            // D. Pure Loyal Mercenary Muscle for Hire (Active Deployment with Frontline Casualties)
             if (tick % 4 === 0) {
                 const hireFactionRes = await client.query(`
                     SELECT id, name, treasury FROM sim_factions WHERE id > 0 AND treasury >= 2000 ORDER BY RANDOM() LIMIT 1
                 `);
                 if (hireFactionRes.rows.length > 0) {
                     const clientFaction = hireFactionRes.rows[0];
-                    await client.query("UPDATE sim_factions SET treasury = treasury - 400 WHERE id = $1", [clientFaction.id]);
-                    await client.query("UPDATE sim_outlaw_factions SET wealth = COALESCE(wealth, 0) + 400 WHERE id = $1", [cartel.id]);
+                    const currentMp = Number(cartel.manpower || 0);
+                    const deployed = Math.min(48, Math.max(12, Math.floor(currentMp * 0.05)));
+                    const casualties = Math.max(3, Math.floor(deployed * 0.25)); // Frontline casualties in combat service
+
+                    await client.query("UPDATE sim_factions SET treasury = treasury - 350 WHERE id = $1", [clientFaction.id]);
+                    await client.query(`
+                        UPDATE sim_outlaw_factions 
+                        SET wealth = COALESCE(wealth, 0) + 350,
+                            manpower = GREATEST(24, manpower - $2)
+                        WHERE id = $1
+                    `, [cartel.id, casualties]);
 
                     await client.query(`
                         INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
                         VALUES ($1, 'LEGION_MERCENARY_CONTRACT', $2, 'MAJOR', $3, $4, $5)
                     `, [
                         tick,
-                        `⚔️ MERCENARY CONTRACT RATIFIED: The Legion signed an unbreakable military contract with ${clientFaction.name}, deploying an elite cohort of heavy halberdiers to fortify contested borders!`,
+                        `⚔️ MERCENARY CONTRACT: The Legion fulfilled an active military contract for ${clientFaction.name}, deploying ${deployed} shock-troopers to the frontlines (${casualties} fallen in battle).`,
                         cartel.id, null, loreDate
                     ]);
                 }
@@ -604,35 +614,25 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
                 }
             }
 
-            // C. Contraband Narcotics Distribution (Holds happiness, drops health)
-            if (tick % 2 === 0) {
-                const narcBurg = burgs.find(b => b.unrest > 5 || b.health > 40);
-                if (narcBurg) {
+            // C. Pre-Cruor Titan Relic Fencing & Black-Glass Arms
+            if (tick % 3 === 0) {
+                const buyerBurg = burgs.find(b => b.wealth > 250);
+                if (buyerBurg) {
                     await client.query(`
                         UPDATE sim_burg_economy
-                        SET unrest = GREATEST(0, unrest - 4),
-                            health = GREATEST(0, health - 6)
+                        SET wealth = GREATEST(0, wealth - 60),
+                            refined_goods = refined_goods + 40
                         WHERE burg_id = $1
-                    `, [narcBurg.burg_id]);
-                    await client.query("UPDATE sim_outlaw_factions SET wealth = COALESCE(wealth, 0) + 140 WHERE id = $1", [cartel.id]);
-
-                    await tagBurgCitizens(
-                        client,
-                        narcBurg.burg_id,
-                        ['#CartelNarcoticHabit', '#EuphoricDecline'],
-                        'COMPLICIT',
-                        `Dependent on Obsidian Cartel void-lotus powder; pacified in spirit while bodily health deteriorates.`,
-                        '%laborer%',
-                        2
-                    );
+                    `, [buyerBurg.burg_id]);
+                    await client.query("UPDATE sim_outlaw_factions SET wealth = COALESCE(wealth, 0) + 180 WHERE id = $1", [cartel.id]);
 
                     await client.query(`
                         INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
-                        VALUES ($1, 'CARTEL_NARCOTICS_DISTRIBUTION', $2, 'MAJOR', $3, $4, $5)
+                        VALUES ($1, 'CARTEL_RELIC_FENCE', $2, 'MAJOR', $3, $4, $5)
                     `, [
                         tick,
-                        `🧪 CONTRABAND NARCOTICS: The Obsidian Cartel flooded dockside taverns in ${narcBurg.name} with euphoric void-lotus powder—pacifying citizen unrest while steadily degrading municipal health!`,
-                        cartel.id, narcBurg.burg_id, loreDate
+                        `🏺 TITAN RELIC FENCED: Operating through a licensed apothecary front in ${buyerBurg.name}, the Obsidian Cartel secretly fenced an unregistered pre-Cruor Titan relic to an oligarch collector for 180 gold.`,
+                        cartel.id, buyerBurg.burg_id, loreDate
                     ]);
                 }
             }
@@ -925,10 +925,10 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
         }
 
         // =========================================================================
-        // 7. THE OTTER MAFIA (ID 7): River Taverns, Waterway Intel & Submerged Operations
+        // 7. THE OTTERS (CANAL KREWES) (ID 7): Water Stilt Dens, Waterway Intel & Submerged Operations
         // =========================================================================
-        else if (cartelId === 7 || cartelName.includes("Otter Mafia")) {
-            // A. River Taverns & Saloons: Serving drink, gathering rich gossip & sovereign intel
+        else if (cartelId === 7 || cartelName.includes("Otter") || cartelName.includes("Canal Krewe")) {
+            // A. River Stilt-Dens & Saloons: Serving drink, gathering rich gossip & sovereign intel
             if (tick % 2 === 0) {
                 const riverBurg = burgs.find(b => b.wealth > 120);
                 if (riverBurg) {
@@ -942,9 +942,9 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
                     await tagBurgCitizens(
                         client,
                         riverBurg.burg_id,
-                        ['#OtterTavernPatron', '#LooseLippedBargeman'],
+                        ['#OtterDenPatron', '#LooseLippedBargeman'],
                         'CONVIVIAL',
-                        `Sipping fermented eel-wine in an Otter Mafia dockside saloon, inadvertently sharing river trade secrets.`,
+                        `Sipping fermented eel-wine in an Otter Canal Krewe dockside stilt-den, inadvertently sharing river trade secrets.`,
                         '%laborer%',
                         2
                     );
@@ -954,7 +954,7 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
                         VALUES ($1, 'OTTER_TAVERN_INTEL', $2, 'MINOR', $3, $4, $5)
                     `, [
                         tick,
-                        `🦦 RIVER TAVERN INTEL: Over draughts of frosted marsh-ale and fermented eel-wine at a dockside tavern near ${riverBurg.name}, Otter Mafia salooneers extracted vital sovereign trade schedules and patrol routes from loose-lipped barge crews.`,
+                        `🦦 CANAL KREWE INTEL: Over draughts of frosted marsh-ale and fermented eel-wine at a dockside stilt-den near ${riverBurg.name}, Otter Canal Krewe salooneers extracted vital sovereign trade schedules and patrol routes from loose-lipped barge crews.`,
                         cartel.id, riverBurg.burg_id, loreDate
                     ]);
                 }
@@ -976,7 +976,7 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
                         VALUES ($1, 'OTTER_UNDERWATER_EXTRACTION', $2, 'MAJOR', $3, $4, $5)
                     `, [
                         tick,
-                        `🏊 UNDERWATER EXTRACTION: Specialised Otter Mafia flume-divers extracted a high-profile fugitive out of ${escapeBurg.name}! Equipped with reed respirators, they swam beneath municipal harbor cordons and submerged sewer grates, vanishing into the river currents!`,
+                        `🏊 UNDERWATER EXTRACTION: Specialised Otter Canal Krewe flume-divers extracted a high-profile fugitive out of ${escapeBurg.name}! Equipped with reed respirators, they swam beneath municipal harbor cordons and submerged sewer grates, vanishing into the river currents!`,
                         cartel.id, escapeBurg.burg_id, loreDate
                     ]);
                 }
@@ -998,14 +998,14 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
                         VALUES ($1, 'OTTER_UNDERWATER_RETRIEVAL', $2, 'MAJOR', $3, $4, $5)
                     `, [
                         tick,
-                        `🌊 SUBMERGED RETRIEVAL MISSION: Otter Mafia salvage teams dove into dangerous river flues and flooded ruins near ${salvageBurg.name}, retrieving sunken bullion chests and lost cargo crates from riverbed shipwrecks.`,
+                        `🌊 SUBMERGED RETRIEVAL MISSION: Otter Canal Krewe salvage teams dove into dangerous river flues and flooded ruins near ${salvageBurg.name}, retrieving sunken bullion chests and lost cargo crates from riverbed shipwrecks.`,
                         cartel.id, salvageBurg.burg_id, loreDate
                     ]);
                 }
             }
 
-            // Establish authentic River Taverns along waterways (unhidden)
-            await handleLairEstablishment(client, cartel, burgs, tick, loreDate, "RIVER_TAVERN", false);
+            // Establish authentic Water Stilt Dens along waterways (unhidden)
+            await handleLairEstablishment(client, cartel, burgs, tick, loreDate, "WATER_STILT_DEN", false);
         }
 
         // =========================================================================
@@ -1075,60 +1075,67 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
         }
 
         // =========================================================================
-        // 9. THE IVORY-GATE SYNDICATE (ID 4): Toll Racketeers & Mountain Checkpoints
+        // 4. THE SILK-SOVEREIGN SYNDICATE (ID 4): Vice, Narcotics, Gambling & Street Protection
+        //    (The Women-Led Vice Wing of the Obsidian Syndicate Network)
         // =========================================================================
-        else if (cartelId === 4 || cartelName.includes("Ivory-Gate")) {
-            // A. Recruitment of Disillusioned Fortress Guards & Highway Enforcers
-            if (tick % 4 === 0) {
-                const garrisonBurg = burgs.find(b => (b.unrest || 0) >= 3 || (b.pop_null || 0) >= 12);
-                if (garrisonBurg) {
+        else if (cartelId === 4 || cartelName.includes("Silk-Sovereign") || cartelName.includes("Silk Sovereign")) {
+            // A. Establishing Underworld Vice Dens, Gambling Halls & Opium Parlors
+            await handleLairEstablishment(client, cartel, burgs, tick, loreDate, "VICE_DEN", false);
+
+            // B. Street Narcotics & Viper-Haze Distribution
+            // Temporarily calms unrest but erodes public health
+            if (tick % 3 === 0) {
+                const targetBurg = burgs.find(b => (b.unrest || 0) >= 30);
+                if (targetBurg) {
                     await client.query(`
-                        UPDATE sim_burg_economy SET pop_null = GREATEST(0, COALESCE(pop_null, 0) - 12) WHERE burg_id = $1
-                    `, [garrisonBurg.burg_id]);
-                    await client.query("UPDATE sim_outlaw_factions SET manpower = COALESCE(manpower, 0) + 6 WHERE id = $1", [cartel.id]);
+                        UPDATE sim_burg_economy
+                        SET unrest = GREATEST(0, unrest - 8),
+                            health = GREATEST(20, health - 4),
+                            wealth = GREATEST(0, wealth - 30)
+                        WHERE burg_id = $1
+                    `, [targetBurg.burg_id]);
+                    await client.query("UPDATE sim_outlaw_factions SET wealth = COALESCE(wealth, 0) + 75 WHERE id = $1", [cartel.id]);
 
                     await tagBurgCitizens(
                         client,
-                        garrisonBurg.burg_id,
-                        ['#IvoryTollEnforcer', '#BribedTurnkey'],
-                        'CORRUPT',
-                        `Enforcing illicit mountain toll gates and diverting road tolls for Legate General Vorun Iron-Grip.`,
-                        '%guard%',
-                        1
+                        targetBurg.burg_id,
+                        ['#ViperHazeAddict', '#SilkProtectionTribute'],
+                        'PACIFIED',
+                        `Dependent on Viper-Haze narcotics supplied through the Silk-Sovereign Syndicate's parlor network.`,
+                        '%laborer%',
+                        2
                     );
 
                     await client.query(`
                         INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
-                        VALUES ($1, 'IVORY_GATE_RECRUITMENT', $2, 'MINOR', $3, $4, $5)
+                        VALUES ($1, 'SILK_NARCOTIC_DISTRIBUTION', $2, 'MINOR', $3, $4, $5)
                     `, [
                         tick,
-                        `⚔️ TOLL ENFORCERS RECRUITED: Warden Vorun Iron-Grip enlisted veteran gate-guards and mercenary highwaymen in ${garrisonBurg.name} into the Ivory-Gate road legion.`,
-                        cartel.id, garrisonBurg.burg_id, loreDate
+                        `🍷 VICE NETWORK PROFIT: The Silk-Sovereign Syndicate expanded its velvet vice dens in ${targetBurg.name}, circulating Viper-Haze narcotics that numbed civil unrest while extracting illicit revenue.`,
+                        cartel.id, targetBurg.burg_id, loreDate
                     ]);
                 }
             }
 
-            // B. Roadway Extortion & Toll Checkpoints
-            if (tick % 3 === 0) {
-                const passBurg = burgs.find(b => b.wealth > 150);
-                if (passBurg) {
+            // C. Underground High-Stakes Gambling & Protection Rackets
+            if (tick % 4 === 0) {
+                const wealthyBurg = burgs.find(b => b.wealth > 200);
+                if (wealthyBurg) {
                     await client.query(`
                         UPDATE sim_burg_economy SET wealth = GREATEST(0, wealth - 45) WHERE burg_id = $1
-                    `, [passBurg.burg_id]);
-                    await client.query("UPDATE sim_outlaw_factions SET wealth = COALESCE(wealth, 0) + 70 WHERE id = $1", [cartel.id]);
+                    `, [wealthyBurg.burg_id]);
+                    await client.query("UPDATE sim_outlaw_factions SET wealth = COALESCE(wealth, 0) + 90 WHERE id = $1", [cartel.id]);
 
                     await client.query(`
                         INSERT INTO sim_events (tick, type, message, tier, faction_id, burg_id, lore_date)
-                        VALUES ($1, 'IVORY_GATE_TOLL_EXTORTION', $2, 'MINOR', $3, $4, $5)
+                        VALUES ($1, 'SILK_GAMBLING_PROTECTION', $2, 'MINOR', $3, $4, $5)
                     `, [
                         tick,
-                        `🛑 TOLL BLOCKADE: Corrupt legionnaires of the Ivory-Gate Syndicate maintained an unsanctioned iron checkpoint on the mountain road to ${passBurg.name}, levying extortionate tariffs on merchant wagons.`,
-                        cartel.id, passBurg.burg_id, loreDate
+                        `🎲 VICE PROTECTION RACKET: Silk-Sovereign enforcers levied weekly protection coin on merchant guilds and tavern owners in ${wealthyBurg.name}, insulating the parent Obsidian Cartel behind street muscle.`,
+                        cartel.id, wealthyBurg.burg_id, loreDate
                     ]);
                 }
             }
-
-            await handleLairEstablishment(client, cartel, burgs, tick, loreDate, "TOLL_BLOCKADE", false);
         }
 
         // =========================================================================
@@ -1239,6 +1246,12 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
             // Strictly 1 single central mountain cave network — NO additional lairs!
         }
     }
+
+    // Execute underworld lair operations, heat accumulation, and city watch militia raids
+    await runLairOperationsAndMilitiaBusts(client, tick, loreDate);
+
+    // Execute syndicate upkeep, organic turnover, and sovereign military checks
+    await runSyndicateUpkeepAndSovereignCrackdown(client, tick, loreDate);
 }
 
 /**
@@ -1300,6 +1313,191 @@ async function handleLairEstablishment(
                 `${cartel.name} established ${visibilityText} ${preferredLairType.replace(/_/g, " ")} base in ${lairBurg.name} to expand their provincial operations!`,
                 cartel.id, lairBurg.burg_id, loreDate
             ]);
+        }
+    }
+}
+
+/**
+ * Executes Underworld Lair operations, heat accumulation, commander corruption checks, and city watch busts
+ */
+async function runLairOperationsAndMilitiaBusts(client: PoolClient, tick: number, loreDate: string) {
+    const lairsRes = await client.query(`
+        SELECT l.*, b.name as burg_name, b.military_forces, b.crime_rate, b.unrest, f.name as cartel_name
+        FROM sim_fringe_lairs l
+        LEFT JOIN sim_burg_economy b ON l.burg_id = b.burg_id
+        LEFT JOIN sim_outlaw_factions f ON l.faction_id = f.id
+    `);
+
+    for (const lair of lairsRes.rows) {
+        if (!lair.burg_id) continue;
+        let military: any = {};
+        try { military = typeof lair.military_forces === 'string' ? JSON.parse(lair.military_forces) : (lair.military_forces || {}); } catch(e){}
+        let milPower = ((military['infantry'] || military['footmen'] || 0) + (military['mounted'] || 0) * 2) * 12;
+
+        // Check local Security Commander traits in sim_paragons
+        const cmdRes = await client.query(
+            "SELECT traits, corruption_score FROM sim_paragons WHERE burg_id = $1 AND title LIKE '%Commander%' LIMIT 1",
+            [lair.burg_id]
+        );
+        let isCorrupt = false;
+        let isTactician = false;
+        if (cmdRes.rows.length > 0) {
+            const traits = JSON.stringify(cmdRes.rows[0].traits || "");
+            const score = Number(cmdRes.rows[0].corruption_score) || 0;
+            if (traits.includes("Corrupt") || score > 40) isCorrupt = true;
+            if (traits.includes("Tactician")) isTactician = true;
+        }
+
+        if (isTactician) milPower *= 2; // Tactical commander doubles watch discipline
+
+        // Heat accumulation
+        const currentHeat = (lair.heat || 0) + 3;
+
+        // When heat exceeds militia threshold:
+        if (currentHeat >= 45 && milPower > 0) {
+            if (isCorrupt) {
+                // The Commander is corrupt! Took bribe from cartel, raid cancelled
+                await client.query("UPDATE sim_fringe_lairs SET heat = GREATEST(0, heat - 15) WHERE id = $1", [lair.id]);
+                if (tick % 7 === 0) {
+                    await client.query(`
+                        INSERT INTO sim_events (tick, type, message, tier, burg_id, lore_date)
+                        VALUES ($1, 'COMMANDER_BRIBED', $2, 'MINOR', $3, $4)
+                    `, [
+                        tick,
+                        `💰 CORRUPT COLLUSION: City Watch Commander in ${lair.burg_name} quietly called off a planned raid on ${lair.cartel_name}'s lair after accepting an underworld tribute.`,
+                        lair.burg_id, loreDate
+                    ]);
+                }
+                continue;
+            }
+
+            // City Watch executes raid
+            if (milPower > lair.manpower) {
+                await client.query("DELETE FROM sim_fringe_lairs WHERE id = $1", [lair.id]);
+                await client.query("UPDATE sim_burg_economy SET crime_rate = GREATEST(0, crime_rate - 10) WHERE burg_id = $1", [lair.burg_id]);
+                await client.query(`
+                    INSERT INTO sim_events (tick, type, message, tier, burg_id, lore_date)
+                    VALUES ($1, 'LAIR_BUSTED', $2, 'MAJOR', $3, $4)
+                `, [
+                    tick,
+                    `⚔️ CARTEL LAIR BUSTED: City watch forces in ${lair.burg_name} stormed and dismantled ${lair.cartel_name}'s ${lair.lair_type.replace(/_/g, " ")}!`,
+                    lair.burg_id, loreDate
+                ]);
+            } else {
+                // Militia repelled!
+                await client.query("UPDATE sim_fringe_lairs SET heat = 10 WHERE id = $1", [lair.id]);
+                await client.query(`
+                    INSERT INTO sim_events (tick, type, message, tier, burg_id, lore_date)
+                    VALUES ($1, 'MILITIA_DEFEATED', $2, 'MAJOR', $3, $4)
+                `, [
+                    tick,
+                    `⚠️ WATCH REPELLED: Underground syndicates violently repelled a city watch raid on ${lair.cartel_name}'s ${lair.lair_type.replace(/_/g, " ")} in ${lair.burg_name}.`,
+                    lair.burg_id, loreDate
+                ]);
+            }
+        } else {
+            await client.query("UPDATE sim_fringe_lairs SET heat = $1 WHERE id = $2", [currentHeat, lair.id]);
+        }
+    }
+}
+
+/**
+ * Executes syndicate manpower upkeep, organic turnover/attrition, and sovereign military crackdowns.
+ * Prevents mercenary corporations and outlaw syndicates from becoming unchecked superpowers.
+ */
+async function runSyndicateUpkeepAndSovereignCrackdown(client: PoolClient, tick: number, loreDate: string) {
+    if (tick % 10 !== 0) return;
+
+    const cartelsRes = await client.query("SELECT id, name, type, manpower, wealth, heat FROM sim_outlaw_factions");
+
+    for (const cartel of cartelsRes.rows) {
+        const mp = Number(cartel.manpower || 0);
+        const wealth = Number(cartel.wealth || 0);
+
+        // 1. Manpower Upkeep & Natural Attrition:
+        // Mercenary & outlaw armies naturally suffer turnover, desertion, or unpaid departures.
+        // Sustainable threshold is ~500 - 1,500.
+        if (mp > 1500) {
+            // Upkeep requirement: 1 gold per 2 soldiers per 10 days
+            const neededUpkeep = Math.floor(mp * 0.5);
+            if (wealth >= neededUpkeep) {
+                // Paid upkeep, mild natural turnover (2%)
+                const turnover = Math.max(5, Math.floor(mp * 0.02));
+                await client.query(`
+                    UPDATE sim_outlaw_factions 
+                    SET wealth = GREATEST(0, wealth - $1),
+                        manpower = GREATEST(500, manpower - $2)
+                    WHERE id = $3
+                `, [neededUpkeep, turnover, cartel.id]);
+            } else {
+                // Unpaid payroll! Severe desertion (8%)
+                const deserters = Math.max(15, Math.floor(mp * 0.08));
+                await client.query(`
+                    UPDATE sim_outlaw_factions 
+                    SET wealth = GREATEST(0, wealth - 50),
+                        manpower = GREATEST(300, manpower - $1)
+                    WHERE id = $2
+                `, [deserters, cartel.id]);
+            }
+        } else if (mp > 800) {
+            // Mild baseline turnover toward sustainable 500-800 core
+            const naturalAttrition = Math.max(2, Math.floor(mp * 0.01));
+            await client.query(`
+                UPDATE sim_outlaw_factions 
+                SET manpower = GREATEST(300, manpower - $1) 
+                WHERE id = $2
+            `, [naturalAttrition, cartel.id]);
+        }
+
+        // 3. Natural Heat Dissipation & Laying Low:
+        // When watch pressure is high, syndicates spend grease coin on magistrate bribes
+        // and lay low, naturally allowing heat to cool down over time.
+        const currentCartelHeat = Number(cartel.heat || 0);
+        if (currentCartelHeat > 15) {
+            const greasePay = wealth >= 50 ? 25 : 0;
+            const cooledHeat = Math.max(2, Math.floor(currentCartelHeat * 0.06));
+            await client.query(`
+                UPDATE sim_outlaw_factions 
+                SET heat = GREATEST(0, heat - $1),
+                    wealth = GREATEST(0, wealth - $2)
+                WHERE id = $3
+            `, [cooledHeat, greasePay, cartel.id]);
+        }
+        // If a syndicate's standing army exceeds 2,000, sovereign crowns launch an armed expedition
+        if (mp >= 2000 && tick % 20 === 0) {
+            const crownRes = await client.query(`
+                SELECT id, name, treasury FROM sim_factions 
+                WHERE id > 0 AND treasury >= 1000 
+                ORDER BY RANDOM() LIMIT 1
+            `);
+            if (crownRes.rows.length > 0) {
+                const crown = crownRes.rows[0];
+                const dispersed = Math.floor(mp * 0.25); // Sovereign army disperses 25% of rogue mercenary force
+                const seizedWealth = Math.min(wealth, Math.floor(wealth * 0.20));
+
+                await client.query(`
+                    UPDATE sim_outlaw_factions
+                    SET manpower = GREATEST(500, manpower - $1),
+                        wealth = GREATEST(0, wealth - $2),
+                        heat = LEAST(100, heat + 25)
+                    WHERE id = $3
+                `, [dispersed, seizedWealth, cartel.id]);
+
+                await client.query(`
+                    UPDATE sim_factions 
+                    SET treasury = treasury + $1 
+                    WHERE id = $2
+                `, [seizedWealth, crown.id]);
+
+                await client.query(`
+                    INSERT INTO sim_events (tick, type, message, tier, faction_id, lore_date)
+                    VALUES ($1, 'SOVEREIGN_MERCENARY_CRACKDOWN', $2, 'CRITICAL', $3, $4)
+                `, [
+                    tick,
+                    `👑 ROYAL EXPEDITION: Alarmed by rogue mercenary expansion, the royal army of ${crown.name} marched against ${cartel.name}, routing ${dispersed} rogue mercenaries and seizing ${seizedWealth} gold in contraband war-chests!`,
+                    crown.id, loreDate
+                ]);
+            }
         }
     }
 }

@@ -1,0 +1,1055 @@
+import React, { useState, useEffect, useRef } from 'react';
+
+interface PropItem {
+  id: string;
+  name: string;
+  pos: [number, number];
+  tags?: string[];
+  hp?: number;
+  maxHp?: number;
+  description?: string;
+  [key: string]: any;
+}
+
+interface NpcItem {
+  id: string;
+  name: string;
+  role?: string;
+  pos: [number, number];
+  tags?: string[];
+  faction?: string;
+  hp?: number;
+  maxHp?: number;
+  disposition?: number;
+  alive?: boolean;
+  equippedWeapon?: string;
+  equippedArmor?: string;
+  [key: string]: any;
+}
+
+interface TacticalLayerData {
+  success: boolean;
+  cellId: number;
+  rx: number;
+  ry: number;
+  z: number;
+  name: string;
+  grid: number[];
+  props: PropItem[];
+  npcs: NpcItem[];
+  features: Record<string, any>;
+}
+
+interface TacticalSandboxModalProps {
+  cellId: number;
+  rx: number;
+  ry: number;
+  onClose: () => void;
+}
+
+export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
+  cellId,
+  rx,
+  ry,
+  onClose
+}) => {
+  const [zLayer, setZLayer] = useState<number>(0);
+  const [layerData, setLayerData] = useState<TacticalLayerData | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Inspector selection
+  const [selectedProp, setSelectedProp] = useState<PropItem | null>(null);
+  const [selectedNpc, setSelectedNpc] = useState<NpcItem | null>(null);
+
+  // Concordia GM Action state
+  const [actionInput, setActionInput] = useState<string>("Examine surroundings and search for clues");
+  const [actionLoading, setActionLoading] = useState<boolean>(false);
+  const [actionResult, setActionResult] = useState<any>(null);
+
+  // AI Story Arc & WhatELSE state
+  const [storyLoading, setStoryLoading] = useState<boolean>(false);
+  const [storyArc, setStoryArc] = useState<any>(null);
+  const [mutatedAssets, setMutatedAssets] = useState<any[]>([]);
+
+  // Crisis state
+  const [crisisLoading, setCrisisLoading] = useState<boolean>(false);
+  const [lastCrisisEvent, setLastCrisisEvent] = useState<any>(null);
+
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Load tactical layer
+  const loadLayer = async (targetZ: number = zLayer) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/dm/sector_layer?cellId=${cellId}&rx=${rx}&ry=${ry}&z=${targetZ}`);
+      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+      const data: TacticalLayerData = await res.json();
+      setLayerData(data);
+    } catch (err: any) {
+      setError(err.message || "Failed to load tactical sector layer");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadLayer(zLayer);
+  }, [cellId, rx, ry, zLayer]);
+
+  // Render 256x256 tactical map onto canvas
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !layerData || !layerData.grid || layerData.grid.length === 0) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const SIZE = 256;
+    const imgData = ctx.createImageData(SIZE, SIZE);
+    const data = imgData.data;
+
+    // Palette mapping
+    const getTileColor = (tile: number, z: number): [number, number, number] => {
+      if (z === -1) {
+        // Subterranean sewer / dungeon / cavern palette
+        switch (tile) {
+          case 0: return [15, 12, 25]; // void abyss
+          case 1: return [48, 52, 60]; // damp flagstone
+          case 2: return [35, 60, 50]; // slimy mossy masonry
+          case 3: return [65, 50, 35]; // dirt / mud cave path
+          case 4: return [50, 60, 75]; // polished vault floor
+          case 5: return [25, 65, 85]; // subterranean pool / seepage
+          case 6: return [25, 30, 40]; // solid bedrock / dungeon wall
+          case 7: return [75, 30, 30]; // iron reinforcement / grating
+          case 8: return [95, 65, 35]; // timber bracing
+          default: return [30, 35, 45];
+        }
+      } else if (z === 1) {
+        // Upper Lofts / Ramparts / Canopy palette
+        switch (tile) {
+          case 0: return [10, 15, 25]; // open sky drop-off
+          case 1: return [35, 75, 40]; // leafy tree canopy
+          case 2: return [20, 55, 28]; // dense tree bough
+          case 3: return [105, 80, 50]; // wooden rope bridge / catwalk
+          case 4: return [90, 100, 115]; // stone parapet
+          case 5: return [40, 80, 160]; // sky cistern
+          case 6: return [50, 60, 75]; // crenellations / battlements
+          case 7: return [145, 50, 35]; // tile loft roof
+          case 8: return [130, 85, 45]; // timber floorboard
+          default: return [50, 60, 75];
+        }
+      } else {
+        // Surface ground palette
+        switch (tile) {
+          case 0: return [42, 75, 42]; // natural meadow ground / soil
+          case 1: return [22, 60, 26]; // woodland trees / foliage
+          case 2: return [25, 90, 180]; // river / lake / ocean water
+          case 3: return [135, 95, 55]; // dirt road / rural lane
+          case 4: return [90, 100, 115]; // cobblestone pavement / plaza
+          case 5: return [75, 80, 90]; // stone wall / rock crags
+          case 6: return [140, 40, 180]; // chaos conduit / rift
+          case 7: return [140, 50, 35]; // wooden cottage / building roof
+          case 8: return [225, 125, 30]; // campfire / forge / signal beacon
+          case 9: return [200, 170, 110]; // arid sand / desert dunes
+          case 10: return [110, 125, 140]; // ancient monolith stone
+          case 11: return [195, 210, 225]; // snow frost / wetland marsh
+          case 12: return [35, 30, 45]; // volcanic basalt / obsidian
+          default: return [42, 75, 42];
+        }
+      }
+    };
+
+    for (let i = 0; i < SIZE * SIZE; i++) {
+      const tile = layerData.grid[i] || 0;
+      const [r, g, b] = getTileColor(tile, layerData.z);
+      const idx = i * 4;
+      data[idx] = r;
+      data[idx + 1] = g;
+      data[idx + 2] = b;
+      data[idx + 3] = 255;
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+
+    // Draw Props as distinct icons
+    for (const prop of layerData.props || []) {
+      const px = prop.pos ? prop.pos[0] : 128;
+      const py = prop.pos ? prop.pos[1] : 128;
+      const isSelected = selectedProp?.id === prop.id;
+
+      ctx.beginPath();
+      ctx.arc(px, py, isSelected ? 5 : 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = prop.id.includes("fountain") ? "#38bdf8" :
+                      prop.id.includes("vault") || prop.id.includes("stair") ? "#ec4899" :
+                      prop.id.includes("chest") ? "#f59e0b" : "#a855f7";
+      ctx.fill();
+      ctx.lineWidth = isSelected ? 2 : 1;
+      ctx.strokeStyle = "#ffffff";
+      ctx.stroke();
+    }
+
+    // Draw NPCs as distinct tokens
+    for (const npc of layerData.npcs || []) {
+      const nx = npc.pos ? npc.pos[0] : 128;
+      const ny = npc.pos ? npc.pos[1] : 128;
+      const isSelected = selectedNpc?.id === npc.id;
+
+      ctx.beginPath();
+      ctx.arc(nx, ny, isSelected ? 6 : 4.5, 0, Math.PI * 2);
+      ctx.fillStyle = npc.role?.toLowerCase().includes("guard") || npc.role?.toLowerCase().includes("commander") ? "#3b82f6" :
+                      npc.role?.toLowerCase().includes("bandit") || npc.role?.toLowerCase().includes("rogue") ? "#ef4444" :
+                      npc.tags?.some(t => t.includes("Predator")) ? "#f97316" : "#10b981";
+      ctx.fill();
+      ctx.lineWidth = isSelected ? 2 : 1;
+      ctx.strokeStyle = isSelected ? "#facc15" : "#ffffff";
+      ctx.stroke();
+    }
+  }, [layerData, selectedProp, selectedNpc]);
+
+  // Handle canvas clicks to inspect props / NPCs
+  const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas || !layerData) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = 256 / rect.width;
+    const scaleY = 256 / rect.height;
+    const clickX = (e.clientX - rect.left) * scaleX;
+    const clickY = (e.clientY - rect.top) * scaleY;
+
+    // Check prop click (radius 8px)
+    const clickedProp = (layerData.props || []).find(p => {
+      const dx = (p.pos?.[0] ?? 128) - clickX;
+      const dy = (p.pos?.[1] ?? 128) - clickY;
+      return Math.hypot(dx, dy) <= 8;
+    });
+
+    if (clickedProp) {
+      setSelectedProp(clickedProp);
+      setSelectedNpc(null);
+      return;
+    }
+
+    // Check NPC click (radius 8px)
+    const clickedNpc = (layerData.npcs || []).find(n => {
+      const dx = (n.pos?.[0] ?? 128) - clickX;
+      const dy = (n.pos?.[1] ?? 128) - clickY;
+      return Math.hypot(dx, dy) <= 8;
+    });
+
+    if (clickedNpc) {
+      setSelectedNpc(clickedNpc);
+      setSelectedProp(null);
+      return;
+    }
+
+    // Empty space click clears selection
+    setSelectedProp(null);
+    setSelectedNpc(null);
+  };
+
+  // Concordia GM Action Execution
+  const executeGMAction = async (customAction?: string) => {
+    const text = customAction || actionInput;
+    if (!text.trim()) return;
+
+    setActionLoading(true);
+    setActionResult(null);
+    try {
+      const res = await fetch('/api/dm/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actionText: text,
+          playerId: 1,
+          playerPos: [128, 128]
+        })
+      });
+      const data = await res.json();
+      setActionResult(data);
+    } catch (err: any) {
+      setActionResult({ error: err.message || "Action arbitration failed" });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // AI Story Arc Generation
+  const generateStoryArc = async () => {
+    setStoryLoading(true);
+    setStoryArc(null);
+    try {
+      const res = await fetch('/api/dm/story/generate_arc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cellId,
+          rx,
+          ry,
+          z: zLayer
+        })
+      });
+      const data = await res.json();
+      setStoryArc(data.arc || data);
+      setMutatedAssets(data.mutationsApplied || []);
+      // Reload layer to see injected tags / props
+      await loadLayer(zLayer);
+    } catch (err: any) {
+      setStoryArc({ error: err.message || "Story Arc generation failed" });
+    } finally {
+      setStoryLoading(false);
+    }
+  };
+
+  // Synthesize WhatELSE Relic Beat
+  const synthesizeWhatElse = async () => {
+    setStoryLoading(true);
+    try {
+      const res = await fetch('/api/dm/sector_load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cellId,
+          rx,
+          ry,
+          diurnalPhase: "MORNING"
+        })
+      });
+      const data = await res.json();
+      setStoryArc({
+        title: data.whatElse?.title || "Emergent Relic Discovery",
+        synopsis: data.whatElse?.narrativeSummary || "A forgotten sign of ancient aether-tech whispers beneath the stones.",
+        phases: [
+          { phaseNumber: 1, objective: "Investigate local ruins for energy resonance" },
+          { phaseNumber: 2, objective: "Decipher the sigil lock without setting off a surge" },
+          { phaseNumber: 3, objective: "Recover relic before outlaws converge" }
+        ],
+        rewards: { xp: 45, gold: 80 }
+      });
+      await loadLayer(zLayer);
+    } catch (err: any) {
+      setStoryArc({ error: err.message || "WhatELSE generation failed" });
+    } finally {
+      setStoryLoading(false);
+    }
+  };
+
+  // Crisis Trigger
+  const triggerCrisis = async (type: string) => {
+    setCrisisLoading(true);
+    setLastCrisisEvent(null);
+    try {
+      const res = await fetch('/api/observer/trigger_crisis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, cellId })
+      });
+      const data = await res.json();
+      setLastCrisisEvent(data.event || data);
+      await loadLayer(zLayer);
+    } catch (err: any) {
+      setLastCrisisEvent({ error: err.message || "Crisis trigger failed" });
+    } finally {
+      setCrisisLoading(false);
+    }
+  };
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(5, 8, 15, 0.92)',
+      backdropFilter: 'blur(8px)',
+      zIndex: 9999,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 16
+    }}>
+      <div style={{
+        background: '#0a0f1d',
+        border: '1px solid #1e293b',
+        borderRadius: 12,
+        width: '96vw',
+        maxWidth: 1440,
+        height: '92vh',
+        display: 'flex',
+        flexDirection: 'column',
+        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.75)',
+        overflow: 'hidden',
+        color: '#f8fafc'
+      }}>
+        {/* Header */}
+        <div style={{
+          padding: '12px 20px',
+          background: '#0f172a',
+          borderBottom: '1px solid #1e293b',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 20 }}>⚔️</span>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#38bdf8' }}>
+                {layerData?.name || `Tactical Map: Cell #${cellId} (rx: ${rx}, ry: ${ry})`}
+              </h2>
+              <span style={{
+                background: '#0284c7',
+                color: '#fff',
+                fontSize: 10,
+                fontWeight: 700,
+                padding: '2px 8px',
+                borderRadius: 4
+              }}>
+                256x256 Tactical Grid
+              </span>
+            </div>
+            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+              Region Cell #{cellId} • Meso Coordinate ({rx}, {ry}) • Dynamic Discrete Step • 1 Tick = 1 Day
+            </div>
+          </div>
+
+          {/* Layer Switcher & Close */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{
+              display: 'flex',
+              background: '#020617',
+              padding: 3,
+              borderRadius: 6,
+              border: '1px solid #334155'
+            }}>
+              {[
+                { z: 1, label: 'Z = +1 (Upper)' },
+                { z: 0, label: 'Z = 0 (Surface)' },
+                { z: -1, label: 'Z = -1 (Subterranean)' }
+              ].map(item => (
+                <button
+                  key={item.z}
+                  onClick={() => setZLayer(item.z)}
+                  style={{
+                    background: zLayer === item.z ? '#0284c7' : 'transparent',
+                    color: zLayer === item.z ? '#fff' : '#94a3b8',
+                    border: 'none',
+                    padding: '4px 10px',
+                    borderRadius: 4,
+                    fontSize: 11,
+                    fontWeight: zLayer === item.z ? 700 : 500,
+                    cursor: 'pointer'
+                  }}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={onClose}
+              style={{
+                background: '#334155',
+                color: '#fff',
+                border: 'none',
+                width: 30,
+                height: 30,
+                borderRadius: '50%',
+                cursor: 'pointer',
+                fontWeight: 700,
+                fontSize: 14
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+
+        {/* Controlled Instability Crisis Toolbar */}
+        <div style={{
+          padding: '8px 20px',
+          background: '#080d1a',
+          borderBottom: '1px solid #1e293b',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          overflowX: 'auto',
+          fontSize: 12
+        }}>
+          <span style={{ fontWeight: 700, color: '#f59e0b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            ⚡ Instability Crisis Injector:
+          </span>
+          <button
+            onClick={() => triggerCrisis('CHAOS_SURGE')}
+            disabled={crisisLoading}
+            style={{
+              background: '#4c1d95',
+              color: '#f5d0fe',
+              border: '1px solid #7c3aed',
+              padding: '4px 10px',
+              borderRadius: 4,
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: 11
+            }}
+          >
+            ⚡ Primordial Chaos Surge
+          </button>
+          <button
+            onClick={() => triggerCrisis('DEEP_COLD_FREEZE')}
+            disabled={crisisLoading}
+            style={{
+              background: '#0c4a6e',
+              color: '#bae6fd',
+              border: '1px solid #0284c7',
+              padding: '4px 10px',
+              borderRadius: 4,
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: 11
+            }}
+          >
+            ❄️ Hard Winter Blizzard
+          </button>
+          <button
+            onClick={() => triggerCrisis('FAMINE_BANDIT_REVOLT')}
+            disabled={crisisLoading}
+            style={{
+              background: '#78350f',
+              color: '#fde68a',
+              border: '1px solid #d97706',
+              padding: '4px 10px',
+              borderRadius: 4,
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: 11
+            }}
+          >
+            🍞 Famine & Roving Bandits
+          </button>
+          <button
+            onClick={() => triggerCrisis('CORRUPT_EMBEZZLE_EMBARGO')}
+            disabled={crisisLoading}
+            style={{
+              background: '#831843',
+              color: '#fbcfe8',
+              border: '1px solid #db2777',
+              padding: '4px 10px',
+              borderRadius: 4,
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: 11
+            }}
+          >
+            ⚖️ Corrupt Mayor & Compass Embargo
+          </button>
+          <button
+            onClick={() => triggerCrisis('BORDER_WAR')}
+            disabled={crisisLoading}
+            style={{
+              background: '#7f1d1d',
+              color: '#fecaca',
+              border: '1px solid #dc2626',
+              padding: '4px 10px',
+              borderRadius: 4,
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: 11
+            }}
+          >
+            ⚔️ Sovereign Border War
+          </button>
+        </div>
+
+        {lastCrisisEvent && (
+          <div style={{
+            background: '#1e1b4b',
+            borderBottom: '1px solid #4338ca',
+            padding: '6px 20px',
+            fontSize: 11,
+            color: '#c7d2fe',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
+          }}>
+            <span><strong>Crisis Active:</strong> {lastCrisisEvent.message || lastCrisisEvent.error}</span>
+            <span style={{ color: '#818cf8' }}>{lastCrisisEvent.loreDate || ''}</span>
+          </div>
+        )}
+
+        {/* Main Content: Left 256x256 Canvas + Right GM & Story Panel */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '540px 1fr',
+          flex: 1,
+          overflow: 'hidden'
+        }}>
+          {/* Left Column: Canvas View + Inspector */}
+          <div style={{
+            padding: 16,
+            borderRight: '1px solid #1e293b',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+            background: '#040711',
+            overflowY: 'auto'
+          }}>
+            <div style={{
+              position: 'relative',
+              width: 512,
+              height: 512,
+              borderRadius: 8,
+              overflow: 'hidden',
+              boxShadow: '0 0 20px rgba(0, 0, 0, 0.8)',
+              border: '2px solid #1e293b'
+            }}>
+              {loading && (
+                <div style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: 'rgba(4, 7, 17, 0.75)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#38bdf8',
+                  fontSize: 14,
+                  fontWeight: 600
+                }}>
+                  ⏳ Loading Tactical Sector Data...
+                </div>
+              )}
+              {error && (
+                <div style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: 'rgba(127, 29, 29, 0.85)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#fecaca',
+                  padding: 20,
+                  fontSize: 12
+                }}>
+                  {error}
+                </div>
+              )}
+              <canvas
+                ref={canvasRef}
+                width={256}
+                height={256}
+                onClick={handleCanvasClick}
+                style={{
+                  width: 512,
+                  height: 512,
+                  imageRendering: 'pixelated',
+                  cursor: 'crosshair',
+                  display: 'block'
+                }}
+              />
+            </div>
+
+            {/* Tactical Legend & Inspector */}
+            <div style={{
+              background: '#0a0f1d',
+              border: '1px solid #1e293b',
+              borderRadius: 6,
+              padding: 10,
+              fontSize: 11
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={{ fontWeight: 700, color: '#38bdf8' }}>Tactical Legend & Entities</span>
+                <span style={{ color: '#64748b' }}>Props: {layerData?.props?.length || 0} • NPCs: {layerData?.npcs?.length || 0}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', color: '#94a3b8', fontSize: 10 }}>
+                <span>📦 Containers (Gold)</span>
+                <span>⛲ Fountains (Cyan)</span>
+                <span>🪜 Stairs/POEs (Pink)</span>
+                <span>🛡️ Guards (Blue)</span>
+                <span>👤 Citizens (Green)</span>
+                <span>🦹 Outlaws/Bandits (Red)</span>
+              </div>
+
+              {/* Entity Inspector */}
+              {selectedProp && (
+                <div style={{
+                  marginTop: 10,
+                  padding: 8,
+                  background: '#111827',
+                  border: '1px solid #f59e0b',
+                  borderRadius: 4
+                }}>
+                  <div style={{ fontWeight: 700, color: '#fbbf24' }}>
+                    📦 Prop: {selectedProp.name || selectedProp.id}
+                  </div>
+                  <div style={{ color: '#94a3b8', marginTop: 2 }}>
+                    Pos: ({selectedProp.pos?.[0]}, {selectedProp.pos?.[1]}) • Tags: {(selectedProp.tags || []).join(', ') || 'none'}
+                  </div>
+                  {selectedProp.description && (
+                    <div style={{ color: '#cbd5e1', marginTop: 4, fontStyle: 'italic' }}>
+                      "{selectedProp.description}"
+                    </div>
+                  )}
+                  {selectedProp.injected_item && (
+                    <div style={{ color: '#38bdf8', marginTop: 4, fontWeight: 600 }}>
+                      🔑 Plot Item: {selectedProp.injected_item}
+                    </div>
+                  )}
+                  {selectedProp.sub_map_target && (
+                    <div style={{ color: '#ec4899', marginTop: 4, fontWeight: 600 }}>
+                      🚪 Dungeon Sub-Map POE: {selectedProp.sub_map_target}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {selectedNpc && (
+                <div style={{
+                  marginTop: 10,
+                  padding: 8,
+                  background: '#111827',
+                  border: '1px solid #38bdf8',
+                  borderRadius: 4
+                }}>
+                  <div style={{ fontWeight: 700, color: '#38bdf8' }}>
+                    👤 NPC: {selectedNpc.name} ({selectedNpc.role || 'Citizen'})
+                  </div>
+                  <div style={{ color: '#94a3b8', marginTop: 2 }}>
+                    Faction: {selectedNpc.faction || 'Neutral'} • HP: {selectedNpc.hp}/{selectedNpc.maxHp || 20} • Pos: ({selectedNpc.pos?.[0]}, {selectedNpc.pos?.[1]})
+                  </div>
+                  <div style={{ color: '#a78bfa', marginTop: 2 }}>
+                    Tags: {(selectedNpc.tags || []).join(', ') || 'none'}
+                  </div>
+                  {selectedNpc.dialogue && (
+                    <div style={{ color: '#fef08a', marginTop: 4, fontStyle: 'italic' }}>
+                      "{selectedNpc.dialogue}"
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right Column: AI Story Director & Concordia GM Console */}
+          <div style={{
+            padding: 16,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 16,
+            overflowY: 'auto',
+            background: '#090e1a'
+          }}>
+            {/* Section 1: AI Story Generator (Pillar 4) */}
+            <div style={{
+              background: '#0f172a',
+              border: '1px solid #1e293b',
+              borderRadius: 8,
+              padding: 14
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#a855f7' }}>
+                    ✨ Pillar 4: AI Story Generator & Emergent Quests
+                  </h3>
+                  <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                    Generates dynamic story arcs and anchors clues/dungeons into this sector's physical props
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    onClick={generateStoryArc}
+                    disabled={storyLoading}
+                    style={{
+                      background: '#7c3aed',
+                      color: '#fff',
+                      border: 'none',
+                      padding: '6px 12px',
+                      borderRadius: 4,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {storyLoading ? '⏳ Generating...' : '⚡ Generate Story Arc'}
+                  </button>
+                  <button
+                    onClick={synthesizeWhatElse}
+                    disabled={storyLoading}
+                    style={{
+                      background: '#0284c7',
+                      color: '#fff',
+                      border: 'none',
+                      padding: '6px 12px',
+                      borderRadius: 4,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ✨ Synthesize WhatELSE Beat
+                  </button>
+                </div>
+              </div>
+
+              {storyArc && (
+                <div style={{
+                  background: '#030712',
+                  border: '1px solid #6b21a8',
+                  borderRadius: 6,
+                  padding: 12,
+                  fontSize: 12
+                }}>
+                  <div style={{ fontWeight: 800, color: '#c084fc', fontSize: 14 }}>
+                    {storyArc.title}
+                  </div>
+                  <div style={{ color: '#cbd5e1', marginTop: 4, lineHeight: 1.4 }}>
+                    {storyArc.synopsis}
+                  </div>
+
+                  {storyArc.phases && storyArc.phases.length > 0 && (
+                    <div style={{ marginTop: 8 }}>
+                      <span style={{ fontWeight: 700, color: '#93c5fd' }}>Quest Objectives:</span>
+                      <ol style={{ margin: '4px 0 0 16px', padding: 0, color: '#94a3b8' }}>
+                        {storyArc.phases.map((p: any, idx: number) => (
+                          <li key={idx} style={{ marginTop: 2 }}>
+                            {p.objective || p.name || `Phase ${idx + 1}`}
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
+
+                  {mutatedAssets.length > 0 && (
+                    <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid #1e293b' }}>
+                      <span style={{ fontWeight: 700, color: '#38bdf8' }}>Anchored Physical Mutations:</span>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                        {mutatedAssets.map((m: any, idx: number) => (
+                          <span
+                            key={idx}
+                            style={{
+                              background: '#1e293b',
+                              color: '#a5f3fc',
+                              fontSize: 10,
+                              padding: '2px 6px',
+                              borderRadius: 3
+                            }}
+                          >
+                            {m.type === 'PROP' ? '📦' : '👤'} {m.id} (Tags: {(m.addedTags || []).join(', ')})
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Section 2: Concordia GM Live Intent Arbitration (Pillar 3) */}
+            <div style={{
+              background: '#0f172a',
+              border: '1px solid #1e293b',
+              borderRadius: 8,
+              padding: 14,
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column'
+            }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#38bdf8' }}>
+                  🎲 Pillar 3: Concordia GM Live Action Console
+                </h3>
+                <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                  Parses free-speech player actions and resolves against the Concordia 12-Attribute opposed 1d12 engine (B.R.U.T.A.L. v4.9)
+                </div>
+              </div>
+
+              {/* Quick Preset Action Buttons */}
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+                <button
+                  onClick={() => executeGMAction("Examine surroundings and search for hidden clues")}
+                  disabled={actionLoading}
+                  style={{
+                    background: '#1e293b',
+                    color: '#e2e8f0',
+                    border: '1px solid #334155',
+                    padding: '4px 8px',
+                    borderRadius: 4,
+                    fontSize: 10,
+                    cursor: 'pointer'
+                  }}
+                >
+                  🔍 Search Clues
+                </button>
+                <button
+                  onClick={() => executeGMAction("Strike hostile with Osmium Greatsword")}
+                  disabled={actionLoading}
+                  style={{
+                    background: '#1e293b',
+                    color: '#e2e8f0',
+                    border: '1px solid #334155',
+                    padding: '4px 8px',
+                    borderRadius: 4,
+                    fontSize: 10,
+                    cursor: 'pointer'
+                  }}
+                >
+                  ⚔️ Attack Target
+                </button>
+                <button
+                  onClick={() => executeGMAction("Interrogate local commander about contraband trade routes")}
+                  disabled={actionLoading}
+                  style={{
+                    background: '#1e293b',
+                    color: '#e2e8f0',
+                    border: '1px solid #334155',
+                    padding: '4px 8px',
+                    borderRadius: 4,
+                    fontSize: 10,
+                    cursor: 'pointer'
+                  }}
+                >
+                  🗣️ Interrogate NPC
+                </button>
+                <button
+                  onClick={() => executeGMAction("Inspect and pick lock on the heavy stone chest")}
+                  disabled={actionLoading}
+                  style={{
+                    background: '#1e293b',
+                    color: '#e2e8f0',
+                    border: '1px solid #334155',
+                    padding: '4px 8px',
+                    borderRadius: 4,
+                    fontSize: 10,
+                    cursor: 'pointer'
+                  }}
+                >
+                  🗝️ Pick Chest Lock
+                </button>
+                <button
+                  onClick={() => executeGMAction("Inspect stone stairs leading into subterranean crypt")}
+                  disabled={actionLoading}
+                  style={{
+                    background: '#1e293b',
+                    color: '#e2e8f0',
+                    border: '1px solid #334155',
+                    padding: '4px 8px',
+                    borderRadius: 4,
+                    fontSize: 10,
+                    cursor: 'pointer'
+                  }}
+                >
+                  🪜 Enter Sub-Map
+                </button>
+              </div>
+
+              {/* Freeform Action Input */}
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <input
+                  type="text"
+                  value={actionInput}
+                  onChange={(e) => setActionInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') executeGMAction(); }}
+                  placeholder="Type any player action (e.g. 'I cast a sense motive on the guard' or 'I scale the wall')..."
+                  style={{
+                    flex: 1,
+                    background: '#020617',
+                    border: '1px solid #334155',
+                    borderRadius: 4,
+                    padding: '8px 12px',
+                    color: '#f8fafc',
+                    fontSize: 12
+                  }}
+                />
+                <button
+                  onClick={() => executeGMAction()}
+                  disabled={actionLoading}
+                  style={{
+                    background: '#0284c7',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '8px 16px',
+                    borderRadius: 4,
+                    fontWeight: 700,
+                    fontSize: 12,
+                    cursor: 'pointer'
+                  }}
+                >
+                  {actionLoading ? '🎲 Rolling...' : 'Send Action'}
+                </button>
+              </div>
+
+              {/* GM Resolution Output */}
+              <div style={{
+                marginTop: 12,
+                flex: 1,
+                background: '#020617',
+                border: '1px solid #1e293b',
+                borderRadius: 6,
+                padding: 12,
+                overflowY: 'auto',
+                fontSize: 12,
+                color: '#cbd5e1'
+              }}>
+                {actionResult ? (
+                  <div>
+                    {actionResult.rollResults && actionResult.rollResults.length > 0 && (
+                      <div style={{
+                        background: '#0f172a',
+                        border: '1px solid #38bdf8',
+                        borderRadius: 4,
+                        padding: 8,
+                        marginBottom: 10
+                      }}>
+                        <div style={{ fontWeight: 800, color: '#38bdf8', fontSize: 13, marginBottom: 4 }}>
+                          🎲 Opposed 1d12 Resolution (B.R.U.T.A.L. v4.9)
+                        </div>
+                        {actionResult.rollResults.map((r: any, idx: number) => (
+                          <div key={idx} style={{ fontSize: 11, color: '#94a3b8' }}>
+                            <span style={{
+                              color: r.success ? '#22c55e' : '#ef4444',
+                              fontWeight: 700,
+                              marginRight: 6
+                            }}>
+                              [{r.success ? 'SUCCESS' : 'FAILURE'}]
+                            </span>
+                            Roll: <strong>{r.totalRoll ?? r.roll}</strong> vs DC/Defense: <strong>{r.dc ?? r.targetTotal}</strong>
+                            {r.stat && ` • Stat: ${r.stat.toUpperCase()}`}
+                            {r.xpGained ? ` • +${r.xpGained} XP` : ''}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div style={{ fontWeight: 700, color: '#f8fafc', marginBottom: 4 }}>
+                      GM Narrative Chronicle:
+                    </div>
+                    <div style={{ fontStyle: 'italic', lineHeight: 1.5, color: '#e2e8f0' }}>
+                      "{actionResult.narrative || actionResult.text || actionResult.message || 'Action executed.'}"
+                    </div>
+
+                    {actionResult.events && actionResult.events.length > 0 && (
+                      <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid #1e293b' }}>
+                        <span style={{ fontWeight: 700, color: '#f59e0b' }}>World Events Injected:</span>
+                        <ul style={{ margin: '4px 0 0 16px', padding: 0, color: '#94a3b8' }}>
+                          {actionResult.events.map((ev: any, idx: number) => (
+                            <li key={idx}>{ev.message || ev.type}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ color: '#64748b', fontStyle: 'italic', textAlign: 'center', marginTop: 30 }}>
+                    Enter an action or click a preset above to test the Concordia GM opposed 1d12 arbitration engine on this map.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+

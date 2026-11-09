@@ -65,19 +65,23 @@ export async function runTrophicEcologyAgent(
 
     const scaledGrowth = plantGrowthDelta * intervalDays;
 
-    // Regrow healthy flora
+    // Unified Single-Pass Continental Trophic Carrying Capacity Update (Flora, Prey, Predators)
     await client.query(`
         UPDATE sim_cells
-        SET eco_plants = LEAST(COALESCE(eco_max, 100.0), GREATEST(2.0, COALESCE(eco_plants, 50.0) + $1))
-        WHERE COALESCE(eco_blight, 0.0) < 40.0
-    `, [scaledGrowth]);
-
-    // Blighted regions suffer active die-off
-    await client.query(`
-        UPDATE sim_cells
-        SET eco_plants = GREATEST(1.0, COALESCE(eco_plants, 50.0) - $1)
-        WHERE COALESCE(eco_blight, 0.0) >= 40.0
-    `, [1.2 * intervalDays]);
+        SET eco_plants = CASE
+                WHEN COALESCE(eco_blight, 0.0) < 40.0 THEN LEAST(COALESCE(eco_max, 100.0), GREATEST(2.0, COALESCE(eco_plants, 50.0) + $1))
+                ELSE GREATEST(1.0, COALESCE(eco_plants, 50.0) - $2)
+            END,
+            eco_prey = CASE
+                WHEN eco_plants >= 40.0 THEN LEAST(100.0, COALESCE(eco_prey, 50.0) + 0.8)
+                WHEN eco_plants < 25.0 THEN GREATEST(2.0, COALESCE(eco_prey, 50.0) - 0.9)
+                ELSE eco_prey
+            END,
+            eco_predators = CASE
+                WHEN eco_prey >= 35.0 THEN LEAST(60.0, COALESCE(eco_predators, 10.0) + 0.5)
+                ELSE eco_predators
+            END
+    `, [scaledGrowth, 1.2 * intervalDays]);
 
     // ── 2. FLORA MUTAGENESIS UNDER SURGING CHAOS LEYS ────────────────────────
     // When the broken moon Cruorbus enters Full Blood or Nightmare Alignment,
@@ -192,22 +196,8 @@ export async function runTrophicEcologyAgent(
         }
     }
 
-    // ── 3. PREY POPULATION DYNAMICS (0-100 Scale) ─────────────────────────────
-    // Healthy flora allows wild prey herds (ungulates, rodents, waterfowl) to breed
-    await client.query(`
-        UPDATE sim_cells
-        SET eco_prey = LEAST(100.0, COALESCE(eco_prey, 50.0) + 0.8)
-        WHERE eco_plants >= 40.0
-    `);
-
-    // Depleted flora starves prey herds
-    await client.query(`
-        UPDATE sim_cells
-        SET eco_prey = GREATEST(2.0, COALESCE(eco_prey, 50.0) - 0.9)
-        WHERE eco_plants < 25.0
-    `);
-
-    // ── 4. HERBIVORE OVERPOPULATION & CROP RAIDS ──────────────────────────────
+    // ── 3. PREY POPULATION DYNAMICS & CROP RAIDS ─────────────────────────────
+    // (Carrying capacity calculated in unified single-pass pass above)
     // When prey overpopulates (prey > 80, predators < 20), wild herds swarm into cultivated farms
     if (tick % 7 === 0) {
         const overgrazed = await client.query(`
@@ -252,14 +242,7 @@ export async function runTrophicEcologyAgent(
         }
     }
 
-    // ── 5. PREDATOR-PREY BALANCE & STARVING PREDATOR MIGRATION ────────────────
-    // Predators breed when prey is plentiful
-    await client.query(`
-        UPDATE sim_cells
-        SET eco_predators = LEAST(60.0, COALESCE(eco_predators, 10.0) + 0.5)
-        WHERE eco_prey >= 35.0
-    `);
-
+    // ── 4. PREDATOR-PREY BALANCE & STARVING PREDATOR MIGRATION ────────────────
     // When predators exceed prey or prey collapses, predators starve and migrate toward settlements
     const starvingPredatorCells = await client.query(`
         SELECT id, eco_predators, eco_prey

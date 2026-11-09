@@ -42,14 +42,25 @@ export async function enhanceFringeFactionsAndCartels() {
         ])
       },
       {
-        outlaw_id: 4, // The Ivory-Gate Syndicate
-        name: "Legate General Vorun Iron-Grip",
-        title: "Warden of the Ivory Pass",
+        outlaw_id: 3, // The Fuvuiku Legions
+        name: "High Commander Malakor Dread",
+        title: "Warlord of the Ivory Pass",
         traits: JSON.stringify([
-          { name: "Martial", modifier: 0.5 },
-          { name: "Inflexible", modifier: 0.4 },
-          { name: "Extortionist", modifier: 0.3 },
-          { name: "Intimidating", modifier: 0.4 }
+          { name: "Mercenary_Master", modifier: 0.5 },
+          { name: "Drillmaster", modifier: 0.5 },
+          { name: "Toll_Enforcer", modifier: 0.4 },
+          { name: "Iron_Discipline", modifier: 0.4 }
+        ])
+      },
+      {
+        outlaw_id: 4, // The Silk-Sovereign Syndicate
+        name: "Madam Sylvira Night-Loom",
+        title: "Matron of the Silk-Sovereign",
+        traits: JSON.stringify([
+          { name: "Vice_Matron", modifier: 0.5 },
+          { name: "Ruthless", modifier: 0.5 },
+          { name: "Protection_Broker", modifier: 0.4 },
+          { name: "Street_Justice", modifier: 0.4 }
         ])
       },
       {
@@ -93,10 +104,10 @@ export async function enhanceFringeFactionsAndCartels() {
     await client.query("UPDATE sim_outlaw_factions SET origin_cell_id = (SELECT cell_id FROM sim_burg_economy WHERE burg_id = 330) WHERE id = 2");
     // Gilded Compass HQ in Peculiurus Spire (Burg 338)
     await client.query("UPDATE sim_outlaw_factions SET origin_cell_id = (SELECT cell_id FROM sim_burg_economy WHERE burg_id = 338) WHERE id = 1");
-    // Ivory-Gate Syndicate HQ in Ivory Pass (Burg 344)
-    await client.query("UPDATE sim_outlaw_factions SET origin_cell_id = (SELECT cell_id FROM sim_burg_economy WHERE burg_id = 344) WHERE id = 4");
-    // The Devil's Choice HQ in Shravhiek (Burg 53)
-    await client.query("UPDATE sim_outlaw_factions SET origin_cell_id = (SELECT cell_id FROM sim_burg_economy WHERE burg_id = 53) WHERE id = 3");
+    // The Fuvuiku Legions HQ in Ivory Pass (Burg 344)
+    await client.query("UPDATE sim_outlaw_factions SET origin_cell_id = (SELECT cell_id FROM sim_burg_economy WHERE burg_id = 344) WHERE id = 3");
+    // Silk-Sovereign Syndicate HQ in Forgespire (Burg 340)
+    await client.query("UPDATE sim_outlaw_factions SET origin_cell_id = (SELECT cell_id FROM sim_burg_economy WHERE burg_id = 340) WHERE id = 4");
     // Ghostwind Raiders HQ in coastal port Port Sunder
     await client.query("UPDATE sim_outlaw_factions SET origin_cell_id = (SELECT cell_id FROM sim_burg_economy WHERE name ILIKE '%Sunder%' LIMIT 1) WHERE id = 5");
 

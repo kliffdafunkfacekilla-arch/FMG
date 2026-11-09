@@ -4,11 +4,11 @@ setlocal enabledelayedexpansion
 :: Ensure script always executes in its own directory
 cd /d "%~dp0"
 
-title Fantasy Map Generator - Aetheria Launcher
+title Fantasy Map Generator - Simulation & Observer Launcher
 color 0B
 
 echo ========================================================
-echo    FANTASY MAP GENERATOR - AETHERIA TACTICAL RPG
+echo    AETHERIA SIMULATION ENGINE & OBSERVER DASHBOARD
 echo ========================================================
 echo.
 
@@ -23,7 +23,7 @@ if %ERRORLEVEL% neq 0 (
     exit /b 1
 )
 
-:: 3. Ensure simulation-engine\.env exists
+:: 2. Ensure simulation-engine\.env exists
 if not exist "simulation-engine\.env" (
     if exist "simulation-engine\.env.example" (
         copy "simulation-engine\.env.example" "simulation-engine\.env" >nul
@@ -32,7 +32,7 @@ if not exist "simulation-engine\.env" (
     )
 )
 
-:: 4. Check simulation-engine dependencies
+:: 3. Check simulation-engine dependencies
 if not exist "simulation-engine\node_modules" (
     echo [INFO] Installing simulation-engine dependencies...
     cd simulation-engine
@@ -40,15 +40,7 @@ if not exist "simulation-engine\node_modules" (
     cd ..
 )
 
-:: 5. Check player-client dependencies
-if not exist "player-client\node_modules" (
-    echo [INFO] Installing player-client dependencies...
-    cd player-client
-    call npm install
-    cd ..
-)
-
-:: 6. Compile TypeScript backend (always, so source edits take effect)
+:: 4. Compile TypeScript backend (always, so source edits take effect)
 echo [INFO] Compiling simulation-engine TypeScript...
 cd simulation-engine
 call npx tsc
@@ -59,9 +51,15 @@ if %ERRORLEVEL% neq 0 (
     pause
     exit /b 1
 )
+
+:: 5. Build Observer Dashboard assets if missing
+if not exist "dist-client" (
+    echo [INFO] Building Observer Dashboard assets...
+    call npm run build:observer
+)
 cd ..
 
-:: 7. Check PostgreSQL on Port 5432
+:: 6. Check PostgreSQL on Port 5432
 netstat -ano | findstr :5432 | findstr LISTENING >nul 2>nul
 if %ERRORLEVEL% neq 0 (
     echo [INFO] PostgreSQL not detected on port 5432. Starting database...
@@ -78,32 +76,31 @@ if %ERRORLEVEL% neq 0 (
     )
 )
 
-:: 8. Clean up any stale processes on ports 3000, 5173, and 5174
+:: 7. Clean up any stale processes on ports 3000 and 5174
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr :3000 ^| findstr LISTENING') do taskkill /f /pid %%a >nul 2>&1
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr :5173 ^| findstr LISTENING') do taskkill /f /pid %%a >nul 2>&1
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr :5174 ^| findstr LISTENING') do taskkill /f /pid %%a >nul 2>&1
 
-:: 9. Launch Simulation Engine on Port 3000
+:: 8. Launch Simulation Engine Backend on Port 3000
 echo [1/2] Starting Simulation Engine Backend on Port 3000...
 start "FMG Simulation Engine (Port 3000)" cmd /k "cd /d ""%~dp0simulation-engine"" && node dist/server.js"
 
-:: 10. Launch Player Tactical Client on Port 5173
-echo [2/2] Starting Player Tactical Client on Port 5173...
-start "FMG Player Client (Port 5173)" cmd /k "cd /d ""%~dp0player-client"" && npm run dev"
+:: 9. Launch Observer Dashboard on Port 5174 (Vite Dev Server)
+echo [2/2] Starting Observer Dashboard on Port 5174...
+start "FMG Observer Dashboard (Port 5174)" cmd /k "cd /d ""%~dp0simulation-engine"" && npm run observer"
 
-:: 11. Wait for servers to spin up and launch browser
+:: 10. Wait for servers to spin up and launch browser
 echo.
-echo Launching game in default browser in 4 seconds...
-ping 127.0.0.1 -n 5 >nul
-start http://localhost:5173
+echo Launching Observer Dashboard in default browser in 3 seconds...
+ping 127.0.0.1 -n 4 >nul
+start http://localhost:5174
 
 echo.
 echo ========================================================
 echo    SYSTEM ONLINE!
 echo ========================================================
-echo    - Tactical Client:    http://localhost:5173
-echo    - Observer Dashboard: http://localhost:5174
-echo    - Simulation Engine:  http://localhost:3000
+echo    - Observer Dashboard (Live HMR): http://localhost:5174
+echo    - Simulation Engine Backend:    http://localhost:3000
+echo    - Embedded Dashboard View:      http://localhost:3000/dashboard
 echo.
 echo    Keep this window open or minimize it.
 echo    To stop all servers, run STOP.bat

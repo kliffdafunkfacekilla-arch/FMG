@@ -33,6 +33,11 @@ export interface RegionalFacility {
   name: string;
   rx: number;
   ry: number;
+  typology?: string | undefined;
+  citizenId?: number | undefined;
+  citizenName?: string | undefined;
+  citizenProfession?: string | undefined;
+  workerCount?: number | undefined;
 }
 
 export class RegionalInstance {
@@ -46,6 +51,7 @@ export class RegionalInstance {
   public chaosMap: Float32Array;
   public infraMap: Uint8Array;
   
+  public wardMap: Record<number, string> = {};
   public facilities: RegionalFacility[] = [];
   public agents: Array<RegionAgent> = [];
   public w = 100;
@@ -74,6 +80,8 @@ export class RegionalInstance {
     const vegNoise = new SimplexNoise(this.cellId + 100);
     const chaosNoise = new SimplexNoise(this.cellId + 200);
     const blendNoise = new SimplexNoise(this.cellId + 300);
+    const roadNoise = new SimplexNoise(this.cellId + 400);
+    const burgNoise = new SimplexNoise(this.cellId + 500);
 
     const terrain = this.globalData.terrain || {};
     const centerEle = Number(terrain.elevation) || 50;
@@ -196,191 +204,582 @@ export class RegionalInstance {
       }
     }
 
-    // 2. Burg Municipal Territory: Centered at (50, 50) with surrounding outposts
+    // Organic road tracer helper: paths naturally towards target coordinates following contours and avoiding cliffs/water
+    const roadCoords: Set<number> = new Set();
+    const drawOrganicRoad = (
+      startX: number,
+      startY: number,
+      endX: number,
+      endY: number,
+      width: number = 1,
+      isRusticTrail: boolean = false
+    ) => {
+      let curX = startX;
+      let curY = startY;
+      const totalDist = Math.hypot(endX - startX, endY - startY);
+      const maxSteps = Math.ceil(totalDist * 2.2);
+      let step = 0;
+
+      while (Math.hypot(curX - endX, curY - endY) > 1.2 && step < maxSteps) {
+        step++;
+        const dirX = endX - curX;
+        const dirY = endY - curY;
+        const d = Math.hypot(dirX, dirY);
+        const ndx = dirX / (d || 1);
+        const ndy = dirY / (d || 1);
+
+        // Perpendicular unit vector for meandering
+        const perpX = -ndy;
+        const perpY = ndx;
+        const meanderFreq = isRusticTrail ? 0.14 : 0.07;
+        const meanderAmp = isRusticTrail ? 1.5 : 0.9;
+        const meander = roadNoise.noise2D(curX * meanderFreq, curY * meanderFreq) * meanderAmp;
+
+        curX += ndx + perpX * meander * 0.45;
+        curY += ndy + perpY * meander * 0.45;
+
+        const rx = Math.round(curX);
+        const ry = Math.round(curY);
+
+        const halfW = Math.floor(width / 2);
+        for (let dy = -halfW; dy <= halfW; dy++) {
+          for (let dx = -halfW; dx <= halfW; dx++) {
+            const px = rx + dx;
+            const py = ry + dy;
+            if (px >= 0 && px < this.w && py >= 0 && py < this.h) {
+              const pIdx = py * this.w + px;
+              // Don't overwrite the core burg keep / plaza
+              if (this.mapData[pIdx] !== 4) {
+                // If crossing river, it's a bridge / ford
+                if (riverCoords.has(pIdx)) {
+                  this.infraMap[pIdx] = 64; // Bridge flag
+                } else {
+                  this.mapData[pIdx] = isRusticTrail ? 6 : 5;
+                  this.infraMap[pIdx] = isRusticTrail ? 4 : 2;
+                }
+                roadCoords.add(pIdx);
+              }
+            }
+          }
+        }
+      }
+    };
+
+    // 2. Burg Municipal Territory: Topography-conforming settlement centered at (50, 50) with authentic radial sprawl
     const burg = this.globalData.burg;
     if (burg && !isGlobalWater) {
       const tier = burg.urban_tier || 1;
-      const radius = tier >= 3 ? 14 : tier === 2 ? 10 : 6;
+      const baseRadius = tier >= 3 ? 15 : tier === 2 ? 11 : 7;
       const cx = Math.floor(this.w / 2);
       const cy = Math.floor(this.h / 2);
 
-      // Core burg settlement
+      // A. Contoured Organic Highways Connecting Toward Actual Neighbors & Global Routes (No hardcoded 4-cardinal lines)
+      const roadTargets: Array<{ targetX: number; targetY: number }> = [];
+      const landNeighbors = neighbors.filter(n => !isWaterBiome(n.biome) && n.elevation >= 20);
+
+      if (landNeighbors.length > 0) {
+        // Sort land neighbors by least elevation difference from center
+        const sortedNeighbors = [...landNeighbors].sort((a, b) => 
+          Math.abs(a.elevation - centerEle) - Math.abs(b.elevation - centerEle)
+        );
+        // Select 2 (or 3 for tier 3) distinct egress passes with angle separation >= 1.0 rad
+        const selected: typeof sortedNeighbors = [];
+        for (const n of sortedNeighbors) {
+          if (selected.length >= (tier >= 3 ? 3 : 2)) break;
+          const tooCloseAngle = selected.some(s => {
+            let diff = Math.abs(s.angle - n.angle);
+            if (diff > Math.PI) diff = Math.PI * 2 - diff;
+            return diff < 1.0;
+          });
+          if (!tooCloseAngle) selected.push(n);
+        }
+
+        for (const n of selected) {
+          const borderX = Math.round(cx + Math.cos(n.angle) * 48);
+          const borderY = Math.round(cy + Math.sin(n.angle) * 48);
+          roadTargets.push({
+            targetX: Math.max(1, Math.min(98, borderX)),
+            targetY: Math.max(1, Math.min(98, borderY))
+          });
+        }
+      } else {
+        // Coastal / island egress road inland
+        roadTargets.push({ targetX: 2, targetY: cy });
+      }
+
+      for (const rt of roadTargets) {
+        drawOrganicRoad(cx, cy, rt.targetX, rt.targetY, tier >= 3 ? 2 : 1, false);
+      }
+
+      // B. Organic Burg Settlement Footprint (Riverine ribbon, Road ribbon, and contoured sprawl)
+      const isPort = Boolean(burg.port);
+      const isRiverine = isPort || riverCoords.size > 0;
+      const targetSettlementCells = tier >= 3 ? 180 : tier === 2 ? 85 : 30;
+
+      // Score each cell for urban sprawl suitability
+      const candidateCells: Array<{ idx: number; x: number; y: number; score: number; dist: number; distToRoad: number; distToWater: number }> = [];
+
       for (let y = 0; y < this.h; y++) {
         for (let x = 0; x < this.w; x++) {
-          const dist = Math.hypot(x - cx, y - cy);
-          if (dist <= radius) {
-            const idx = y * this.w + x;
-            if (!riverCoords.has(idx)) {
-              this.mapData[idx] = 4; // Burg Core Settlement
-              this.infraMap[idx] = 1;
-            }
-          }
-        }
-      }
-
-      // Paved Highways (2 cells wide) connecting burg center to borders
-      for (let y = 0; y < this.h; y++) {
-        for (let x = cx - 1; x <= cx; x++) {
           const idx = y * this.w + x;
-          if (this.mapData[idx] !== 4 && !riverCoords.has(idx)) {
-            this.mapData[idx] = 5;
-            this.infraMap[idx] = 2;
-          }
-        }
-      }
-      for (let x = 0; x < this.w; x++) {
-        for (let y = cy - 1; y <= cy; y++) {
-          const idx = y * this.w + x;
-          if (this.mapData[idx] !== 4 && !riverCoords.has(idx)) {
-            this.mapData[idx] = 5;
-            this.infraMap[idx] = 2;
-          }
-        }
-      }
+          if (riverCoords.has(idx) || (this.elevationMap[idx] ?? 50) < 20) continue;
 
-      // Perimeter Fortified Watchtowers & Outposts along highway approaches
-      const outpostOffsets = [
-        { rx: cx, ry: cy - 32, name: `${burg.name || "Burg"} North Sentry Outpost` },
-        { rx: cx, ry: cy + 32, name: `${burg.name || "Burg"} South Sentry Outpost` },
-        { rx: cx - 32, ry: cy, name: `${burg.name || "Burg"} West Sentry Outpost` },
-        { rx: cx + 32, ry: cy, name: `${burg.name || "Burg"} East Sentry Outpost` }
-      ];
-      for (const op of outpostOffsets) {
-        if (op.rx >= 2 && op.rx < this.w - 2 && op.ry >= 2 && op.ry < this.h - 2) {
-          for (let dy = -1; dy <= 1; dy++) {
-            for (let dx = -1; dx <= 1; dx++) {
-              const idx = (op.ry + dy) * this.w + (op.rx + dx);
-              if (!riverCoords.has(idx)) {
-                this.mapData[idx] = 12; // Watchtower Outpost
-                this.infraMap[idx] = 6;
-              }
-            }
-          }
-          this.facilities.push({ type: "WATCHTOWER", name: op.name, rx: op.rx, ry: op.ry });
-        }
-      }
+          const dx = x - cx;
+          const dy = y - cy;
+          const dist = Math.hypot(dx, dy);
+          if (dist > baseRadius * 2.2) continue;
 
-      // Scattered Farmsteads & Croplands (matching 6/12 Food workforce)
-      const farmCount = tier >= 3 ? 8 : tier === 2 ? 6 : 4;
-      const farmAngles = [0.45, 1.15, 1.95, 2.65, 3.55, 4.25, 5.05, 5.75];
-      for (let f = 0; f < farmCount; f++) {
-        const ang = farmAngles[f] ?? (f * 0.8);
-        const dist = 18 + (f % 3) * 6;
-        const fx = Math.round(cx + Math.cos(ang) * dist);
-        const fy = Math.round(cy + Math.sin(ang) * dist);
+          // Compute distance to nearest road and water
+          let minDistToRoad = 999;
+          roadCoords.forEach(rIdx => {
+            const rx = rIdx % this.w, ry = Math.floor(rIdx / this.w);
+            const d = Math.hypot(rx - x, ry - y);
+            if (d < minDistToRoad) minDistToRoad = d;
+          });
 
-        if (fx >= 4 && fx < this.w - 4 && fy >= 4 && fy < this.h - 4) {
-          const fIdx = fy * this.w + fx;
-          if ((this.elevationMap[fIdx] ?? 0) >= 20 && !riverCoords.has(fIdx)) {
-            for (let dy = -1; dy <= 1; dy++) {
-              for (let dx = -1; dx <= 1; dx++) {
-                const cIdx = (fy + dy) * this.w + (fx + dx);
-                if (this.mapData[cIdx] !== 4 && this.mapData[cIdx] !== 5 && !riverCoords.has(cIdx)) {
-                  this.mapData[cIdx] = 9; // Farmstead / Cropland
-                  this.infraMap[cIdx] = 48;
-                }
-              }
-            }
-            let currX = fx;
-            let currY = fy;
-            while (Math.abs(currX - cx) > 1 && Math.abs(currY - cy) > 1) {
-              if (Math.abs(currX - cx) < Math.abs(currY - cy)) {
-                currX += Math.sign(cx - currX);
-              } else {
-                currY += Math.sign(cy - currY);
-              }
-              const pIdx = currY * this.w + currX;
-              if (this.mapData[pIdx] === 0 || this.mapData[pIdx] === 1 || this.mapData[pIdx] === 2) {
-                this.mapData[pIdx] = 5;
-                this.infraMap[pIdx] = 2;
-              }
-            }
-
-            this.facilities.push({
-              type: "FARM",
-              name: `${burg.name || "Burg"} Farmstead #${f + 1}`,
-              rx: fx,
-              ry: fy
+          let minDistToWater = 999;
+          if (riverCoords.size > 0) {
+            riverCoords.forEach(wIdx => {
+              const wx = wIdx % this.w, wy = Math.floor(wIdx / this.w);
+              const d = Math.hypot(wx - x, wy - y);
+              if (d < minDistToWater) minDistToWater = d;
             });
           }
+
+          const localEle = this.elevationMap[idx] ?? 50;
+          const eleSlope = Math.abs(localEle - centerEle);
+          if (eleSlope > 18) continue; // Uninhabitable sheer cliff
+
+          // Affinity boosts: strong along roads, strong along water if river/port
+          const roadAffinity = minDistToRoad <= 1 ? 2.5 : minDistToRoad <= 2 ? 1.5 : minDistToRoad <= 3 ? 0.8 : 0;
+          const waterAffinity = (isRiverine && minDistToWater <= 2) ? 2.2 : (minDistToWater <= 1 ? 1.0 : 0);
+          
+          // Noise perturbation for organic perimeter
+          const noise = burgNoise.noise2D(x * 0.14, y * 0.14) * 1.5 + burgNoise.noise2D(x * 0.28, y * 0.28) * 0.8;
+
+          // Score: distance decay from center, boosted along road and river axes
+          const score = (100 - dist * 3.5) + (roadAffinity * 18) + (waterAffinity * 16) + (noise * 12) - (eleSlope * 2.5);
+          candidateCells.push({ idx, x, y, score, dist, distToRoad: minDistToRoad, distToWater: minDistToWater });
         }
       }
 
-      // Timber Logging Camps (Resource workforce)
-      let loggingCount = 0;
-      const targetLogging = tier >= 3 ? 3 : 2;
-      for (let r = 20; r <= 42 && loggingCount < targetLogging; r += 7) {
-        for (let a = 0; a < Math.PI * 2 && loggingCount < targetLogging; a += 0.9) {
-          const lx = Math.round(cx + Math.cos(a) * r);
-          const ly = Math.round(cy + Math.sin(a) * r);
-          if (lx >= 4 && lx < this.w - 4 && ly >= 4 && ly < this.h - 4) {
-            const lIdx = ly * this.w + lx;
-            if ((this.vegetationMap[lIdx] ?? 0) > 0.50 && this.mapData[lIdx] === 2 && !riverCoords.has(lIdx)) {
-              for (let dy = -1; dy <= 1; dy++) {
-                for (let dx = -1; dx <= 1; dx++) {
-                  const idx = (ly + dy) * this.w + (lx + dx);
-                  this.mapData[idx] = 10; // Timber Logging Camp
-                  this.infraMap[idx] = 24;
-                }
+      candidateCells.sort((a, b) => b.score - a.score);
+      const chosenBurgCells = candidateCells.slice(0, targetSettlementCells);
+
+      for (const cell of chosenBurgCells) {
+        this.mapData[cell.idx] = 4; // Burg Settlement
+        this.infraMap[cell.idx] = 1;
+
+        // Classify Ward according to functional zones
+        if (cell.distToWater <= 2 && isRiverine) {
+          this.wardMap[cell.idx] = 'WATERFRONT';
+        } else if (cell.dist <= 3) {
+          this.wardMap[cell.idx] = 'CITADEL';
+        } else if (cell.distToRoad <= 1 && cell.dist <= 7) {
+          this.wardMap[cell.idx] = 'MARKET';
+        } else if (cell.distToRoad <= 2 && cell.dist <= 14) {
+          this.wardMap[cell.idx] = 'ARTISAN';
+        } else if (cell.y < cy - 2 && cell.x > cx + 2) {
+          this.wardMap[cell.idx] = 'TEMPLE';
+        } else {
+          this.wardMap[cell.idx] = 'RESIDENTIAL';
+        }
+      }
+
+      // Ensure center core (cx, cy) is always marked and is Citadel
+      const centerIdx = cy * this.w + cx;
+      if (!riverCoords.has(centerIdx)) {
+        this.mapData[centerIdx] = 4;
+        this.infraMap[centerIdx] = 1;
+        this.wardMap[centerIdx] = 'CITADEL';
+      }
+
+      // Authentically map facilities 1:1 to demographic citizens (12:1 worker ratio baseline)
+      const citizens: any[] = this.globalData.citizens || [];
+      const foodWorkers = citizens.filter(c =>
+        ['Farmer', 'Herder', 'Miller', 'Fisherman', 'Orchardist', 'Brewer', 'Baker', 'Peasant'].includes(c.profession) ||
+        (c.workplace_type && ['FARM', 'MILL', 'GRANARY', 'PASTURE', 'ORCHARD'].includes(String(c.workplace_type).toUpperCase()))
+      );
+      const woodWorkers = citizens.filter(c =>
+        ['Forester', 'Lumberjack', 'Woodcutter', 'Carpenter', 'Sawyer'].includes(c.profession) ||
+        (c.workplace_type && ['LUMBER_CAMP', 'FOREST', 'SAWMILL'].includes(String(c.workplace_type).toUpperCase()))
+      );
+      const oreWorkers = citizens.filter(c =>
+        ['Miner', 'Quarryman', 'Smelter', 'Blacksmith', 'Stonecutter', 'Mason'].includes(c.profession) ||
+        (c.workplace_type && ['MINE', 'QUARRY', 'SMELTER', 'FORGE'].includes(String(c.workplace_type).toUpperCase()))
+      );
+      const guardWorkers = citizens.filter(c =>
+        ['Guard', 'Watchman', 'Soldier', 'Scout', 'Sentinel', 'Sergeant', 'Captain'].includes(c.profession) ||
+        (c.workplace_type && ['BARRACKS', 'WATCHTOWER', 'GATEHOUSE', 'GARRISON'].includes(String(c.workplace_type).toUpperCase()))
+      );
+      const fallbackWorkers = citizens.filter(c => !foodWorkers.includes(c) && !woodWorkers.includes(c) && !oreWorkers.includes(c) && !guardWorkers.includes(c));
+
+      const usedCitizenIds = new Set<number>();
+      const assignCitizenWorker = (primaryPool: any[], defaultRole: string): any => {
+        let cand = primaryPool.find(c => !usedCitizenIds.has(c.citizen_id));
+        if (!cand) {
+          cand = fallbackWorkers.find(c => !usedCitizenIds.has(c.citizen_id));
+        }
+        if (!cand && citizens.length > 0) {
+          cand = citizens[usedCitizenIds.size % citizens.length];
+        }
+        if (cand) {
+          usedCitizenIds.add(cand.citizen_id);
+          return cand;
+        }
+        return null;
+      };
+
+      // C. Strategic Outposts Placed at Tactical Choke Points (Border Gates, Peaks, River Crossings)
+      const targetOutposts = tier >= 3 ? 3 : 2;
+      const chosenOutposts: Array<{ rx: number; ry: number; name: string; typology: string }> = [];
+
+      // 1. Border Road Egress Gatehouse
+      let borderGateCand: { rx: number; ry: number; dist: number } | null = null;
+      let maxRoadDist = 0;
+      roadCoords.forEach(idx => {
+        const x = idx % this.w, y = Math.floor(idx / this.w);
+        const dist = Math.hypot(x - cx, y - cy);
+        if (dist >= 36 && dist <= 47 && x >= 4 && x <= 95 && y >= 4 && y <= 95) {
+          if (dist > maxRoadDist) {
+            maxRoadDist = dist;
+            borderGateCand = { rx: x, ry: y, dist };
+          }
+        }
+      });
+      if (borderGateCand) {
+        chosenOutposts.push({
+          rx: (borderGateCand as any).rx,
+          ry: (borderGateCand as any).ry,
+          name: `${burg.name || 'Burg'} Curtain Gate Bastion`,
+          typology: "CURTAIN_GATE_BASTION"
+        });
+      }
+
+      // 2. High Elevation Overlook Peak
+      let peakCand: { rx: number; ry: number; ele: number } | null = null;
+      let maxEle = 0;
+      for (let y = 8; y < this.h - 8; y += 2) {
+        for (let x = 8; x < this.w - 8; x += 2) {
+          const idx = y * this.w + x;
+          const dist = Math.hypot(x - cx, y - cy);
+          if (dist >= 20 && dist <= 45 && !riverCoords.has(idx) && this.mapData[idx] !== 4) {
+            const ele = this.elevationMap[idx] ?? 50;
+            if (ele > maxEle && ele >= 60) {
+              const tooClose = chosenOutposts.some(op => Math.hypot(op.rx - x, op.ry - y) < 18);
+              if (!tooClose) {
+                maxEle = ele;
+                peakCand = { rx: x, ry: y, ele };
               }
-              this.facilities.push({
-                type: "LOGGING_CAMP",
-                name: `${burg.name || "Burg"} Logging Camp #${loggingCount + 1}`,
-                rx: lx,
-                ry: ly
+            }
+          }
+        }
+      }
+      if (peakCand && chosenOutposts.length < targetOutposts) {
+        chosenOutposts.push({
+          rx: (peakCand as any).rx,
+          ry: (peakCand as any).ry,
+          name: `${burg.name || 'Burg'} Hilltop Signal Spire`,
+          typology: "HILLTOP_SIGNAL_SPIRE"
+        });
+      }
+
+      // 3. Fallback: River Crossing or Forest Palisade Redoubt
+      if (chosenOutposts.length < targetOutposts) {
+        const fallbackTypology = riverCoords.size > 0 ? "MOATED_BLOCKHOUSE" : "PALISADE_REDOUBT";
+        for (const idx of Array.from(roadCoords)) {
+          const x = idx % this.w, y = Math.floor(idx / this.w);
+          const dist = Math.hypot(x - cx, y - cy);
+          if (dist >= 22 && dist <= 42) {
+            const tooClose = chosenOutposts.some(op => Math.hypot(op.rx - x, op.ry - y) < 18);
+            if (!tooClose) {
+              chosenOutposts.push({
+                rx: x,
+                ry: y,
+                name: `${burg.name || 'Burg'} ${fallbackTypology === "MOATED_BLOCKHOUSE" ? "Moated Blockhouse" : "Palisade Redoubt"}`,
+                typology: fallbackTypology
               });
-              loggingCount++;
+              break;
             }
           }
         }
       }
 
-      // Mountain Mines & Stone Quarries (Resource workforce)
-      let mineCount = 0;
+      // Stamp and push outposts with varied footprints
+      for (let i = 0; i < chosenOutposts.length; i++) {
+        const op = chosenOutposts[i];
+        if (!op) continue;
+        const assignedGuard = assignCitizenWorker(guardWorkers, 'Frontier Watchman');
+        const facilityName = assignedGuard?.name
+          ? `${assignedGuard.name}'s ${op.name.split(' ').slice(1).join(' ')}`
+          : op.name;
+
+        const stampRadius = op.typology === "CURTAIN_GATE_BASTION" ? 1 : 0;
+        for (let dy = -stampRadius; dy <= stampRadius; dy++) {
+          for (let dx = -stampRadius; dx <= stampRadius; dx++) {
+            const idx = (op.ry + dy) * this.w + (op.rx + dx);
+            if (!riverCoords.has(idx)) {
+              this.mapData[idx] = 12; // Watchtower Outpost
+              this.infraMap[idx] = 6;
+            }
+          }
+        }
+        this.facilities.push({
+          type: 'WATCHTOWER',
+          typology: op.typology,
+          name: facilityName,
+          rx: op.rx,
+          ry: op.ry,
+          citizenId: assignedGuard?.citizen_id,
+          citizenName: assignedGuard?.name,
+          citizenProfession: assignedGuard?.profession || 'Frontier Watchman',
+          workerCount: assignedGuard?.unit_size || 12
+        });
+      }
+
+      // D. Arable Farmlands & Croplands Clustered in Fertile Agrarian Valleys
+      const farmTypologies = ["STRASSENDORF", "VIERKANTHOF", "RUNDLING", "EINZELHOF"] as const;
+      const farmCandidates: Array<{ rx: number; ry: number; score: number }> = [];
+      for (let y = 8; y < this.h - 8; y += 3) {
+        for (let x = 8; x < this.w - 8; x += 3) {
+          const idx = y * this.w + x;
+          const dist = Math.hypot(x - cx, y - cy);
+          if (dist > baseRadius + 3 && dist < 45 && !riverCoords.has(idx) && this.mapData[idx] !== 4) {
+            const ele = this.elevationMap[idx] ?? 50;
+            const veg = this.vegetationMap[idx] ?? 0.3;
+            if (ele >= 20 && ele <= 60 && veg >= 0.25) {
+              const nearRiver = riverCoords.size > 0 && Array.from(riverCoords).some(rIdx => {
+                const rrx = rIdx % this.w, rry = Math.floor(rIdx / this.w);
+                return Math.hypot(rrx - x, rry - y) < 8;
+              });
+              const score = veg * 50 + (nearRiver ? 30 : 0) - Math.abs(ele - 38);
+              farmCandidates.push({ rx: x, ry: y, score });
+            }
+          }
+        }
+      }
+
+      farmCandidates.sort((a, b) => b.score - a.score);
+      const chosenFarms: Array<{ rx: number; ry: number }> = [];
+      const farmCount = tier >= 3 ? 5 : tier === 2 ? 4 : 2;
+
+      for (const cand of farmCandidates) {
+        if (chosenFarms.length >= farmCount) break;
+        const tooClose = chosenFarms.some(f => Math.hypot(f.rx - cand.rx, f.ry - cand.ry) < 12) ||
+                         chosenOutposts.some(op => Math.hypot(op.rx - cand.rx, op.ry - cand.ry) < 8);
+        if (!tooClose) chosenFarms.push(cand);
+      }
+
+      for (let f = 0; f < chosenFarms.length; f++) {
+        const farm = chosenFarms[f];
+        if (!farm) continue;
+        const typology = farmTypologies[f % farmTypologies.length];
+        const assignedFarmer = assignCitizenWorker(foodWorkers, 'Master Farmer');
+        const typologyLabel = typology === "STRASSENDORF" ? "Linear Ribbon Farmstead" :
+                              typology === "VIERKANTHOF" ? "Courtyard Farmstead" :
+                              typology === "RUNDLING" ? "Circular Rundling Croft" : "Homestead Byre";
+        const facilityName = assignedFarmer?.name
+          ? `${assignedFarmer.name}'s ${typologyLabel}`
+          : `${burg.name || 'Burg'} ${typologyLabel}`;
+
+        const fw = typology === "STRASSENDORF" ? 2 : 1;
+        const fh = typology === "STRASSENDORF" ? 1 : 1;
+        for (let dy = -fh; dy <= fh; dy++) {
+          for (let dx = -fw; dx <= fw; dx++) {
+            const cIdx = (farm.ry + dy) * this.w + (farm.rx + dx);
+            if (this.mapData[cIdx] !== 4 && this.mapData[cIdx] !== 5 && !riverCoords.has(cIdx)) {
+              this.mapData[cIdx] = 9; // Farmstead / Cropland
+              this.infraMap[cIdx] = 48;
+            }
+          }
+        }
+
+        // Connect farm to the closest road point via rustic trail
+        let bestRoadIdx = -1;
+        let minRoadDist = Infinity;
+        roadCoords.forEach(rIdx => {
+          const rrx = rIdx % this.w, rry = Math.floor(rIdx / this.w);
+          const d = Math.hypot(rrx - farm.rx, rry - farm.ry);
+          if (d < minRoadDist) { minRoadDist = d; bestRoadIdx = rIdx; }
+        });
+        if (bestRoadIdx !== -1) {
+          const brX = bestRoadIdx % this.w, brY = Math.floor(bestRoadIdx / this.w);
+          drawOrganicRoad(farm.rx, farm.ry, brX, brY, 1, true);
+        }
+
+        this.facilities.push({
+          type: 'FARM',
+          typology,
+          name: facilityName,
+          rx: farm.rx,
+          ry: farm.ry,
+          citizenId: assignedFarmer?.citizen_id,
+          citizenName: assignedFarmer?.name,
+          citizenProfession: assignedFarmer?.profession || 'Master Farmer',
+          workerCount: assignedFarmer?.unit_size || 12
+        });
+      }
+
+      // E. Timber Logging Camps (Placed Inside Actual Dense Forest Pockets)
+      const loggingTypologies = ["RIVER_FLUME_SAWMILL", "FELLING_STATION", "CHARCOAL_BURNER", "CANOPY_SHINGLE_MILL"] as const;
+      const loggingCandidates: Array<{ rx: number; ry: number; score: number }> = [];
+      for (let y = 6; y < this.h - 6; y += 3) {
+        for (let x = 6; x < this.w - 6; x += 3) {
+          const idx = y * this.w + x;
+          const dist = Math.hypot(x - cx, y - cy);
+          if (dist > baseRadius + 4 && dist < 46 && !riverCoords.has(idx) && this.mapData[idx] !== 4) {
+            const veg = this.vegetationMap[idx] ?? 0;
+            if (veg > 0.55) {
+              loggingCandidates.push({ rx: x, ry: y, score: veg });
+            }
+          }
+        }
+      }
+
+      loggingCandidates.sort((a, b) => b.score - a.score);
+      const chosenLogging: Array<{ rx: number; ry: number }> = [];
+      const targetLogging = tier >= 3 ? 2 : 1;
+
+      for (const cand of loggingCandidates) {
+        if (chosenLogging.length >= targetLogging) break;
+        const tooClose = chosenLogging.some(l => Math.hypot(l.rx - cand.rx, l.ry - cand.ry) < 16) ||
+                         chosenFarms.some(f => Math.hypot(f.rx - cand.rx, f.ry - cand.ry) < 10);
+        if (!tooClose) chosenLogging.push(cand);
+      }
+
+      for (let i = 0; i < chosenLogging.length; i++) {
+        const camp = chosenLogging[i];
+        if (!camp) continue;
+        const typology = loggingTypologies[i % loggingTypologies.length];
+        const assignedLogger = assignCitizenWorker(woodWorkers, 'Logging Foreman');
+        const typologyLabel = typology === "RIVER_FLUME_SAWMILL" ? "Flume Sawmill" :
+                              typology === "FELLING_STATION" ? "Timber Felling Camp" :
+                              typology === "CHARCOAL_BURNER" ? "Charcoal Burner Mound" : "Canopy Shingle Mill";
+        const facilityName = assignedLogger?.name
+          ? `${assignedLogger.name}'s ${typologyLabel}`
+          : `${burg.name || 'Burg'} ${typologyLabel}`;
+
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const idx = (camp.ry + dy) * this.w + (camp.rx + dx);
+            this.mapData[idx] = 10; // Timber Logging Camp
+            this.infraMap[idx] = 24;
+          }
+        }
+
+        let bestRoadIdx = -1;
+        let minRoadDist = Infinity;
+        roadCoords.forEach(rIdx => {
+          const rrx = rIdx % this.w, rry = Math.floor(rIdx / this.w);
+          const d = Math.hypot(rrx - camp.rx, rry - camp.ry);
+          if (d < minRoadDist) { minRoadDist = d; bestRoadIdx = rIdx; }
+        });
+        if (bestRoadIdx !== -1) {
+          const brX = bestRoadIdx % this.w, brY = Math.floor(bestRoadIdx / this.w);
+          drawOrganicRoad(camp.rx, camp.ry, brX, brY, 1, true);
+        }
+
+        this.facilities.push({
+          type: 'LOGGING_CAMP',
+          typology,
+          name: facilityName,
+          rx: camp.rx,
+          ry: camp.ry,
+          citizenId: assignedLogger?.citizen_id,
+          citizenName: assignedLogger?.name,
+          citizenProfession: assignedLogger?.profession || 'Logging Foreman',
+          workerCount: assignedLogger?.unit_size || 12
+        });
+      }
+
+      // F. Mountain Mines & Stone Quarries (Placed at Real Mineral Crags & Exposed Rock)
+      const mineTypologies = ["GRANITE_QUARRY", "DRIFT_ADIT_MINE", "FOUNDRY_SMELTER", "ALLUVIAL_STREAM_PANNING"] as const;
+      const mineCandidates: Array<{ rx: number; ry: number; score: number }> = [];
+      for (let y = 6; y < this.h - 6; y += 3) {
+        for (let x = 6; x < this.w - 6; x += 3) {
+          const idx = y * this.w + x;
+          const dist = Math.hypot(x - cx, y - cy);
+          if (dist > baseRadius + 4 && dist < 46 && !riverCoords.has(idx) && this.mapData[idx] !== 4) {
+            const ele = this.elevationMap[idx] ?? 0;
+            if (ele > 62 || this.mapData[idx] === 8) {
+              mineCandidates.push({ rx: x, ry: y, score: ele });
+            }
+          }
+        }
+      }
+
+      mineCandidates.sort((a, b) => b.score - a.score);
+      const chosenMines: Array<{ rx: number; ry: number }> = [];
       const targetMines = tier >= 3 ? 2 : 1;
-      for (let r = 22; r <= 44 && mineCount < targetMines; r += 7) {
-        for (let a = 0.5; a < Math.PI * 2 && mineCount < targetMines; a += 1.1) {
-          const mx = Math.round(cx + Math.cos(a) * r);
-          const my = Math.round(cy + Math.sin(a) * r);
-          if (mx >= 4 && mx < this.w - 4 && my >= 4 && my < this.h - 4) {
-            const mIdx = my * this.w + mx;
-            if (((this.elevationMap[mIdx] ?? 0) > 60 || this.mapData[mIdx] === 8) && !riverCoords.has(mIdx)) {
-              for (let dy = -1; dy <= 1; dy++) {
-                for (let dx = -1; dx <= 1; dx++) {
-                  const idx = (my + dy) * this.w + (mx + dx);
-                  this.mapData[idx] = 11; // Mine / Quarry
-                  this.infraMap[idx] = 12;
-                }
-              }
-              this.facilities.push({
-                type: "MINE",
-                name: `${burg.name || "Burg"} Mineral Quarry #${mineCount + 1}`,
-                rx: mx,
-                ry: my
-              });
-              mineCount++;
-            }
+
+      for (const cand of mineCandidates) {
+        if (chosenMines.length >= targetMines) break;
+        const tooClose = chosenMines.some(m => Math.hypot(m.rx - cand.rx, m.ry - cand.ry) < 18);
+        if (!tooClose) chosenMines.push(cand);
+      }
+
+      for (let i = 0; i < chosenMines.length; i++) {
+        const mine = chosenMines[i];
+        if (!mine) continue;
+        const typology = mineTypologies[i % mineTypologies.length];
+        const assignedMiner = assignCitizenWorker(oreWorkers, 'Quarry Overseer');
+        const typologyLabel = typology === "GRANITE_QUARRY" ? "Granite Quarry" :
+                              typology === "DRIFT_ADIT_MINE" ? "Drift Adit Mine" :
+                              typology === "FOUNDRY_SMELTER" ? "Foundry Smelter" : "Alluvial Stream Dig";
+        const facilityName = assignedMiner?.name
+          ? `${assignedMiner.name}'s ${typologyLabel}`
+          : `${burg.name || 'Burg'} ${typologyLabel}`;
+
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const idx = (mine.ry + dy) * this.w + (mine.rx + dx);
+            this.mapData[idx] = 11; // Mine / Quarry
+            this.infraMap[idx] = 12;
           }
         }
+
+        let bestRoadIdx = -1;
+        let minRoadDist = Infinity;
+        roadCoords.forEach(rIdx => {
+          const rrx = rIdx % this.w, rry = Math.floor(rIdx / this.w);
+          const d = Math.hypot(rrx - mine.rx, rry - mine.ry);
+          if (d < minRoadDist) { minRoadDist = d; bestRoadIdx = rIdx; }
+        });
+        if (bestRoadIdx !== -1) {
+          const brX = bestRoadIdx % this.w, brY = Math.floor(bestRoadIdx / this.w);
+          drawOrganicRoad(mine.rx, mine.ry, brX, brY, 1, true);
+        }
+
+        this.facilities.push({
+          type: 'MINE',
+          typology,
+          name: facilityName,
+          rx: mine.rx,
+          ry: mine.ry,
+          citizenId: assignedMiner?.citizen_id,
+          citizenName: assignedMiner?.name,
+          citizenProfession: assignedMiner?.profession || 'Quarry Overseer',
+          workerCount: assignedMiner?.unit_size || 12
+        });
       }
     }
 
-        // 3. Highways for non-burg transit cells
-    const hasHighway = routes.some((r: string) => 
-      r.includes("Highway") || r.includes("Road") || r.includes("Artery") || 
-      r.includes("Way") || (r.includes("Route") && !r.includes("Smuggler"))
+    // 3. Highways for non-burg transit cells: Organic curving highway connecting across neighbors
+    const hasHighway = routes.some((r: string) =>
+      r.includes('Highway') || r.includes('Road') || r.includes('Artery') ||
+      r.includes('Way') || (r.includes('Route') && !r.includes('Smuggler'))
     );
     if (!burg && hasHighway && !isGlobalWater) {
-      const cx = Math.floor(this.w / 2);
-      for (let y = 0; y < this.h; y++) {
-        for (let x = cx - 1; x <= cx; x++) {
-          const idx = y * this.w + x;
-          if (!riverCoords.has(idx)) {
-            this.mapData[idx] = 5;
-            this.infraMap[idx] = 2;
-          }
-        }
+      const landNeighbors = neighbors.filter(n => !isWaterBiome(n.biome) && n.elevation >= 20);
+      let entryX = 2, entryY = 50;
+      let exitX = 97, exitY = 50;
+      if (landNeighbors.length >= 2 && landNeighbors[0] && landNeighbors[1]) {
+        entryX = Math.max(1, Math.min(98, Math.round(50 + Math.cos(landNeighbors[0].angle) * 48)));
+        entryY = Math.max(1, Math.min(98, Math.round(50 + Math.sin(landNeighbors[0].angle) * 48)));
+        exitX = Math.max(1, Math.min(98, Math.round(50 + Math.cos(landNeighbors[1].angle) * 48)));
+        exitY = Math.max(1, Math.min(98, Math.round(50 + Math.sin(landNeighbors[1].angle) * 48)));
       }
+      drawOrganicRoad(entryX, entryY, exitX, exitY, 2, false);
     }
 
     // 4. Smuggler Routes: 1-cell covert winding trail

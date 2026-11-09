@@ -135,6 +135,39 @@ export async function runCalendarAgent(client: any, tick: number) {
         );
     }
 
+    // --- COSMIC ANOMALIES & CYCLES ---
+    // 1. Cruorbus Hemorrhage (Chaos Surge) - Day 44 of every Dragon Month
+    if (dayOfMonth === 44 && !isShadowWeek) {
+        // Cruorbus Hemorrhage causes cosmic psychic disturbances primarily along chaos-sensitive regions
+        await client.query(`
+            UPDATE sim_burg_economy b
+            SET unrest = LEAST(100, COALESCE(b.unrest, 0) + 4), 
+                health = GREATEST(0, COALESCE(b.health, 100) - 2)
+            FROM sim_chaos_zones z
+            WHERE b.cell_id = z.cell_id AND z.intensity > 40
+        `);
+        // Moderate psychic tremor of +2 unrest for other continental burgs
+        await client.query(`
+            UPDATE sim_burg_economy
+            SET unrest = LEAST(75, COALESCE(unrest, 0) + 2)
+            WHERE cell_id NOT IN (
+                SELECT cell_id FROM sim_chaos_zones WHERE intensity > 40
+            )
+        `);
+        await client.query(`
+            INSERT INTO sim_events (tick, type, message, tier, lore_date)
+            VALUES ($1, 'CHAOS_SURGE', 'Cruorbus enters The Hemorrhage! A cosmic psychic tremor ripples across the flow banks and chaos-sensitive zones.', 'MAJOR', $2)
+        `, [tick, loreDate]);
+    }
+
+    // 2. Erranith's Return (Ghost Moon Periapsis on 169-Year Cycle)
+    if (year % 169 === 41 && dayOfYear === 100) {
+        await client.query(`
+            INSERT INTO sim_events (tick, type, message, tier, lore_date)
+            VALUES ($1, 'COSMIC_EVENT', 'Erranith the Ghost Moon reaches periapsis. Apocalyptic meteor showers rain raw dragonstone shards across the continent!', 'CRITICAL', $2)
+        `, [tick, loreDate]);
+    }
+
     return { 
         tick, 
         year, 

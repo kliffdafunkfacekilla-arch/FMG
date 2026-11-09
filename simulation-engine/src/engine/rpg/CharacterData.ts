@@ -5,6 +5,8 @@
  * Mastery Perks Tree (Levels 3 & 5), Active Skills, and Derived Stat Ratios.
  */
 
+import { calculateDerivedPools, calculateDerivedSenses, Attributes } from "../customRulesEngine.js";
+
 export type StatKey =
   | 'might' | 'endurance' | 'reflex' | 'finesse' | 'vitality' | 'fortitude'
   | 'knowledge' | 'logic' | 'awareness' | 'intuition' | 'charm' | 'willpower';
@@ -363,31 +365,46 @@ export interface DerivedStats {
   speed: number; // Backwards-compatible alias for movementSpeed
   physDefense: number;
   mentalDefense: number;
+  balance?: number;
+  dodgeGuard?: number;
+  footingGuard?: number;
 }
 
 export function calcDerivedStats(matrix: Record<string, number>): DerivedStats {
   const get = (k: string) => Number(matrix[k]) || 1;
-  const ratioBM = (b1: string, b2: string, m1: string) => get(b1) + get(b2) + Math.round(get(m1) / 2);
-  const ratioMB = (m1: string, m2: string, b1: string) => get(m1) + get(m2) + Math.round(get(b1) / 2);
+  const attr: Attributes = {
+    might: get('might'),
+    endurance: get('endurance'),
+    finesse: get('finesse'),
+    reflex: get('reflex'),
+    vitality: get('vitality'),
+    fortitude: get('fortitude'),
+    knowledge: get('knowledge'),
+    logic: get('logic'),
+    awareness: get('awareness'),
+    intuition: get('intuition'),
+    charm: get('charm'),
+    willpower: get('willpower')
+  };
 
-  // 12 Attributes Groupings for Movement, Resilience, Perception, and Stealth (3 stats each)
-  const movementSpeed = ratioBM('reflex', 'finesse', 'intuition');
-  const resilience = ratioBM('fortitude', 'endurance', 'willpower');
-  const perception = ratioMB('awareness', 'knowledge', 'vitality');
-  const stealth = ratioMB('logic', 'charm', 'might');
+  const pools = calculateDerivedPools(attr);
+  const senses = calculateDerivedSenses(attr);
 
   return {
-    maxHp: 10 + ratioBM('vitality', 'endurance', 'willpower'),
-    maxComposure: 10 + ratioMB('knowledge', 'awareness', 'fortitude'),
-    maxStamina: ratioBM('might', 'finesse', 'intuition'),
-    maxFocus: ratioMB('logic', 'charm', 'reflex'),
-    movementSpeed,
-    perception,
-    stealth,
-    resilience,
-    speed: movementSpeed,
-    physDefense: ratioBM('might', 'fortitude', 'logic'),
-    mentalDefense: ratioMB('willpower', 'intuition', 'endurance')
+    maxHp: pools.health,
+    maxComposure: pools.composure,
+    maxStamina: pools.stamina,
+    maxFocus: pools.focus,
+    movementSpeed: senses.speed,
+    perception: senses.perception,
+    stealth: senses.stealth,
+    resilience: senses.balance,
+    speed: senses.speed,
+    physDefense: senses.dodge,
+    mentalDefense: senses.footing,
+    balance: senses.balance,
+    dodgeGuard: senses.dodge,
+    footingGuard: senses.footing
   };
 }
 

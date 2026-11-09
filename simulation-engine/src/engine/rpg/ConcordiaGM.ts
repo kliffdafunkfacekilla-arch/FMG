@@ -17,6 +17,7 @@ import { Pool } from "pg";
 import { TagMatrixEngine, TaggedObject, TagInteractionResult } from "./TagMatrixEngine.js";
 import { WhatElseStoryEngine, StoryBeat, SectorContext, InjectedNPC, InjectedWorldState } from "./WhatElseStoryEngine.js";
 import { resolveMeleeAttack, resolveOpposedCombat } from "./RulesEngine.js";
+import { rollD12 } from "../combatResolutionEngine.js";
 import { getWeapon, getArmor, StatKey, WeaponDef, ArmorDef } from "./EquipmentRegistry.js";
 import { getSocialWeapon, getSocialArmor, SocialWeaponDef, SocialArmorDef } from "./SocialEquipmentRegistry.js";
 import { resolveOpposedSocialContest, resolveCosmicDreadCheck, SocialCombatant } from "../socialCombat.js";
@@ -889,13 +890,14 @@ Return ONLY valid JSON matching this schema:
    * Translates natural language into structured category, verb, target, and 12-stat key.
    */
   public async parseIntent(actionText: string): Promise<ParsedIntent> {
+    const text = String(actionText || "").trim();
     const availableTargets = [
       ...Array.from(this.activeProps.values()).map(p => ({ id: p.id, name: p.name, tags: Array.from(p.tags) })),
       ...Array.from(this.activeNPCs.values()).map(n => ({ id: n.id, name: n.name, tags: n.tags }))
     ];
 
     const prompt = `Available Sector Targets: ${JSON.stringify(availableTargets)}
-Player Action: "${actionText}"
+Player Action: "${text}"
 Parse the action into JSON. Output ONLY valid JSON with keys:
 {
   "category": "COMBAT|MAGIC|SOCIAL|SUBTERFUGE|EXPLORATION|SURVIVAL",
@@ -933,7 +935,7 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
     }
 
     // Heuristic Fallback
-    const lower = actionText.toLowerCase();
+    const lower = text.toLowerCase();
 
     // Helper for boundary-safe keyword matching
     const hasWord = (...words: string[]) => words.some(w => new RegExp(`\\b${w}\\b`, "i").test(lower));
@@ -1118,8 +1120,8 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
       isDestroyed: !targetNPC.alive
     } : null);
 
-    const playerRoll = Math.floor(Math.random() * 20) + 1;
-    let dcOrDefenderRoll = 10;
+    const playerRoll = rollD12().final;
+    let dcOrDefenderRoll = 7;
     let difference = 0;
     let hit = false;
     let injuryPoints = 0;
@@ -1818,8 +1820,8 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
         if (targetProp.tags.has("vulnerable") || targetProp.tags.has("burning") || targetProp.tags.has("fragile")) advantageMod += 2;
         if (targetProp.tags.has("unyielding") || targetProp.tags.has("heavy")) advantageMod -= 2;
 
-        const propDC = 10 + (targetProp.hp > 25 ? 3 : 1);
-        const atkRoll = Math.floor(Math.random() * 20) + 1;
+        const propDC = 7 + (targetProp.hp > 25 ? 2 : 1);
+        const atkRoll = rollD12().final;
         const atkTotal = atkRoll + playerAttackStatVal + attackMod + advantageMod;
         hit = atkTotal >= propDC;
         difference = atkTotal - propDC;
@@ -1843,12 +1845,12 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
         systemLog = `[ATTACK (${attackStatKey.toUpperCase()} - ${playerWeapon.name}): ${atkTotal} vs Object DC ${propDC} | ${hit ? "CRUSHED" : "DEFLECTED"} | ${propDmg} Structural Damage] ${tagResult?.logs?.slice(1).join(" ") || ""}`.trim();
 
       } else {
-        const roll = Math.floor(Math.random() * 20) + 1;
-        dcOrDefenderRoll = 10;
+        const roll = rollD12().final;
+        dcOrDefenderRoll = 7;
         difference = (roll + playerAttackStatVal + attackMod) - dcOrDefenderRoll;
         hit = difference >= 0;
         injuryPoints = hit ? 1 : 0;
-        systemLog = `[${attackStatKey.toUpperCase()} STRIKE (${playerWeapon.name}): ${roll + playerAttackStatVal + attackMod} vs DC 10 | ${hit ? "CLEAVED AIR" : "STUMBLED"}]`;
+        systemLog = `[${attackStatKey.toUpperCase()} STRIKE (${playerWeapon.name}): ${roll + playerAttackStatVal + attackMod} vs DC 7 | ${hit ? "CLEAVED AIR" : "STUMBLED"}]`;
       }
     }
 

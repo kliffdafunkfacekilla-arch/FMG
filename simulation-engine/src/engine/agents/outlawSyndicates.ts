@@ -108,23 +108,23 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
   },
   {
     id: 3,
-    name: "The Legion",
-    type: "MERCENARY_TRADE_CORP",
-    originBurgId: 53, // Shravhiek
-    originCellId: 27072,
+    name: "The Fuvuiku Legions",
+    type: "MERCENARY_ARMADA_AND_TOLL",
+    originBurgId: 344, // Ivory Pass
+    originCellId: 27068,
     originFactionId: 26,
     bossName: "High Commander Malakor Dread",
-    bossTitle: "Warlord of the Twin Peaks",
+    bossTitle: "Warlord of the Ivory Pass",
     bossTraits: [
       { name: "Mercenary_Master", modifier: 0.5 },
       { name: "Drillmaster", modifier: 0.5 },
-      { name: "Market_Strongarm", modifier: 0.4 },
+      { name: "Toll_Enforcer", modifier: 0.4 },
       { name: "Iron_Discipline", modifier: 0.4 }
     ],
-    description: "Elite mercenary and armed trade corporation headquartered on two coastal mountain peaks. Recruits anyone willing and drills them into fighting machines; establishes forward trade bastions where unaccepted, strong-arms markets, and sells pure loyal martial muscle.",
-    contrabandTypes: ["Confiscated Merchant Tithes", "Unregistered Legion Pikes", "Heavy Catapult Munitions", "Blood Contract Seals"],
-    lairTypes: ["COASTAL_PEAK_YARD", "MERC_TRADE_BASTION"],
-    speciesDistribution: [{ species: "Human", weight: 0.5 }, { species: "Wolf-Kin", weight: 0.3 }, { species: "Saurian", weight: 0.2 }],
+    description: "Formed by the Goats and Rhinos of the Ivory Pass who ambushed a trade wing in the canyon, forced captured engineers to teach them flight, and absorbed the Crimson Corsairs under Captain Valerius. Holding the three tall peaks in the southern channel—the only pass ships can cross below the Avian peaks—they operate a mercenary armada and canyon toll blockade with flat fees and iron escorts: 'The Sky Belongs to No Bank'.",
+    contrabandTypes: ["Seized Merchant Tithes", "Unregistered Legion Pikes", "Heavy Catapult Munitions", "Blood Contract Seals", "Forged Ivory Pass Writs"],
+    lairTypes: ["TOLL_BLOCKADE", "MERC_TRADE_BASTION", "IVORY_PASS_CITADEL"],
+    speciesDistribution: [{ species: "Goat", weight: 0.4 }, { species: "Rhino", weight: 0.4 }, { species: "Human", weight: 0.2 }],
     uniqueRoles: [
       {
         role: "Legion Drill Centurion",
@@ -136,53 +136,53 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
         temper: "DISCIPLINED"
       },
       {
-        role: "Heavy Trade Shock-Trooper",
-        weapon: "Two-Handed Cleaver & Spiked Cestus",
-        armor: "Heavy Iron-Studded Banded Mail",
-        affinity: "endurance",
-        inventory: ["Market Extortion Token", "Iron Wrist-Manacles", "Pouch of 50 Silver"],
-        instinct: "INTIMIDATING",
-        temper: "BRUTAL"
-      }
-    ]
-  },
-  {
-    id: 4,
-    name: "The Ivory-Gate Syndicate",
-    type: "TOLL_AUTHORITY",
-    originBurgId: 344, // Ivory Pass
-    originCellId: 27068,
-    originFactionId: 26,
-    bossName: "Legate General Vorun Iron-Grip",
-    bossTitle: "Warden of the Ivory Pass",
-    bossTraits: [
-      { name: "Martial", modifier: 0.5 },
-      { name: "Inflexible", modifier: 0.4 },
-      { name: "Extortionist", modifier: 0.3 },
-      { name: "Intimidating", modifier: 0.4 }
-    ],
-    description: "Corrupt legion turncoats and toll racketeers who maintain fortified checkpoints along mountain choke-points, extorting trade caravans.",
-    contrabandTypes: ["Counterfeit Imperial Seals", "Confiscated Merchant Manifests", "Illicit Iron Bullion", "Extortion Ledgers"],
-    lairTypes: ["TOLL_BLOCKADE", "ENFORCER_DEN"],
-    speciesDistribution: [{ species: "Human", weight: 0.6 }, { species: "Armadillo", weight: 0.2 }, { species: "Saurian", weight: 0.2 }],
-    uniqueRoles: [
-      {
-        role: "Toll Road Extortionist",
+        role: "Ivory Pass Toll Enforcer",
         weapon: "Heavy Spiked Pilum & Tower Shield",
         armor: "Corroded Legionary Lorica",
         affinity: "fortitude",
         inventory: ["Confiscated Caravanserai Toll Passes", "Brass Weighing Scale", "Pouch of 70 Imperial Denarii"],
         instinct: "EXACTING",
         temper: "INFLEXIBLE"
+      }
+    ]
+  },
+  {
+    id: 4,
+    name: "The Silk-Sovereign Syndicate",
+    type: "VICE_AND_PROTECTION_ARM",
+    originBurgId: 340, // Forgespire
+    originCellId: 13802,
+    originFactionId: 7, // Part of the Obsidian Syndicate Network
+    bossName: "Madam Sylvira Night-Loom",
+    bossTitle: "Matron of the Silk-Sovereign",
+    bossTraits: [
+      { name: "Vice_Matron", modifier: 0.5 },
+      { name: "Ruthless", modifier: 0.5 },
+      { name: "Protection_Broker", modifier: 0.4 },
+      { name: "Street_Justice", modifier: 0.4 }
+    ],
+    description: "The women-led vice, extortion, and street protection wing of the Obsidian Syndicate Network. While the parent Obsidian Cartel handles clean municipal fronts, relic fencing, and high-level oligarch politics, the Silk-Sovereign Syndicate operates the vice dens, underground gambling halls, pleasure houses, and narcotics distribution (Viper-Haze), enforcing brutal public 'justice' to keep the Deep Hall Engine insulated from street blowback.",
+    contrabandTypes: ["Euphoric Viper-Haze Narcotics", "Loaded Bone Dice & Marked Decks", "Vice Ledger Blackmail", "Protection Warrants"],
+    lairTypes: ["VICE_DEN", "GAMBLING_HALL", "PLEASURE_HOUSE", "NARCOTIC_PARLOR"],
+    speciesDistribution: [{ species: "Human", weight: 0.4 }, { species: "Saurian", weight: 0.3 }, { species: "Armadillo", weight: 0.3 }],
+    uniqueRoles: [
+      {
+        role: "Silk-Sovereign Vice Mistress",
+        weapon: "Concealed Bodkin & Poisoned Hairpin",
+        armor: "Embroidered Shrouded Silk Gown",
+        affinity: "charm",
+        inventory: ["Black Book of Municipal Secrets", "Phial of Viper-Haze", "Pouch of 85 Silver & Gold"],
+        instinct: "ENTICING",
+        temper: "COLD"
       },
       {
-        role: "Legion Debt Enforcer",
-        weapon: "Iron-Tipped Spetum & Cestus",
-        armor: "Studded Boiled Leather",
+        role: "Street Justice Enforcer",
+        weapon: "Weighted Lead Sledge & Spiked Cestus",
+        armor: "Reinforced Quilted Gambeson",
         affinity: "might",
-        inventory: ["Iron Manacles", "Warrant of Confiscation", "Pouch of 45 Silver"],
-        instinct: "BULLYING",
-        temper: "CALLOUS"
+        inventory: ["Protection Debt Ledger", "Iron Knuckledusters", "Pouch of 50 Silver"],
+        instinct: "INTIMIDATING",
+        temper: "RUTHLESS"
       }
     ]
   },
@@ -229,21 +229,21 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
   {
     id: 6,
     name: "The Obsidian Cartel",
-    type: "CRIME_SYNDICATE",
+    type: "UNDERWORLD_ENGINE",
     originBurgId: 340, // Forgespire
     originCellId: 13802,
-    originFactionId: 7, // Iron Caldera
+    originFactionId: 7, // Iron Caldera (Deep Hall Engine)
     bossName: "Baroness Vespera Blackglass",
-    bossTitle: "Matron of the Deep Veins",
+    bossTitle: "Regional Guide of the Deep Hall",
     bossTraits: [
-      { name: "Drug_Kingpin", modifier: 0.5 },
-      { name: "Oligarch_Allied", modifier: 0.4 },
-      { name: "Tunnel_Master", modifier: 0.5 },
-      { name: "Cold_Blooded", modifier: 0.4 }
+      { name: "Deep_Hall_Factor", modifier: 0.5 },
+      { name: "Oligarch_Allied", modifier: 0.5 },
+      { name: "Relic_Fence", modifier: 0.4 },
+      { name: "Calculating", modifier: 0.4 }
     ],
-    description: "Premier underworld crime syndicate of drug pushers, black-market weapons dealers, and contract assassination brokers. Operates behind legitimate burg fronts, digs subterranean smuggling tunnels, bribes gate guards, arms rioters for profit, and maintains high respect among municipal oligarchs.",
-    contrabandTypes: ["Euphoric Void-Lotus Narcotics", "Unregistered Black-Glass Arms", "Assassination Contracts", "Magistrate Bribe Ledgers"],
-    lairTypes: ["BUSINESS_FRONT", "SUBTERRANEAN_TUNNEL_FLUE", "BRIBED_GATE_VAULT"],
+    description: "The elite relic-fencing, black-market arms, and sabotage arm of the Obsidian Syndicate Network, operating from the Deep Hall. Maintaining strict municipal respectability, the Cartel interfaces with magistrates and oligarchs through diverse, legitimate business fronts (licensed apothecaries, gem exchanges, counting houses, spice emporiums), delegating all street vice and narcotics down to the Silk-Sovereign Syndicate.",
+    contrabandTypes: ["Pre-Cruor Titan Relics", "Unregistered Black-Glass Arms", "Magistrate Bribe Bonds", "Sabotage Blueprints"],
+    lairTypes: ["LICENSED_APOTHECARY_FRONT", "GEM_EXCHANGE_FRONT", "COUNTING_HOUSE_FRONT", "SUBTERRANEAN_TUNNEL_FLUE"],
     speciesDistribution: [{ species: "Human", weight: 0.4 }, { species: "Saurian", weight: 0.3 }, { species: "Armadillo", weight: 0.3 }],
     uniqueRoles: [
       {
@@ -251,12 +251,12 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
         weapon: "Concealed Obsidian Stiletto & Ring-Blade",
         armor: "Tailored Silk Robe with Secret Pockets",
         affinity: "charm",
-        inventory: ["Apothecary Shop Deed", "Bribed Magistrate Letter", "Pouch of 110 Caldera Gold"],
+        inventory: ["Licensed Apothecary Deed", "Bribed Magistrate Letter", "Pouch of 110 Caldera Gold"],
         instinct: "CALCULATED",
         temper: "SUAVE"
       },
       {
-        role: "Subterranean Tunnel Sapper",
+        role: "Deep Hall Tunnel Sapper",
         weapon: "Serrated Trench Pick & Heavy Mattock",
         armor: "Heavy Basalt Miner's Apron",
         affinity: "might",
@@ -268,35 +268,35 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
   },
   {
     id: 7,
-    name: "The Otter Mafia",
-    type: "RIVER_TAVERN_MOB",
+    name: "The Otters (Canal Krewes)",
+    type: "CANAL_KREWE_MOB",
     originBurgId: 170, // Lake City
     originCellId: 31865,
-    originFactionId: 11, // River Folk
+    originFactionId: 8, // Heartlands fringe
     bossName: "Don Finnegan 'Slick-Whiskers' Sliptide",
-    bossTitle: "Grand Godfather of the Riverways",
+    bossTitle: "Grand Godfather of the Canal Krewes",
     bossTraits: [
       { name: "Cunning", modifier: 0.5 },
       { name: "Lutrine_Boss", modifier: 0.5 },
       { name: "Underwater_Extraction", modifier: 0.5 },
       { name: "Tavern_Intelligence", modifier: 0.4 }
     ],
-    description: "Lutrine river racketeers operating lively dockside taverns, riverboat saloons, and gambling flues along continental waterways. They gather rich rumors and sovereign intel from travelers and drunk barge crews, and excel at specialized underwater escapes, river smuggling, and deep submerged retrieval missions.",
-    contrabandTypes: ["Illicit Fermented Eel-Wine", "Submerged Salvage Relics", "Bribed Lockmaster Tokens", "Waterway Gossip & Dossiers"],
-    lairTypes: ["RIVER_TAVERN", "WATERWAY_SALOON", "SMUGGLERS_FLUME"],
-    speciesDistribution: [{ species: "Otter", weight: 0.8 }, { species: "Frog", weight: 0.1 }, { species: "Walrus", weight: 0.1 }],
+    description: "A separate fringe people living along Heartland and waterway margins—they are NOT River Folk! Smiling barge pilots and dockworkers by day, their Canal Krewes do wet-work (smuggling, extraction, surveillance) and serve as the Heartlands' unofficial intelligence agency. Operating ghost barges and lantern-lit dens on stilts over water thick with Marsh-Weed smoke, they live by the creed: 'The River always takes its cut'.",
+    contrabandTypes: ["Smuggler's Plates", "Ghost-Barge Contraband", "Canal Krewe Dossiers", "Vintage Eel-Wine"],
+    lairTypes: ["WATER_STILT_DEN", "GHOST_BARGE_MOORING", "SMUGGLERS_FLUME"],
+    speciesDistribution: [{ species: "Otter", weight: 0.9 }, { species: "Frog", weight: 0.1 }],
     uniqueRoles: [
       {
-        role: "Lutrine Tavernier & Informant",
+        role: "Canal Krewe Informant",
         weapon: "Concealed Brass Spigot & Fish-Gutting Dirk",
-        armor: "Embroidered River-Tavern Waistcoat",
+        armor: "Waterproof Long Trench Coat with River-Bird Feather",
         affinity: "charm",
-        inventory: ["Jug of Vintage Eel-Wine", "Black-Book of Traveler Secrets", "Pouch of 60 Polished River Shells & Coins"],
+        inventory: ["Smuggler's Plate", "Jug of Marsh-Weed Liquor", "Pouch of 60 Polished River Coins"],
         instinct: "SLICK",
         temper: "CONVIVIAL"
       },
       {
-        role: "Submerged Flume Diver",
+        role: "Ghost Barge Flume Diver",
         weapon: "Pneumatic Harpoon & Heavy Net",
         armor: "Waterproof Treated Otter-Hide Diving Suit",
         affinity: "endurance",
@@ -516,12 +516,79 @@ export function getLairPropDetails(lair: any) {
         description: "Clandestine weapon depot and staging post routing mercenary spoils directly to Guerrilla Clan fighters."
       };
     case "BUSINESS_FRONT":
+    case "LICENSED_APOTHECARY_FRONT":
       return {
-        name: `Obsidian Cartel Legitimate Business Front (${cartelName})`,
-        tags: ["wood", "stone", "shop", "front", "legitimate", "underworld"],
+        name: `Licensed Apothecary & Spice Front (${cartelName})`,
+        tags: ["wood", "stone", "shop", "front", "legitimate", "apothecary"],
         hp: 190,
         maxHp: 190,
-        description: "High-end licensed apothecary and spice emporium masking subterranean narcotic laboratories and magistrate meeting rooms."
+        description: "High-end, fully licensed herbal apothecary masking subterranean Deep Hall meeting rooms and magistrate backrooms."
+      };
+    case "GEM_EXCHANGE_FRONT":
+      return {
+        name: `Caldera Gem Exchange & Assayers (${cartelName})`,
+        tags: ["stone", "metal", "shop", "front", "legitimate", "exchange"],
+        hp: 220,
+        maxHp: 220,
+        description: "Prestigious gemstone cutting salon and gold assay desk facilitating high-level municipal money laundering."
+      };
+    case "COUNTING_HOUSE_FRONT":
+      return {
+        name: `Municipal Charter & Counting House (${cartelName})`,
+        tags: ["stone", "books", "front", "legitimate", "bank"],
+        hp: 210,
+        maxHp: 210,
+        description: "Authorised charter office where Deep Hall factors review sovereign municipal debt and negotiate magistrate favors."
+      };
+    case "VICE_DEN":
+    case "NARCOTIC_PARLOR":
+      return {
+        name: `Silk-Sovereign Velvet Vice Den (${cartelName})`,
+        tags: ["cloth", "wood", "vice_den", "narcotics", "underworld", "flammable"],
+        hp: 140,
+        maxHp: 140,
+        description: "Heavily draped, dimly lit velvet parlor distributing Viper-Haze and illicit dream-draughts to high-paying patrons."
+      };
+    case "GAMBLING_HALL":
+      return {
+        name: `Silk-Sovereign Gilded Dice Hall (${cartelName})`,
+        tags: ["wood", "table", "dice", "underworld", "gambling"],
+        hp: 160,
+        maxHp: 160,
+        description: "Underground gaming hall with loaded bone dice, marked cards, and private loan rooms enforcing brutal street interest."
+      };
+    case "PLEASURE_HOUSE":
+      return {
+        name: `Silk-Sovereign Pleasure Pavilion (${cartelName})`,
+        tags: ["cloth", "silk", "pleasure", "underworld", "vice"],
+        hp: 150,
+        maxHp: 150,
+        description: "Opulent subterranean pleasure house insulated from city watch raids through layered bribes and magistrate protection."
+      };
+    case "IVORY_PASS_CITADEL":
+    case "TOLL_BLOCKADE":
+      return {
+        name: `Fuvuiku Legion Mountain Toll Citadel (${cartelName})`,
+        tags: ["stone", "metal", "fortress", "gate", "toll", "legion"],
+        hp: 350,
+        maxHp: 350,
+        description: "Massive stone checkpoint straddling the canyon pass, guarded by armored Goat and Rhino legionaries enforcing sky tolls."
+      };
+    case "WATER_STILT_DEN":
+      return {
+        name: `Canal Krewe Stilt Den (${cartelName})`,
+        tags: ["wood", "water", "stilt", "den", "smuggler", "otter"],
+        hp: 170,
+        maxHp: 170,
+        description: "Lantern-lit wooden den built on stilts over murky canal waters, thick with Marsh-Weed smoke and harmonica music."
+      };
+    case "GHOST_BARGE_MOORING":
+      return {
+        name: `Covert Ghost-Barge Mooring (${cartelName})`,
+        tags: ["wood", "water", "boat", "smuggler", "container"],
+        hp: 180,
+        maxHp: 180,
+        description: "Concealed water slip hidden under weeping willows where dark-painted ghost barges transfer contraband without tariffs."
       };
     case "SUBTERRANEAN_TUNNEL_FLUE":
       return {
@@ -677,7 +744,7 @@ export function getLairPropDetails(lair: any) {
       };
     case "MERCENARY_GARRISON":
       return {
-        name: `Devil's Choice Sellsword Strongpoint (${cartelName})`,
+        name: `Fuvuiku Mercenary Strongpoint (${cartelName})`,
         tags: ["stone", "wood", "barricade", "garrison", "underworld", "weapons"],
         hp: 180,
         maxHp: 180,
@@ -685,7 +752,7 @@ export function getLairPropDetails(lair: any) {
       };
     case "TOLL_BLOCKADE":
       return {
-        name: `Ivory-Gate Toll Redoubt & Iron Gate (${cartelName})`,
+        name: `Fuvuiku Toll Redoubt & Iron Gate (${cartelName})`,
         tags: ["stone", "metal", "toll", "gate", "underworld"],
         hp: 190,
         maxHp: 190,
@@ -693,11 +760,11 @@ export function getLairPropDetails(lair: any) {
       };
     case "ENFORCER_DEN":
       return {
-        name: `Ivory-Gate Enforcer Den & Holding Cell (${cartelName})`,
+        name: `Silk-Sovereign Enforcer Den & Holding Cell (${cartelName})`,
         tags: ["stone", "iron", "cell", "enforcer", "underworld"],
         hp: 170,
         maxHp: 170,
-        description: "Heavily fortified headquarters for legion debt collectors and martial enforcers."
+        description: "Heavily fortified headquarters for debt collectors, extortionists, and street enforcers."
       };
     case "RAIDER_REDOUBT":
       return {
@@ -738,15 +805,15 @@ const NAMES_BY_SYNDICATE: Record<number, { first: string[]; last: string[]; nick
     last: ["Skystrider", "Cloud-Rider", "Sun-Sailor", "Wind-Vane", "Aether-Grip", "Hawthorne"],
     nicknames: ["Quick-Trigger", "Gale-Eye", "Slip-Wing", "No-Tether"]
   },
-  3: { // Devil's Choice
-    first: ["Malakor", "Rorik", "Garrison", "Vrena", "Brakkor", "Torsten", "Jorik"],
-    last: ["Dread", "Iron-Biter", "Blood-Drinker", "Grimm", "Black-Scar", "Mercer"],
-    nicknames: ["The Butcher", "Steel-Jaws", "No-Mercy", "Two-Pence"]
+  3: { // Fuvuiku Legions
+    first: ["Malakor", "Valerius", "Garrison", "Vrena", "Brakkor", "Torsten", "Jorik"],
+    last: ["Dread", "Iron-Biter", "Peak-Holder", "Grimm", "Black-Scar", "Ivory-Horn"],
+    nicknames: ["The Ram", "Steel-Jaws", "No-Mercy", "Canyon-Hammer"]
   },
-  4: { // Ivory Gate
-    first: ["Vorun", "Marcus", "Tiberius", "Valeria", "Gaius", "Drusus", "Octavia"],
-    last: ["Iron-Grip", "Ivory-Tusk", "Gate-Warden", "Cestus", "Garrison-Pike", "Toll-Taker"],
-    nicknames: ["The Sledge", "Heavy-Foot", "Tax-Man", "Lock-Down"]
+  4: { // Silk-Sovereign Syndicate
+    first: ["Sylvira", "Salome", "Vivienne", "Kassandra", "Marchesa", "Drusilla", "Octavia"],
+    last: ["Night-Loom", "Viper-Tongue", "Silk-Weaver", "Shadow-Gown", "Black-Rose", "Velvet"],
+    nicknames: ["The Matron", "Poison-Kiss", "Velvet-Claw", "Lady Vice"]
   },
   5: { // Ghostwind
     first: ["Lyra", "Barnaby", "Bess", "Finn", "Reef", "Morwen", "Derrick", "Jonas"],
@@ -758,7 +825,7 @@ const NAMES_BY_SYNDICATE: Record<number, { first: string[]; last: string[]; nick
     last: ["Blackglass", "Cold-Chisel", "Deep-Vein", "Slag-Marrow", "Basalt-Bane", "Pyre-Grip"],
     nicknames: ["The Glass-Cutter", "Black-Lung", "Shatter-Hand", "Dark-Spark"]
   },
-  7: { // Otter Mafia
+  7: { // The Otters (Canal Krewes)
     first: ["Finnegan", "Barnaby", "Sal", "Pip", "Winnie", "Cully", "Paddy", "Barty"],
     last: ["Sliptide", "Fast-Paws", "Riverson", "Mud-Whisper", "Fish-Tooth", "Canal-Drover"],
     nicknames: ["Slick-Whiskers", "Wet-Coin", "The Don", "Fast-Paws", "Quiet-Ripple"]

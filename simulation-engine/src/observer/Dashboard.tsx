@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { RegionMap } from "./RegionMap";
+import { TacticalSandboxModal } from "./TacticalSandboxModal";
+import { RulesLabTab } from "./RulesLabTab";
 
 interface Faction {
   id: number;
@@ -103,7 +105,7 @@ interface ObserverState {
   economy: any[];
 }
 
-type MainTab = "MAP" | "SECTORS" | "FRINGE" | "ECOLOGY_CHAOS" | "EVENTS";
+type MainTab = "MAP" | "SECTORS" | "FRINGE" | "ECOLOGY_CHAOS" | "EVENTS" | "ECONOMY" | "RULES_LAB";
 type ViewMode = "Political" | "Biome" | "Ecology" | "Unrest";
 type SectorCategory = "ALL_BURGS" | "PRISONS" | "CONVERGENCE";
 
@@ -116,9 +118,20 @@ const BIOME_COLORS: Record<number, string> = {
 };
 
 // -------------------------------------------------------------
-// 1. MAP CANVAS COMPONENT
+// 1. MAP CANVAS COMPONENT (WITH COMPREHENSIVE POI MARKERS & FAST FLY-TO)
 // -------------------------------------------------------------
-function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCellId, selectedFactionId }: any) {
+function MapCanvas({
+  cells,
+  factions,
+  viewMode,
+  economy,
+  burgs = [],
+  prisons = [],
+  convergence,
+  onCellClick,
+  selectedCellId,
+  selectedFactionId
+}: any) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -126,6 +139,55 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCe
   const dragStart = useRef({ x: 0, y: 0 });
   const lastMouse = useRef({ x: 0, y: 0 });
   const bounds = useRef({ minX: 0, maxX: 100, minY: 0, maxY: 100, baseScale: 1, baseOffX: 0, baseOffY: 0 });
+
+  // POI Filter & Display Controls
+  const [showBurgs, setShowBurgs] = useState<"all" | "cities" | "none">("all");
+  const [showPrisons, setShowPrisons] = useState<boolean>(true);
+  const [showLabels, setShowLabels] = useState<boolean>(true);
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [isSearchFocused, setIsSearchFocused] = useState<boolean>(false);
+  const [hoveredMarker, setHoveredMarker] = useState<{
+    type: "BURG" | "PRISON" | "CONVERGENCE";
+    item: any;
+    screenX: number;
+    screenY: number;
+  } | null>(null);
+
+  // Pre-calculate cell centers for fast rendering & hit-testing
+  const cellCoordMap = useMemo(() => {
+    const map = new Map<number, { cx: number; cy: number; cell: Cell }>();
+    for (const c of cells) {
+      let cx = c.center_x;
+      let cy = c.center_y;
+      if ((cx === undefined || cy === undefined) && c.geometry?.coordinates?.[0]) {
+        const poly = c.geometry.coordinates[0];
+        let sx = 0, sy = 0;
+        for (const pt of poly) { sx += pt[0]; sy += pt[1]; }
+        cx = sx / poly.length;
+        cy = sy / poly.length;
+      }
+      if (cx !== undefined && cy !== undefined) {
+        map.set(c.id, { cx, cy, cell: c });
+      }
+    }
+    return map;
+  }, [cells]);
+
+  // Smooth Camera Fly-to Helper
+  const flyToCell = (targetCellId: number) => {
+    const coord = cellCoordMap.get(targetCellId);
+    const canvas = canvasRef.current;
+    if (!coord || !canvas || !bounds.current.baseScale) return;
+    const px = coord.cx * bounds.current.baseScale + bounds.current.baseOffX;
+    const py = coord.cy * bounds.current.baseScale + bounds.current.baseOffY;
+    const targetZoom = Math.max(zoom, 2.5);
+    const newOffsetX = -(px - canvas.width / 2) * targetZoom;
+    const newOffsetY = -(py - canvas.height / 2) * targetZoom;
+    setZoom(targetZoom);
+    setOffset({ x: newOffsetX, y: newOffsetY });
+    onCellClick(targetCellId);
+    setIsSearchFocused(false);
+  };
 
   useEffect(() => {
     if (!cells || cells.length === 0) return;
@@ -160,6 +222,7 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCe
     return () => ro.disconnect();
   }, []);
 
+  // Main Canvas Render Loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -192,6 +255,7 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCe
 
     let selectedCellRef: Cell | null = null;
 
+    // 1. Render Voronoi Polygonal Land Cells
     cells.forEach((cell: Cell) => {
       if (!cell.geometry?.coordinates?.[0]) return;
       const coords = cell.geometry.coordinates[0];
@@ -245,21 +309,186 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCe
       }
     });
 
-    // Draw high-visibility beacon marker on focused cell center
-    if (selectedCellRef && bounds.current.baseScale) {
-      const cell: Cell = selectedCellRef;
-      let cx = cell.center_x;
-      let cy = cell.center_y;
-      if ((cx === undefined || cy === undefined) && cell.geometry?.coordinates?.[0]) {
-        const poly = cell.geometry.coordinates[0];
-        let sx = 0, sy = 0;
-        for (const pt of poly) { sx += pt[0]; sy += pt[1]; }
-        cx = sx / poly.length;
-        cy = sy / poly.length;
+    // 2. Render Dragon Prisons (12 Sacred Dragon Seals)
+    if (showPrisons) {
+      for (const p of prisons) {
+        const coord = cellCoordMap.get(p.cell_id);
+        if (!coord) continue;
+        const px = coord.cx * baseScale + bounds.current.baseOffX;
+        const py = coord.cy * baseScale + bounds.current.baseOffY;
+
+        const isSelected = selectedCellId === p.cell_id;
+        const isHovered = hoveredMarker?.type === "PRISON" && hoveredMarker.item.id === p.id;
+        const r = Math.max(6, (isSelected || isHovered ? 11 : 8) / zoom);
+
+        // Cosmic pulsing outer aura
+        ctx.beginPath();
+        ctx.arc(px, py, r * 2.2, 0, Math.PI * 2);
+        ctx.fillStyle = isSelected ? "rgba(239, 68, 68, 0.5)" : "rgba(168, 85, 247, 0.35)";
+        ctx.fill();
+
+        // Inner seal circle
+        ctx.beginPath();
+        ctx.arc(px, py, r, 0, Math.PI * 2);
+        ctx.fillStyle = "#3b0764"; // Deep void purple
+        ctx.fill();
+
+        // Seal integrity color ring
+        const sealColor = p.seal_strength > 75 ? "#10b981" : p.seal_strength > 40 ? "#f59e0b" : "#ef4444";
+        ctx.strokeStyle = sealColor;
+        ctx.lineWidth = 2.5 / zoom;
+        ctx.stroke();
+
+        // Center jewel
+        ctx.beginPath();
+        ctx.arc(px, py, r * 0.4, 0, Math.PI * 2);
+        ctx.fillStyle = sealColor;
+        ctx.fill();
+
+        // Name & Integrity Label
+        if (showLabels) {
+          const fontSize = Math.max(9, Math.min(13, 11 / zoom));
+          ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "top";
+          const label = `🐉 ${p.dragon_name} [${p.seal_strength}%]`;
+
+          ctx.lineWidth = 3 / zoom;
+          ctx.strokeStyle = "rgba(0, 0, 0, 0.95)";
+          ctx.strokeText(label, px, py + r + 3 / zoom);
+          ctx.fillStyle = isSelected ? "#fca5a5" : "#e9d5ff";
+          ctx.fillText(label, px, py + r + 3 / zoom);
+        }
       }
-      if (cx !== undefined && cy !== undefined) {
-        const px = cx * baseScale + bounds.current.baseOffX;
-        const py = cy * baseScale + bounds.current.baseOffY;
+    }
+
+    // 3. Render Cruorbus Convergence Nexus
+    if (convergence) {
+      const coord = cellCoordMap.get(convergence.cell_id || 11429);
+      if (coord) {
+        const px = coord.cx * baseScale + bounds.current.baseOffX;
+        const py = coord.cy * baseScale + bounds.current.baseOffY;
+        const r = Math.max(7, 10 / zoom);
+
+        ctx.beginPath();
+        ctx.arc(px, py, r * 2.2, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(56, 189, 248, 0.35)";
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(px, py, r, 0, Math.PI * 2);
+        ctx.fillStyle = "#0284c7";
+        ctx.fill();
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2 / zoom;
+        ctx.stroke();
+
+        if (showLabels) {
+          const fontSize = Math.max(9, Math.min(13, 11 / zoom));
+          ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "top";
+          const label = `⚡ Spire of Convergence`;
+          ctx.lineWidth = 3 / zoom;
+          ctx.strokeStyle = "rgba(0, 0, 0, 0.95)";
+          ctx.strokeText(label, px, py + r + 3 / zoom);
+          ctx.fillStyle = "#38bdf8";
+          ctx.fillText(label, px, py + r + 3 / zoom);
+        }
+      }
+    }
+
+    // 4. Render Authentic Burg Markers (352 Settlements)
+    if (showBurgs !== "none") {
+      for (const b of burgs) {
+        const coord = cellCoordMap.get(b.cell_id);
+        if (!coord) continue;
+
+        const isCity = (b.urban_tier || 1) >= 3 || (b.pop_null || 0) > 10000;
+        const isTown = (b.urban_tier || 1) === 2 || (b.pop_null || 0) > 1200;
+
+        // Level of detail gating
+        if (showBurgs === "cities" && !isCity) continue;
+        if (zoom < 0.9 && !isCity) continue;
+        if (zoom < 1.7 && !isCity && !isTown) continue;
+
+        const px = coord.cx * baseScale + bounds.current.baseOffX;
+        const py = coord.cy * baseScale + bounds.current.baseOffY;
+
+        const isSelected = selectedCellId === b.cell_id;
+        const isHovered = hoveredMarker?.type === "BURG" && hoveredMarker.item.burg_id === b.burg_id;
+        const fColor = b.faction_color || (b.faction_id ? factions[b.faction_id]?.color : null) || "#f59e0b";
+
+        const baseR = (isCity ? 6.5 : isTown ? 4.5 : 3.0) / zoom;
+        const scaleRadius = Math.max(isCity ? 5.5 : 3.5, baseR);
+
+        // Hover or selected halo
+        if (isSelected || isHovered) {
+          ctx.beginPath();
+          ctx.arc(px, py, scaleRadius * 2.2, 0, Math.PI * 2);
+          ctx.fillStyle = isSelected ? "rgba(56, 189, 248, 0.45)" : "rgba(250, 204, 21, 0.45)";
+          ctx.fill();
+        }
+
+        // Draw Burg icon
+        if (isCity) {
+          // Diamond / Citadel for Cities & Capitals
+          ctx.save();
+          ctx.translate(px, py);
+          ctx.rotate(Math.PI / 4);
+          ctx.fillStyle = fColor;
+          const s = scaleRadius * 1.5;
+          ctx.fillRect(-s / 2, -s / 2, s, s);
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 1.8 / zoom;
+          ctx.strokeRect(-s / 2, -s / 2, s, s);
+          ctx.restore();
+        } else {
+          // Circle for Towns & Villages
+          ctx.beginPath();
+          ctx.arc(px, py, scaleRadius, 0, Math.PI * 2);
+          ctx.fillStyle = fColor;
+          ctx.fill();
+          ctx.strokeStyle = isTown ? "#ffffff" : "rgba(0, 0, 0, 0.75)";
+          ctx.lineWidth = 1.2 / zoom;
+          ctx.stroke();
+        }
+
+        // Unrest indicator dot
+        if (b.unrest > 35) {
+          ctx.beginPath();
+          ctx.arc(px + scaleRadius, py - scaleRadius, 2.5 / zoom, 0, Math.PI * 2);
+          ctx.fillStyle = "#ef4444";
+          ctx.fill();
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 0.8 / zoom;
+          ctx.stroke();
+        }
+
+        // Label
+        const shouldDrawLabel = showLabels && (isCity || zoom >= 1.4 || (isTown && zoom >= 1.0) || isSelected || isHovered);
+        if (shouldDrawLabel) {
+          const fontSize = Math.max(8.5, Math.min(12, (isCity ? 11 : 9.5) / zoom));
+          ctx.font = `${isCity ? "bold " : ""}${fontSize}px system-ui, sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "top";
+          const label = isCity ? `🏰 ${b.name}` : b.name;
+
+          ctx.lineWidth = 2.5 / zoom;
+          ctx.strokeStyle = "rgba(0, 0, 0, 0.95)";
+          ctx.strokeText(label, px, py + scaleRadius + 2 / zoom);
+          ctx.fillStyle = isSelected ? "#38bdf8" : isHovered ? "#facc15" : isCity ? "#ffffff" : "#e2e8f0";
+          ctx.fillText(label, px, py + scaleRadius + 2 / zoom);
+        }
+      }
+    }
+
+    // 5. High-visibility beacon on selected cell
+    if (selectedCellRef && bounds.current.baseScale) {
+      const coord = cellCoordMap.get((selectedCellRef as any).id);
+      if (coord) {
+        const px = coord.cx * baseScale + bounds.current.baseOffX;
+        const py = coord.cy * baseScale + bounds.current.baseOffY;
         ctx.beginPath();
         ctx.arc(px, py, 7 / zoom, 0, Math.PI * 2);
         ctx.fillStyle = "#38bdf8";
@@ -269,7 +498,7 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCe
         ctx.stroke();
 
         ctx.beginPath();
-        ctx.arc(px, py, 14 / zoom, 0, Math.PI * 2);
+        ctx.arc(px, py, 15 / zoom, 0, Math.PI * 2);
         ctx.strokeStyle = "rgba(56, 189, 248, 0.7)";
         ctx.lineWidth = 1.5 / zoom;
         ctx.stroke();
@@ -277,7 +506,7 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCe
     }
 
     ctx.restore();
-  }, [cells, factions, viewMode, economy, zoom, offset, selectedCellId, selectedFactionId]);
+  }, [cells, factions, viewMode, economy, zoom, offset, selectedCellId, selectedFactionId, showBurgs, showPrisons, showLabels, hoveredMarker, burgs, prisons, convergence]);
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
@@ -292,11 +521,60 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCe
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging.current) return;
-    const dx = e.clientX - lastMouse.current.x;
-    const dy = e.clientY - lastMouse.current.y;
-    lastMouse.current = { x: e.clientX, y: e.clientY };
-    setOffset(o => ({ x: o.x + dx, y: o.y + dy }));
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    if (isDragging.current) {
+      const dx = e.clientX - lastMouse.current.x;
+      const dy = e.clientY - lastMouse.current.y;
+      lastMouse.current = { x: e.clientX, y: e.clientY };
+      setOffset(o => ({ x: o.x + dx, y: o.y + dy }));
+      return;
+    }
+
+    // Hit testing for POI hover detection
+    if (!bounds.current.baseScale) return;
+    const worldX = (mouseX - canvas.width / 2 - offset.x) / zoom + canvas.width / 2;
+    const worldY = (mouseY - canvas.height / 2 - offset.y) / zoom + canvas.height / 2;
+    const mapX = (worldX - bounds.current.baseOffX) / bounds.current.baseScale;
+    const mapY = (worldY - bounds.current.baseOffY) / bounds.current.baseScale;
+
+    // Check Dragon Prisons
+    let hitMarker: any = null;
+    if (showPrisons) {
+      for (const p of prisons) {
+        const coord = cellCoordMap.get(p.cell_id);
+        if (coord && Math.hypot(coord.cx - mapX, coord.cy - mapY) < Math.max(8, 14 / zoom)) {
+          hitMarker = { type: "PRISON", item: p, screenX: mouseX, screenY: mouseY };
+          break;
+        }
+      }
+    }
+
+    // Check Burgs
+    if (!hitMarker && showBurgs !== "none") {
+      for (const b of burgs) {
+        const coord = cellCoordMap.get(b.cell_id);
+        if (coord && Math.hypot(coord.cx - mapX, coord.cy - mapY) < Math.max(6, 12 / zoom)) {
+          hitMarker = { type: "BURG", item: b, screenX: mouseX, screenY: mouseY };
+          break;
+        }
+      }
+    }
+
+    // Check Convergence
+    if (!hitMarker && convergence) {
+      const coord = cellCoordMap.get(convergence.cell_id || 11429);
+      if (coord && Math.hypot(coord.cx - mapX, coord.cy - mapY) < Math.max(8, 16 / zoom)) {
+        hitMarker = { type: "CONVERGENCE", item: convergence, screenX: mouseX, screenY: mouseY };
+      }
+    }
+
+    setHoveredMarker(hitMarker);
+    canvas.style.cursor = hitMarker ? "pointer" : "grab";
   };
 
   const handleMouseUp = (e: React.MouseEvent) => {
@@ -305,6 +583,11 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCe
 
     // Detect click if mouse barely moved
     if (moved < 6 && onCellClick && canvasRef.current && bounds.current.baseScale) {
+      if (hoveredMarker) {
+        onCellClick(hoveredMarker.item.cell_id);
+        return;
+      }
+
       const canvas = canvasRef.current;
       const rect = canvas.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
@@ -315,20 +598,36 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCe
       const mapX = (worldX - bounds.current.baseOffX) / bounds.current.baseScale;
       const mapY = (worldY - bounds.current.baseOffY) / bounds.current.baseScale;
 
+      // Check if clicked near any Burg or Prison
+      let closestItem: any = null;
+      let minItemDist = Infinity;
+      for (const b of burgs) {
+        const coord = cellCoordMap.get(b.cell_id);
+        if (coord) {
+          const d = Math.hypot(coord.cx - mapX, coord.cy - mapY);
+          if (d < minItemDist) { minItemDist = d; closestItem = b; }
+        }
+      }
+      for (const p of prisons) {
+        const coord = cellCoordMap.get(p.cell_id);
+        if (coord) {
+          const d = Math.hypot(coord.cx - mapX, coord.cy - mapY);
+          if (d < minItemDist) { minItemDist = d; closestItem = p; }
+        }
+      }
+
+      if (closestItem && minItemDist < 20 / zoom) {
+        onCellClick(closestItem.cell_id);
+        return;
+      }
+
+      // Fallback: nearest polygon cell
       let nearestCell: any = null;
       let minDist = Infinity;
       for (const c of cells) {
-        let cx = c.center_x;
-        let cy = c.center_y;
-        if ((cx === undefined || cy === undefined) && c.geometry?.coordinates?.[0]) {
-          const poly = c.geometry.coordinates[0];
-          let sx = 0, sy = 0;
-          for (const pt of poly) { sx += pt[0]; sy += pt[1]; }
-          cx = sx / poly.length;
-          cy = sy / poly.length;
-        }
-        if (cx !== undefined && cy !== undefined) {
-          const d = (cx - mapX) ** 2 + (cy - mapY) ** 2;
+        const coord = cellCoordMap.get(c.id);
+        if (coord) {
+          const d = (coord.cx - mapX) ** 2 + (coord.cy - mapY) ** 2;
           if (d < minDist) {
             minDist = d;
             nearestCell = c;
@@ -341,6 +640,47 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCe
     }
   };
 
+  // Search Results Filter
+  const searchResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    const res: Array<{ type: "BURG" | "PRISON" | "CONVERGENCE"; name: string; cell_id: number; subtitle: string }> = [];
+
+    if ("spire".includes(q) || "convergence".includes(q) || "nexus".includes(q)) {
+      res.push({
+        type: "CONVERGENCE",
+        name: "Cruorbus Convergence Nexus",
+        cell_id: convergence?.cell_id || 11429,
+        subtitle: "Planetary Ley Nexus"
+      });
+    }
+
+    for (const p of prisons) {
+      if (p.dragon_name?.toLowerCase().includes(q) || p.power_domain?.toLowerCase().includes(q)) {
+        res.push({
+          type: "PRISON",
+          name: `Dragon Prison: ${p.dragon_name}`,
+          cell_id: p.cell_id,
+          subtitle: `Domain: ${p.power_domain} • Seal: ${p.seal_strength}%`
+        });
+      }
+    }
+
+    for (const b of burgs) {
+      if (b.name?.toLowerCase().includes(q) || String(b.burg_id) === q || String(b.cell_id) === q) {
+        res.push({
+          type: "BURG",
+          name: b.name,
+          cell_id: b.cell_id,
+          subtitle: `${b.urban_tier >= 3 ? "Major City" : b.urban_tier === 2 ? "Town" : "Settlement"} • ${b.faction_name || "Independent"} (Pop: ${b.pop_null?.toLocaleString()})`
+        });
+        if (res.length >= 8) break;
+      }
+    }
+
+    return res;
+  }, [searchQuery, burgs, prisons, convergence]);
+
   return (
     <div style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden" }}>
       <canvas
@@ -351,12 +691,250 @@ function MapCanvas({ cells, factions, viewMode, economy, onCellClick, selectedCe
         onMouseUp={handleMouseUp}
         style={{ width: "100%", height: "100%", display: "block", cursor: "grab" }}
       />
-      <div style={{ position: "absolute", bottom: 12, right: 12, background: "rgba(0,0,0,0.75)", padding: "4px 8px", borderRadius: 4, fontSize: 11, color: "#94a3b8" }}>
-        Pan: Drag • Zoom: Wheel ({zoom.toFixed(1)}x) • Click Cell to Inspect
+
+      {/* ── TOP MAP HUD: INSTANT SEARCH & POI FILTER TOOLBAR ─────── */}
+      <div
+        style={{
+          position: "absolute",
+          top: 12,
+          left: 12,
+          display: "flex",
+          flexDirection: "column",
+          gap: 6,
+          zIndex: 10
+        }}
+      >
+        {/* Search Bar */}
+        <div style={{ position: "relative", width: 280 }}>
+          <input
+            type="text"
+            placeholder="🔍 Search Burgs or 12 Dragon Prisons..."
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setIsSearchFocused(true);
+            }}
+            onFocus={() => setIsSearchFocused(true)}
+            style={{
+              width: "100%",
+              padding: "7px 12px",
+              background: "rgba(15, 23, 42, 0.95)",
+              border: "1px solid #334155",
+              borderRadius: 6,
+              color: "#f8fafc",
+              fontSize: 12,
+              outline: "none",
+              boxShadow: "0 4px 12px rgba(0, 0, 0, 0.5)",
+              backdropFilter: "blur(8px)"
+            }}
+          />
+
+          {/* Search Dropdown Results */}
+          {isSearchFocused && searchResults.length > 0 && (
+            <div
+              style={{
+                position: "absolute",
+                top: 36,
+                left: 0,
+                width: "100%",
+                background: "#0f172a",
+                border: "1px solid #38bdf8",
+                borderRadius: 6,
+                overflow: "hidden",
+                boxShadow: "0 8px 24px rgba(0,0,0,0.8)",
+                zIndex: 20
+              }}
+            >
+              {searchResults.map((r, i) => (
+                <div
+                  key={i}
+                  onClick={() => flyToCell(r.cell_id)}
+                  style={{
+                    padding: "8px 10px",
+                    borderBottom: i < searchResults.length - 1 ? "1px solid #1e293b" : "none",
+                    cursor: "pointer",
+                    background: "#0f172a",
+                    transition: "background 0.15s"
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "#1e293b")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "#0f172a")}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontWeight: 700, fontSize: 12, color: r.type === "PRISON" ? "#c084fc" : r.type === "CONVERGENCE" ? "#38bdf8" : "#f1f5f9" }}>
+                      {r.name}
+                    </span>
+                    <span style={{ fontSize: 10, color: "#94a3b8" }}>Cell #{r.cell_id}</span>
+                  </div>
+                  <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>{r.subtitle}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* POI Toggle Filter Pills */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <button
+            onClick={() => setShowBurgs(showBurgs === "all" ? "cities" : showBurgs === "cities" ? "none" : "all")}
+            style={{
+              padding: "4px 8px",
+              background: showBurgs !== "none" ? "rgba(2, 132, 199, 0.85)" : "rgba(15, 23, 42, 0.85)",
+              border: `1px solid ${showBurgs !== "none" ? "#38bdf8" : "#334155"}`,
+              borderRadius: 4,
+              color: "#fff",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: "pointer",
+              backdropFilter: "blur(6px)"
+            }}
+          >
+            🏰 Burgs: {showBurgs === "all" ? "All (352)" : showBurgs === "cities" ? "Cities Only" : "Off"}
+          </button>
+
+          <button
+            onClick={() => setShowPrisons(!showPrisons)}
+            style={{
+              padding: "4px 8px",
+              background: showPrisons ? "rgba(147, 51, 234, 0.85)" : "rgba(15, 23, 42, 0.85)",
+              border: `1px solid ${showPrisons ? "#c084fc" : "#334155"}`,
+              borderRadius: 4,
+              color: "#fff",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: "pointer",
+              backdropFilter: "blur(6px)"
+            }}
+          >
+            🐉 Prisons: {showPrisons ? "Active (12)" : "Off"}
+          </button>
+
+          <button
+            onClick={() => setShowLabels(!showLabels)}
+            style={{
+              padding: "4px 8px",
+              background: showLabels ? "rgba(30, 41, 59, 0.85)" : "rgba(15, 23, 42, 0.85)",
+              border: `1px solid ${showLabels ? "#94a3b8" : "#334155"}`,
+              borderRadius: 4,
+              color: showLabels ? "#f8fafc" : "#64748b",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: "pointer",
+              backdropFilter: "blur(6px)"
+            }}
+          >
+            🏷️ Labels: {showLabels ? "On" : "Off"}
+          </button>
+
+          <button
+            onClick={() => flyToCell(convergence?.cell_id || 11429)}
+            style={{
+              padding: "4px 8px",
+              background: "rgba(56, 189, 248, 0.2)",
+              border: "1px solid #0284c7",
+              borderRadius: 4,
+              color: "#38bdf8",
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: "pointer"
+            }}
+          >
+            ⚡ Spire
+          </button>
+        </div>
+      </div>
+
+      {/* ── FLOATING HOVER TOOLTIP ───────────────────────────────── */}
+      {hoveredMarker && (
+        <div
+          style={{
+            position: "absolute",
+            left: Math.min(hoveredMarker.screenX + 14, (canvasRef.current?.width || 800) - 240),
+            top: Math.min(hoveredMarker.screenY + 14, (canvasRef.current?.height || 600) - 150),
+            background: "rgba(15, 23, 42, 0.95)",
+            border: `1px solid ${hoveredMarker.type === "PRISON" ? "#c084fc" : "#38bdf8"}`,
+            borderRadius: 6,
+            padding: "8px 12px",
+            minWidth: 200,
+            maxWidth: 260,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.85)",
+            backdropFilter: "blur(8px)",
+            pointerEvents: "none",
+            zIndex: 30
+          }}
+        >
+          {hoveredMarker.type === "BURG" && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontWeight: 800, fontSize: 13, color: "#f8fafc" }}>
+                  🏰 {hoveredMarker.item.name}
+                </span>
+                <span style={{ fontSize: 10, color: "#38bdf8", fontWeight: 700 }}>
+                  {hoveredMarker.item.urban_tier >= 3 ? "Major City" : hoveredMarker.item.urban_tier === 2 ? "Town" : "Village"}
+                </span>
+              </div>
+              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
+                Sovereignty: <strong style={{ color: hoveredMarker.item.faction_color || "#facc15" }}>{hoveredMarker.item.faction_name || "Independent"}</strong>
+              </div>
+              <div style={{ fontSize: 11, color: "#94a3b8", display: "flex", justifyContent: "space-between", marginTop: 2 }}>
+                <span>Pop: <strong style={{ color: "#fff" }}>{hoveredMarker.item.pop_null?.toLocaleString()}</strong></span>
+                <span>Wealth: <strong style={{ color: "#facc15" }}>{hoveredMarker.item.wealth}g</strong></span>
+              </div>
+              <div style={{ fontSize: 11, color: "#94a3b8", display: "flex", justifyContent: "space-between", marginTop: 2 }}>
+                <span>Unrest: <strong style={{ color: hoveredMarker.item.unrest > 30 ? "#ef4444" : "#22c55e" }}>{hoveredMarker.item.unrest}%</strong></span>
+                <span>Food: <strong style={{ color: "#38bdf8" }}>{hoveredMarker.item.food?.toLocaleString()}</strong></span>
+              </div>
+              <div style={{ marginTop: 6, paddingTop: 4, borderTop: "1px solid #334155", fontSize: 10, color: "#38bdf8", fontWeight: 600 }}>
+                ⚔️ Click to open 10,000-cell mesh & tactical map
+              </div>
+            </div>
+          )}
+
+          {hoveredMarker.type === "PRISON" && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontWeight: 800, fontSize: 13, color: "#c084fc" }}>
+                  🐉 Prison: {hoveredMarker.item.dragon_name}
+                </span>
+                <span style={{ fontSize: 10, color: "#e9d5ff", fontWeight: 700 }}>
+                  [{hoveredMarker.item.power_domain}]
+                </span>
+              </div>
+              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
+                Sacred Seal Integrity:{" "}
+                <strong style={{ color: hoveredMarker.item.seal_strength > 75 ? "#10b981" : hoveredMarker.item.seal_strength > 40 ? "#f59e0b" : "#ef4444" }}>
+                  {hoveredMarker.item.seal_strength}%
+                </strong>
+              </div>
+              <div style={{ marginTop: 6, paddingTop: 4, borderTop: "1px solid #334155", fontSize: 10, color: "#c084fc", fontWeight: 600 }}>
+                ⚔️ Click to inspect Dragon Prison & tactical battle map
+              </div>
+            </div>
+          )}
+
+          {hoveredMarker.type === "CONVERGENCE" && (
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 13, color: "#38bdf8" }}>
+                ⚡ Cruorbus Convergence Nexus
+              </div>
+              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
+                Planetary Nexus of the 12 Primordial Chaos Leys.
+              </div>
+              <div style={{ marginTop: 6, paddingTop: 4, borderTop: "1px solid #334155", fontSize: 10, color: "#38bdf8", fontWeight: 600 }}>
+                ⚔️ Click to inspect The Spire & tactical battle map
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── BOTTOM HUD CONTROLS ─────────────────────────────────── */}
+      <div style={{ position: "absolute", bottom: 12, right: 12, background: "rgba(0,0,0,0.8)", padding: "5px 10px", borderRadius: 4, fontSize: 11, color: "#94a3b8", backdropFilter: "blur(4px)" }}>
+        Drag to Pan • Wheel to Zoom ({zoom.toFixed(1)}x) • Click any Marker to Inspect
       </div>
     </div>
   );
 }
+
 
 // -------------------------------------------------------------
 // 2. MAIN OBSERVER DASHBOARD COMPONENT
@@ -377,6 +955,7 @@ export function Dashboard() {
   const [focusedCellId, setFocusedCellId] = useState<number | null>(19861);
   const [showRegionalWindow, setShowRegionalWindow] = useState<boolean>(true);
   const [cellSearchInput, setCellSearchInput] = useState<string>("");
+  const [tacticalModalTarget, setTacticalModalTarget] = useState<{ cellId: number; rx: number; ry: number } | null>(null);
 
   // Sector Division State
   const [burgs, setBurgs] = useState<BurgItem[]>([]);
@@ -404,6 +983,15 @@ export function Dashboard() {
   const [ecologyData, setEcologyData] = useState<any>(null);
   const [chaosFlowsData, setChaosFlowsData] = useState<any>(null);
   const [selectedFlow, setSelectedFlow] = useState<any>(null);
+
+  // Economy & Trade Specialties State
+  const [economyData, setEconomyData] = useState<{
+    specialties: any[];
+    activeEmbargoes: any[];
+    recentTradeEvents: any[];
+  } | null>(null);
+  const [economyCategoryFilter, setEconomyCategoryFilter] = useState<string>("ALL");
+  const [economySearch, setEconomySearch] = useState<string>("");
 
   // Fetch core simulation state
   const fetchState = useCallback(async () => {
@@ -573,6 +1161,12 @@ export function Dashboard() {
         }
       }).catch(() => {});
     }
+    if (activeTab === "ECONOMY") {
+      fetch("/api/observer/economy/specialties")
+        .then(r => r.json())
+        .then(d => setEconomyData(d))
+        .catch(() => {});
+    }
   }, [activeTab, state?.calendar?.tick]);
 
   // Controls: Step 1 Tick
@@ -691,6 +1285,18 @@ export function Dashboard() {
             style={{ padding: "6px 14px", border: "none", borderRadius: 6, background: activeTab === "EVENTS" ? "#1e293b" : "transparent", color: activeTab === "EVENTS" ? "#fbbf24" : "#94a3b8", cursor: "pointer", fontWeight: 600, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}
           >
             <span>📜</span> Master Events
+          </button>
+          <button
+            onClick={() => setActiveTab("ECONOMY")}
+            style={{ padding: "6px 14px", border: "none", borderRadius: 6, background: activeTab === "ECONOMY" ? "#1e293b" : "transparent", color: activeTab === "ECONOMY" ? "#eab308" : "#94a3b8", cursor: "pointer", fontWeight: 600, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}
+          >
+            <span>⚖️</span> Economy & Trade
+          </button>
+          <button
+            onClick={() => setActiveTab("RULES_LAB")}
+            style={{ padding: "6px 14px", border: "none", borderRadius: 6, background: activeTab === "RULES_LAB" ? "#1e293b" : "transparent", color: activeTab === "RULES_LAB" ? "#38bdf8" : "#94a3b8", cursor: "pointer", fontWeight: 600, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}
+          >
+            <span>🎲</span> TTRPG Rules Lab
           </button>
         </div>
 
@@ -947,6 +1553,24 @@ export function Dashboard() {
                             }}
                           >
                             🗺️ View Regional Meso Mesh
+                          </button>
+                          <button
+                            onClick={() => {
+                              setTacticalModalTarget({ cellId: selectedBurg.cell_id, rx: 50, ry: 50 });
+                            }}
+                            style={{
+                              background: "linear-gradient(135deg, #0284c7, #7c3aed)",
+                              color: "#fff",
+                              border: "none",
+                              padding: "3px 8px",
+                              borderRadius: 4,
+                              fontSize: 11,
+                              fontWeight: 700,
+                              cursor: "pointer",
+                              boxShadow: "0 2px 6px rgba(124, 58, 237, 0.4)"
+                            }}
+                          >
+                            ⚔️ Open Tactical & GM Sandbox
                           </button>
                         </div>
                         <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>
@@ -1578,6 +2202,23 @@ export function Dashboard() {
                     >
                       {showRegionalWindow ? "Hide Regional Window" : "Open Regional Window"}
                     </button>
+                    <button
+                      onClick={() => setTacticalModalTarget({ cellId: focusedCellId, rx: 50, ry: 50 })}
+                      style={{
+                        marginTop: 2,
+                        padding: "5px 8px",
+                        background: "linear-gradient(135deg, #0284c7, #7c3aed)",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: 4,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        boxShadow: "0 2px 6px rgba(124, 58, 237, 0.4)"
+                      }}
+                    >
+                      ⚔️ Open 256x256 Tactical & GM Sandbox
+                    </button>
                   </div>
                 )}
 
@@ -1661,6 +2302,9 @@ export function Dashboard() {
                 factions={factionMap}
                 viewMode={viewMode}
                 economy={economyMap}
+                burgs={burgs}
+                prisons={prisons}
+                convergence={convergence}
                 selectedFactionId={selectedFactionId}
                 onCellClick={(id: number) => {
                   setFocusedCellId(id);
@@ -1748,7 +2392,230 @@ export function Dashboard() {
           </div>
         )}
 
+        {/* ------------------------------------------------------------- */}
+        {/* TAB 5: FACTION ECONOMIC SPECIALTIES & INTER-REALM TRADE       */}
+        {/* ------------------------------------------------------------- */}
+        {activeTab === "ECONOMY" && (
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "#070b10", overflow: "hidden" }}>
+            {/* Top Toolbar */}
+            <div style={{ padding: "12px 20px", background: "#0b111a", borderBottom: "1px solid #1e293b", display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#fbbf24", display: "flex", alignItems: "center", gap: 8 }}>
+                  <span>⚖️</span> Sovereign Faction Economies & Inter-Realm Trade Engine
+                </h3>
+                <p style={{ margin: "2px 0 0 0", fontSize: 11, color: "#64748b" }}>
+                  Unique signature goods, harvest methods, required progression commodities, and active wartime embargo chokepoints across Ostraka.
+                </p>
+              </div>
+
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input
+                  type="text"
+                  placeholder="Filter faction or good..."
+                  value={economySearch}
+                  onChange={(e) => setEconomySearch(e.target.value)}
+                  style={{
+                    background: "#0f172a",
+                    border: "1px solid #1e293b",
+                    borderRadius: 6,
+                    color: "#f8fafc",
+                    padding: "5px 10px",
+                    fontSize: 11,
+                    width: 180
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Category Filter Bar */}
+            <div style={{ padding: "8px 20px", background: "#080d15", borderBottom: "1px solid #1e293b", display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+              <span style={{ fontSize: 11, color: "#64748b", fontWeight: 700, marginRight: 4 }}>Progression Category:</span>
+              {["ALL", "PRESERVATION", "STRUCTURAL", "FOUNDATION", "ADVANCED", "HEALTH", "METAPHYSICAL", "LOGISTICS", "ENERGY"].map(cat => {
+                const isActive = economyCategoryFilter === cat;
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => setEconomyCategoryFilter(cat)}
+                    style={{
+                      background: isActive ? "#0284c7" : "#0f172a",
+                      color: isActive ? "#fff" : "#94a3b8",
+                      border: "1px solid #1e293b",
+                      borderRadius: 4,
+                      padding: "3px 8px",
+                      fontSize: 10,
+                      fontWeight: 600,
+                      cursor: "pointer"
+                    }}
+                  >
+                    {cat}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Main Content Area: Split Logistics & Specialties Grid */}
+            <div style={{ flex: 1, overflowY: "auto", padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
+              {/* Wartime Embargoes & Caravan Feed Row */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                {/* Active Embargoes */}
+                <div style={{ background: "#0b111a", border: "1px solid #1e293b", borderRadius: 8, padding: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#f43f5e", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                    <span>⚔️</span> Active Wartime Trade Embargoes ({economyData?.activeEmbargoes?.length || 0})
+                  </div>
+                  {(!economyData?.activeEmbargoes || economyData.activeEmbargoes.length === 0) ? (
+                    <div style={{ fontSize: 11, color: "#10b981", fontStyle: "italic", padding: "8px 0" }}>
+                      🕊️ Continental trade peace: all inter-faction caravan routes open with zero active embargoes.
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 120, overflowY: "auto" }}>
+                      {economyData.activeEmbargoes.map((emb: any) => (
+                        <div key={emb.id} style={{ background: "#1c1017", border: "1px solid #881337", borderRadius: 4, padding: "6px 10px", fontSize: 11 }}>
+                          <span style={{ color: "#fb7185", fontWeight: 700 }}>{emb.faction1_name}</span>
+                          <span style={{ color: "#64748b", margin: "0 6px" }}>⚔️ EMBARGO ⚔️</span>
+                          <span style={{ color: "#fb7185", fontWeight: 700 }}>{emb.faction2_name}</span>
+                          <span style={{ color: "#fda4af", fontSize: 10, marginLeft: 8 }}>(Tension: {emb.tension})</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Recent Trade Caravan Events */}
+                <div style={{ background: "#0b111a", border: "1px solid #1e293b", borderRadius: 8, padding: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#38bdf8", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                    <span>🐪</span> Live Inter-Faction Caravan Logistics
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 120, overflowY: "auto" }}>
+                    {(!economyData?.recentTradeEvents || economyData.recentTradeEvents.length === 0) ? (
+                      <div style={{ fontSize: 11, color: "#64748b", fontStyle: "italic" }}>
+                        Awaiting next trade caravan dispatched along roads...
+                      </div>
+                    ) : (
+                      economyData.recentTradeEvents.slice(0, 5).map((ev: any) => (
+                        <div key={ev.id} style={{ background: "#08101a", border: "1px solid #1e293b", borderRadius: 4, padding: "4px 8px", fontSize: 10 }}>
+                          <span style={{ color: "#38bdf8", fontWeight: 700 }}>Tick {ev.tick}:</span>{" "}
+                          <span style={{ color: ev.type === "TRADE_EMBARGO_CHOKEPOINT" ? "#f43f5e" : "#e2e8f0" }}>{ev.message}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Faction Specialties Cards Grid */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", gap: 14 }}>
+                {(economyData?.specialties || [])
+                  .filter((spec: any) => {
+                    if (economyCategoryFilter !== "ALL" && spec.category !== economyCategoryFilter) return false;
+                    if (economySearch.trim()) {
+                      const q = economySearch.toLowerCase();
+                      return (
+                        spec.factionName.toLowerCase().includes(q) ||
+                        spec.uniqueGoodName.toLowerCase().includes(q) ||
+                        spec.specialtyName.toLowerCase().includes(q) ||
+                        spec.artisanRole.toLowerCase().includes(q)
+                      );
+                    }
+                    return true;
+                  })
+                  .map((spec: any) => {
+                    const catColors: Record<string, { bg: string; text: string; border: string }> = {
+                      PRESERVATION: { bg: "#14532d", text: "#86efac", border: "#166534" },
+                      STRUCTURAL: { bg: "#78350f", text: "#fde68a", border: "#92400e" },
+                      FOUNDATION: { bg: "#365314", text: "#bef264", border: "#4d7c0f" },
+                      ADVANCED: { bg: "#164e63", text: "#a5f3fc", border: "#155e75" },
+                      HEALTH: { bg: "#064e3b", text: "#6ee7b7", border: "#047857" },
+                      METAPHYSICAL: { bg: "#581c87", text: "#e9d5ff", border: "#6b21a8" },
+                      LOGISTICS: { bg: "#1e3a8a", text: "#93c5fd", border: "#1d4ed8" },
+                      ENERGY: { bg: "#7f1d1d", text: "#fca5a5", border: "#991b1b" }
+                    };
+                    const color = catColors[spec.category] || { bg: "#1e293b", text: "#cbd5e1", border: "#334155" };
+
+                    return (
+                      <div
+                        key={spec.factionId}
+                        style={{
+                          background: "#0c131f",
+                          border: `1px solid ${color.border}`,
+                          borderRadius: 8,
+                          padding: 14,
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 8,
+                          boxShadow: "0 2px 6px rgba(0,0,0,0.3)"
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: "#f8fafc" }}>{spec.factionName}</div>
+                            <div style={{ fontSize: 11, color: "#fbbf24", fontWeight: 600 }}>{spec.specialtyName}</div>
+                          </div>
+                          <span
+                            style={{
+                              background: color.bg,
+                              color: color.text,
+                              fontSize: 9,
+                              fontWeight: 700,
+                              padding: "2px 6px",
+                              borderRadius: 4,
+                              textTransform: "uppercase",
+                              letterSpacing: "0.05em"
+                            }}
+                          >
+                            {spec.category}
+                          </span>
+                        </div>
+
+                        {/* Unique Signature Commodity */}
+                        <div style={{ background: "#070c14", border: "1px solid #1e293b", borderRadius: 6, padding: "8px 10px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: "#38bdf8" }}>✨ {spec.uniqueGoodName}</span>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: "#eab308" }}>💰 {spec.baseExportPrice}g / batch</span>
+                          </div>
+                          <p style={{ margin: 0, fontSize: 10, color: "#94a3b8", lineHeight: 1.4 }}>{spec.description}</p>
+                        </div>
+
+                        {/* Harvest & Production Method Lore */}
+                        <div style={{ fontSize: 10, color: "#cbd5e1", background: "#0f172a", border: "1px solid #1e293b", borderRadius: 4, padding: "6px 8px" }}>
+                          <strong style={{ color: "#a855f7" }}>Harvest / Craft Lore:</strong> {spec.harvestMethod}
+                        </div>
+
+                        {/* Inputs and Progression Role */}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10, color: "#64748b", borderTop: "1px solid #1e293b", paddingTop: 6 }}>
+                          <div>
+                            <span style={{ color: "#94a3b8" }}>Master Artisan: </span>
+                            <span style={{ color: "#f1f5f9", fontWeight: 600 }}>{spec.artisanRole}</span>
+                          </div>
+                          <div style={{ fontSize: 9, color: "#0ea5e9", fontStyle: "italic" }}>
+                            {spec.artisanPersonaTag}
+                          </div>
+                        </div>
+
+                        <div style={{ fontSize: 10, color: "#10b981", background: "rgba(16, 185, 129, 0.08)", padding: "4px 8px", borderRadius: 4 }}>
+                          <strong>Progression Key:</strong> {spec.progressRoleDescription}
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "RULES_LAB" && (
+          <RulesLabTab />
+        )}
+
       </div>
+
+      {tacticalModalTarget && (
+        <TacticalSandboxModal
+          cellId={tacticalModalTarget.cellId}
+          rx={tacticalModalTarget.rx}
+          ry={tacticalModalTarget.ry}
+          onClose={() => setTacticalModalTarget(null)}
+        />
+      )}
     </div>
   );
 }

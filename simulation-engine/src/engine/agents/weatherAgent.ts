@@ -47,7 +47,8 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
         // Pick storm type based on season + phase
         let stormType = "STORM";
         if (season === "The Deep Cold" || season === "The Withering") stormType = "BLIZZARD";
-        else if (season === "The High Sun" || season === "The Bloom")  stormType = "DROUGHT";
+        else if (season === "The High Sun")  stormType = Math.random() < 0.45 ? "WILDFIRE" : "DROUGHT";
+        else if (season === "The Bloom")  stormType = Math.random() < 0.25 ? "EARTHQUAKE" : "DROUGHT";
         else if (phase === "FULL_BLOOD" || phase === "NIGHTMARE")      stormType = "CHAOS_STORM";
         else if (season === "The Roaring")                             stormType = "HURRICANE";
 
@@ -73,7 +74,7 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
         // We stored burg cell_id; we need the cell x/y. Use a simple bounding check on geometry centroid.
         // For now: apply to a random sample of burgs weighted by probability — real geo join is Phase 2.
         const affectedBurgs = await client.query(
-            `SELECT burg_id, name, cell_id, food, unrest, health, pop_null FROM sim_burg_economy ORDER BY RANDOM() LIMIT $1`,
+            `SELECT burg_id, name, cell_id, food, unrest, health, pop_null, architecture_type FROM sim_burg_economy ORDER BY RANDOM() LIMIT $1`,
             [Math.max(1, Math.floor(front.radius / 20))] // more burgs hit by bigger fronts
         );
 
@@ -81,8 +82,48 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
             let foodDelta = 0, unrestDelta = 0, healthDelta = 0, popDelta = 0;
             let eventMsg: string | null = null;
             let weatherTags: string[] = [];
+            const arch = (burg.architecture_type || "WOOD").toUpperCase();
+            const isWood = arch === "WOOD" || arch.includes("TIMBER") || arch === "HALF_TIMBERED" || arch === "REED_STILT";
+            const isStone = arch === "STONE" || arch.includes("ASHLAR") || arch.includes("DRYSTONE");
+            const isClay = arch === "CLAY" || arch.includes("ADOBE");
 
-            if (front.type === "BLIZZARD") {
+            if (front.type === "WILDFIRE") {
+                if (isWood) {
+                    // Wood towns ignite and burn to nothing!
+                    foodDelta   = -Math.floor(burg.pop_null * 0.9);
+                    healthDelta = -18;
+                    unrestDelta = +28;
+                    popDelta    = -Math.floor(burg.pop_null * 0.03);
+                    weatherTags = ["#WildfireInferno", "#TimberQuarterAshes", "#BurnedHomes"];
+                    eventMsg = `🔥 CATASTROPHIC WILDFIRE: Raging wildfires swept into ${burg.name}! Because the town is built primarily of wood, the timber framing and thatched roofs ignited instantly. Entire residential quarters burned to nothing, leaving hundreds homeless amidst smoking ash!`;
+                    await tagBurgCitizens(client, burg.burg_id, ['#BurnedOutRefugee', '#AshRuinsSurvivor'], 'TERRIFIED', `Lost their home to the wildfire inferno that consumed the wooden districts of ${burg.name}.`, null, 4);
+                } else {
+                    // Stone and Clay towns resist fire!
+                    foodDelta   = -Math.floor(burg.pop_null * 0.2);
+                    healthDelta = -2;
+                    unrestDelta = +5;
+                    weatherTags = ["#FireResisted", "#ScorchedWalls"];
+                    eventMsg = `Wildfires roared against the fortified masonry perimeter of ${burg.name}. The town's heavy ${arch.toLowerCase()} construction resisted the flames, sparing the structures while surrounding scrubland scorched.`;
+                }
+            } else if (front.type === "EARTHQUAKE") {
+                if (isStone) {
+                    // Stone towns suffer masonry collapse and fractures
+                    foodDelta   = -Math.floor(burg.pop_null * 0.4);
+                    healthDelta = -12;
+                    unrestDelta = +22;
+                    popDelta    = -Math.floor(burg.pop_null * 0.02);
+                    weatherTags = ["#EarthquakeRubble", "#CollapsedMasonry"];
+                    eventMsg = `A violent earthquake shook ${burg.name}! Brittle ashlar stone arches and heavy masonry towers cracked and collapsed into street rubble.`;
+                    await tagBurgCitizens(client, burg.burg_id, ['#QuakeSurvivor', '#RubbleClearingWorker'], 'WARY', `Shoveling fallen masonry after an earthquake damaged ${burg.name}.`, null, 3);
+                } else {
+                    // Wood towns flex and absorb ground tremors
+                    foodDelta   = -Math.floor(burg.pop_null * 0.2);
+                    healthDelta = -4;
+                    unrestDelta = +8;
+                    weatherTags = ["#TremorsFelt"];
+                    eventMsg = `Ground tremors shook ${burg.name}. The settlement's flexible timber framing swayed and absorbed the shock with minimal structural damage.`;
+                }
+            } else if (front.type === "BLIZZARD") {
                 foodDelta  = -Math.floor(burg.pop_null * 0.8);  // heavy food loss
                 healthDelta = -5;
                 unrestDelta = +8;
@@ -101,14 +142,26 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
                     await tagBurgCitizens(client, burg.burg_id, ['#ThirstyLaborer', '#DustBowlRefugee'], 'BITTER', `Enduring scorching heat and water rations in drought-stricken ${burg.name}.`, null, 3);
                 }
             } else if (front.type === "HURRICANE") {
-                foodDelta   = -Math.floor(burg.pop_null * 0.4);
-                healthDelta = -4;
-                unrestDelta = +6;
-                popDelta    = -Math.floor(burg.pop_null * 0.01); // small direct deaths
-                weatherTags = ["#HurricaneGales", "#FloodedTerrain"];
-                if (Math.random() < 0.25) {
-                    eventMsg = `A massive hurricane tore through ${burg.name}, destroying timber roofs and drowning surrounding lowlands.`;
-                    await tagBurgCitizens(client, burg.burg_id, ['#StormDisplaced', '#FloodedSurvivor'], 'DESPERATE', `Rebuilding flooded homes and salvaging ruined timber after a hurricane struck ${burg.name}.`, null, 3);
+                if (isClay) {
+                    foodDelta   = -Math.floor(burg.pop_null * 0.7);
+                    healthDelta = -10;
+                    unrestDelta = +16;
+                    popDelta    = -Math.floor(burg.pop_null * 0.02);
+                    weatherTags = ["#HurricaneGales", "#FloodedTerrain", "#AdobeErosion"];
+                    if (Math.random() < 0.35) {
+                        eventMsg = `Torrential hurricane floods inundated ${burg.name}! Earthen adobe brickwork softened and eroded under relentless gale floods.`;
+                        await tagBurgCitizens(client, burg.burg_id, ['#StormDisplaced', '#FloodedSurvivor'], 'DESPERATE', `Rebuilding washed-out adobe homes after a hurricane struck ${burg.name}.`, null, 3);
+                    }
+                } else {
+                    foodDelta   = -Math.floor(burg.pop_null * 0.4);
+                    healthDelta = -4;
+                    unrestDelta = +6;
+                    popDelta    = -Math.floor(burg.pop_null * 0.01); // small direct deaths
+                    weatherTags = ["#HurricaneGales", "#FloodedTerrain"];
+                    if (Math.random() < 0.25) {
+                        eventMsg = `A massive hurricane tore through ${burg.name}, damaging roofs and drowning surrounding lowlands.`;
+                        await tagBurgCitizens(client, burg.burg_id, ['#StormDisplaced', '#FloodedSurvivor'], 'DESPERATE', `Rebuilding flooded homes and salvaging ruined timber after a hurricane struck ${burg.name}.`, null, 3);
+                    }
                 }
             } else if (front.type === "CHAOS_STORM") {
                 // Chaos storms: random, wild, terrifying
@@ -223,5 +276,50 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
             `INSERT INTO sim_events (tick, type, message, tier, lore_date) VALUES ($1, 'VOID_DRAIN', $2, 'MINOR', $3)`,
             [tick, `The central Void drinks the last of the surface chaos, leaking it upward into the Broken Moon. The cycle of Cruorbus begins anew.`, loreDate]
         );
+    }
+
+    // ── 5. NATURAL CONTINENTAL TEMPERATURE & CLIMATE CYCLE ───────────────────
+    // Dynamically updates cell temperatures across Ostraka based on season, latitude, elevation, and active fronts
+    if (tick % 5 === 0) {
+        const SEASON_BASE_TEMPS: Record<string, number> = {
+            "The High Sun": 28,
+            "The Bloom": 18,
+            "The Harvest": 16,
+            "The Awakening": 14,
+            "The Thaw": 8,
+            "The Roaring": 6,
+            "The Withering": 2,
+            "The Deep Cold": -12,
+            "The Shadow Eclipse": -15
+        };
+        const baseTemp = SEASON_BASE_TEMPS[season] ?? 14;
+
+        // Apply temperature shift across cells
+        await client.query(`
+            UPDATE sim_cells
+            SET current_temp = ROUND(
+                ($1::numeric) - (COALESCE(elevation, 50) * 0.22) - (CASE WHEN center_y < 500 THEN (500 - center_y) * 0.015 ELSE 0 END)
+            )
+        `, [baseTemp]);
+
+        // Blizzards plunge local temperatures sub-zero
+        const blizzards = fronts.rows.filter((f: any) => f.type === 'BLIZZARD');
+        for (const b of blizzards) {
+            await client.query(`
+                UPDATE sim_cells
+                SET current_temp = current_temp - 14
+                WHERE power(center_x - $1::numeric, 2) + power(center_y - $2::numeric, 2) <= power($3::numeric * 8, 2)
+            `, [Number(b.x), Number(b.y), Number(b.radius)]);
+        }
+
+        // Droughts spike heatwaves
+        const droughts = fronts.rows.filter((f: any) => f.type === 'DROUGHT');
+        for (const d of droughts) {
+            await client.query(`
+                UPDATE sim_cells
+                SET current_temp = current_temp + 14
+                WHERE power(center_x - $1::numeric, 2) + power(center_y - $2::numeric, 2) <= power($3::numeric * 8, 2)
+            `, [Number(d.x), Number(d.y), Number(d.radius)]);
+        }
     }
 }

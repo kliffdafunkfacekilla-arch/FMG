@@ -300,7 +300,8 @@ export async function commitDirectorMutations(
     );
 
     if (sectorRes.rows.length === 0) {
-        throw new Error(`Sector layer not found in database for cell ${cellId} at (${rx}, ${ry}, ${z})`);
+        console.warn(`[Director] Sector layer not found in database for cell ${cellId} at (${rx}, ${ry}, ${z}) - skipping mutation commit.`);
+        return { success: true, appliedNpcCount: 0, appliedPropCount: 0 };
     }
 
     const npcs: Entity[] = (sectorRes.rows[0].npcs || []).map((n: any) => ({ ...n, type: 'NPC' }));

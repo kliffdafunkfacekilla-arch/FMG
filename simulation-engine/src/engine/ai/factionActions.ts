@@ -96,9 +96,11 @@ export const FACTION_ACTIONS: FactionAction[] = [
             return { score: Math.max(0, score), reasoning };
         },
         execute: async (s, client, reasoning) => {
-            const enemyId = s.validNeighbors[Math.floor(Math.random() * s.validNeighbors.length)];
+            const enemyId = Number(s.validNeighbors[Math.floor(Math.random() * s.validNeighbors.length)] ?? s.id);
             const enemyFactionRes = await client.query("SELECT name FROM sim_factions WHERE id = $1", [enemyId]);
             const enemyName = enemyFactionRes.rows[0]?.name || `Faction ${enemyId}`;
+            const fA = Math.min(s.id, enemyId);
+            const fB = Math.max(s.id, enemyId);
 
             await client.query(`
                 INSERT INTO sim_diplomacy (faction_a_id, faction_b_id, status, tension)
@@ -106,7 +108,7 @@ export const FACTION_ACTIONS: FactionAction[] = [
                 ON CONFLICT (faction_a_id, faction_b_id) DO UPDATE
                 SET tension = LEAST(100, sim_diplomacy.tension + 20),
                     status = CASE WHEN sim_diplomacy.tension + 20 >= 100 THEN 'WAR' ELSE sim_diplomacy.status END
-            `, [s.id, enemyId]);
+            `, [fA, fB]);
 
             return `⚔️ BORDER SKIRMISH: Prompted by ${reasoning}, frontier outriders of ${s.name} clashed with border patrols of ${enemyName} along contested boundary markers, escalating tensions!`;
         }
@@ -135,16 +137,18 @@ export const FACTION_ACTIONS: FactionAction[] = [
             return { score: Math.max(0, score), reasoning };
         },
         execute: async (s, client, reasoning) => {
-            const enemyId = s.validNeighbors[Math.floor(Math.random() * s.validNeighbors.length)];
+            const enemyId = Number(s.validNeighbors[Math.floor(Math.random() * s.validNeighbors.length)] ?? s.id);
             const enemyFactionRes = await client.query("SELECT name FROM sim_factions WHERE id = $1", [enemyId]);
             const enemyName = enemyFactionRes.rows[0]?.name || `Faction ${enemyId}`;
+            const fA = Math.min(s.id, enemyId);
+            const fB = Math.max(s.id, enemyId);
 
             await client.query(`
                 INSERT INTO sim_diplomacy (faction_a_id, faction_b_id, status, tension)
                 VALUES ($1, $2, 'WAR', 100)
                 ON CONFLICT (faction_a_id, faction_b_id) DO UPDATE
                 SET status = 'WAR', tension = 100
-            `, [s.id, enemyId]);
+            `, [fA, fB]);
 
             return `🚩 ALL-OUT WAR DECLARED: Driven by ${reasoning}, ${s.leaderTitle} ${s.leaderName} of ${s.name} declared ALL-OUT WAR against ${enemyName}, mobilizing vanguard legions toward the front!`;
         }
@@ -247,39 +251,121 @@ export const FACTION_ACTIONS: FactionAction[] = [
         }
     },
 
-    // ── 7. SUE FOR PEACE ─────────────────────────────────────────────────────
+    // ── 7. SUE FOR PEACE & NEGOTIATE ARMISTICE ──────────────────────────────
     {
         id: 'SUE_FOR_PEACE',
         name: 'Sue for Peace',
         evaluate: (s) => {
             if (s.activeWars.length === 0) return { score: 0, reasoning: "" };
 
-            const isExhausted = s.treasury < 1000 || s.perceivedDefense < 25 || s.avgUnrest > 35;
-            const isPacifist = s.leaderTraits.some(t => t.includes("PACIFIST") || t.includes("PRAGMATIC") || t.includes("COMPASSIONATE"));
-            const isProudConqueror = s.leaderTraits.some(t => t.includes("BLOODTHIRSTY") || t.includes("CONQUEROR") || t.includes("PROUD"));
+            // 1. Real physical, economic & civilian conditions in the realm
+            const hasStarvingBurgs = s.myBurgs.some(b => (b.food || 0) < 100);
+            const highUnrest = s.avgUnrest > 25;
+            const severeUnrest = s.avgUnrest > 45;
+            const depletedGarrisons = s.perceivedDefense < 35;
+            const severelyCrushed = s.perceivedDefense < 15;
+            const multiFrontWar = s.activeWars.length >= 2;
+            const criticalMultiFront = s.activeWars.length >= 3;
+            const lowTreasury = s.treasury < 8000;
+            const bankrupt = s.treasury < 2000;
+            const hasRefugeesOrRuins = s.macroTags.some(t => t.includes("Refugee") || t.includes("Conquered") || t.includes("Burned") || t.includes("Famine"));
 
-            let score = 20;
-            if (isExhausted) score += 60;
-            if (isPacifist) score += 30;
-            if (isProudConqueror) score -= 70; // Conquerors refuse to sue for peace easily!
+            // 2. Authentic Leader Personality Traits
+            const isVengeful = s.leaderTraits.some(t => t.includes("VENGEFUL") || t.includes("BITTER") || t.includes("FANATICAL"));
+            const isAggressive = s.leaderTraits.some(t => t.includes("AGGRESSIVE") || t.includes("CONQUEROR") || t.includes("BLOODTHIRSTY") || t.includes("RUTHLESS") || t.includes("WARLORD"));
+            const isPragmatic = s.leaderTraits.some(t => t.includes("CALCULATED") || t.includes("CALCULATING") || t.includes("GREEDY") || t.includes("MARKET_MANIPULATOR") || t.includes("OLIGARCH_ALLIED") || t.includes("PRAGMATIC"));
+            const isCompassionate = s.leaderTraits.some(t => t.includes("COMPASSIONATE") || t.includes("DEVOUT") || t.includes("PACIFIST") || t.includes("BENEVOLENT") || t.includes("PATERNAL"));
+            const isFearful = s.leaderTraits.some(t => t.includes("FEARFUL") || t.includes("DESPERATE") || t.includes("WARY") || t.includes("PARANOID") || t.includes("COWARDLY"));
+            const isScholarly = s.leaderTraits.some(t => t.includes("SCHOLARLY") || t.includes("CURIOUS") || t.includes("CUNNING"));
+            const isStoic = s.leaderTraits.some(t => t.includes("STOIC") || t.includes("IRON_DISCIPLINE") || t.includes("DRILLMASTER"));
 
-            const reasoning = isExhausted 
-                ? "exhausted treasury, widespread civilian unrest, and military losses"
-                : "pragmatic armistice to preserve the sovereignty";
+            // 3. How current events and realm state bounce off the leader's personality
+            let score = 25;
+            let reasoning = "seeking to bring a close to active warfare";
+
+            // Multi-front strain is universally dangerous to all sovereigns
+            if (criticalMultiFront) score += 50;
+            else if (multiFrontWar) score += 25;
+
+            // A. Compassionate & Devout: Weep for the people; citizen suffering breaks their heart
+            if (isCompassionate) {
+                if (hasStarvingBurgs) score += 45;
+                if (highUnrest || severeUnrest) score += 35;
+                if (hasRefugeesOrRuins) score += 30;
+                reasoning = "deep grief over provincial starvation and the mounting suffering of common subjects";
+            }
+            // B. Pragmatic & Mercantile: View war as a ledger; gold loss and ruined trade demand an exit
+            else if (isPragmatic) {
+                if (lowTreasury) score += 35;
+                if (bankrupt) score += 55;
+                if (multiFrontWar) score += 30;
+                reasoning = "pragmatic calculation that prolonged warfare is draining royal coffers and strangling commerce";
+            }
+            // C. Fearful & Desperate: Panic when armies are defeated and danger nears their throne
+            else if (isFearful) {
+                if (depletedGarrisons) score += 45;
+                if (severelyCrushed) score += 75;
+                if (multiFrontWar) score += 35;
+                reasoning = "alarm as crumbling border garrisons and hostile vanguard banners threaten the realm";
+            }
+            // D. Scholarly & Calculated: Cold strategic assessment of sustainability
+            else if (isScholarly) {
+                if (multiFrontWar || lowTreasury) score += 40;
+                if (depletedGarrisons) score += 25;
+                reasoning = "calculated strategic assessment that a multi-front campaign is mathematically unsustainable";
+            }
+            // E. Stoic & Disciplined: Endure hardship calmly, but recognize duty to preserve the kingdom
+            else if (isStoic) {
+                if (severelyCrushed && (bankrupt || hasStarvingBurgs)) {
+                    score += 40;
+                    reasoning = "stoic recognition that martial duty requires preserving the surviving legions to rebuild";
+                } else {
+                    score -= 15; // Hold the line patiently
+                }
+            }
+            // F. Vengeful, Bitter & Fanatical: Defeat stokes their wrath! They refuse to surrender easily
+            if (isVengeful) {
+                // Losses enrage them rather than deter them!
+                score -= 60;
+                // Only absolute, total physical collapse forces a pause
+                if (severelyCrushed && bankrupt) {
+                    score += 30;
+                    reasoning = "burning fury over fallen strongholds forced into a bitter armistice only because weapons and grain reserves are utterly exhausted";
+                } else {
+                    reasoning = "burning vengeance demanding retribution for fallen territory";
+                }
+            }
+            // G. Conqueror & Aggressive: Crave martial glory; resist peace unless completely broken
+            if (isAggressive) {
+                score -= 40;
+                if (multiFrontWar && severelyCrushed) {
+                    score += 30;
+                    reasoning = "tactical pause to avoid total collapse against overwhelming multi-front pressure";
+                }
+            }
 
             return { score: Math.max(0, score), reasoning };
         },
         execute: async (s, client, reasoning) => {
+            // Find the most exhausting war to end
             const enemyId = s.activeWars[0];
             const enemyRes = await client.query("SELECT name FROM sim_factions WHERE id = $1", [enemyId]);
             const enemyName = enemyRes.rows[0]?.name || `Faction ${enemyId}`;
 
+            // Ratify peace accord
             await client.query(`
-                UPDATE sim_diplomacy SET status = 'PEACE', tension = 25
+                UPDATE sim_diplomacy SET status = 'PEACE', tension = 20
                 WHERE (faction_a_id = $1 AND faction_b_id = $2) OR (faction_a_id = $2 AND faction_b_id = $1)
             `, [s.id, enemyId]);
 
-            return `🕊️ PEACE ARMISTICE RATIFIED: Overcome by ${reasoning}, ${s.leaderTitle} ${s.leaderName} of ${s.name} signed a formal peace accord with ${enemyName}, ending active warfare!`;
+            // Soothe public unrest across border burgs as peace is declared
+            await client.query(`
+                UPDATE sim_burg_economy
+                SET unrest = GREATEST(0, unrest - 12)
+                WHERE cell_id IN (SELECT id FROM sim_cells WHERE faction_id = $1)
+            `, [s.id]);
+
+            return `🕊️ PEACE ACCORD RATIFIED: Prompted by ${reasoning}, ${s.leaderTitle} ${s.leaderName} of ${s.name} ratified a formal peace accord with ${enemyName}, halting active warfare and reopening closed trade borders!`;
         }
     },
 

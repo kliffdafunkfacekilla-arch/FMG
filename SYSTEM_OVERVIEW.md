@@ -19,7 +19,7 @@ Welcome to the **Aetheria Fractal Simulation & Concordia TTRPG** system. This do
    - The project is cleanly separated into 4 distinct, cooperating pillars:
      1. **The Simulation Engine** (Macro & Meso living world state).
      2. **The Player Tactical Interface** (256x256 exploration grid & visualizer).
-     3. **The Independent GM Engine** (12 Concordia attributes, tag matrices, 1d20 mechanics).
+     3. **The Independent GM Engine** (12 Concordia attributes, tag matrices, 1d12 Net Margin B.R.U.T.A.L. v4.9 mechanics).
      4. **The AI Story Generator** (Gemini narrative director connecting actors into emergent drama).
 
 ---
@@ -42,7 +42,7 @@ Welcome to the **Aetheria Fractal Simulation & Concordia TTRPG** system. This do
 |  PILLAR 3: INDEPENDENT GM ENGINE                   PILLAR 4: AI STORY GENERATOR   |
 |  - Concordia 12-Attribute Matrix                   - Gemini Natural Language Arbiter|
 |  - 4 Derived Pools (HP, Stamina, Composure, Focus) - Free-Speech Intent Parser    |
-|  - Opposed 1d20 Resolution                         - Narrative Drama & Organic Lore|
+|  - Opposed 1d12 Net Margin Resolution             - Narrative Drama & Organic Lore|
 |  - Physical Tag Matrix Cascades                    - Connects Any Two Entities    |
 |  - Pure Mechanical Execution (No Hallucinations)  - Feeds Events to `sim_events`  |
 +-----------------------------------------------------------------------------------+
@@ -102,9 +102,9 @@ The simulation engine runs in the background. It does not know or care about DOM
 - **The Underworld & Fringe Factions**: The Obsidian Cartel, Otter Mafia, Ghostwind Raiders, Free Sky-Barons, Gilded Compass, and Ivory Fleet siphon unrest from troubled towns and establish subterranean vice dens and black markets.
 - **Grind Canyon Corps & Hedge Wizards**: Chaos chasms open in the wild where brave crews dive for dragonstone; unsanctioned hedge wizards sell unregistered charms.
 
-### Pillar 2: The Player Tactical Interface (`player-client/`)
-The player interface is what the player sees on screen:
-- **Port 5173 Client**: Built in React, Vite, and HTML5 Canvas.
+### Pillar 2: The Observer Dashboard & Tactical Map Viewer (`simulation-engine/src/observer/`)
+The observer interface monitors the living world in real-time:
+- **Port 5174 / 3000 Dashboard**: Self-contained React & Vite dashboard embedded directly inside the simulation engine.
 - **Pure Visualizer**: It reads data from the simulation engine API (`GET /api/dm/sector_layer`). It **never** invents fake buildings, fake citizens, or fake terrain.
 - **256x256 Tactical Grid**: High-resolution tactical space with seamless Zelda-style boundary crossing between adjacent hex cells.
 - **3-Layer Vertical Sub-Maps**:
@@ -119,12 +119,17 @@ The Game Master (GM) engine is a strict, mathematical referee and systemic conse
 - **12 Concordia Attributes**:
   - Physical: *Might, Endurance, Finesse, Reflex, Vitality, Fortitude*.
   - Mental: *Knowledge, Logic, Awareness, Intuition, Charm, Willpower*.
-- **4 Derived Resource Pools**:
-  - `Health` (Fortitude + Vitality): Physical body integrity.
-  - `Stamina` (Endurance + Might): Athletic exertion and sprint endurance.
-  - `Composure` (Willpower + Fortitude): Mental resilience under dread or intimidation.
-  - `Focus` (Logic + Awareness): Concentration for complex skill checks or magic.
-- **Contested 1d20 Mechanics**: Actions are resolved via `1d20 + Attribute + Modifiers` versus the defender's roll or a target difficulty. Margin of success determines exact injury or progress.
+- **4 Derived Resource Pools (v4.2 Canonical Architecture)**:
+  - `Health` (Vitality + Fortitude + Intuition): Physical body integrity.
+  - `Stamina` (Might + Reflex + Charm): Physical exertion, sprinting, and martial maneuvers.
+  - `Composure` (Willpower + Awareness + Endurance): Mental resilience and morale.
+  - `Focus` (Logic + Knowledge + Finesse): Tactical analysis and concentration.
+- **4 Derived Senses & Static Guards**:
+  - `Perception` (Awareness + Intuition + Finesse): Environmental alertness.
+  - `Speed` (Reflex + Vitality + Logic): Tactical movement velocity (Dodge Guard = Math.floor(Speed/2) + 5).
+  - `Stealth` (Knowledge + Charm + Endurance): Evasion and concealment.
+  - `Balance` (Might + Fortitude + Willpower): Footing stability (Footing Guard = Math.floor(Balance/2) + 5).
+- **Contested 1d12 Net Margin Mechanics (B.R.U.T.A.L. v4.9)**: Actions are resolved via `1d12 + Attribute + Modifiers` versus `Defender 1d12 + Stat + Mod` (or passive Guard). Net Margin determines injury tier: Graze (Margin 1), Minor (2-5: 2 capacity lost, 1 energy shredded), Major (6-9: 4 capacity lost, 2 energy shredded, bleed), Critical (10+: 6 capacity lost, 3 energy shredded, staggered). Nat 12 triggers Stars; Nat 1 triggers Scars. The Clash (Margin 0) resolves via the 6 combat stances (Press, Hold, Maneuver, Trick, Feint, Disengage). Magical healing requires bodily Stamina tradeoffs.
 - **The Universal Tag Matrix (The Connective Tissue of Ostraka)**:
   - **The Physical Triad**: Every prop, obstacle, structure, and item carries three mandatory tag dimensions:
     - *Type*: `type:container`, `type:portal`, `type:furniture`, `type:workstation`, `type:mechanism`, `type:structure`, `type:hazard`, `type:waterway`, `type:weapon`, `type:armor`, `type:foliage`.
@@ -172,11 +177,11 @@ Powered by the Gemini API, this layer adds human-level soul to the math:
    node dist/server.js
    # Server runs on http://127.0.0.1:3000
    ```
-3. **Start the Player Tactical Client**:
+3. **Start the Observer Dashboard (Vite HMR)**:
    ```pwsh
-   cd player-client
-   npm run dev
-   # Tactical client opens on http://localhost:5173
+   cd simulation-engine
+   npm run observer
+   # Observer opens on http://localhost:5174 (or http://localhost:3000/dashboard)
    ```
 4. **Access the Observer Dashboard**:
    - Open `http://127.0.0.1:3000` in any browser to watch the live simulation tick and world map.

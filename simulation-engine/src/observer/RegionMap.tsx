@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { TacticalSandboxModal } from "./TacticalSandboxModal";
 
 export interface BiomePalette {
   name: string;
@@ -51,6 +52,10 @@ export function getTerrainColor(tile: number, biomeId: number): string {
     case 6: return "#a855f7"; // Covert Smuggler Trail
     case 7: return "#9333ea"; // Ancient Temple / POI
     case 8: return palette.crag; // Mountain rocky crag
+    case 9: return "#84cc16"; // Farmstead / Arable Cropland
+    case 10: return "#15803d"; // Timber Logging Camp
+    case 11: return "#64748b"; // Stone Quarry / Mountain Mine
+    case 12: return "#3b82f6"; // Watchtower Outpost
     default: return palette.ground;
   }
 }
@@ -92,6 +97,18 @@ export interface RegionAgent {
   ty: number;
 }
 
+export interface RegionalFacility {
+  type: "FARM" | "LOGGING_CAMP" | "MINE" | "WATCHTOWER";
+  name: string;
+  rx: number;
+  ry: number;
+  typology?: string;
+  citizenId?: number;
+  citizenName?: string;
+  citizenProfession?: string;
+  workerCount?: number;
+}
+
 export interface RegionLiveState {
   success: boolean;
   cellId: number;
@@ -108,7 +125,9 @@ export interface RegionLiveState {
   mapData: number[];
   biomeMap?: number[];
   infraMap: number[];
+  wardMap?: Record<number, string>;
   agents: RegionAgent[];
+  facilities?: RegionalFacility[];
 }
 
 export function RegionMap({
@@ -128,8 +147,10 @@ export function RegionMap({
   const [isMinimized, setIsMinimized] = useState(false);
   const [hoveredPos, setHoveredPos] = useState<{ rx: number; ry: number } | null>(null);
   const [hoveredAgent, setHoveredAgent] = useState<RegionAgent | null>(null);
+  const [hoveredFacility, setHoveredFacility] = useState<RegionalFacility | null>(null);
   const [selectedLocalCell, setSelectedLocalCell] = useState<{ rx: number; ry: number } | null>({ rx: 50, ry: 50 });
   const [showAgents, setShowAgents] = useState(true);
+  const [showTacticalModal, setShowTacticalModal] = useState<boolean>(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const terrainCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -232,6 +253,39 @@ export function RegionMap({
     const cellW = canvas.width / 100;
     const cellH = canvas.height / 100;
 
+    // Render authentic demographic facilities (12:1 worker units)
+    if (regionData.facilities) {
+      for (const fac of regionData.facilities) {
+        const fcx = (fac.rx + 0.5) * cellW;
+        const fcy = (fac.ry + 0.5) * cellH;
+
+        let badgeColor = "#f59e0b"; // Amber (Farm)
+        if (fac.type === "LOGGING_CAMP") badgeColor = "#10b981"; // Emerald
+        else if (fac.type === "MINE") badgeColor = "#94a3b8"; // Slate
+        else if (fac.type === "WATCHTOWER") badgeColor = "#3b82f6"; // Blue
+
+        // Facility Marker
+        ctx.beginPath();
+        ctx.arc(fcx, fcy, 4.5, 0, Math.PI * 2);
+        ctx.fillStyle = badgeColor;
+        ctx.fill();
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Pulsing glow if hovered or selected
+        const isHovered = hoveredPos && Math.abs(hoveredPos.rx - fac.rx) <= 1 && Math.abs(hoveredPos.ry - fac.ry) <= 1;
+        const isSelected = selectedLocalCell && selectedLocalCell.rx === fac.rx && selectedLocalCell.ry === fac.ry;
+        if (isHovered || isSelected) {
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(fcx, fcy, 6.5, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+    }
+
     // Highlight selected local cell (Micro LOD indicator)
     if (selectedLocalCell) {
       ctx.strokeStyle = "#38bdf8";
@@ -304,6 +358,12 @@ export function RegionMap({
     const ry = Math.max(0, Math.min(99, Math.floor((my / rect.height) * 100)));
     setHoveredPos({ rx, ry });
 
+    // Check if hovering near a facility
+    const foundFac = regionData?.facilities?.find(f =>
+      Math.abs(f.rx - rx) <= 1 && Math.abs(f.ry - ry) <= 1
+    );
+    setHoveredFacility(foundFac || null);
+
     // Check if hovering near an agent's cell
     const found = agents.find(a => {
       const arx = a.rx ?? Math.round(a.x);
@@ -322,7 +382,16 @@ export function RegionMap({
 
     const rx = Math.max(0, Math.min(99, Math.floor((mx / rect.width) * 100)));
     const ry = Math.max(0, Math.min(99, Math.floor((my / rect.height) * 100)));
-    setSelectedLocalCell({ rx, ry });
+    
+    // If clicked near a facility, lock to the facility's exact cell
+    const clickedFac = regionData?.facilities?.find(f =>
+      Math.abs(f.rx - rx) <= 1 && Math.abs(f.ry - ry) <= 1
+    );
+    if (clickedFac) {
+      setSelectedLocalCell({ rx: clickedFac.rx, ry: clickedFac.ry });
+    } else {
+      setSelectedLocalCell({ rx, ry });
+    }
   };
 
   const predatorCount = agents.filter(a => a.type === "Predator").length;
@@ -514,7 +583,46 @@ export function RegionMap({
             )}
 
             {/* Hover Tooltip */}
-            {hoveredAgent ? (
+            {hoveredFacility ? (
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: 8,
+                  left: 8,
+                  right: 8,
+                  background: "rgba(10, 16, 26, 0.95)",
+                  border: "1px solid #38bdf8",
+                  padding: "6px 10px",
+                  borderRadius: 6,
+                  fontSize: 11,
+                  color: "#f1f5f9",
+                  pointerEvents: "none",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.6)"
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
+                  <span style={{ fontWeight: 800, color: hoveredFacility.type === "FARM" ? "#facc15" : hoveredFacility.type === "LOGGING_CAMP" ? "#34d399" : hoveredFacility.type === "MINE" ? "#cbd5e1" : "#60a5fa" }}>
+                    {hoveredFacility.type === "FARM" ? "🌾" : hoveredFacility.type === "LOGGING_CAMP" ? "🪓" : hoveredFacility.type === "MINE" ? "⛏️" : "🛡️"} {hoveredFacility.name}
+                  </span>
+                  <span style={{ fontSize: 9, color: "#94a3b8" }}>
+                    Cell ({hoveredFacility.rx}, {hoveredFacility.ry})
+                  </span>
+                </div>
+                {hoveredFacility.citizenName ? (
+                  <div style={{ fontSize: 10, color: "#cbd5e1" }}>
+                    Master: <strong style={{ color: "#38bdf8" }}>{hoveredFacility.citizenName}</strong> ({hoveredFacility.citizenProfession})
+                  </div>
+                ) : null}
+                {hoveredFacility.typology ? (
+                  <div style={{ fontSize: 9, color: "#e2e8f0" }}>
+                    Typology: <span style={{ color: "#f59e0b", fontWeight: 700 }}>{hoveredFacility.typology}</span>
+                  </div>
+                ) : null}
+                <div style={{ fontSize: 9, color: "#94a3b8", marginTop: 2 }}>
+                  Demographic Baseline: <span style={{ color: "#22c55e", fontWeight: 700 }}>{hoveredFacility.workerCount || 12} Workers</span> (1 Unit)
+                </div>
+              </div>
+            ) : hoveredAgent ? (
               <div
                 style={{
                   position: "absolute",
@@ -556,9 +664,70 @@ export function RegionMap({
                     return (bId !== undefined && BIOME_PALETTES[bId]?.name) || regionData.biome;
                   })()}
                 </strong>
+                {(() => {
+                  const idx = hoveredPos.ry * 100 + hoveredPos.rx;
+                  const ward = regionData.wardMap?.[idx];
+                  if (ward) {
+                    return (
+                      <span>
+                        {" "}• Ward: <strong style={{ color: "#f59e0b" }}>{ward}</strong>
+                      </span>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
             ) : null}
           </div>
+
+          {/* Facility Quick-Select Bar */}
+          {regionData?.facilities && regionData.facilities.length > 0 && (
+            <div
+              style={{
+                padding: "6px 10px",
+                background: "#070c14",
+                borderBottom: "1px solid #1e293b",
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 5,
+                maxHeight: 64,
+                overflowY: "auto"
+              }}
+            >
+              {regionData.facilities.map((fac, idx) => {
+                const isSelected = selectedLocalCell?.rx === fac.rx && selectedLocalCell?.ry === fac.ry;
+                const icon = fac.type === "FARM" ? "🌾" : fac.type === "LOGGING_CAMP" ? "🪓" : fac.type === "MINE" ? "⛏️" : "🛡️";
+                const badgeColor = isSelected ? "#38bdf8" : fac.type === "FARM" ? "#ca8a04" : fac.type === "LOGGING_CAMP" ? "#059669" : fac.type === "MINE" ? "#475569" : "#2563eb";
+
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => setSelectedLocalCell({ rx: fac.rx, ry: fac.ry })}
+                    title={`${fac.name}\nMaster: ${fac.citizenName || 'Occupant'} (${fac.workerCount || 12} workers)\nClick to focus tactical coordinate.`}
+                    style={{
+                      background: isSelected ? "rgba(56, 189, 248, 0.25)" : "rgba(30, 41, 59, 0.7)",
+                      border: `1px solid ${badgeColor}`,
+                      color: isSelected ? "#f0f9ff" : "#cbd5e1",
+                      borderRadius: 4,
+                      padding: "2px 6px",
+                      fontSize: 10,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      fontWeight: isSelected ? 700 : 500,
+                      transition: "all 0.15s ease"
+                    }}
+                  >
+                    <span>{icon}</span>
+                    <span style={{ maxWidth: 100, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {fac.citizenName ? fac.citizenName.split(" ")[0] : fac.name}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {/* ── FOOTER: LIVE TELEMETRY & TACTICAL LOCAL COORDINATE ──── */}
           <div
@@ -601,30 +770,58 @@ export function RegionMap({
               </button>
             </div>
 
-            {/* Focused Tactical Micro Cell Link */}
+            {/* Focused Tactical Micro Cell Link & Sandbox Opener */}
             <div
               style={{
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
-                padding: "6px 8px",
+                padding: "8px 10px",
                 background: "#0f172a",
-                borderRadius: 4,
-                fontSize: 10,
-                color: "#94a3b8"
+                borderRadius: 6,
+                fontSize: 11,
+                color: "#94a3b8",
+                border: "1px solid #1e293b",
+                marginTop: 4
               }}
             >
-              <span>
-                Focused Micro Cell:{" "}
+              <div>
+                <span>Selected Regional Cell: </span>
                 <strong style={{ color: "#38bdf8" }}>
                   rx: {selectedLocalCell?.rx ?? 50}, ry: {selectedLocalCell?.ry ?? 50}
-                </strong>{" "}
-                (Tactical 256x256 Z=0)
-              </span>
-              <span style={{ color: "#64748b" }}>Discrete Step Simulation (1 Tick = 1 Day)</span>
+                </strong>
+              </div>
+              <button
+                onClick={() => setShowTacticalModal(true)}
+                style={{
+                  background: "linear-gradient(135deg, #0284c7, #7c3aed)",
+                  border: "none",
+                  color: "#fff",
+                  padding: "5px 12px",
+                  borderRadius: 4,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  boxShadow: "0 2px 6px rgba(2, 132, 199, 0.4)"
+                }}
+              >
+                ⚔️ Inspect Tactical 256x256 & GM Sandbox
+              </button>
             </div>
           </div>
         </>
+      )}
+
+      {showTacticalModal && (
+        <TacticalSandboxModal
+          cellId={cellId}
+          rx={selectedLocalCell?.rx ?? 50}
+          ry={selectedLocalCell?.ry ?? 50}
+          onClose={() => setShowTacticalModal(false)}
+        />
       )}
     </div>
   );

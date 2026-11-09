@@ -102,7 +102,15 @@ export async function ingestHolgalandMap() {
     `);
 
     // Clean dependent simulation tables in foreign-key safe order
-    console.log("[Ingest] Clearing previous world geography...");
+    console.log("[Ingest] Clearing previous world geography and simulation history...");
+    await client.query("DELETE FROM sim_events");
+    await client.query("DELETE FROM sim_calendar");
+    await client.query("DELETE FROM sim_diplomacy");
+    await client.query("DELETE FROM sim_agents");
+    await client.query("DELETE FROM sim_npc_instances");
+    await client.query("DELETE FROM sim_industrial_stockpiles");
+    await client.query("DELETE FROM sim_chaos_zones");
+    await client.query("DELETE FROM sim_grind_canyons");
     await client.query("DELETE FROM sim_sacred_groves");
     await client.query("DELETE FROM sim_chaos_flows");
     await client.query("DELETE FROM sim_roads");
@@ -140,6 +148,20 @@ export async function ingestHolgalandMap() {
         lore.magic,
         lore.economy
       ]);
+    }
+
+    // Ingest Faction Adjacency Borders
+    await client.query("DELETE FROM sim_faction_borders");
+    for (const s of pack.states) {
+      if (!s || !s.neighbors) continue;
+      for (const n of s.neighbors) {
+        if (n > 0 && n !== s.i) {
+          await client.query(
+            "INSERT INTO sim_faction_borders (faction_id, faction_a, faction_b, is_border) VALUES ($1, $2, $3, true)",
+            [s.i, s.i, n]
+          );
+        }
+      }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -226,6 +248,10 @@ export async function ingestHolgalandMap() {
       const urbanTier = b.capital ? 3 : (b.population > 12 ? 3 : (b.population > 2 ? 2 : 1));
       const wealth = Math.floor(b.treasury || 500);
 
+      const startingFood = Math.max(2000, Math.floor(popNull * 5));
+      const startingMats = Math.max(1500, Math.floor(popNull * 3));
+      const startingRefined = Math.max(1500, Math.floor(popNull * 3));
+
       await client.query(`
         INSERT INTO sim_burg_economy (
           burg_id, name, cell_id, food, raw_materials, refined_goods,
@@ -233,15 +259,18 @@ export async function ingestHolgalandMap() {
           dominant_domain, species_demographics, health, crime_rate,
           is_capital, port, culture_id
         ) VALUES (
-          $1, $2, $3, 2000, 1500, 1500,
-          $4, 0, $5, $6, $7,
-          'MATERIAL', $8, 100, 0,
-          $9, $10, $11
+          $1, $2, $3, $4, $5, $6,
+          $7, 0, $8, $9, $10,
+          'MATERIAL', $11, 100, 0,
+          $12, $13, $14
         )
       `, [
         b.i,
         b.name,
         b.cell,
+        startingFood,
+        startingMats,
+        startingRefined,
         wealth,
         popNull,
         popAttuned,
@@ -251,6 +280,10 @@ export async function ingestHolgalandMap() {
         Boolean(b.port),
         b.culture || 0
       ]);
+
+      if (b.state !== undefined && b.state !== null && b.cell) {
+        await client.query("UPDATE sim_cells SET faction_id = $1 WHERE id = $2", [b.state, b.cell]);
+      }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
