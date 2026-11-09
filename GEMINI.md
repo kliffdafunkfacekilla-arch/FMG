@@ -1,233 +1,61 @@
-> **Read `AGENT_RULES.md` first. It overrides this file, `SYSTEM_OVERVIEW.md` and `.agents/skills/`.**
+# AGENT RULES (read this first, every session)
 
-# AI Agent & Gemini Development Guidelines: FMG Rebuild & Aetheria Simulation
+These rules beat everything else in this repo, including `GEMINI.md`, `SYSTEM_OVERVIEW.md` and `.agents/skills/`. If anything conflicts with them, they win, and you report the conflict.
 
-Welcome! You are working on the high-performance full-stack rebuild of the Fantasy Map Generator (FMG), currently executing the "Aetheria" 8-Layer Agentic Fractal Simulation. Your primary goal is to ensure exact feature replication, high performance, and extreme modularity across all four architectural pillars.
+## What we are building (one paragraph)
 
----
+A living Shatterlands world that a party can play B.R.U.T.A.L. in. The world runs on its own, one day per tick. Trouble grows out of real people and real places, and it reaches the party. The players act, B.R.U.T.A.L. resolves what they do, and the world remembers the result. **Every change must serve this loop:**
 
-# THE 4-PILLAR ARCHITECTURE
+> **tick → trouble (a thread) → hook reaches the party → players act → B.R.U.T.A.L. resolves → consequences written back → tick**
 
-The entire system is strictly partitioned into four autonomous, collaborating pillars:
+If you can't say which step of the loop a change serves, don't build it. Add it to `PARKING_LOT.md` instead.
 
-```
-+-----------------------------------------------------------------------------------+
-|                            THE 4-PILLAR ARCHITECTURE                              |
-+-----------------------------------------------------------------------------------+
-|  PILLAR 1: SIMULATION ENGINE    <==[REST/WS]==>    PILLAR 2: PLAYER INTERFACE     |
-|  - Autonomous Macro/Meso Engine                    - Tactical WebGL/2D Local View |
-|  - PostgreSQL Source of Truth                      - Read-Only Projection of State|
-|  - 8-Layer Agentic Tick (1 Day = 1 Tick)          - Sector Survey & Telemetry    |
-|  - 714 Paragons & 207k Demographics                - Sub-Map Layer Navigation     |
-|  - Cartels, Lairs, Military Squads                 - Web Audio Synthesizer        |
-+-----------------------------------------------------------------------------------+
-|                                         |                                         |
-|                                         v                                         |
-|  PILLAR 3: INDEPENDENT GM ENGINE                   PILLAR 4: AI STORY GENERATOR   |
-|  - Concordia 12-Attribute Matrix                   - Gemini Natural Language Arbiter|
-|  - 4 Derived Pools (HP, Stamina, Composure, Focus) - Free-Speech Intent Parser    |
-|  - Opposed 1d12 Net Margin Resolution             - Narrative Drama & Organic Lore|
-|  - Physical Tag Matrix Cascades                    - Connects Any Two Entities    |
-|  - Pure Mechanical Execution (No Hallucinations)  - Feeds Events to `sim_events`  |
-+-----------------------------------------------------------------------------------+
-```
+## The 10 rules
 
----
+1. **Plan before code.** Before editing anything, reply with:
+   - the loop step the change serves;
+   - the files you will touch;
+   - which of these rules apply;
+   - what you will *not* do.
+   Wait for approval.
+2. **One task per session.** Keep changes small. Commit after each working step, with a message that names the loop step.
+3. **Canon and rules live in the Shatterlands folder and are read-only.** Never restate them here; point to them.
+   - Lore: `C:\Users\krazy\Desktop\Shatterlands\Canon\`, starting at `00_Index_and_Precedence.md`.
+   - Rules: `C:\Users\krazy\Desktop\Shatterlands\Rules\BRUTAL_Rulebook_v3.md` (it holds Draft v4.9; the file name is historical). For the short version, read `Rules\Table_Test_Pack\players\Rules_Digest.md`.
+   - If the code disagrees with them, the code is wrong.
+4. **The game system is B.R.U.T.A.L., not "Concordia".** It uses a d12 plus a stat against a Guard. Don't add Concordia mechanics, 1d20 rolls or invented stats. Port existing Concordia code to B.R.U.T.A.L. only as a planned task.
+5. **The world is Ostraka, in the Shatterlands.** "Aetheria" is a retired working name, so don't use it in new code or text.
+6. **Code does the math; the LLM does the words.** Dice, pools, damage and clocks are deterministic code. The LLM only:
+   - narrates;
+   - voices NPCs;
+   - parses player intent into structured actions;
+   - proposes story meaning.
+   It never decides a mechanical outcome.
+7. **No invented entities.** Every NPC, place, item or faction the LLM names must already exist in the database (validate the ID). Reject the output if it doesn't. No generic spawns.
+8. **Simulation and view stay separate.** Simulation modules are pure: state in, state out. The renderer reads; it never writes.
+9. **A rule isn't real until it's a test.** When you add or fix a rule, add a test that fails if the rule breaks (see the list below). Don't add rules to docs as prose.
+10. **Remove before you add.** If a fix needs new scaffolding, first check whether something existing can be cut or simplified. Report anything you find that no loop step uses.
 
-# THE NESTED FRACTAL MAP & SIMULATION HIERARCHY
+## Rules that must be tests (write these first)
 
-The world of Ostraka is organized into a strictly nested 3-tier fractal hierarchy, sandwiching the local layer vertically:
+| Rule | Test |
+|---|---|
+| No phantom water | Every water cell connects to ocean, a lake or a river. |
+| Discrete tick movement | Agents move only during a tick, and no further than one tick's range. |
+| No invented entities | Every ID in director/LLM output exists in the database. |
+| Zero generic spawns | Every spawned humanoid traces to demographics, the military or the paragons. |
+| Pure simulation | Simulation modules import nothing from the UI or renderer. |
+| B.R.U.T.A.L. math | A d12 roll against a Guard matches the rulebook's worked examples. |
+| Canon calendar and Powers | The calendar, the 12 Powers and the prisons match `Canon/04` and `Canon/02`. |
 
-```
-                                      [UPPER LOCAL: Z = +1]
-                                      (Ramparts, Parapets, 2nd-Story Lofts, Canopies)
-                                             │
-[GLOBAL: Macro] ──────► [REGIONAL: Meso] ────► [LOCAL: Surface Z = 0]
- (Continental Realm)     (10,000 Cells)        (Player's Tactical Grid: Objects, NPCs, Props)
-                                             │
-                                      [LOWER LOCAL: Z = -1]
-                                      (Subterranean Cellars, Sewers, Crypts, Vice Dens)
-```
+Run all tests before every commit. A failing test blocks the commit.
 
-### 1. Global Layer (Macro Continental LOD)
-* Continental scale: ~16,000 Voronoi polygonal cells (`sim_cells`).
-* Continually simulated in the background for all cells worldwide:
-  - 541-day calendar (12 Dragon Months of 44 days + 13-day Shadow Week).
-  - Continental weather, precipitation, and biome ecology.
-  - Sovereign geopolitics and monthly bureaucratic diplomacy across 19 nations.
-  - Macro burg economies (352 burgs), raw/refined supply chains, food stockpiles.
-  - 12 flowing Chaos Leys and 12 self-sustaining Dragon Prisons.
-  - The Grey Wardens (72 total) and Shlaar's Void Cultists (288 total).
+## Current focus: one vertical slice
 
-### 2. Regional Layer (Meso LOD - 10,000 Cells per Global Cell)
-* Each single Global Cell contains an overland map of **exactly 10,000 regional cells** ($100 \times 100$ grid: `rx: 0..99, ry: 0..99`, centered at `rx: 50, ry: 50`).
-* Generates overland elevation, vegetation density, chaos radiation, and road/infrastructure masks.
-* **NO PHANTOM WATER RULE**: Regional terrain tiles derive directly from the global cell's authentic biome and elevation. Water ONLY appears if the global cell is ocean (`elevation < 20` or water biome) or if a river/waterway route explicitly traverses the cell. Land cells must never spawn random noise water blotches.
-* **DISCRETE TICK MOVEMENT RULE**: 1 Tick = 1 Day. Regional agents are stationed at discrete integer cells `(rx, ry)` and advance cell-by-cell in exact lockstep with master simulation ticks. Real-time wall-clock intervals (`setInterval`) and continuous floating-point movement are strictly forbidden.
-* **FOCUSED LOD SIMULATION RULE**: Individual agent movements, tactical squad paths, and fine-grained meso updates at this 10,000-cell level are **ONLY simulated when the regional map contains the player's location (or an explicitly focused cell)**.
-* When unfocused, global cells do not execute individual agent pathfinding, keeping macro ticks fast (~200ms).
+Make **one burg, one thread and one play session** work end to end through the loop before widening anything. Expanding other systems (new layers, factions, weather, rendering) is frozen until the slice works.
 
-### 3. Local Layer (Micro LOD - The Tactical Experience)
-* The player is located at one specific cell `(rx, ry)` on the Regional map.
-* That cell opens into the **Local Layer** — the tactical grid containing authentic terrain, structures, interactive props, environmental entities, and authentic NPCs from `population_demographics` and `sim_paragons`.
-* This is the layer from which the player directly sees and experiences the world.
+## Known contradictions to resolve (don't paper over them)
 
-### 4. Upper Local & Lower Local Vertical Sandwich
-Every Local cell is vertically sandwiched by 3 synchronized layers:
-* **Upper Local ($Z = +1$)**: Fortified ramparts, parapet walkways, watchtowers, 2nd-story lofts, tree canopies, and sky-bridges.
-* **Local Surface ($Z = 0$)**: Ground level streets, plazas, cottages, workshops, water docks, and wild clearings.
-* **Lower Local ($Z = -1$)**: Subterranean dungeons, storage cellars, municipal drainage/sewer culverts, cartel contraband flues, and catacombs.
-* Players transition between levels via interactive ladders, stairs, trapdoors, and hatches (`GET /api/dm/sector_layer`).
-
-### 5. Seamless Border Transitions
-* Walking off the edge of a Local cell steps into the adjacent Regional cell `(rx ± 1, ry ± 1)` within the 10,000-cell regional map.
-* Walking off the edge of the 100x100 Regional map (`rx = 0` or `99`, `ry = 0` or `99`) seamlessly crosses into the adjacent Global Cell.
-
-### Pillar 1: The Simulation Engine (Independent Macro & Meso State)
-* Runs independently as a backend process (`simulation-engine/`).
-* Central source of truth is PostgreSQL (`sim_burg_economy`, `population_demographics`, `sim_paragons`, `sim_fringe_lairs`, `sim_sector_layers`, `sim_events`).
-* Advanced by a master tick (`1 Tick = 1 Day`).
-* Population is organized into a strict **12-to-1 ratio** (`unit_size = 12`) in `population_demographics` (expanded Paragon system).
-* Military units (`military_forces`) are structured strictly into units of 12 combatants with rendering data.
-* Underworld syndicates (Obsidian Cartel, Otter Mafia, Ghostwind Raiders, Sky-Barons, Grind Canyon Corps, Hedge Wizards) siphon unrest and build subterranean lairs.
-
-### Pillar 2: The Observer Dashboard & Tactical Map Viewer
-* Runs in the browser on port 5174 / 3000 (self-contained in `simulation-engine/src/observer/`).
-* A **pure read-only visual projection** of the live simulation state. It visualizes continental Voronoi cells, macro demographics, sovereign borders, cartel heat, and tactical sector grids. It must **NEVER** hallucinate or invent fake map elements unbacked by the simulation or database.
-* Features real-time telemetry streaming, interactive regional maps, and tactical sandbox modals (`TacticalSandboxModal.tsx`).
-* Supports 3-layer vertical navigation inspection ($Z = -1, 0, +1$):
-  - `Layer -1`: Subterranean (cellars, sewer networks, underworld vice dens, smuggler flues).
-  - `Layer 0`: Surface ground level (streets, market stalls, guildhalls, docks, gates).
-  - `Layer +1`: Upper level (ramparts, catwalks, second-story lofts, watchtowers, sky-bridges).
-* Procedural Points of Entry (POEs) inspect sub-maps for crypts, dungeons, ruins, and Grind Canyons based on simulation seeds.
-
-### Pillar 3: The Independent GM Engine (Mechanical Arbiter)
-* Deterministic rules engine (`ConcordiaGM.ts`, `TagMatrixEngine.ts`, `RulesEngine.ts`).
-* 12 Attributes: Might, Endurance, Finesse, Reflex, Vitality, Fortitude, Knowledge, Logic, Awareness, Intuition, Charm, Willpower.
-* 4 Derived Pools: Health, Stamina, Composure, Focus.
-* Opposed 1d12 Net Margin resolution (B.R.U.T.A.L. v4.9): `Attacker 1d12 + Stat + Mod` vs `Defender 1d12 + Stat + Mod` (or Guard passive). Graze (1), Minor (2-5), Major (6-9), Critical (10+). Stars on Nat 12, Scars on Nat 1.
-* Pure mechanical calculation with zero AI hallucination.
-* **The Universal Tag Matrix**: Connective tissue governing all physical, psychological, and systemic interactions across the world:
-  - **Physical Entity Triad**: Every prop, item, obstacle, and structure carries:
-    - *Type*: `type:container`, `type:portal`, `type:furniture`, `type:workstation`, `type:mechanism`, `type:structure`, `type:hazard`, `type:waterway`, `type:weapon`, `type:armor`, `type:foliage`.
-    - *Material*: `material:stone`, `material:iron`, `material:steel`, `material:osmium`, `material:wood_oak`, `material:wood_pine`, `material:obsidian`, `material:dragonstone`, `material:leather`, `material:cloth`, `material:glass`, `material:flesh`, `material:water`, `material:oil`.
-    - *Affordances, Capabilities & States*: What it can do or have done to it (`climbable`, `openable`, `lockable`, `locked`, `flammable`, `fragile`, `conductive`, `buoyant`, `sharp`, `blunt`, `piercing`, `corrosive`, `illuminating`, `toxic`, `burning`, `wet`, `frozen`, `corroded`, `void_tainted`, `hallowed`).
-  - **Citizen Persona & Status Tags**: Every NPC is tagged with authentic personality (`pious`, `greedy`, `cowardly`, `brave`, `cynical`, `loyal`, `rebellious`), temperament & instinct (`temper:*`, `instinct:*`, `motivation:*`), and dynamic condition (`starving`, `exhausted`, `injured`, `panicked`, `drunk`, `corrupted_by_void`, `mourning`, `celebrating`, `sheltered`, `alert`, `imprisoned`, `fugitive`).
-  - **Simulated Event Tags & Data Collision Reactions**: Macro and regional events emit tags (`#MartialLawCurfew`, `#FamineCrisis`, `#FullBloodStorm`, `#CultistWhisper`, `#DebtJubilee`, `#DragonSurge`) that collide directly with citizen tags in `narrativeReactionEngine.ts`, causing them to react naturally and systematically (rioting, hiding, praying, price-gouging, reporting heresy) without LLM hallucinations.
-
-### 6. Procedural Architecture, Biome & Culture Materials, and Past Event Scars
-* **Authentic Material Construction Rules (`burgOperationsAgent.ts`)**:
-  - Settlements do NOT upgrade or expand via generic raw tokens. Settlement tier upgrades (`urban_tier`) and infrastructure maintenance specifically consume authentic local construction materials: Timber (`wood`, `lumber`), Masonry (`stone`, `cut_stone`), Brick/Adobe (`clay`, `bricks`), Structural Metal (`iron`, `forged_steel`), and Roofing Thatch (`fibre`, `thread`).
-  - The dominant available building materials, local biome, and cell geography dynamically set `architecture_type` in `sim_burg_economy`:
-    - `ADOBE_BRICK`: Arid/desert biomes with sun-baked clay, flat courtyard roofs, and oasis cisterns.
-    - `HALF_TIMBERED` & `TIMBER_FRAMED`: Forested biomes with heavy oak framing, steep slate/shingle roofs, and timber floors.
-    - `ASHLAR_STONE` & `DRYSTONE_CRAG`: High elevation crags, montane ridges, and Bear-Folk enclaves with cyclopean stone masonry and deep cellar vaults.
-    - `REED_STILT`: Wetland, swamp, riverine, and coastal port settlements featuring elevated timber boardwalks and water docks.
-    - `GROVE_CLUSTER`: Plant-Folk and nature-aligned settlements centered around an ancient thousand-year-old Sacred Heart-Tree with living-timber roundhouses.
-    - `RADIAL_SPIRE`: Avian and high spire cultures featuring concentric circular ramparts, radiating spoke avenues, and central Celestial Sundials.
-* **Procedural Tactical Map Generation (`SectorMapGenerator.ts`)**:
-  - Eliminates all hardcoded square boxes and straight N/S/E/W cross roads.
-  - Generates topographically perturbed walls, organic meandering thoroughfares, secondary residential lanes, and procedurally dimensioned building plots.
-* **Living Past Event Scars (`sim_events` Collision)**:
-  - Tactical map generation directly queries `sim_events` for recent historical events in that burg or sector:
-    - *Raids / Wars / Sieges*: Carves jagged wall breaches filled with rubble (`tile: 3`), makeshift defensive barricades, and scorched ruins.
-    - *Famines / Shortages*: Spawns communal relief soup cauldrons and guarded emergency grain depots in the town square.
-    - *Witch Hunts / Inquisitions*: Places charred execution stakes and iron gibbets in the plaza with chalk ward runes at city gates.
-    - *Chaos Surges / Void Incursions*: Opens luminescent purple Chaos Conduit fissures (`tile: 6`) along alleys with void crystal clusters.
-    - *Boomtowns / Harvest Surpluses*: Erects colorful silk festival pennants and bountiful harvest grain wagons.
-    - *Syndicate Contraband*: Hides covert dead-drop barrels in back alleys and secret smuggler tunnels burrowed beneath outer ramparts.
-
-### Pillar 4: The AI Story Generator (Narrative Weaver)
-* Gemini-powered narrative engine that reads simulation state and player history to weave emergent drama and natural dialogue.
-* Translates free-speech natural language actions into structured GM commands.
-* Adapts dynamically to connect any two world entities into organic lore (e.g. connecting a displaced weaver to an Otter Mafia smuggler).
-* Logs major player impacts back into `sim_events`.
-
----
-
-# CORE ARCHITECTURAL RULES
-
-1. **Strict Separation of Simulation & View:**
-   * **Simulation Modules** MUST be pure functions. They take states/inputs and return computed data. They must NEVER manipulate the DOM, SVG, canvas, or import any UI-related state.
-   * **The Renderer** (WebGL/Canvas) is a read-only visualizer of the current State. It must NEVER mutate map data directly.
-2. **Centralized Data Store:**
-   * All shared states live in a single centralized PostgreSQL database.
-   * UI components and the renderer subscribe to specific state slices to avoid unnecessary re-renders.
-3. **Lineage & Backwards Compatibility:**
-   * The project originated as a lean Python/FastAPI rebuild of Azgaar's Fantasy Map Generator (`fmg-rebuild`), generating `Okasha.map` (12.7 MB) and `Okasha.json` (35.2 MB).
-   * Any change to data structures must maintain compatibility with existing FMG `.map` / `.json` imports and DB seeds.
-4. **Performance Targets:**
-   * Re-rendering should maintain 60 FPS during zoom/pan operations.
-   * Large compute pipelines must run asynchronously to prevent UI thread blocking.
-   * Database loops must use Bulk Queries and Accumulators, avoiding O(n) sequential row writes.
-5. **Zero Generic Spawns:**
-   * Generic placeholder NPCs are strictly forbidden.
-   * Every spawned humanoid must be an authentic citizen from `population_demographics`, a military detachment of 12 from `military_forces`, or an authentic Paragon from `sim_paragons` (714 active paragons: Mayors, Commanders, Syndicate Bosses).
-   * Monsters and beasts are synthesized strictly from live biome trophic ecology.
-6. **Documentation Mandate:**
-   * Keep memory and plain-word documentation updated in every directory (`GEMINI.md`, `SYSTEM_OVERVIEW.md`, `simulation-engine/README.md`) after completing major tasks so any developer can understand the full architecture.
-
----
-
-# WORKSPACE AGENT SKILLS
-
-The following 6 dedicated Agent Skills are located in `.agents/skills/` to govern development, architecture enforcement, and testing:
-1. **`simulation-global-macro`**: Global Continental (Macro LOD) simulation layer (541-day calendar, 19 nations, 352 burg economies, 12 Dragon Prisons, Chaos Leys).
-2. **`simulation-regional-meso`**: Regional (Meso LOD) overland layer (10,000 cells at $100 \times 100$, center `(50, 50)`, focused LOD individual agent execution rule).
-3. **`simulation-local-micro`**: Local (Micro LOD) tactical grid layer ($256 \times 256$ battle maps, 3-layer vertical sandwich $Z = -1, 0, +1$, physical POEs, border crossing).
-4. **`concordia-rules-and-stats`**: Concordia mechanical rules engine (12 attributes, 4 derived pools, opposed 1d12 Net Margin rolls, Tag Matrix physical cascades).
-5. **`concordia-dm-engine`**: Concordia Game Master execution engine (`ConcordiaGM.ts`, sector loading, `/act` arbitration, NPC routines, interior dungeons).
-6. **`aetheria-story-and-quests`**: AI Story & Quest Director (AI Director blueprints, WhatELSE narrative beats, organic lore weaving, `sim_events` logging).
-
----
-
-# AETHERIA SIMULATION MECHANICS & DESIGN
-
-The backend simulation is driven by an 8-Layer Agentic architecture executed sequentially by `masterOrchestrator.ts`. The simulation runs on a master "Tick" equivalent to **exactly one in-game day (1 Tick = 1 Day)**.
-
-## 1. Cosmology & Weather (The Base Layer)
-*   **Calendar Agent**: Tracks Years, Months, Days, Seasons, and the Lunar/Cosmic cycle across Ostraka's **541-Day Year**:
-    *   **12 Dragon Months (44 Days each = 528 Days)**: Aligned with the 12 Chaos Dragons: Tiraton (Mass), Carulkem (Nexus), Stagus (Ordo), Tyrustis (Lex), Vecelo (Motus), Aurgenas (Flux), Gavusrix (Vita), Metrion (Ratio), Opecten (Lux), Termhill (Omen), Virantor (Aura), and Lophex (Anumis).
-    *   **Month 13: "Shadow Week" (13-Day Intercalary Eclipse, Days 529–541)**: Cruorbus passes into perfect solar alignment. Ambient chaos calms while the 12 Dragon Seals weaken, spiking cult activity.
-    *   **8 Seasons (66 Days each)**: The Bloom, The High Sun, The Harvest, The Withering, The Deep Cold, The Thaw, The Awakening, The Roaring.
-    *   **5 Lunar Phases of Cruorbus (44-day cycle)**: The Empty Eye (Days 1–9), The Waxing Blood (Days 10–18), The Full Blood (Days 19–27), The Mercy Alignment (Days 28–36), and The Nightmare Alignment (Days 37–44).
-*   **Weather Agent**: Processes planetary temperature and precipitation mapped across a hexagonal coordinate grid. This influences biome growth and ecological health.
-
-## 2. Burg Operations (Economy, Logistics, & Population)
-*   **Population Scaling**: Populations are organized strictly into "Groups of 12" workers (12:1 ratio). Burgs scale through Urbanization Tiers: Village (< 1,200 pop), Town (< 12,000 pop), City (> 12,000 pop).
-    *   *Natural Growth*: Calibrated to authentic pre-industrial birth rates (~3.5% annually, accumulating as ~0.000065 daily in `pop_growth_pool`).
-    *   *Child Maturation*: Children take 15 in-game years (not days) to mature into adult laborers (`tick % 541 === 0`).
-    *   *Famine Mortality*: Calibrated to 0.1% daily (preventing wild population wipes in weeks).
-*   **3-Tiered Crafting Economy**: 
-    *   *Raw Resources* (Wood, Ore, Herbs, Fiber) gathered by base workers.
-    *   *Refined Resources* (Lumber, Steel, Textiles, Potions) processed.
-    *   *Complex Inventories* generated for regional trade.
-*   **Military Upkeep**: Military forces require base Food equal to their population equivalent (e.g. Infantry = 100 pop, Mages = 1200 pop). Units require specific maintenance: Infantry (Leather/Metal), Ranged (Wood/Blackstone), Mounted (Mounts), Airships (Dragonstone), Mages (Reagents/Wine). Starvation forces Martial Law and unrest.
-
-## 3. The Underworld (Cartels & Fringe Factions)
-*   **The 5 Fringes & Criminal Syndicates**: The Obsidian Cartel, The Otter Mafia, The Ghostwind Raiders, The Free Sky-Barons, The Gilded Compass, and the Ivory Fleet operate independent shadow economies.
-*   **Manpower Leeching**: Cartels siphon `pop_null` (disenfranchised peasants) from high-`unrest` burgs to grow their `manpower`.
-*   **Establishing Lairs**: When a cartel exceeds 200 Manpower and 500 Wealth, it establishes a `VICE_DEN` or `BLACK_MARKET` in a burg to extract wealth and generate crime.
-*   **Grind Canyon Corps**: Deep chasms that open unpredictably in the wilderness containing eldritch ruins and dragonstone; adventurous crews dive for treasure before the chasms close.
-*   **Hedge Wizards**: Unsanctioned magical practitioners supplying contraband charms and elixirs outside academic/guild authority.
-
-## 4. Faction Geopolitics (Utility AI Engine)
-*   **Staggered Turns (Bureaucracy)**: Sovereign factions evaluate grand strategy once per 44-day Dragon Month on staggered bureaucratic turns (`(tick + f.id * 7) % 44 === 0`) to prevent decision spam. Combat campaign maneuvers resolve weekly (`tick % 7 === 0`), eliminating unhistorical peace-treaty spam.
-*   **Utility AI Matrix**: Every valid geopolitical action (over 40 options like *Declare Golden Age, Trade Embargo, Arrange Royal Marriage, Fabricate Casus Belli*) is evaluated against faction state (Wealth, Military, Traits).
-*   **1d100 Combat Resolution**: Macro armies resolve conflicts via 1d100 rolls factoring in unit strengths, terrain, and supply lines.
-
-## 5. Cosmic & Metaphysical Actors
-*   **714 Local Paragons**: Unique individuals across all 352 burgs (Civic Mayors/Reeves, Security Commanders/Marshals, and Underworld Syndicate Bosses) applying localized trait multipliers.
-*   **The Self-Sustaining Dragon Prisons**: The 12 Dragon Prisons are naturally self-sustaining, powered directly by the 12 flowing Chaos Leys. They do not require daily physical maintenance.
-*   **Shlaar's Ritual Flaw & The Void Cults**: During the ancient ritual, Shlaar introduced a critical flaw—her very being is part of the system. The prisons cannot contain the dragons' psychic madness or Shlaar's whispered will, allowing her to whisper into the minds of the Sparkborn. This is what births the Void Cults (288 active cultists worldwide, 4:1 ratio to active Wardens; ~144 secret infiltrators in burgs, ~144 on flow banks).
-*   **The Grey Wardens (72 Total)**: The Wardens' sacred oath is to maintain the rest of Ostraka and keep it free from chaos corruption. They patrol the 12 Chaos Flows, cleanse eco-blight, and hunt down Shlaar's cults.
-*   **Aether-Tech Sigil Magic & Overload Martyrdom**: Wardens wield an ancient form of aether-tech to channel chaos. Routine patrol channeling produces negligible corruption; but when forced to channel vast torrents of chaos in a short window (e.g. against overwhelming cultist cabals or cataclysms), their aether-tech overloads, forcing an honorable kamikaze supernova (`WARDEN_FINAL_SACRIFICE`) that vaporizes all cultists in the sector and purges all blight.
-*   **Eyeless Elders, Flow Sight, Curved Blades & The Spire Tomb**: Veteran wardens (`age_ticks >= 80`) undergo the Rite of the Blind Seer, replacing physical sight with direct perception of the Chaos Flows. Wielding their signature curved blades, their flow-sight grants uncanny fighting abilities. When their mortal bodies grow too old for the road (`age_ticks >= 220`), they return to the Spire of Convergence and descend into the subterranean Tomb, standing forever in carved stone alcoves watching the 12 Chaos Flows across Ostraka and telepathically guiding surface Elders (`#WhispersOfTheCryptElders`).
-*   **Organic Recruitment via Ancient Warded Pathways**: Thousands of dormant ancient wards lie along forgotten pilgrimage paths that mimic the chaos flows and converge on the Spire. When a Sparkborn crosses a charged ward, a flash of cosmic vision reveals the 12 Dragon Prisons, the Chaos Flows, and Shlaar's horror:
-    *   *Awakened Pilgrim*: If their will holds, they embark on a pilgrimage to the Spire of Convergence to take the Grey Vow (`state = 'PILGRIMAGE_TO_SPIRE'`).
-    *   *Insane Wandering Hermit*: If mortal sanity breaks under the horror, they flee into the wilderness as a Mad Hermit muttering prophecies (`#MadHermitProphecy`, `#VisionsOfTheVoid`).
-*   **World-Ending Apocalypse on Broken Seal**: If any sacred seal collapses to `0%`, the trapped Chaos Dragon awakens, triggering a realm-wide cataclysm (`WORLD_ENDING_APOCALYPSE`), spiking global unrest to 100%, and raining apocalyptic chaos fire. Wardens prioritize defense and sacrifice to keep the seals intact.
-
-## 6. The Chronicler (Data & Output)
-*   **Event Logging**: All major actions across all layers are injected into `sim_events` (Major, Minor, Background tiers).
-*   **Observer & Teller API**: Live endpoints (`/api/observer/tick`, `/api/observer/state`, `/api/dm/sector_layer`) serve the frontend.
+- **Database:** the docs say PostgreSQL, but `simulation-engine/aetheria.sqlite` exists. Pick one and say which.
+- **Dice:** the skills say "1d12 Net Margin" and `SYSTEM_OVERVIEW.md` says "1d20". The answer is B.R.U.T.A.L. (rule 4).
+- **Duplication:** `GEMINI.md` describes world mechanics that duplicate Canon. Trim it to architecture, and point to Canon for the world.

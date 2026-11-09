@@ -1,7 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import zlib from 'zlib';
-import { ConcordiaGameMaster } from '../engine/rpg/ConcordiaGM.js';
+import { BrutalGameMaster, ConcordiaGameMaster } from '../engine/rpg/BrutalGM.js';
 import pool from '../db/pool.js';
 import { updateSectorNPCRoutines } from '../engine/agents/npcRoutineAgent.js';
 import { getActiveChaosFlows, evaluatePointChaosFlowProximity } from '../engine/agents/chaosFlowAgent.js';
@@ -57,7 +57,8 @@ import {
 } from '../engine/rpg/SocialSkillProgression.js';
 
 // Initialize Singleton Concordia Game Master
-const concordiaGM = new ConcordiaGameMaster(pool, process.env.GEMINI_API_KEY || '');
+const brutalGM = new BrutalGameMaster(pool, process.env.GEMINI_API_KEY || '');
+const concordiaGM = brutalGM;
 
 function parseJsonField(val: any, fallback: any = {}) {
   if (!val) return fallback;
@@ -2193,5 +2194,444 @@ Output ONLY a single valid JSON array of objects with keys: id, title, giver, de
     res.status(500).json({ error: e.message });
   }
 });
+
+
+// ==========================================
+// 4-PLAYER LIVE SESSION SYSTEM (OLLAMA + B.R.U.T.A.L. GM)
+// ==========================================
+
+export interface PartySessionMember {
+  id: number;
+  name: string;
+  role: string;
+  species: string;
+  pos: [number, number];
+  color: string;
+  badge: string;
+  weapon: string;
+  weaponStat: string;
+  armor: string;
+  hp: number;
+  maxHp: number;
+  composure: number;
+  maxComposure: number;
+  stamina: number;
+  maxStamina: number;
+  focus: number;
+  maxFocus: number;
+  persona: string;
+  tacticalGoal: string;
+  gold: number;
+}
+
+export interface PartySessionState {
+  active: boolean;
+  cellId: number;
+  rx: number;
+  ry: number;
+  z: number;
+  round: number;
+  turnIndex: number;
+  members: PartySessionMember[];
+  history: Array<{
+    round: number;
+    turn: number;
+    characterName: string;
+    dialogue: string;
+    action: string;
+    rollOutcome: any;
+    narrative: string;
+    success: boolean;
+  }>;
+}
+
+const INITIAL_MEMBERS: PartySessionMember[] = [
+  {
+    id: 101,
+    name: "Harrow Grist",
+    role: "Vanguard / Brawler",
+    species: "Boar",
+    pos: [124, 134],
+    color: "#f59e0b",
+    badge: "H",
+    weapon: "Spiked Trench Cleaver",
+    weaponStat: "might",
+    armor: "Boar-Hide Scalemail",
+    hp: 44,
+    maxHp: 44,
+    composure: 28,
+    maxComposure: 28,
+    stamina: 6,
+    maxStamina: 6,
+    focus: 8,
+    maxFocus: 8,
+    persona: "Gruff veteran of the Caldera trenches. Blunt, protective of allies, distrusts authority, prefers brute leverage.",
+    tacticalGoal: "Secure the perimeter, intimidate arrogant guards, or smash obstacles blocking the party's way.",
+    gold: 50
+  },
+  {
+    id: 102,
+    name: "Lyra Swift-Feather",
+    role: "Aerial Scout / Sniper",
+    species: "Osprey",
+    pos: [132, 138],
+    color: "#38bdf8",
+    badge: "L",
+    weapon: "Recurve Composite Bow",
+    weaponStat: "awareness",
+    armor: "Reinforced Plume-Vest",
+    hp: 30,
+    maxHp: 30,
+    composure: 24,
+    maxComposure: 24,
+    stamina: 8,
+    maxStamina: 8,
+    focus: 9,
+    maxFocus: 9,
+    persona: "Sharp-eyed high-altitude scout from Skyroost. Analytical, patient, scans elevated perimeters and structural weaknesses.",
+    tacticalGoal: "Spot sentries, climb high vantages, snipe hostile guards, or uncover concealed compartments.",
+    gold: 50
+  },
+  {
+    id: 103,
+    name: "Orlo Mind-Weaver",
+    role: "Aether Scholar / Occultist",
+    species: "Red Panda",
+    pos: [122, 140],
+    color: "#a855f7",
+    badge: "O",
+    weapon: "Resonance Conduit Staff",
+    weaponStat: "knowledge",
+    armor: "Warded Ley-Silk Vestments",
+    hp: 26,
+    maxHp: 26,
+    composure: 34,
+    maxComposure: 34,
+    stamina: 4,
+    maxStamina: 4,
+    focus: 12,
+    maxFocus: 12,
+    persona: "Curious, soft-spoken scholar from Peculiurus Spire. Fascinated by Ley flows and mechanical locks.",
+    tacticalGoal: "Decipher arcane runes, manipulate ancient mechanisms, or assess anomalous chaos radiation.",
+    gold: 50
+  },
+  {
+    id: 104,
+    name: "Vespera Velvet-Paws",
+    role: "Infiltrator / Faceworker",
+    species: "Fox",
+    pos: [128, 132],
+    color: "#10b981",
+    badge: "V",
+    weapon: "Twin Shadow-Forged Daggers",
+    weaponStat: "finesse",
+    armor: "Supple Shadow-Leathers",
+    hp: 28,
+    maxHp: 28,
+    composure: 32,
+    maxComposure: 32,
+    stamina: 7,
+    maxStamina: 7,
+    focus: 10,
+    maxFocus: 10,
+    persona: "Charming, cynical syndicate negotiator. Fluent in thief cant and bureaucratic doublespeak.",
+    tacticalGoal: "Bribe, distract, or deceive guards, pick complex locks, and slip past checkpoints unnoticed.",
+    gold: 50
+  }
+];
+
+let livePartySessionState: PartySessionState = {
+  active: false,
+  cellId: 13408,
+  rx: 50,
+  ry: 50,
+  z: 0,
+  round: 1,
+  turnIndex: 0,
+  members: JSON.parse(JSON.stringify(INITIAL_MEMBERS)),
+  history: []
+};
+
+// Helper: Query Ollama with fallback
+async function fetchOllamaPlayerIntent(
+  member: PartySessionMember,
+  sceneProps: Array<{ name: string; hp: number; tags: string[]; description?: string | undefined }>,
+  sceneNPCs: Array<{ name: string; role: string; disposition: number; weapon?: string | undefined }>,
+  recentChronicle: string[]
+): Promise<{ dialogue: string; action: string }> {
+  const targetsList = [
+    ...sceneProps.map(p => `"${p.name}" (HP: ${p.hp}, Tags: ${p.tags.join(', ')})`),
+    ...sceneNPCs.map(n => `"${n.name}" (${n.role}, armed with ${n.weapon || 'weapon'}, Disposition: ${n.disposition >= 0 ? 'Friendly/Neutral' : 'Hostile/Guarded'})`),
+    '"Surrounding Quay / Rooftops" (high vantage for climbing, scouting or flanking)'
+  ];
+
+  const prompt = `You are playing ${member.name}, a ${member.species} ${member.role} in a gritty tabletop RPG called B.R.U.T.A.L. set in Ostraka (The Shatterlands).
+Persona: ${member.persona}
+Tactical Focus: ${member.tacticalGoal}
+Equipped Weapon: ${member.weapon} (${member.weaponStat.toUpperCase()})
+Equipped Armor: ${member.armor}
+
+INTERACTIVE TARGETS PRESENT IN THE SCENE:
+${targetsList.map((t, idx) => `${idx + 1}. ${t}`).join('\n')}
+
+RECENT PARTY ACTIONS & EVENTS:
+${recentChronicle.length > 0 ? recentChronicle.slice(-4).join('\n') : "The party just arrived at the harbor checkpoint."}
+
+YOUR TURN:
+Give:
+1) One short spoken line of in-character dialogue.
+2) One clear declared action targeting one of the specific interactive targets above (e.g. "I attack the Reinforced Iron Gate Checkpoint", "I search the Salt-Stained Contraband Crate", "I talk to Watch Captain Kenneth Fletcher", "I climb the Rooftops to scout").
+
+Output format EXACTLY:
+Dialogue: "your spoken words"
+Action: I [what you do]`;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4500);
+
+    const res = await fetch("http://127.0.0.1:11434/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: "llama3.2:latest",
+        prompt,
+        stream: false,
+        options: { temperature: 0.7, num_predict: 100 }
+      })
+    });
+    clearTimeout(timeout);
+
+    const data: any = await res.json();
+    const raw = String(data.response || "").trim();
+
+    let dialogue = "Keep your eyes open.";
+    let action = "I survey the area.";
+
+    const dMatch = raw.match(/Dialogue:\s*["“]?([^"”\n]+)["”]?/i);
+    if (dMatch && dMatch[1]) dialogue = dMatch[1].trim();
+
+    const aMatch = raw.match(/Action:\s*([^\n]+)/i);
+    if (aMatch && aMatch[1]) {
+      action = aMatch[1].trim();
+      if (!action.toLowerCase().startsWith("i ")) action = "I " + action;
+    }
+
+    return { dialogue, action };
+  } catch (err) {
+    // Intelligent persona-based fallback
+    if (member.name === "Harrow Grist") {
+      return {
+        dialogue: "Out of our way, or I'll take this gate off its hinges.",
+        action: "I smash the Reinforced Iron Gate Checkpoint with my Spiked Trench Cleaver"
+      };
+    } else if (member.name === "Lyra Swift-Feather") {
+      return {
+        dialogue: "Checking the contraband seals. Something was wedged into the slats.",
+        action: "I search the Salt-Stained Contraband Crate for hidden compartments"
+      };
+    } else if (member.name === "Orlo Mind-Weaver") {
+      return {
+        dialogue: "Notice the conduit resonance on the sluice winch. The locking mechanism is archaic.",
+        action: "I examine the Harbor Flume Winch to find the release lever"
+      };
+    } else {
+      return {
+        dialogue: "Captain, surely the municipal commission doesn't require inspecting every crate at knifepoint.",
+        action: "I talk to Watch Captain Kenneth Fletcher to negotiate safe passage"
+      };
+    }
+  }
+}
+
+/**
+ * GET /api/dm/party_session/state - Retrieve live 4-player session state
+ */
+router.get('/party_session/state', async (req, res) => {
+  res.json({
+    success: true,
+    sessionState: livePartySessionState
+  });
+});
+
+/**
+ * POST /api/dm/party_session/init - Reset or initialize the 4-player party session
+ */
+router.post('/party_session/init', async (req, res) => {
+  try {
+    const { cellId = 13408, rx = 50, ry = 50, z = 0 } = req.body || {};
+
+    // Reset session
+    livePartySessionState = {
+      active: true,
+      cellId: Number(cellId),
+      rx: Number(rx),
+      ry: Number(ry),
+      z: Number(z),
+      round: 1,
+      turnIndex: 0,
+      members: JSON.parse(JSON.stringify(INITIAL_MEMBERS)),
+      history: []
+    };
+
+    // Ensure default sector props & NPCs are registered in brutalGM
+    brutalGM.activeProps.clear();
+    brutalGM.activeProps.set("prop_gate_01", {
+      id: "prop_gate_01",
+      name: "Reinforced Iron Gate Checkpoint",
+      pos: [128, 128],
+      type: "PROP",
+      isDestroyed: false,
+      tags: new Set(["iron", "gate", "locked", "heavy"]),
+      hp: 110,
+      maxHp: 120,
+      description: "Heavy iron portcullis barring the harbor flume passage."
+    });
+    brutalGM.activeProps.set("prop_crate_01", {
+      id: "prop_crate_01",
+      name: "Salt-Stained Contraband Crate",
+      pos: [134, 132],
+      type: "PROP",
+      isDestroyed: false,
+      tags: new Set(["wood", "container", "contraband"]),
+      hp: 30,
+      maxHp: 30,
+      description: "Wooden shipping crate stamped with Canal Krewe guild seals."
+    });
+    brutalGM.activeProps.set("prop_winch_01", {
+      id: "prop_winch_01",
+      name: "Harbor Flume Winch",
+      pos: [122, 126],
+      type: "PROP",
+      isDestroyed: false,
+      tags: new Set(["iron", "mechanism", "operable"]),
+      hp: 80,
+      maxHp: 80,
+      description: "Counterweighted gear winch that raises and lowers the sluice gates."
+    });
+
+    brutalGM.activeNPCs.clear();
+    brutalGM.activeNPCs.set("npc_fletcher", {
+      id: "npc_fletcher",
+      name: "Watch Captain Kenneth Fletcher",
+      role: "Garrison Watch Captain",
+      faction: "Roromijima Municipal Guard",
+      pos: [128, 126],
+      tags: ["Guard", "Officer", "Armored"],
+      hp: 40,
+      maxHp: 40,
+      disposition: -1,
+      alive: true,
+      equippedWeapon: "Garrison Halberd",
+      equippedArmor: "Riveted Mail",
+      memoryNotes: ["Refuses uninspected transit", "Suspicious of Canal Krewe smugglers"]
+    });
+
+    res.json({
+      success: true,
+      message: "Party session initialized at sector.",
+      sessionState: livePartySessionState
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/dm/party_session/step - Execute the next AI player turn in sequence
+ */
+router.post('/party_session/step', async (req, res) => {
+  try {
+    if (!livePartySessionState.active) {
+      livePartySessionState.active = true;
+    }
+
+    const currentMember = livePartySessionState.members[livePartySessionState.turnIndex];
+    if (!currentMember) {
+      return res.status(400).json({ error: "Invalid turn index" });
+    }
+
+    // 1. Gather scene props & NPCs
+    const activePropsList = Array.from(brutalGM.activeProps.values()).map(p => ({
+      name: p.name,
+      hp: p.hp,
+      tags: Array.from(p.tags),
+      description: p.description
+    }));
+
+    const activeNPCsList = Array.from(brutalGM.activeNPCs.values()).map(n => ({
+      name: n.name,
+      role: n.role,
+      disposition: n.disposition,
+      weapon: n.equippedWeapon
+    }));
+
+    const recentChronicle = livePartySessionState.history.slice(-4).map(
+      h => `[Round ${h.round}] ${h.characterName}: "${h.dialogue}" -> ${h.action} (${h.success ? "Success" : "Failed"})`
+    );
+
+    // 2. Query Ollama for player dialogue and declared action
+    const { dialogue, action } = await fetchOllamaPlayerIntent(
+      currentMember,
+      activePropsList,
+      activeNPCsList,
+      recentChronicle
+    );
+
+    // 3. Resolve through BrutalGameMaster (B.R.U.T.A.L. v4.9 dice math & grounded narration)
+    const gmResult = await brutalGM.executeTurn({
+      actionText: action,
+      playerId: currentMember.id,
+      playerPos: currentMember.pos,
+      zLayer: livePartySessionState.z
+    });
+
+    // 4. Update member state based on outcome
+    if (gmResult.lootAwarded && gmResult.lootAwarded.gold) {
+      currentMember.gold += gmResult.lootAwarded.gold;
+    }
+
+    // Nudge character position closer to their target if moving/attacking
+    if (action.toLowerCase().includes("gate")) {
+      currentMember.pos = [126, 130];
+    } else if (action.toLowerCase().includes("crate")) {
+      currentMember.pos = [133, 134];
+    } else if (action.toLowerCase().includes("fletcher")) {
+      currentMember.pos = [128, 129];
+    } else if (action.toLowerCase().includes("winch")) {
+      currentMember.pos = [123, 127];
+    }
+
+    // Record turn in history
+    const historyEntry = {
+      round: livePartySessionState.round,
+      turn: livePartySessionState.turnIndex + 1,
+      characterName: currentMember.name,
+      dialogue,
+      action,
+      rollOutcome: gmResult.rollOutcome,
+      narrative: gmResult.narrativeResponse,
+      success: gmResult.success
+    };
+    livePartySessionState.history.push(historyEntry);
+
+    // Advance turn
+    livePartySessionState.turnIndex = (livePartySessionState.turnIndex + 1) % livePartySessionState.members.length;
+    if (livePartySessionState.turnIndex === 0) {
+      livePartySessionState.round += 1;
+    }
+
+    res.json({
+      success: true,
+      turnResult: historyEntry,
+      sessionState: livePartySessionState,
+      gmOutput: gmResult
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 export default router;

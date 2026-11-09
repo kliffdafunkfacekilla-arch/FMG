@@ -1,5 +1,5 @@
 ---
-name: concordia-rules-and-stats
+name: brutal-rules-and-stats
 description: >-
   Governs the canonical B.R.U.T.A.L. TTRPG mechanical rules (v4.9), 12-attribute system, 4 derived pools (Health, Composure, Stamina, Focus),
   4 derived senses (Perception, Speed/Dodge, Stealth, Balance/Footing), opposed 1d12 Net Margin resolution, Guard vs Active Defense,

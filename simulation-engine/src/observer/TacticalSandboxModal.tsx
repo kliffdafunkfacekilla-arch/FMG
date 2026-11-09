@@ -76,6 +76,79 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
   const [crisisLoading, setCrisisLoading] = useState<boolean>(false);
   const [lastCrisisEvent, setLastCrisisEvent] = useState<any>(null);
 
+  // 4-Player AI Session State (Ollama + B.R.U.T.A.L. GM)
+  const [sessionMode, setSessionMode] = useState<'PARTY' | 'MANUAL'>('PARTY');
+  const [partySession, setPartySession] = useState<any>(null);
+  const [partyStepLoading, setPartyStepLoading] = useState<boolean>(false);
+  const [autoPlay, setAutoPlay] = useState<boolean>(false);
+  const autoPlayRef = useRef<boolean>(false);
+  autoPlayRef.current = autoPlay;
+
+  const loadPartySession = async () => {
+    try {
+      const res = await fetch('/api/dm/party_session/state');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.sessionState) {
+          setPartySession(data.sessionState);
+        }
+      }
+    } catch {}
+  };
+
+  const initPartySession = async () => {
+    setPartyStepLoading(true);
+    try {
+      const res = await fetch('/api/dm/party_session/init', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cellId, rx, ry, z: zLayer })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPartySession(data.sessionState);
+      }
+    } catch (err: any) {
+      console.error('Failed to init party session:', err);
+    } finally {
+      setPartyStepLoading(false);
+    }
+  };
+
+  const stepPartySession = async () => {
+    if (partyStepLoading) return;
+    setPartyStepLoading(true);
+    try {
+      const res = await fetch('/api/dm/party_session/step', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPartySession(data.sessionState);
+        await loadLayer(zLayer);
+      }
+    } catch (err: any) {
+      console.error('Failed to step party session:', err);
+    } finally {
+      setPartyStepLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPartySession();
+  }, []);
+
+  useEffect(() => {
+    if (!autoPlay) return;
+    const interval = setInterval(() => {
+      if (autoPlayRef.current && !partyStepLoading) {
+        stepPartySession();
+      }
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [autoPlay, partyStepLoading]);
+
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Load tactical layer
@@ -190,7 +263,7 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
       ctx.stroke();
     }
 
-    // Draw NPCs as distinct tokens
+       // Draw NPCs as distinct tokens
     for (const npc of layerData.npcs || []) {
       const nx = npc.pos ? npc.pos[0] : 128;
       const ny = npc.pos ? npc.pos[1] : 128;
@@ -206,7 +279,40 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
       ctx.strokeStyle = isSelected ? "#facc15" : "#ffffff";
       ctx.stroke();
     }
-  }, [layerData, selectedProp, selectedNpc]);
+
+    // Draw 4 Party Character Tokens
+    if (partySession && partySession.members) {
+      for (let i = 0; i < partySession.members.length; i++) {
+        const m = partySession.members[i];
+        const mx = m.pos ? m.pos[0] : 128;
+        const my = m.pos ? m.pos[1] : 128;
+        const isCurrentTurn = partySession.turnIndex === i;
+
+        // Outer glow on active turn
+        if (isCurrentTurn) {
+          ctx.beginPath();
+          ctx.arc(mx, my, 9, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(250, 204, 21, 0.35)";
+          ctx.fill();
+        }
+
+        ctx.beginPath();
+        ctx.arc(mx, my, isCurrentTurn ? 6.5 : 4.5, 0, Math.PI * 2);
+        ctx.fillStyle = m.color || "#f59e0b";
+        ctx.fill();
+        ctx.lineWidth = isCurrentTurn ? 2.5 : 1.5;
+        ctx.strokeStyle = isCurrentTurn ? "#facc15" : "#ffffff";
+        ctx.stroke();
+
+        // Badge letter
+        ctx.fillStyle = "#ffffff";
+        ctx.font = isCurrentTurn ? "bold 8px monospace" : "bold 6px monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(m.badge || m.name[0], mx, my);
+      }
+    }
+  }, [layerData, selectedProp, selectedNpc, partySession]);
 
   // Handle canvas clicks to inspect props / NPCs
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
