@@ -30,6 +30,7 @@ export interface AttackRollParams {
   weaponValue: number;       // Light +1, Medium +2, Heavy +3
   hasAdvantage?: boolean;
   hasDisadvantage?: boolean;
+  fixedRoll?: number;        // Deterministic roll override for testing
 }
 
 export interface DefenseParams {
@@ -38,6 +39,7 @@ export interface DefenseParams {
   hasAdvantage?: boolean;
   hasDisadvantage?: boolean;
   useGuard?: boolean;        // If true, hits Guard (no die roll: stat + armor)
+  fixedRoll?: number;        // Deterministic roll override for testing
 }
 
 export interface RollD12Result {
@@ -87,7 +89,9 @@ export interface ContestedCombatResult {
  * Resolves an opposed attack roll under B.R.U.T.A.L. v4.9.
  */
 export function resolveContestedAttack(attacker: AttackRollParams, defender: DefenseParams): ContestedCombatResult {
-  const atkRoll = rollD12(attacker.hasAdvantage, attacker.hasDisadvantage);
+  const atkRoll = attacker.fixedRoll !== undefined
+    ? { final: attacker.fixedRoll, rolls: [attacker.fixedRoll], type: 'STANDARD' as const, isStar: attacker.fixedRoll === 12, isScar: attacker.fixedRoll === 1 }
+    : rollD12(attacker.hasAdvantage, attacker.hasDisadvantage);
   const attackerTotal = atkRoll.final + attacker.attackerStat + attacker.weaponValue;
 
   let defRoll: RollD12Result | null = null;
@@ -98,7 +102,9 @@ export function resolveContestedAttack(attacker: AttackRollParams, defender: Def
     defenderTotal = defender.defenseStat + defender.armorValue;
   } else {
     // Active Defense: d12 + Defense Stat + Armor Value
-    defRoll = rollD12(defender.hasAdvantage, defender.hasDisadvantage);
+    defRoll = defender.fixedRoll !== undefined
+      ? { final: defender.fixedRoll, rolls: [defender.fixedRoll], type: 'STANDARD' as const, isStar: defender.fixedRoll === 12, isScar: defender.fixedRoll === 1 }
+      : rollD12(defender.hasAdvantage, defender.hasDisadvantage);
     defenderTotal = defRoll.final + defender.defenseStat + defender.armorValue;
   }
 

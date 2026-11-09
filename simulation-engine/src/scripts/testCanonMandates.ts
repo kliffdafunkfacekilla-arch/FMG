@@ -5,6 +5,7 @@ import { DRAGON_MONTHS, DAYS_PER_YEAR, DAYS_PER_DRAGON_MONTH, SHADOWFALL_DAYS } 
 import { validateDirectorMutations, DirectorInputPayload, DirectorOutputBlueprint } from '../engine/rpg/directorBridge.js';
 import { resolveMeleeAttack, resolveOpposedCombat } from '../engine/rpg/RulesEngine.js';
 import { stepTowardCell, initSpatialCache } from '../engine/agents/agentMovementHelper.js';
+import { BrutalGameMaster } from '../engine/rpg/BrutalGM.js';
 
 async function runCanonMandateTests() {
   console.log("================================================================");
@@ -201,28 +202,71 @@ async function runCanonMandateTests() {
   }
 
   // -------------------------------------------------------------
-  // TEST 6: B.R.U.T.A.L. MATH WORKED EXAMPLES
+  // TEST 6: B.R.U.T.A.L. MATH WORKED EXAMPLES (Rules Digest v4.8)
   // "A d12 roll against a Guard matches the rulebook's worked examples."
+  // Calls BrutalGM's real resolution function.
   // -------------------------------------------------------------
   try {
-    process.stdout.write("Test 6: B.R.U.T.A.L. v4.9 Math & Guard Examples... ");
-    // Worked Example from Rules_Digest.md:
-    // Attacker: Might +4, rolls 8 (Total = 12).
-    // Defender: Guard = 9 (no die rolled).
-    // Net Margin = 12 - 9 = +3 -> Minor Injury (2 capacity lost, 1 energy shredded).
-    const attackerTotal = 8 + 4; // 12
-    const guard = 9;
-    const netMargin = attackerTotal - guard; // 3
+    process.stdout.write("Test 6: B.R.U.T.A.L. v4.9 Math & Guard Examples (BrutalGM resolution)... ");
+    const brutalGM = new BrutalGameMaster(pool, "");
 
-    if (netMargin !== 3) {
-      throw new Error(`Net margin computation mismatch: expected 3, got ${netMargin}`);
+    // 1. Worked Example: Minor Injury vs Guard
+    // Attacker: Might 4, Light weapon (+1), rolls 7 -> Attacker Total = 12.
+    // Defender: Guard = 9 (defense stat 7 + armor 2, no die rolled).
+    // Net Margin = 12 - 9 = +3 -> Minor Injury (4 capacity lost, 2 energy shredded).
+    const minorRes = brutalGM.resolveContestedAttack(
+      { attackerStat: 4, weaponValue: 1, fixedRoll: 7 },
+      { defenseStat: 7, armorValue: 2, useGuard: true }
+    );
+    if (minorRes.outcome !== 'ATTACKER_SUCCESS' || minorRes.margin !== 3 || minorRes.tier !== 'MINOR' || minorRes.capacityLost !== 4 || minorRes.energyShredded !== 2) {
+      throw new Error(`Minor injury resolution mismatch: expected margin 3, tier MINOR, cap 4, energy 2. Got: ${JSON.stringify(minorRes)}`);
     }
 
-    // Worked Example: The Clash (Net Margin = 0)
-    const clashAttacker = 6 + 4; // 10
-    const clashDefender = 7 + 3; // 10
-    if (clashAttacker - clashDefender !== 0) {
-      throw new Error(`The Clash failed to trigger on equal roll totals`);
+    // 2. Worked Example: The Clash (Net Margin exactly 0)
+    // Attacker: Stat 4, weapon 0, roll 6 -> Total = 10.
+    // Defender Active Defense: Stat 3, armor 0, roll 7 -> Total = 10.
+    const clashRes = brutalGM.resolveContestedAttack(
+      { attackerStat: 4, weaponValue: 0, fixedRoll: 6 },
+      { defenseStat: 3, armorValue: 0, fixedRoll: 7, useGuard: false }
+    );
+    if (clashRes.outcome !== 'CLASH_TIED' || clashRes.margin !== 0 || clashRes.tier !== 'NONE') {
+      throw new Error(`The Clash resolution mismatch: expected outcome CLASH_TIED, margin 0. Got: ${JSON.stringify(clashRes)}`);
+    }
+
+    // 3. Worked Example: Graze (Margin = 1) -> 0 capacity lost, 1 energy shredded
+    const grazeRes = brutalGM.resolveContestedAttack(
+      { attackerStat: 5, weaponValue: 1, fixedRoll: 5 },
+      { defenseStat: 8, armorValue: 2, useGuard: true }
+    ); // Attacker 11 vs Guard 10 = margin 1
+    if (grazeRes.outcome !== 'ATTACKER_SUCCESS' || grazeRes.margin !== 1 || grazeRes.tier !== 'GRAZE' || grazeRes.capacityLost !== 0 || grazeRes.energyShredded !== 1) {
+      throw new Error(`Graze resolution mismatch. Got: ${JSON.stringify(grazeRes)}`);
+    }
+
+    // 4. Worked Example: Major Injury (Margin 6-9, e.g. 7) -> 8 capacity lost, 4 energy shredded (Bleed)
+    const majorRes = brutalGM.resolveContestedAttack(
+      { attackerStat: 6, weaponValue: 2, fixedRoll: 9 },
+      { defenseStat: 8, armorValue: 2, useGuard: true }
+    ); // Attacker 17 vs Guard 10 = margin 7
+    if (majorRes.outcome !== 'ATTACKER_SUCCESS' || majorRes.margin !== 7 || majorRes.tier !== 'MAJOR' || majorRes.capacityLost !== 8 || majorRes.energyShredded !== 4) {
+      throw new Error(`Major injury resolution mismatch. Got: ${JSON.stringify(majorRes)}`);
+    }
+
+    // 5. Worked Example: Critical Injury (Margin 10+, e.g. 11) -> 12 capacity lost, 6 energy shredded (Staggered)
+    const critRes = brutalGM.resolveContestedAttack(
+      { attackerStat: 6, weaponValue: 3, fixedRoll: 12 },
+      { defenseStat: 8, armorValue: 2, useGuard: true }
+    ); // Attacker 21 vs Guard 10 = margin 11
+    if (critRes.outcome !== 'ATTACKER_SUCCESS' || critRes.margin !== 11 || critRes.tier !== 'CRITICAL' || critRes.capacityLost !== 12 || critRes.energyShredded !== 6) {
+      throw new Error(`Critical injury resolution mismatch. Got: ${JSON.stringify(critRes)}`);
+    }
+
+    // 6. Worked Example: Defender Victory (Margin < 0, e.g. -2)
+    const defRes = brutalGM.resolveContestedAttack(
+      { attackerStat: 3, weaponValue: 1, fixedRoll: 4 },
+      { defenseStat: 8, armorValue: 2, useGuard: true }
+    ); // Attacker 8 vs Guard 10 = margin -2
+    if (defRes.outcome !== 'DEFENDER_SUCCESS' || defRes.margin !== -2 || defRes.tier !== 'NONE' || defRes.capacityLost !== 0 || defRes.energyShredded !== 0) {
+      throw new Error(`Defender victory resolution mismatch. Got: ${JSON.stringify(defRes)}`);
     }
 
     console.log("✅ PASSED");

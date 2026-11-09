@@ -17,7 +17,7 @@ import { Pool } from "pg";
 import { TagMatrixEngine, TaggedObject, TagInteractionResult } from "./TagMatrixEngine.js";
 import { WhatElseStoryEngine, StoryBeat, SectorContext, InjectedNPC, InjectedWorldState } from "./WhatElseStoryEngine.js";
 import { resolveMeleeAttack, resolveOpposedCombat } from "./RulesEngine.js";
-import { rollD12 } from "../combatResolutionEngine.js";
+import { rollD12, resolveContestedAttack, AttackRollParams, DefenseParams, ContestedCombatResult } from "../combatResolutionEngine.js";
 import { getWeapon, getArmor, StatKey, WeaponDef, ArmorDef } from "./EquipmentRegistry.js";
 import { getSocialWeapon, getSocialArmor, SocialWeaponDef, SocialArmorDef } from "./SocialEquipmentRegistry.js";
 import { resolveOpposedSocialContest, resolveCosmicDreadCheck, SocialCombatant } from "../socialCombat.js";
@@ -123,6 +123,16 @@ export class BrutalGameMaster {
 
   public getStoryEngine(): WhatElseStoryEngine {
     return this.storyEngine;
+  }
+
+  /**
+   * Resolves an opposed attack roll or Guard contest under B.R.U.T.A.L. rules.
+   */
+  public resolveContestedAttack(
+    attacker: AttackRollParams,
+    defender: DefenseParams
+  ): ContestedCombatResult {
+    return resolveContestedAttack(attacker, defender);
   }
 
   /**
