@@ -78,6 +78,6 @@
 **Vertical slice first:** do steps 1–5 for **one burg and one thread**, and play it with the Ollama player agents before scaling.
 
 ## Out of scope for now (parking lot)
-- Rumor drift (rumors that change as they spread).
+- Rumor drift, the pacing director, paragon wants (in full) and agent-player measurement: designs in `STORY_IDEAS.md`.
 - A pacing director (tension-based hook timing).
 - Measuring story quality with the agent players.
