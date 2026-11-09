@@ -1,6 +1,7 @@
 import { PoolClient, Pool } from "pg";
 import { Entity } from "../rpg/narrativeTagEngine";
 import { evaluateSectorReactions, SectorContext } from "../rpg/narrativeReactionEngine";
+import { createThread } from "../threads/threadEngine.js";
 
 // =============================================================
 // HEADLESS BACKGROUND DIRECTOR AGENT
@@ -16,6 +17,7 @@ export interface BackgroundDirectorSummary {
     sectorsMutated: number;
     reactionsFired: number;
     eventsLogged: number;
+    threadsOpened: number;
 }
 
 export async function runBackgroundDirectorAgent(
@@ -27,7 +29,8 @@ export async function runBackgroundDirectorAgent(
         sectorsEvaluated: 0,
         sectorsMutated: 0,
         reactionsFired: 0,
-        eventsLogged: 0
+        eventsLogged: 0,
+        threadsOpened: 0
     };
 
     try {
@@ -115,7 +118,9 @@ export async function runBackgroundDirectorAgent(
                 wealth: burg ? Number(burg.wealth) : 0,
                 tick: currentTick,
                 cruorbusPhase: moonPhase,
-                isShadowWeek
+                isShadowWeek,
+                rx,
+                ry
             };
 
             // Evaluate data collisions through NarrativeReactionTable
@@ -150,6 +155,21 @@ export async function runBackgroundDirectorAgent(
                         ry
                     ]
                 );
+
+                // Open persistent narrative threads in sim_threads (STORY_AUDIT Step 2)
+                if (result.threadsToOpen && result.threadsToOpen.length > 0) {
+                    for (const th of result.threadsToOpen) {
+                        try {
+                            await createThread(client, {
+                                ...th,
+                                created_tick: currentTick
+                            });
+                            summary.threadsOpened++;
+                        } catch (err: any) {
+                            console.warn(`[Background Director] Could not open thread: ${err.message}`);
+                        }
+                    }
+                }
 
                 // Log major aftermath events into sim_events for tavern rumors & news
                 for (const ev of result.events) {

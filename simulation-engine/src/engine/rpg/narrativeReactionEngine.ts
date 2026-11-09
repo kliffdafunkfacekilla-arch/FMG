@@ -19,6 +19,19 @@ export interface SectorContext {
     cruorbusPhase?: string;
     isShadowWeek?: boolean;
     activePlayerLocation?: { cellId: number; z_layer: number } | null;
+    rx?: number;
+    ry?: number;
+}
+
+export interface ThreadCandidate {
+    question: string;
+    stakes: string;
+    actor_ids: string[];
+    cell_id: number;
+    rx: number;
+    ry: number;
+    clock_max: number;
+    origin: 'reaction';
 }
 
 export interface ReactionRule {
@@ -78,6 +91,13 @@ export interface ReactionRule {
             summaryTemplate: (actor: Entity, context: SectorContext) => string;
         };
     };
+
+    // Optional persistent thread formulation for major drama collisions (STORY_AUDIT Step 2)
+    threadTemplate?: {
+        questionTemplate: (actor: Entity, context: SectorContext) => string;
+        stakesTemplate: (actor: Entity, context: SectorContext) => string;
+        clockMax?: number;
+    };
 }
 
 export interface EvaluatedEvent {
@@ -95,6 +115,7 @@ export interface SectorReactionResult {
     rulesTriggered: string[];
     events: EvaluatedEvent[];
     newSectorTags: string[];
+    threadsToOpen: ThreadCandidate[];
 }
 
 // -------------------------------------------------------------
@@ -151,6 +172,13 @@ export const NarrativeReactionTable: ReactionRule[] = [
                 summaryTemplate: (actor, ctx) =>
                     `Town Watch enforced martial law in ${ctx.burgName || 'the settlement'}: raided the smithy of ${actor.name || 'the local artisan'}, seizing seditious contraband and padlocking the forge.`
             }
+        },
+        threadTemplate: {
+            questionTemplate: (actor, ctx) =>
+                `Will the crackdown on ${actor.name || 'the blacksmith'} ignite an open riot against the garrison?`,
+            stakesTemplate: (actor, ctx) =>
+                `The blacksmith will face execution and the smithy will be permanently demolished unless intervened.`,
+            clockMax: 4
         }
     },
 
@@ -706,6 +734,7 @@ export function evaluateSectorReactions(
     const activeSectorTags = new Set<string>(globalTags);
     const triggeredRules: string[] = [];
     const generatedEvents: EvaluatedEvent[] = [];
+    const threadsToOpen: ThreadCandidate[] = [];
     const executedRuleIds = new Set<string>();
     let mutatedCount = 0;
 
@@ -838,6 +867,30 @@ export function evaluateSectorReactions(
                     });
                 }
 
+                // Persistent thread formulation if drama threshold met (MAJOR or CRITICAL, or explicit threadTemplate)
+                // Threads are driven by human/character actors (NPCs), not props
+                const isDramaHigh = rule.threadTemplate || (rule.resultantMutations.logEvent && ['MAJOR', 'CRITICAL'].includes(rule.resultantMutations.logEvent.tier));
+                if (isDramaHigh && entity.id && entity.type === 'NPC') {
+                    const question = rule.threadTemplate
+                        ? rule.threadTemplate.questionTemplate(entity, context)
+                        : `Will the fallout from "${rule.resultantMutations.logEvent?.title || rule.name}" in ${context.burgName || 'the settlement'} escalate out of hand?`;
+                    const stakes = rule.threadTemplate
+                        ? rule.threadTemplate.stakesTemplate(entity, context)
+                        : (rule.resultantMutations.logEvent ? rule.resultantMutations.logEvent.summaryTemplate(entity, context) : rule.description);
+                    const clockMax = rule.threadTemplate?.clockMax ?? 6;
+
+                    threadsToOpen.push({
+                        question,
+                        stakes,
+                        actor_ids: [String(entity.id)],
+                        cell_id: context.cellId,
+                        rx: context.rx ?? 50,
+                        ry: context.ry ?? 50,
+                        clock_max: clockMax,
+                        origin: 'reaction'
+                    });
+                }
+
                 // Once rule fires for an entity in this pass, advance to next rule
                 break;
             }
@@ -852,6 +905,7 @@ export function evaluateSectorReactions(
         mutatedEntityCount: mutatedCount,
         rulesTriggered: triggeredRules,
         events: generatedEvents,
-        newSectorTags: Array.from(activeSectorTags)
+        newSectorTags: Array.from(activeSectorTags),
+        threadsToOpen
     };
 }

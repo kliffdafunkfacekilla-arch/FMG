@@ -10,6 +10,7 @@ import { generateGrindCanyonSectorMap, generateBurgSectorLayers, generateOutlyin
 import { getOrGenerateInteriorSubMap } from '../engine/subMapEngine.js';
 import { getOrCreateRegionalInstance } from './regionalRouter.js';
 import { getFactionSpecialty, FACTION_SPECIALTIES, FactionSpecialty } from '../engine/economy/factionSpecialties.js';
+import { getOpenThreads } from '../engine/threads/threadEngine.js';
 
 dotenv.config({ override: true });
 
@@ -2561,33 +2562,42 @@ router.post('/party_session/init', async (req, res) => {
       });
     }
 
-    // 3. Synthesize living AI Director Story Arc anchored to the real burg trouble
-    const directorPayload = await buildDirectorInputPayload(targetCellId, targetRx, targetRy, targetZ, 101);
-    const storyBlueprint = await generateStoryArcWithGemini(directorPayload);
-    const validated = validateDirectorMutations(directorPayload, storyBlueprint);
-    await commitDirectorMutations(targetCellId, targetRx, targetRy, targetZ, validated.sanitizedBlueprint);
+    // 3. Check for persistent open threads in this sector (STORY_AUDIT Step 2)
+    // A stable economy must NOT produce a crisis thread!
+    const openThreads = await getOpenThreads(pool, targetCellId);
+    let activeStoryArc: any;
 
-    // Apply any validated mutations to in-memory active props/NPCs
-    if (validated.sanitizedBlueprint.database_mutations) {
-      for (const alt of validated.sanitizedBlueprint.database_mutations.npc_alterations || []) {
-        const active = brutalGM.activeNPCs.get(alt.target_id);
-        if (active) {
-          active.tags.push(...(alt.append_tags || []));
-          if (alt.metadata_overrides?.temporary_dialogue_node) {
-            active.memoryNotes = active.memoryNotes || [];
-            active.memoryNotes.push(alt.metadata_overrides.temporary_dialogue_node);
+    if (openThreads.length > 0 && openThreads[0]) {
+      const activeThread = openThreads[0];
+      activeStoryArc = {
+        arc_id: `thread_${activeThread.id}`,
+        inciting_incident: activeThread.stakes,
+        active_phase: 1,
+        beats: [
+          {
+            phase: 1,
+            objective: activeThread.question,
+            discovery_method: "Direct action and investigation."
           }
-        }
-      }
-      for (const alt of validated.sanitizedBlueprint.database_mutations.prop_alterations || []) {
-        const active = brutalGM.activeProps.get(alt.target_id);
-        if (active) {
-          (alt.append_tags || []).forEach((t: string) => active.tags.add(t.toLowerCase()));
-        }
-      }
+        ]
+      };
+    } else {
+      // Peaceful state: No crisis fabricated when the economy and district are stable
+      activeStoryArc = {
+        arc_id: `peace_${targetCellId}_${targetRx}_${targetRy}`,
+        inciting_incident: "The district rests in peace. Commerce flows steadily and no open crisis looms.",
+        active_phase: 1,
+        beats: [
+          {
+            phase: 1,
+            objective: "Survey the area, speak with citizens, or pursue independent ventures.",
+            discovery_method: "Open exploration."
+          }
+        ]
+      };
     }
 
-    // 4. Initialize session state with real director story arc
+    // 4. Initialize session state with real thread or peaceful baseline
     livePartySessionState = {
       active: true,
       cellId: targetCellId,
@@ -2597,7 +2607,7 @@ router.post('/party_session/init', async (req, res) => {
       round: 1,
       turnIndex: 0,
       members: JSON.parse(JSON.stringify(INITIAL_MEMBERS)),
-      activeStoryArc: validated.sanitizedBlueprint.story_arc_framework,
+      activeStoryArc,
       history: []
     };
 
