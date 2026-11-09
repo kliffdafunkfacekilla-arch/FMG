@@ -1,3 +1,5 @@
+> **Read `AGENT_RULES.md` first. It overrides this file, `SYSTEM_OVERVIEW.md` and `.agents/skills/`.**
+
 # AI Agent & Gemini Development Guidelines: FMG Rebuild & Aetheria Simulation
 
 Welcome! You are working on the high-performance full-stack rebuild of the Fantasy Map Generator (FMG), currently executing the "Aetheria" 8-Layer Agentic Fractal Simulation. Your primary goal is to ensure exact feature replication, high performance, and extreme modularity across all four architectural pillars.
