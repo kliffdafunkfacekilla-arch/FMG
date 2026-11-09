@@ -164,14 +164,153 @@ export async function getOpenThreads(
 
   if (cellId !== undefined) {
     const res = await client.query(
-      `SELECT * FROM sim_threads WHERE state = 'open' AND cell_id = $1 ORDER BY id ASC`,
+      `SELECT * FROM sim_threads WHERE state IN ('open', 'escalated') AND cell_id = $1 ORDER BY id ASC`,
       [cellId]
     );
     return res.rows;
   }
 
   const res = await client.query(
-    `SELECT * FROM sim_threads WHERE state = 'open' ORDER BY id ASC`
+    `SELECT * FROM sim_threads WHERE state IN ('open', 'escalated') ORDER BY id ASC`
   );
   return res.rows;
+}
+
+export interface ThreadClockAdvanceSummary {
+  threadsTicked: number;
+  threadsEscalated: number;
+  threadsResolved: number;
+  worldDeltasApplied: Array<{
+    threadId: number;
+    cellId: number;
+    burgId?: number | undefined;
+    unrestDelta: number;
+    resolution: string;
+  }>;
+}
+
+/**
+ * Advances all active thread clocks by 1 tick (STORY_AUDIT Step 3).
+ * When clock reaches clock_max, the thread resolves automatically,
+ * applying real state changes to sim_burg_economy, sim_sector_layers, and sim_events.
+ */
+export async function advanceThreadClocks(
+  client: Pool | PoolClient,
+  currentTick: number,
+  loreDate?: string
+): Promise<ThreadClockAdvanceSummary> {
+  await ensureThreadTable(client);
+
+  const summary: ThreadClockAdvanceSummary = {
+    threadsTicked: 0,
+    threadsEscalated: 0,
+    threadsResolved: 0,
+    worldDeltasApplied: []
+  };
+
+  const openRes = await client.query(
+    `SELECT * FROM sim_threads WHERE state IN ('open', 'escalated') ORDER BY id ASC`
+  );
+
+  for (const thread of openRes.rows) {
+    summary.threadsTicked++;
+    const nextClock = thread.clock + 1;
+
+    if (nextClock < thread.clock_max) {
+      // Check escalation at half clock_max
+      const shouldEscalate = nextClock >= Math.ceil(thread.clock_max / 2) && thread.state === "open";
+      const nextState = shouldEscalate ? "escalated" : thread.state;
+      if (shouldEscalate) summary.threadsEscalated++;
+
+      await client.query(
+        `UPDATE sim_threads SET clock = $1, state = $2 WHERE id = $3`,
+        [nextClock, nextState, thread.id]
+      );
+    } else {
+      // Reached clock_max: RESOLVE ON ITS OWN!
+      summary.threadsResolved++;
+      const resolutionText = `Clock expired at tick ${currentTick}: Unaddressed crisis resolved unfavorably. Stakes realized: ${thread.stakes}`;
+
+      await client.query(
+        `UPDATE sim_threads 
+         SET clock = $1, state = 'resolved', resolved_tick = $2, resolution = $3 
+         WHERE id = $4`,
+        [nextClock, currentTick, resolutionText, thread.id]
+      );
+
+      // --- APPLY REAL WORLD DELTA (NOT JUST A LOG LINE) ---
+      // 1. Mutate sim_burg_economy for this cell
+      const burgRes = await client.query(
+        `SELECT burg_id, unrest, wealth, food FROM sim_burg_economy WHERE cell_id = $1 LIMIT 1`,
+        [thread.cell_id]
+      );
+      let burgId: number | undefined;
+      const unrestDelta = 15;
+
+      if (burgRes.rows.length > 0) {
+        burgId = burgRes.rows[0].burg_id;
+        await client.query(
+          `UPDATE sim_burg_economy 
+           SET unrest = LEAST(100, unrest + $1),
+               wealth = GREATEST(0, wealth - 250)
+           WHERE burg_id = $2`,
+          [unrestDelta, burgId]
+        );
+      }
+
+      // 2. Mutate sector layer entities in sim_sector_layers
+      const layerRes = await client.query(
+        `SELECT npcs, props FROM sim_sector_layers WHERE cell_id = $1 AND rx = $2 AND ry = $3 LIMIT 1`,
+        [thread.cell_id, thread.rx, thread.ry]
+      );
+      if (layerRes.rows.length > 0) {
+        let npcs = Array.isArray(layerRes.rows[0].npcs) ? layerRes.rows[0].npcs : [];
+        let mutated = false;
+
+        // Apply consequence tags to thread actors
+        const actorSet = new Set(thread.actor_ids || []);
+        npcs = npcs.map((npc: any) => {
+          if (actorSet.has(String(npc.id))) {
+            mutated = true;
+            const existingTags = Array.isArray(npc.tags) ? npc.tags : [];
+            return {
+              ...npc,
+              tags: [...existingTags, "#CrisisResolutionFallen", "#DisplacedByTrouble"],
+              disposition: (npc.disposition || 0) - 3
+            };
+          }
+          return npc;
+        });
+
+        if (mutated) {
+          await client.query(
+            `UPDATE sim_sector_layers SET npcs = $1 WHERE cell_id = $2 AND rx = $3 AND ry = $4`,
+            [JSON.stringify(npcs), thread.cell_id, thread.rx, thread.ry]
+          );
+        }
+      }
+
+      // 3. Log rumor to sim_events for tavern gossip & news
+      await client.query(
+        `INSERT INTO sim_events (tick, burg_id, lore_date, type, message, tier)
+         VALUES ($1, $2, $3, 'THREAD_RESOLVED', $4, 'MAJOR')`,
+        [
+          currentTick,
+          burgId || null,
+          loreDate || `Tick ${currentTick}`,
+          `📜 [THREAD RESOLUTION] ${resolutionText}`
+        ]
+      );
+
+      summary.worldDeltasApplied.push({
+        threadId: thread.id,
+        cellId: thread.cell_id,
+        burgId,
+        unrestDelta,
+        resolution: resolutionText
+      });
+    }
+  }
+
+  return summary;
 }

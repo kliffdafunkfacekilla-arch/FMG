@@ -1,7 +1,7 @@
 import { PoolClient, Pool } from "pg";
 import { Entity } from "../rpg/narrativeTagEngine";
 import { evaluateSectorReactions, SectorContext } from "../rpg/narrativeReactionEngine";
-import { createThread } from "../threads/threadEngine.js";
+import { createThread, advanceThreadClocks } from "../threads/threadEngine.js";
 
 // =============================================================
 // HEADLESS BACKGROUND DIRECTOR AGENT
@@ -18,6 +18,8 @@ export interface BackgroundDirectorSummary {
     reactionsFired: number;
     eventsLogged: number;
     threadsOpened: number;
+    threadsTicked?: number;
+    threadsResolved?: number;
 }
 
 export async function runBackgroundDirectorAgent(
@@ -34,6 +36,11 @@ export async function runBackgroundDirectorAgent(
     };
 
     try {
+        // 0. Advance existing open thread clocks (STORY_AUDIT Step 3)
+        const clockSummary = await advanceThreadClocks(client, currentTick, loreDate);
+        summary.threadsTicked = clockSummary.threadsTicked;
+        summary.threadsResolved = clockSummary.threadsResolved;
+
         // 1. Fetch current cosmology / lunar phase from sim_calendar
         const calRes = await client.query(
             `SELECT moon_phase, is_shadow_week, season, dragon_domain 
