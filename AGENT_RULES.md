@@ -52,7 +52,7 @@ Run all tests before every commit. A failing test blocks the commit.
 
 ## Current focus: one vertical slice
 
-Make **one burg, one thread and one play session** work end to end through the loop before widening anything. Expanding other systems (new layers, factions, weather, rendering) is frozen until the slice works.
+Make **one burg, one thread and one play session** (steps 1–5 of `STORY_AUDIT.md`) work end to end through the loop before widening anything. Expanding other systems (new layers, factions, weather, rendering) is frozen until the slice works.
 
 ## Known contradictions to resolve (don't paper over them)
 
