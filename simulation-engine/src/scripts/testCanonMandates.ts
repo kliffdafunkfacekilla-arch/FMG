@@ -6,6 +6,7 @@ import { validateDirectorMutations, DirectorInputPayload, DirectorOutputBlueprin
 import { resolveMeleeAttack, resolveOpposedCombat } from '../engine/rpg/RulesEngine.js';
 import { stepTowardCell, initSpatialCache } from '../engine/agents/agentMovementHelper.js';
 import { BrutalGameMaster } from '../engine/rpg/BrutalGM.js';
+import { validateActorIds, ensureThreadTable } from '../engine/threads/threadEngine.js';
 
 async function runCanonMandateTests() {
   console.log("================================================================");
@@ -151,6 +152,17 @@ async function runCanonMandateTests() {
     if (!validation.rejectedPropIds.includes("fake_prop_hallucinated_888")) {
       throw new Error("Validation guard failed to reject fake Prop ID!");
     }
+
+    // Verify all actors in sim_threads exist in database (STORY_AUDIT Step 1)
+    await ensureThreadTable(pool);
+    const threadsRes = await pool.query(`SELECT id, actor_ids FROM sim_threads`);
+    for (const t of threadsRes.rows) {
+      const check = await validateActorIds(pool, t.actor_ids);
+      if (!check.valid) {
+        throw new Error(`sim_threads ID ${t.id} contains invalid actor IDs: ${check.invalidIds.join(", ")}`);
+      }
+    }
+
     console.log("✅ PASSED");
   } catch (err: any) {
     console.log(`❌ FAILED: ${err.message}`);

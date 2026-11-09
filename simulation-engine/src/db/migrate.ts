@@ -546,6 +546,25 @@ CREATE TABLE IF NOT EXISTS sim_player_mutations (
 );
 CREATE INDEX IF NOT EXISTS idx_player_mutations_pid ON sim_player_mutations(player_id);
 
+CREATE TABLE IF NOT EXISTS sim_threads (
+    id             SERIAL PRIMARY KEY,
+    question       TEXT NOT NULL,
+    stakes         TEXT NOT NULL,
+    actor_ids      TEXT[] NOT NULL DEFAULT '{}',
+    cell_id        INT NOT NULL,
+    rx             INT NOT NULL,
+    ry             INT NOT NULL,
+    clock          INT NOT NULL DEFAULT 0,
+    clock_max      INT NOT NULL DEFAULT 6,
+    state          VARCHAR(32) NOT NULL DEFAULT 'open',
+    origin         VARCHAR(32) NOT NULL DEFAULT 'reaction',
+    created_tick   INT NOT NULL DEFAULT 0,
+    resolved_tick  INT DEFAULT NULL,
+    resolution     TEXT DEFAULT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sim_threads_state ON sim_threads(state);
+CREATE INDEX IF NOT EXISTS idx_sim_threads_loc ON sim_threads(cell_id, rx, ry);
+
 ALTER TABLE interior_sub_maps ADD COLUMN IF NOT EXISTS parent_cell_id INT;
 ALTER TABLE interior_sub_maps ADD COLUMN IF NOT EXISTS parent_rx INT DEFAULT 50;
 ALTER TABLE interior_sub_maps ADD COLUMN IF NOT EXISTS parent_ry INT DEFAULT 50;
