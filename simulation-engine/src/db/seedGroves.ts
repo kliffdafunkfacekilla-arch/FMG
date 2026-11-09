@@ -1,24 +1,24 @@
 // @ts-nocheck
 import pool from "./pool";
 
-const dragons = [
-    { name: "Tiraton", domain: "Mass" },
-    { name: "Carulkem", domain: "Nexus" },
-    { name: "Stagus", domain: "Ordo" },
-    { name: "Tyrustis", domain: "Lex" },
-    { name: "Vecelo", domain: "Motus" },
-    { name: "Aurgenas", domain: "Flux" },
-    { name: "Gavusrix", domain: "Vita" },
-    { name: "Metrion", domain: "Ratio" },
-    { name: "Opecten", domain: "Lux" },
-    { name: "Termhill", domain: "Omen" },
-    { name: "Virantor", domain: "Aura" },
-    { name: "Lophex", domain: "Anumis" }
+export const CANONICAL_DRAGONS = [
+    { name: "Tiraton", domain: "Mass", prime: "lead", title: "The Crushing Anchor" },
+    { name: "Eldra", domain: "Ratio", prime: "copper", title: "The Galvanic Lattice" },
+    { name: "Vecelo", domain: "Motus", prime: "quicksilver", title: "The Kinetic Scream" },
+    { name: "Lophex", domain: "Lux", prime: "electrum", title: "The Revealing Glare" },
+    { name: "Sevrath", domain: "Omen", prime: "jet", title: "The Inevitable Rot" },
+    { name: "Grolak", domain: "Anumis", prime: "tin", title: "The Unmaking" },
+    { name: "Gavusrix", domain: "Vita", prime: "silver", title: "The Fecund Spark" },
+    { name: "Stagus", domain: "Ordo", prime: "quartz", title: "The Unyielding Glazier" },
+    { name: "Carulkem", domain: "Nexus", prime: "iron", title: "The Furnace Eternal" },
+    { name: "Virantor", domain: "Aura", prime: "amber", title: "The Siren Deep" },
+    { name: "Ulex", domain: "Flux", prime: "gold", title: "The Shifting Melt" },
+    { name: "Vahn", domain: "Lex", prime: "lodestone", title: "The Divine Mandate" }
 ];
 
 async function seedGroves() {
     try {
-        console.log("Fetching random cell_ids...");
+        console.log("Fetching random cell_ids for Sacred Groves...");
         const res = await pool.query("SELECT id FROM sim_cells ORDER BY RANDOM() LIMIT 12");
         const cellIds = res.rows.map((row: { id: number }) => row.id);
 
@@ -26,9 +26,9 @@ async function seedGroves() {
             console.warn(`Only found ${cellIds.length} cells. We need 12 for all dragons.`);
         }
 
-        console.log("Seeding Sacred Groves...");
-        for (let i = 0; i < Math.min(dragons.length, cellIds.length); i++) {
-            const dragon = dragons[i];
+        console.log("Seeding Canonical Sacred Groves (Canon/06)...");
+        for (let i = 0; i < Math.min(CANONICAL_DRAGONS.length, cellIds.length); i++) {
+            const dragon = CANONICAL_DRAGONS[i];
             const cellId = cellIds[i];
 
             await pool.query(
@@ -45,4 +45,6 @@ async function seedGroves() {
     }
 }
 
-seedGroves();
+if (process.argv[1]?.includes("seedGroves")) {
+    seedGroves();
+}
