@@ -195,7 +195,13 @@ async function runCanonMandateTests() {
   // -------------------------------------------------------------
   try {
     process.stdout.write("Test 5: Pure Simulation Boundary... ");
-    const simDir = path.resolve(process.cwd(), 'src', 'simulation');
+    let simDir = path.resolve(process.cwd(), 'src', 'simulation');
+    if (!fs.existsSync(simDir)) {
+      simDir = path.resolve(process.cwd(), 'simulation-engine', 'src', 'simulation');
+    }
+    if (!fs.existsSync(simDir)) {
+      simDir = path.resolve(__dirname, '..', '..', 'src', 'simulation');
+    }
     const files = fs.readdirSync(simDir).filter(f => f.endsWith('.ts'));
 
     const forbiddenImports = ['react', 'react-dom', 'vite', 'canvas', 'window', 'document'];

@@ -3,6 +3,24 @@ import { Pool, PoolClient } from "pg";
 export type ThreadState = "open" | "escalated" | "resolved";
 export type ThreadOrigin = "reaction" | "beat" | "arc";
 
+export interface ThreadWorldDelta {
+  unrestDelta?: number;
+  wealthDelta?: number;
+  foodDelta?: number;
+  rawMaterialsDelta?: number;
+  crimeRateDelta?: number;
+  actorTagsAdd?: string[];
+  actorTagsRemove?: string[];
+  actorDispositionDelta?: number;
+  actorAlive?: boolean;
+  propTagsAdd?: string[];
+  propTagsRemove?: string[];
+  propNameMatch?: string;
+  sectorTagsAdd?: string[];
+  sectorTagsRemove?: string[];
+  narrativeSummary: string;
+}
+
 export interface SimThread {
   id: number;
   question: string;
@@ -18,6 +36,9 @@ export interface SimThread {
   created_tick: number;
   resolved_tick: number | null;
   resolution: string | null;
+  rule_id?: string | null;
+  on_expire?: ThreadWorldDelta | null;
+  on_resolved_by_party?: ThreadWorldDelta | null;
 }
 
 export interface CreateThreadInput {
@@ -31,6 +52,9 @@ export interface CreateThreadInput {
   clock_max?: number;
   origin?: ThreadOrigin;
   created_tick: number;
+  rule_id?: string;
+  on_expire?: ThreadWorldDelta;
+  on_resolved_by_party?: ThreadWorldDelta;
 }
 
 /**
@@ -39,23 +63,29 @@ export interface CreateThreadInput {
 export async function ensureThreadTable(client: Pool | PoolClient): Promise<void> {
   await client.query(`
     CREATE TABLE IF NOT EXISTS sim_threads (
-      id             SERIAL PRIMARY KEY,
-      question       TEXT NOT NULL,
-      stakes         TEXT NOT NULL,
-      actor_ids      TEXT[] NOT NULL DEFAULT '{}',
-      cell_id        INT NOT NULL,
-      rx             INT NOT NULL,
-      ry             INT NOT NULL,
-      clock          INT NOT NULL DEFAULT 0,
-      clock_max      INT NOT NULL DEFAULT 6,
-      state          VARCHAR(32) NOT NULL DEFAULT 'open',
-      origin         VARCHAR(32) NOT NULL DEFAULT 'reaction',
-      created_tick   INT NOT NULL DEFAULT 0,
-      resolved_tick  INT DEFAULT NULL,
-      resolution     TEXT DEFAULT NULL
+      id                   SERIAL PRIMARY KEY,
+      question             TEXT NOT NULL,
+      stakes               TEXT NOT NULL,
+      actor_ids            TEXT[] NOT NULL DEFAULT '{}',
+      cell_id              INT NOT NULL,
+      rx                   INT NOT NULL,
+      ry                   INT NOT NULL,
+      clock                INT NOT NULL DEFAULT 0,
+      clock_max            INT NOT NULL DEFAULT 6,
+      state                VARCHAR(32) NOT NULL DEFAULT 'open',
+      origin               VARCHAR(32) NOT NULL DEFAULT 'reaction',
+      created_tick         INT NOT NULL DEFAULT 0,
+      resolved_tick        INT DEFAULT NULL,
+      resolution           TEXT DEFAULT NULL,
+      rule_id              VARCHAR(64) DEFAULT NULL,
+      on_expire            JSONB DEFAULT '{}'::jsonb,
+      on_resolved_by_party JSONB DEFAULT '{}'::jsonb
     );
     CREATE INDEX IF NOT EXISTS idx_sim_threads_state ON sim_threads(state);
     CREATE INDEX IF NOT EXISTS idx_sim_threads_loc ON sim_threads(cell_id, rx, ry);
+    ALTER TABLE sim_threads ADD COLUMN IF NOT EXISTS rule_id VARCHAR(64) DEFAULT NULL;
+    ALTER TABLE sim_threads ADD COLUMN IF NOT EXISTS on_expire JSONB DEFAULT '{}'::jsonb;
+    ALTER TABLE sim_threads ADD COLUMN IF NOT EXISTS on_resolved_by_party JSONB DEFAULT '{}'::jsonb;
   `);
 }
 
@@ -131,9 +161,10 @@ export async function createThread(
   const res = await client.query(
     `
     INSERT INTO sim_threads (
-      question, stakes, actor_ids, cell_id, rx, ry, clock, clock_max, state, origin, created_tick
+      question, stakes, actor_ids, cell_id, rx, ry, clock, clock_max, state, origin, created_tick,
+      rule_id, on_expire, on_resolved_by_party
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open', $9, $10)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open', $9, $10, $11, $12, $13)
     RETURNING *
     `,
     [
@@ -146,7 +177,10 @@ export async function createThread(
       input.clock ?? 0,
       input.clock_max ?? 6,
       input.origin ?? "reaction",
-      input.created_tick
+      input.created_tick,
+      input.rule_id || null,
+      JSON.stringify(input.on_expire || {}),
+      JSON.stringify(input.on_resolved_by_party || {})
     ]
   );
 
@@ -190,9 +224,148 @@ export interface ThreadClockAdvanceSummary {
 }
 
 /**
+ * Applies specific world changes defined in a ThreadWorldDelta to PostgreSQL:
+ * 1. Mutates sim_burg_economy (unrest, wealth, food, raw_materials, crime_rate)
+ * 2. Mutates sim_sector_layers (actor tags, disposition, alive status, prop tags, sector tags)
+ * 3. Records a chronicler rumor in sim_events
+ */
+export async function applyThreadWorldDelta(
+  client: Pool | PoolClient,
+  thread: SimThread,
+  delta: ThreadWorldDelta,
+  currentTick: number,
+  loreDate?: string,
+  eventType: "THREAD_EXPIRED" | "THREAD_RESOLVED_BY_PARTY" = "THREAD_EXPIRED"
+): Promise<{ burgId?: number | undefined; unrestDelta: number; wealthDelta: number; resolution: string }> {
+  const unrestDelta = delta.unrestDelta ?? 0;
+  const wealthDelta = delta.wealthDelta ?? 0;
+  const foodDelta = delta.foodDelta ?? 0;
+  const rawMaterialsDelta = delta.rawMaterialsDelta ?? 0;
+  const crimeRateDelta = delta.crimeRateDelta ?? 0;
+  const resolutionText = delta.narrativeSummary || `Thread #${thread.id} reached resolution at tick ${currentTick}: ${thread.stakes}`;
+
+  // 1. Mutate sim_burg_economy
+  const burgRes = await client.query(
+    `SELECT burg_id, unrest, wealth, food, raw_materials, crime_rate FROM sim_burg_economy WHERE cell_id = $1 LIMIT 1`,
+    [thread.cell_id]
+  );
+  let burgId: number | undefined;
+
+  if (burgRes.rows.length > 0) {
+    burgId = burgRes.rows[0].burg_id;
+    await client.query(
+      `UPDATE sim_burg_economy 
+       SET unrest = LEAST(100, GREATEST(0, unrest + $1)),
+           wealth = GREATEST(0, wealth + $2),
+           food = GREATEST(0, food + $3),
+           raw_materials = GREATEST(0, raw_materials + $4),
+           crime_rate = LEAST(100, GREATEST(0, crime_rate + $5))
+       WHERE burg_id = $6`,
+      [unrestDelta, wealthDelta, foodDelta, rawMaterialsDelta, crimeRateDelta, burgId]
+    );
+  }
+
+  // 2. Mutate sim_sector_layers
+  const layerRes = await client.query(
+    `SELECT npcs, props, features FROM sim_sector_layers WHERE cell_id = $1 AND rx = $2 AND ry = $3 LIMIT 1`,
+    [thread.cell_id, thread.rx, thread.ry]
+  );
+  if (layerRes.rows.length > 0) {
+    let npcs = Array.isArray(layerRes.rows[0].npcs) ? layerRes.rows[0].npcs : [];
+    let props = Array.isArray(layerRes.rows[0].props) ? layerRes.rows[0].props : [];
+    let features = layerRes.rows[0].features && typeof layerRes.rows[0].features === "object" ? layerRes.rows[0].features : {};
+    let mutated = false;
+
+    // Mutate thread actors
+    const actorSet = new Set(thread.actor_ids || []);
+    npcs = npcs.map((npc: any) => {
+      if (actorSet.has(String(npc.id))) {
+        mutated = true;
+        let tags = Array.isArray(npc.tags) ? [...npc.tags] : [];
+        if (delta.actorTagsRemove) {
+          tags = tags.filter((t: string) => !delta.actorTagsRemove!.includes(t));
+        }
+        if (delta.actorTagsAdd) {
+          for (const t of delta.actorTagsAdd) {
+            if (!tags.includes(t)) tags.push(t);
+          }
+        }
+        const disposition = (npc.disposition || 0) + (delta.actorDispositionDelta ?? 0);
+        const alive = delta.actorAlive !== undefined ? delta.actorAlive : (npc.alive ?? true);
+        return {
+          ...npc,
+          tags,
+          disposition,
+          alive
+        };
+      }
+      return npc;
+    });
+
+    // Mutate props if specified
+    if (delta.propTagsAdd || delta.propTagsRemove) {
+      props = props.map((p: any) => {
+        const matchesName = !delta.propNameMatch || (p.name && p.name.toLowerCase().includes(delta.propNameMatch.toLowerCase()));
+        if (matchesName) {
+          mutated = true;
+          let tags = Array.isArray(p.tags) ? [...p.tags] : [];
+          if (delta.propTagsRemove) {
+            tags = tags.filter((t: string) => !delta.propTagsRemove!.includes(t));
+          }
+          if (delta.propTagsAdd) {
+            for (const t of delta.propTagsAdd) {
+              if (!tags.includes(t)) tags.push(t);
+            }
+          }
+          return { ...p, tags };
+        }
+        return p;
+      });
+    }
+
+    // Mutate sector environmental tags
+    if (delta.sectorTagsAdd || delta.sectorTagsRemove) {
+      let envTags: string[] = Array.isArray(features.environmental_tags) ? [...features.environmental_tags] : [];
+      if (delta.sectorTagsRemove) {
+        envTags = envTags.filter(t => !delta.sectorTagsRemove!.includes(t));
+      }
+      if (delta.sectorTagsAdd) {
+        for (const t of delta.sectorTagsAdd) {
+          if (!envTags.includes(t)) envTags.push(t);
+        }
+      }
+      features = { ...features, environmental_tags: envTags };
+      mutated = true;
+    }
+
+    if (mutated) {
+      await client.query(
+        `UPDATE sim_sector_layers SET npcs = $1, props = $2, features = $3 WHERE cell_id = $4 AND rx = $5 AND ry = $6`,
+        [JSON.stringify(npcs), JSON.stringify(props), JSON.stringify(features), thread.cell_id, thread.rx, thread.ry]
+      );
+    }
+  }
+
+  // 3. Log rumor to sim_events for tavern gossip & news
+  await client.query(
+    `INSERT INTO sim_events (tick, burg_id, lore_date, type, message, tier)
+     VALUES ($1, $2, $3, $4, $5, 'MAJOR')`,
+    [
+      currentTick,
+      burgId || null,
+      loreDate || `Tick ${currentTick}`,
+      eventType === "THREAD_RESOLVED_BY_PARTY" ? "PARTY_RESOLVED_THREAD" : "THREAD_RESOLVED",
+      `📜 [${eventType === "THREAD_RESOLVED_BY_PARTY" ? "HEROIC INTERVENTION" : "THREAD RESOLUTION"}] ${resolutionText}`
+    ]
+  );
+
+  return { burgId, unrestDelta, wealthDelta, resolution: resolutionText };
+}
+
+/**
  * Advances all active thread clocks by 1 tick (STORY_AUDIT Step 3).
  * When clock reaches clock_max, the thread resolves automatically,
- * applying real state changes to sim_burg_economy, sim_sector_layers, and sim_events.
+ * applying its specific on_expire world change (no generic constants).
  */
 export async function advanceThreadClocks(
   client: Pool | PoolClient,
@@ -229,85 +402,39 @@ export async function advanceThreadClocks(
     } else {
       // Reached clock_max: RESOLVE ON ITS OWN!
       summary.threadsResolved++;
-      const resolutionText = `Clock expired at tick ${currentTick}: Unaddressed crisis resolved unfavorably. Stakes realized: ${thread.stakes}`;
+
+      // Parse thread-specific on_expire outcome
+      const onExpireOutcome: ThreadWorldDelta =
+        thread.on_expire && typeof thread.on_expire === "object" && Object.keys(thread.on_expire).length > 0
+          ? (typeof thread.on_expire === "string" ? JSON.parse(thread.on_expire) : thread.on_expire)
+          : {
+              unrestDelta: 10,
+              wealthDelta: -100,
+              narrativeSummary: `Clock expired at tick ${currentTick}: Unaddressed crisis resolved unfavorably. Stakes realized: ${thread.stakes}`
+            };
+
+      const deltaResult = await applyThreadWorldDelta(
+        client,
+        thread,
+        onExpireOutcome,
+        currentTick,
+        loreDate,
+        "THREAD_EXPIRED"
+      );
 
       await client.query(
         `UPDATE sim_threads 
          SET clock = $1, state = 'resolved', resolved_tick = $2, resolution = $3 
          WHERE id = $4`,
-        [nextClock, currentTick, resolutionText, thread.id]
-      );
-
-      // --- APPLY REAL WORLD DELTA (NOT JUST A LOG LINE) ---
-      // 1. Mutate sim_burg_economy for this cell
-      const burgRes = await client.query(
-        `SELECT burg_id, unrest, wealth, food FROM sim_burg_economy WHERE cell_id = $1 LIMIT 1`,
-        [thread.cell_id]
-      );
-      let burgId: number | undefined;
-      const unrestDelta = 15;
-
-      if (burgRes.rows.length > 0) {
-        burgId = burgRes.rows[0].burg_id;
-        await client.query(
-          `UPDATE sim_burg_economy 
-           SET unrest = LEAST(100, unrest + $1),
-               wealth = GREATEST(0, wealth - 250)
-           WHERE burg_id = $2`,
-          [unrestDelta, burgId]
-        );
-      }
-
-      // 2. Mutate sector layer entities in sim_sector_layers
-      const layerRes = await client.query(
-        `SELECT npcs, props FROM sim_sector_layers WHERE cell_id = $1 AND rx = $2 AND ry = $3 LIMIT 1`,
-        [thread.cell_id, thread.rx, thread.ry]
-      );
-      if (layerRes.rows.length > 0) {
-        let npcs = Array.isArray(layerRes.rows[0].npcs) ? layerRes.rows[0].npcs : [];
-        let mutated = false;
-
-        // Apply consequence tags to thread actors
-        const actorSet = new Set(thread.actor_ids || []);
-        npcs = npcs.map((npc: any) => {
-          if (actorSet.has(String(npc.id))) {
-            mutated = true;
-            const existingTags = Array.isArray(npc.tags) ? npc.tags : [];
-            return {
-              ...npc,
-              tags: [...existingTags, "#CrisisResolutionFallen", "#DisplacedByTrouble"],
-              disposition: (npc.disposition || 0) - 3
-            };
-          }
-          return npc;
-        });
-
-        if (mutated) {
-          await client.query(
-            `UPDATE sim_sector_layers SET npcs = $1 WHERE cell_id = $2 AND rx = $3 AND ry = $4`,
-            [JSON.stringify(npcs), thread.cell_id, thread.rx, thread.ry]
-          );
-        }
-      }
-
-      // 3. Log rumor to sim_events for tavern gossip & news
-      await client.query(
-        `INSERT INTO sim_events (tick, burg_id, lore_date, type, message, tier)
-         VALUES ($1, $2, $3, 'THREAD_RESOLVED', $4, 'MAJOR')`,
-        [
-          currentTick,
-          burgId || null,
-          loreDate || `Tick ${currentTick}`,
-          `📜 [THREAD RESOLUTION] ${resolutionText}`
-        ]
+        [nextClock, currentTick, deltaResult.resolution, thread.id]
       );
 
       summary.worldDeltasApplied.push({
         threadId: thread.id,
         cellId: thread.cell_id,
-        burgId,
-        unrestDelta,
-        resolution: resolutionText
+        burgId: deltaResult.burgId,
+        unrestDelta: deltaResult.unrestDelta,
+        resolution: deltaResult.resolution
       });
     }
   }

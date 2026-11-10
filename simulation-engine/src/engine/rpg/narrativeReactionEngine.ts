@@ -1,4 +1,5 @@
 import { Entity, getEntityCoords, propagateToNearby, PropThesaurus, SemanticThesaurus } from "./narrativeTagEngine";
+import { ThreadWorldDelta } from "../threads/threadEngine.js";
 
 // =============================================================
 // NARRATIVE DATA COLLISION REACTION ENGINE
@@ -32,6 +33,9 @@ export interface ThreadCandidate {
     ry: number;
     clock_max: number;
     origin: 'reaction';
+    rule_id?: string;
+    on_expire?: ThreadWorldDelta;
+    on_resolved_by_party?: ThreadWorldDelta;
 }
 
 export interface ReactionRule {
@@ -92,11 +96,13 @@ export interface ReactionRule {
         };
     };
 
-    // Optional persistent thread formulation for major drama collisions (STORY_AUDIT Step 2)
+    // Optional persistent thread formulation for major drama collisions (STORY_AUDIT Step 2 & Step 5)
     threadTemplate?: {
         questionTemplate: (actor: Entity, context: SectorContext) => string;
         stakesTemplate: (actor: Entity, context: SectorContext) => string;
         clockMax?: number;
+        on_expire: (actor: Entity, context: SectorContext) => ThreadWorldDelta;
+        on_resolved_by_party: (actor: Entity, context: SectorContext) => ThreadWorldDelta;
     };
 }
 
@@ -178,7 +184,32 @@ export const NarrativeReactionTable: ReactionRule[] = [
                 `Will the crackdown on ${actor.name || 'the blacksmith'} ignite an open riot against the garrison?`,
             stakesTemplate: (actor, ctx) =>
                 `The blacksmith will face execution and the smithy will be permanently demolished unless intervened.`,
-            clockMax: 4
+            clockMax: 4,
+            on_expire: (actor, ctx) => ({
+                unrestDelta: 25,
+                wealthDelta: -300,
+                rawMaterialsDelta: -150,
+                actorTagsAdd: ['#Executed', '#MartyrOfRebellion'],
+                actorTagsRemove: ['#InCustody', '#Imprisoned'],
+                actorAlive: false,
+                propTagsAdd: ['#ForgeDismantled', '#RubbleChoked'],
+                propNameMatch: 'forge',
+                sectorTagsAdd: ['#MartialTerror'],
+                narrativeSummary: `Garrison publicly executed ${actor.name || 'the blacksmith'}; the smithy was dismantled, sparking seething fury and weapon shortages across ${ctx.burgName || 'the settlement'}.`
+            }),
+            on_resolved_by_party: (actor, ctx) => ({
+                unrestDelta: -15,
+                wealthDelta: 150,
+                rawMaterialsDelta: 100,
+                actorTagsAdd: ['#RebelAlly', '#VindicatedArtisan'],
+                actorTagsRemove: ['#InCustody', '#Imprisoned', '#SupplyDrought'],
+                actorDispositionDelta: 3,
+                propTagsAdd: ['#SmithyOperational'],
+                propTagsRemove: ['#SmithyClosed', '#BoardedDoor'],
+                propNameMatch: 'forge',
+                sectorTagsRemove: ['#WatchPatrolsActive'],
+                narrativeSummary: `The party uncovered evidence exonerating ${actor.name || 'the blacksmith'} and dismantled garrison extortion, reopening the forge and restoring hope to ${ctx.burgName || 'the settlement'}.`
+            })
         }
     },
 
@@ -271,6 +302,37 @@ export const NarrativeReactionTable: ReactionRule[] = [
                 summaryTemplate: (actor, ctx) =>
                     `Damning ledgers were presented before the council in ${ctx.burgName || 'the burg'}: ${actor.name || 'the magistrate'} was stripped of office and fled into the wilds under active warrant.`
             }
+        },
+        threadTemplate: {
+            questionTemplate: (actor, ctx) =>
+                `Will the deposed official ${actor.name || 'the magistrate'} escape into exile with the municipal treasury?`,
+            stakesTemplate: (actor, ctx) =>
+                `${actor.name || 'The official'} will abscond with civic gold, leaving public institutions bankrupt and crime unchecked.`,
+            clockMax: 5,
+            on_expire: (actor, ctx) => ({
+                unrestDelta: 15,
+                wealthDelta: -450,
+                crimeRateDelta: 12,
+                actorTagsAdd: ['#ExiledInShadows'],
+                actorTagsRemove: ['#Fugitive'],
+                actorDispositionDelta: -2,
+                propTagsAdd: ['#VaultEmptied'],
+                propNameMatch: 'chest',
+                sectorTagsAdd: ['#TreasuryBankrupt'],
+                narrativeSummary: `${actor.name || 'The corrupt official'} successfully fled into exile with the treasury; civic services collapsed in bankruptcy.`
+            }),
+            on_resolved_by_party: (actor, ctx) => ({
+                unrestDelta: -10,
+                wealthDelta: 400,
+                crimeRateDelta: -10,
+                actorTagsAdd: ['#AwaitingTrial', '#InChains'],
+                actorTagsRemove: ['#Fugitive', '#WarrantActive'],
+                actorDispositionDelta: -3,
+                propTagsAdd: ['#TreasurySecured'],
+                propNameMatch: 'chest',
+                sectorTagsRemove: ['#PublicScandal'],
+                narrativeSummary: `The party tracked down and captured ${actor.name || 'the official'}, recovering the stolen civic treasury for ${ctx.burgName || 'the citizens'}.`
+            })
         }
     },
 
@@ -388,6 +450,33 @@ export const NarrativeReactionTable: ReactionRule[] = [
                 summaryTemplate: (actor, ctx) =>
                     `Under the crimson glare of Cruorbus, occult rites conducted by ${actor.name || 'veiled conspirators'} in ${ctx.burgName || 'the sector'} compromised a chaos dragon seal, unleashing eldritch miasma!`
             }
+        },
+        threadTemplate: {
+            questionTemplate: (actor, ctx) =>
+                `Will the occult rite led by ${actor.name || 'the cultist'} tear open an eldritch rift beneath the sector?`,
+            stakesTemplate: (actor, ctx) =>
+                `An abyssal breach will taint water supplies, rot granaries, and summon madness into the streets.`,
+            clockMax: 4,
+            on_expire: (actor, ctx) => ({
+                unrestDelta: 30,
+                crimeRateDelta: 15,
+                foodDelta: -120,
+                actorTagsAdd: ['#DaemonVessel', '#AscendedHorror'],
+                actorDispositionDelta: -5,
+                sectorTagsAdd: ['#ChaosNexusBreached', '#EldritchTaint'],
+                narrativeSummary: `The cult finished the unholy blood rite; abyssal miasma tore through ${ctx.burgName || 'the district'}, blighting provisions and corrupting minds.`
+            }),
+            on_resolved_by_party: (actor, ctx) => ({
+                unrestDelta: -10,
+                crimeRateDelta: -8,
+                wealthDelta: 75,
+                actorTagsAdd: ['#RitualBroken', '#CultShattered'],
+                actorTagsRemove: ['#PossessedZealot', '#ChaosAura'],
+                actorAlive: false,
+                sectorTagsAdd: ['#SanctumPurified'],
+                sectorTagsRemove: ['#CultPresence', '#EldritchTaint', '#DragonSealCracked'],
+                narrativeSummary: `The party assaulted the desecrated sanctum and sundered the ritual focus, banishing the abyssal shadows from ${ctx.burgName || 'the district'}.`
+            })
         }
     },
 
@@ -638,6 +727,31 @@ export const NarrativeReactionTable: ReactionRule[] = [
                 summaryTemplate: (actor, ctx) =>
                     `Paranoid whispers in ${ctx.burgName || 'the quarter'} erupted into vigilante fury as citizens armed with clubs and torches cornered murder suspects.`
             }
+        },
+        threadTemplate: {
+            questionTemplate: (actor, ctx) =>
+                `Will the vigilante mob lynch the cornered suspect in ${ctx.burgName || 'the streets'} before the watch arrives?`,
+            stakesTemplate: (actor, ctx) =>
+                `An innocent civilian will be murdered and mob rule will usurp the town magistrates.`,
+            clockMax: 3,
+            on_expire: (actor, ctx) => ({
+                unrestDelta: 20,
+                crimeRateDelta: 15,
+                wealthDelta: -50,
+                sectorTagsAdd: ['#LynchMobHorror', '#MobRule'],
+                sectorTagsRemove: ['#VigilanteChaos'],
+                narrativeSummary: `The vigilante mob lynched their suspect in ${ctx.burgName || 'the street'}; gruesome mob violence shattered civic peace and sent tremors of terror across the populace.`
+            }),
+            on_resolved_by_party: (actor, ctx) => ({
+                unrestDelta: -10,
+                crimeRateDelta: -10,
+                wealthDelta: 40,
+                actorTagsAdd: ['#DispersedMob', '#PacifiedCitizens'],
+                actorTagsRemove: ['#VigilanteMobActive', '#ArmedWithTorches', '#ParanoidWhispers'],
+                sectorTagsRemove: ['#VigilanteChaos'],
+                sectorTagsAdd: ['#OrderRestored'],
+                narrativeSummary: `The party confronted the mob, exposed the true perpetrators, and pacified the crowd, restoring lawful order in ${ctx.burgName || 'the quarter'}.`
+            })
         }
     },
 
@@ -677,6 +791,32 @@ export const NarrativeReactionTable: ReactionRule[] = [
                 summaryTemplate: (actor, ctx) =>
                     `From exile in the fringes, deposed magistrate ${actor.name || 'the fallen leader'} has assembled a vicious company of mercenaries, plotting a counter-coup against ${ctx.burgName || 'their former seat'}.`
             }
+        },
+        threadTemplate: {
+            questionTemplate: (actor, ctx) =>
+                `Will ${actor.name || 'the deposed leader'} sack the lower ward with hired sellswords to reclaim power?`,
+            stakesTemplate: (actor, ctx) =>
+                `Mercenary brigades will pillage mercantile stores, slaughtering militia and setting the ward ablaze.`,
+            clockMax: 4,
+            on_expire: (actor, ctx) => ({
+                unrestDelta: 30,
+                wealthDelta: -500,
+                crimeRateDelta: 15,
+                sectorTagsAdd: ['#MercenarySack', '#SmolderingDistrict'],
+                sectorTagsRemove: ['#PendingCivilWar'],
+                narrativeSummary: `Hired sellswords stormed the lower gatehouse, pillaging warehouses and leaving ${ctx.burgName || 'the ward'} in smoldering ruin.`
+            }),
+            on_resolved_by_party: (actor, ctx) => ({
+                unrestDelta: -15,
+                wealthDelta: 120,
+                crimeRateDelta: -10,
+                actorTagsAdd: ['#SellswordsDispersed', '#LeaderCaptured'],
+                actorTagsRemove: ['#MercenaryRetinueRecruited', '#PlottingCounterCoup'],
+                actorAlive: false,
+                sectorTagsAdd: ['#DistrictSecured'],
+                sectorTagsRemove: ['#PendingCivilWar'],
+                narrativeSummary: `The party broke the mercenary leadership and neutralized ${actor.name || 'the warlord'}, preserving ${ctx.burgName || 'the ward'} from devastation.`
+            })
         }
     },
 
@@ -879,6 +1019,22 @@ export function evaluateSectorReactions(
                         : (rule.resultantMutations.logEvent ? rule.resultantMutations.logEvent.summaryTemplate(entity, context) : rule.description);
                     const clockMax = rule.threadTemplate?.clockMax ?? 6;
 
+                    const on_expire: ThreadWorldDelta = rule.threadTemplate?.on_expire
+                        ? rule.threadTemplate.on_expire(entity, context)
+                        : {
+                            unrestDelta: 10,
+                            wealthDelta: -100,
+                            narrativeSummary: `The unchecked fallout of ${rule.name} destabilized ${context.burgName || 'the sector'}.`
+                        };
+
+                    const on_resolved_by_party: ThreadWorldDelta = rule.threadTemplate?.on_resolved_by_party
+                        ? rule.threadTemplate.on_resolved_by_party(entity, context)
+                        : {
+                            unrestDelta: -5,
+                            wealthDelta: 50,
+                            narrativeSummary: `The party intervened in the fallout of ${rule.name}, restoring stability to ${context.burgName || 'the sector'}.`
+                        };
+
                     threadsToOpen.push({
                         question,
                         stakes,
@@ -887,7 +1043,10 @@ export function evaluateSectorReactions(
                         rx: context.rx ?? 50,
                         ry: context.ry ?? 50,
                         clock_max: clockMax,
-                        origin: 'reaction'
+                        origin: 'reaction',
+                        rule_id: rule.id,
+                        on_expire,
+                        on_resolved_by_party
                     });
                 }
 

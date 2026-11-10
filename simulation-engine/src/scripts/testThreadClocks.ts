@@ -55,8 +55,8 @@ async function testThreadClocks() {
     );
   }
 
-  // 2. Create test thread with clock_max = 3
-  process.stdout.write("1. Creating test thread with clock=0, clock_max=3... ");
+  // 2. Create test thread with clock_max = 3 and specific on_expire outcome (no generic constants)
+  process.stdout.write("1. Creating test thread with clock=0, clock_max=3 and specific on_expire... ");
   const testThread = await createThread(pool, {
     question: "Will the grain tax trigger an open dock strike?",
     stakes: "Dockworkers refuse to load granary barges, driving unrest and sabotaging trade.",
@@ -67,7 +67,14 @@ async function testThreadClocks() {
     clock: 0,
     clock_max: 3,
     origin: "reaction",
-    created_tick: 500
+    created_tick: 500,
+    rule_id: "test_dock_strike",
+    on_expire: {
+      unrestDelta: 22,
+      wealthDelta: -350,
+      actorTagsAdd: ["#DockStrikeFailed", "#UnionBlacklisted"],
+      narrativeSummary: "Dock strike was brutally crushed by harbor mercenaries; trade collapsed and fury spread."
+    }
   });
   console.log(`✅ PASSED (Thread ID: ${testThread.id})`);
 
@@ -113,13 +120,13 @@ async function testThreadClocks() {
   const unrestDelta = Number(burgAfter.unrest) - initialUnrest;
   const wealthDelta = initialWealth - Number(burgAfter.wealth);
 
-  if (unrestDelta < 10) {
-    throw new Error(`Expected unrest to increase by at least 10; actual delta: ${unrestDelta}`);
+  if (unrestDelta !== 22) {
+    throw new Error(`Expected specific unrest delta of +22; actual delta: ${unrestDelta}`);
   }
-  if (wealthDelta < 200) {
-    throw new Error(`Expected wealth to decrease by at least 200; actual delta: ${wealthDelta}`);
+  if (wealthDelta !== 350) {
+    throw new Error(`Expected specific wealth delta of -350; actual delta: ${wealthDelta}`);
   }
-  console.log(`✅ PASSED (Unrest increased by +${unrestDelta}, Wealth decreased by -${wealthDelta})`);
+  console.log(`✅ PASSED (Exact specific delta verified: Unrest +${unrestDelta}, Wealth -${wealthDelta})`);
 
   // 7. Verify sector layer NPC consequence tags
   process.stdout.write("6. Verifying real world sector entity tag mutations... ");
@@ -129,18 +136,18 @@ async function testThreadClocks() {
   );
   const layerNpcs = Array.isArray(layerAfterRes.rows[0]?.npcs) ? layerAfterRes.rows[0].npcs : [];
   const testActor = layerNpcs.find((n: any) => String(n.id) === realAgentId);
-  if (!testActor?.tags?.includes("#CrisisResolutionFallen")) {
-    throw new Error(`Actor ${realAgentId} missing consequence tag #CrisisResolutionFallen! Tags: ${testActor?.tags}`);
+  if (!testActor?.tags?.includes("#DockStrikeFailed")) {
+    throw new Error(`Actor ${realAgentId} missing consequence tag #DockStrikeFailed! Tags: ${testActor?.tags}`);
   }
-  console.log("✅ PASSED (Actor mutated with #CrisisResolutionFallen)");
+  console.log("✅ PASSED (Actor mutated with #DockStrikeFailed)");
 
   // 8. Verify sim_events rumor logged
   process.stdout.write("7. Verifying rumor logged to sim_events... ");
   const eventRes = await pool.query(
     `SELECT id, type, message FROM sim_events WHERE type = 'THREAD_RESOLVED' ORDER BY id DESC LIMIT 1`
   );
-  if (!eventRes.rows[0]?.message.includes(testThread.stakes)) {
-    throw new Error(`sim_events missing thread resolution stakes! Message: ${eventRes.rows[0]?.message}`);
+  if (!eventRes.rows[0]?.message.includes("Dock strike was brutally crushed") && !eventRes.rows[0]?.message.includes(testThread.stakes)) {
+    throw new Error(`sim_events missing thread resolution stakes or narrative summary! Message: ${eventRes.rows[0]?.message}`);
   }
   console.log("✅ PASSED (sim_events rumor logged)");
 
