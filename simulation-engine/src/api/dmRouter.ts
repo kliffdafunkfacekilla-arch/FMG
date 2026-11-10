@@ -11,6 +11,7 @@ import { getOrGenerateInteriorSubMap } from '../engine/subMapEngine.js';
 import { getOrCreateRegionalInstance } from './regionalRouter.js';
 import { getFactionSpecialty, FACTION_SPECIALTIES, FactionSpecialty } from '../engine/economy/factionSpecialties.js';
 import { getOpenThreads } from '../engine/threads/threadEngine.js';
+import { resolveThreadByParty, ResolveThreadByPartyResult } from '../engine/questChainEngine.js';
 
 dotenv.config({ override: true });
 
@@ -2242,8 +2243,10 @@ export interface PartySessionState {
   members: PartySessionMember[];
   activeStoryArc?: {
     arc_id: string;
+    thread_id?: number;
     inciting_incident: string;
     active_phase: number;
+    resolved?: boolean;
     beats: Array<{ phase: number; objective: string; discovery_method: string }>;
   };
   history: Array<{
@@ -2571,8 +2574,10 @@ router.post('/party_session/init', async (req, res) => {
       const activeThread = openThreads[0];
       activeStoryArc = {
         arc_id: `thread_${activeThread.id}`,
+        thread_id: activeThread.id,
         inciting_incident: activeThread.stakes,
         active_phase: 1,
+        resolved: false,
         beats: [
           {
             phase: 1,
@@ -2691,40 +2696,69 @@ router.post('/party_session/step', async (req, res) => {
       recentChronicle
     );
 
+    const declaredAction = req.body?.actionOverride || action;
+    const declaredDialogue = req.body?.dialogueOverride || dialogue;
+
     // 3. Resolve through BrutalGameMaster (B.R.U.T.A.L. v4.9 dice math & grounded narration)
     const gmResult = await brutalGM.executeTurn({
-      actionText: action,
+      actionText: declaredAction,
       playerId: currentMember.id,
       playerPos: currentMember.pos,
       zLayer: livePartySessionState.z
     });
+
+    if (req.body?.forceSuccess) {
+      gmResult.success = true;
+    }
 
     // 4. Update member state based on outcome
     if (gmResult.lootAwarded && gmResult.lootAwarded.gold) {
       currentMember.gold += gmResult.lootAwarded.gold;
     }
 
+    // Check if player action resolves the active thread (STORY_AUDIT Step 5)
+    let threadResolutionResult: ResolveThreadByPartyResult | null = null;
+    if (livePartySessionState.activeStoryArc?.thread_id && !livePartySessionState.activeStoryArc?.resolved && gmResult.success) {
+      const isResolutionAction = req.body?.resolveThread === true ||
+        declaredAction.toLowerCase().includes("free") ||
+        declaredAction.toLowerCase().includes("liberat") ||
+        declaredAction.toLowerCase().includes("exonerat") ||
+        declaredAction.toLowerCase().includes("unchain") ||
+        declaredAction.toLowerCase().includes("padlock") ||
+        (declaredAction.toLowerCase().includes("doran") && (declaredAction.toLowerCase().includes("save") || declaredAction.toLowerCase().includes("rescue") || declaredAction.toLowerCase().includes("innocen")));
+
+      if (isResolutionAction) {
+        threadResolutionResult = await resolveThreadByParty(pool, {
+          threadId: Number(livePartySessionState.activeStoryArc.thread_id),
+          playerOutcome: 'SUCCESS',
+          resolutionNarrative: `Party heroically resolved thread #${livePartySessionState.activeStoryArc.thread_id}: ${currentMember.name} took action: "${declaredAction}". ${gmResult.narrativeResponse}`
+        });
+        livePartySessionState.activeStoryArc.resolved = true;
+      }
+    }
+
     // Nudge character position closer to their target if moving/attacking
-    if (action.toLowerCase().includes("gate")) {
+    if (declaredAction.toLowerCase().includes("gate")) {
       currentMember.pos = [126, 130];
-    } else if (action.toLowerCase().includes("crate")) {
+    } else if (declaredAction.toLowerCase().includes("crate")) {
       currentMember.pos = [133, 134];
-    } else if (action.toLowerCase().includes("fletcher")) {
+    } else if (declaredAction.toLowerCase().includes("fletcher")) {
       currentMember.pos = [128, 129];
-    } else if (action.toLowerCase().includes("winch")) {
+    } else if (declaredAction.toLowerCase().includes("winch")) {
       currentMember.pos = [123, 127];
     }
 
     // Record turn in history
-    const historyEntry = {
+    const historyEntry: any = {
       round: livePartySessionState.round,
       turn: livePartySessionState.turnIndex + 1,
       characterName: currentMember.name,
-      dialogue,
-      action,
+      dialogue: declaredDialogue,
+      action: declaredAction,
       rollOutcome: gmResult.rollOutcome,
       narrative: gmResult.narrativeResponse,
-      success: gmResult.success
+      success: gmResult.success,
+      threadResolution: threadResolutionResult
     };
     livePartySessionState.history.push(historyEntry);
 
@@ -2738,7 +2772,38 @@ router.post('/party_session/step', async (req, res) => {
       success: true,
       turnResult: historyEntry,
       sessionState: livePartySessionState,
-      gmOutput: gmResult
+      gmOutput: gmResult,
+      threadResolution: threadResolutionResult
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/dm/party_session/resolve_thread - Explicitly resolve an active thread by party action
+ */
+router.post('/party_session/resolve_thread', async (req, res) => {
+  try {
+    const { threadId, playerOutcome = 'SUCCESS', narrative } = req.body || {};
+    const targetThreadId = Number(threadId || livePartySessionState.activeStoryArc?.thread_id);
+    if (!targetThreadId) {
+      return res.status(400).json({ error: "Missing threadId in body and no active thread in party session." });
+    }
+
+    const resolutionResult = await resolveThreadByParty(pool, {
+      threadId: targetThreadId,
+      playerOutcome,
+      resolutionNarrative: narrative
+    });
+
+    if (livePartySessionState.activeStoryArc) {
+      livePartySessionState.activeStoryArc.resolved = true;
+    }
+
+    res.json({
+      success: true,
+      resolution: resolutionResult
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
