@@ -2686,18 +2686,25 @@ router.post('/party_session/step', async (req, res) => {
     const currentBeat = livePartySessionState.activeStoryArc?.beats?.[(livePartySessionState.activeStoryArc?.active_phase || 1) - 1];
     const currentObjective = currentBeat ? currentBeat.objective : "Investigate surroundings and act with full agency.";
 
-    const { dialogue, action } = await fetchOllamaPlayerIntent(
-      currentMember,
-      activePropsList,
-      activeNPCsList,
-      tacticalSight,
-      activeTrouble,
-      currentObjective,
-      recentChronicle
-    );
+    let dialogue = req.body?.dialogueOverride;
+    let action = req.body?.actionOverride;
 
-    const declaredAction = req.body?.actionOverride || action;
-    const declaredDialogue = req.body?.dialogueOverride || dialogue;
+    if (!dialogue || !action) {
+      const intent = await fetchOllamaPlayerIntent(
+        currentMember,
+        activePropsList,
+        activeNPCsList,
+        tacticalSight,
+        activeTrouble,
+        currentObjective,
+        recentChronicle
+      );
+      if (!dialogue) dialogue = intent.dialogue;
+      if (!action) action = intent.action;
+    }
+
+    const declaredAction = action;
+    const declaredDialogue = dialogue;
 
     // 3. Resolve through BrutalGameMaster (B.R.U.T.A.L. v4.9 dice math & grounded narration)
     const gmResult = await brutalGM.executeTurn({
