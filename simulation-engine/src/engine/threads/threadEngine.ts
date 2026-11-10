@@ -4,20 +4,20 @@ export type ThreadState = "open" | "escalated" | "resolved";
 export type ThreadOrigin = "reaction" | "beat" | "arc";
 
 export interface ThreadWorldDelta {
-  unrestDelta?: number;
-  wealthDelta?: number;
-  foodDelta?: number;
-  rawMaterialsDelta?: number;
-  crimeRateDelta?: number;
-  actorTagsAdd?: string[];
-  actorTagsRemove?: string[];
-  actorDispositionDelta?: number;
-  actorAlive?: boolean;
-  propTagsAdd?: string[];
-  propTagsRemove?: string[];
-  propNameMatch?: string;
-  sectorTagsAdd?: string[];
-  sectorTagsRemove?: string[];
+  unrestDelta?: number | undefined;
+  wealthDelta?: number | undefined;
+  foodDelta?: number | undefined;
+  rawMaterialsDelta?: number | undefined;
+  crimeRateDelta?: number | undefined;
+  actorTagsAdd?: string[] | undefined;
+  actorTagsRemove?: string[] | undefined;
+  actorDispositionDelta?: number | undefined;
+  actorAlive?: boolean | undefined;
+  propTagsAdd?: string[] | undefined;
+  propTagsRemove?: string[] | undefined;
+  propNameMatch?: string | undefined;
+  sectorTagsAdd?: string[] | undefined;
+  sectorTagsRemove?: string[] | undefined;
   narrativeSummary: string;
 }
 
@@ -221,6 +221,184 @@ export interface ThreadClockAdvanceSummary {
     unrestDelta: number;
     resolution: string;
   }>;
+}
+
+export interface ThreadStateEvaluation {
+  isResolved: boolean;
+  outcomeType: 'DEATH' | 'FREEDOM' | 'FLIGHT' | 'COMPROMISE' | 'EXPIRED' | 'UNRESOLVED';
+  resolutionNarrative: string;
+  actorTagsToAdd?: string[] | undefined;
+  actorTagsToRemove?: string[] | undefined;
+  actorDispositionDelta?: number | undefined;
+  sectorTagsToAdd?: string[] | undefined;
+  sectorTagsToRemove?: string[] | undefined;
+  propTagsToAdd?: string[] | undefined;
+  propTagsToRemove?: string[] | undefined;
+  propNameMatch?: string | undefined;
+  unrestDelta: number;
+  wealthDelta: number;
+  foodDelta: number;
+  rawMaterialsDelta: number;
+  crimeRateDelta: number;
+}
+
+/**
+ * Systemically evaluates the true physical state of a thread's actors and props.
+ * Replaces canned scripts with real living entity states:
+ * - If actor is DEAD: Absence causes tool shortages, economic decline, and anger.
+ * - If actor is FREED: Liberation reopens shops, clears tool shortages, stabilizes burg.
+ * - If actor FLED: Actor becomes an outlaw/fugitive, leaves empty shop and supply drought.
+ * - If actor is BRIBED/COMPROMISED: Corruption entrenches, crime rate rises.
+ */
+export function evaluateThreadState(
+  thread: SimThread,
+  npcs: any[],
+  props: any[]
+): ThreadStateEvaluation {
+  const actorIds = new Set((thread.actor_ids || []).map(id => String(id)));
+  const threadActors = (npcs || []).filter(n => actorIds.has(String(n.id)));
+  const primaryActor = threadActors[0];
+
+  if (!primaryActor) {
+    return {
+      isResolved: false,
+      outcomeType: 'UNRESOLVED',
+      resolutionNarrative: 'Thread actors not currently present in sector.',
+      unrestDelta: 0,
+      wealthDelta: 0,
+      foodDelta: 0,
+      rawMaterialsDelta: 0,
+      crimeRateDelta: 0
+    };
+  }
+
+  const isDead = primaryActor.alive === false ||
+    (primaryActor.hp !== undefined && primaryActor.hp <= 0) ||
+    primaryActor.tags?.includes('#Dead') ||
+    primaryActor.tags?.includes('#Slain') ||
+    primaryActor.tags?.includes('#Executed');
+
+  if (isDead) {
+    const actorName = primaryActor.name || 'The captive';
+    const isSmith = primaryActor.role?.toLowerCase().includes('smith') || primaryActor.tags?.some((t: string) => t.toLowerCase().includes('smith') || t.toLowerCase().includes('artisan'));
+    
+    return {
+      isResolved: true,
+      outcomeType: 'DEATH',
+      resolutionNarrative: `${actorName} was slain. Their permanent absence leaves the district reeling; their craft lies abandoned and public fury boils over.`,
+      actorTagsToAdd: ['#Dead', '#Slain', '#MartyrOfRebellion'],
+      actorTagsToRemove: ['#InCustody', '#Imprisoned', '#AnxiousBehavior'],
+      sectorTagsToAdd: isSmith ? ['#BrokenTools', '#SupplyDrought', '#MartialTerror'] : ['#MartialTerror'],
+      propTagsToAdd: isSmith ? ['#ForgeDismantled', '#RubbleChoked'] : undefined,
+      propNameMatch: isSmith ? 'forge' : undefined,
+      unrestDelta: 25,
+      wealthDelta: -250,
+      foodDelta: isSmith ? -100 : 0,
+      rawMaterialsDelta: isSmith ? -150 : 0,
+      crimeRateDelta: 10
+    };
+  }
+
+  const isFree = !primaryActor.tags?.includes('#InCustody') && !primaryActor.tags?.includes('#Imprisoned');
+  const isFugitive = primaryActor.tags?.includes('#Fugitive') || primaryActor.tags?.includes('#InHiding') || primaryActor.tags?.includes('#Exiled');
+
+  if (isFree && isFugitive) {
+    const actorName = primaryActor.name || 'The artisan';
+    return {
+      isResolved: true,
+      outcomeType: 'FLIGHT',
+      resolutionNarrative: `${actorName} escaped the garrison's clutches and vanished into the wilds as a fugitive. The shop remains abandoned.`,
+      actorTagsToAdd: ['#Fugitive', '#InHiding'],
+      actorTagsToRemove: ['#InCustody', '#Imprisoned'],
+      sectorTagsToAdd: ['#BlacksmithAbsence', '#SupplyDrought'],
+      unrestDelta: 10,
+      wealthDelta: -100,
+      foodDelta: -50,
+      rawMaterialsDelta: -80,
+      crimeRateDelta: 5
+    };
+  }
+
+  if (isFree) {
+    const actorName = primaryActor.name || 'The artisan';
+    const isSmith = primaryActor.role?.toLowerCase().includes('smith') || primaryActor.tags?.some((t: string) => t.toLowerCase().includes('smith') || t.toLowerCase().includes('artisan'));
+
+    return {
+      isResolved: true,
+      outcomeType: 'FREEDOM',
+      resolutionNarrative: `${actorName} was cleared and freed from garrison custody, returning to active trade. Local morale surges as tools and repairs resume.`,
+      actorTagsToAdd: ['#RebelAlly', '#VindicatedArtisan'],
+      actorTagsToRemove: ['#InCustody', '#Imprisoned', '#SupplyDrought', '#AnxiousBehavior'],
+      actorDispositionDelta: 3,
+      sectorTagsToAdd: isSmith ? ['#SmithyOperational'] : [],
+      sectorTagsToRemove: ['#WatchPatrolsActive', '#SupplyDrought'],
+      propTagsToAdd: isSmith ? ['#SmithyOperational'] : undefined,
+      propTagsToRemove: isSmith ? ['#SmithyClosed', '#BoardedDoor'] : undefined,
+      propNameMatch: isSmith ? 'forge' : undefined,
+      unrestDelta: -15,
+      wealthDelta: 150,
+      foodDelta: 30,
+      rawMaterialsDelta: 100,
+      crimeRateDelta: -5
+    };
+  }
+
+  return {
+    isResolved: false,
+    outcomeType: 'UNRESOLVED',
+    resolutionNarrative: 'Situation remains unresolved; actor is still held in custody.',
+    unrestDelta: 0,
+    wealthDelta: 0,
+    foodDelta: 0,
+    rawMaterialsDelta: 0,
+    crimeRateDelta: 0
+  };
+}
+
+/**
+ * Resolves a thread naturally based on evaluated entity states.
+ */
+export async function resolveThreadNaturally(
+  client: Pool | PoolClient,
+  thread: SimThread,
+  evaluation: ThreadStateEvaluation,
+  currentTick: number,
+  loreDate?: string
+): Promise<{ burgId?: number | undefined; unrestDelta: number; wealthDelta: number; resolution: string }> {
+  const delta: ThreadWorldDelta = {
+    unrestDelta: evaluation.unrestDelta,
+    wealthDelta: evaluation.wealthDelta,
+    foodDelta: evaluation.foodDelta,
+    rawMaterialsDelta: evaluation.rawMaterialsDelta,
+    crimeRateDelta: evaluation.crimeRateDelta,
+    actorTagsAdd: evaluation.actorTagsToAdd,
+    actorTagsRemove: evaluation.actorTagsToRemove,
+    actorDispositionDelta: evaluation.actorDispositionDelta,
+    propTagsAdd: evaluation.propTagsToAdd,
+    propTagsRemove: evaluation.propTagsToRemove,
+    propNameMatch: evaluation.propNameMatch,
+    sectorTagsAdd: evaluation.sectorTagsToAdd,
+    sectorTagsRemove: evaluation.sectorTagsToRemove,
+    narrativeSummary: evaluation.resolutionNarrative
+  };
+
+  const deltaResult = await applyThreadWorldDelta(
+    client,
+    thread,
+    delta,
+    currentTick,
+    loreDate,
+    evaluation.outcomeType === 'EXPIRED' ? 'THREAD_EXPIRED' : 'THREAD_RESOLVED_BY_PARTY'
+  );
+
+  await client.query(
+    `UPDATE sim_threads 
+     SET state = 'resolved', resolved_tick = $1, resolution = $2 
+     WHERE id = $3`,
+    [currentTick, evaluation.resolutionNarrative, thread.id]
+  );
+
+  return deltaResult;
 }
 
 /**

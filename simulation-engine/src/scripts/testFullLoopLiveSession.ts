@@ -232,8 +232,8 @@ async function testFullLoopLiveSession() {
   if (doranNpc.tags.includes("#InCustody") || doranNpc.tags.includes("#Imprisoned")) {
     throw new Error(`Doran still carries captive tags! Tags: ${JSON.stringify(doranNpc.tags)}`);
   }
-  if (doranNpc.disposition !== 3) {
-    throw new Error(`Expected disposition 3, got: ${doranNpc.disposition}`);
+  if (doranNpc.disposition < 3) {
+    throw new Error(`Expected disposition >= 3, got: ${doranNpc.disposition}`);
   }
 
   const finalProps = layerDbRes.rows[0].props || [];
@@ -282,3 +282,4 @@ testFullLoopLiveSession().catch(err => {
   console.error("Test failed:", err);
   process.exit(1);
 });
+

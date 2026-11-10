@@ -10,7 +10,7 @@ import { generateGrindCanyonSectorMap, generateBurgSectorLayers, generateOutlyin
 import { getOrGenerateInteriorSubMap } from '../engine/subMapEngine.js';
 import { getOrCreateRegionalInstance } from './regionalRouter.js';
 import { getFactionSpecialty, FACTION_SPECIALTIES, FactionSpecialty } from '../engine/economy/factionSpecialties.js';
-import { getOpenThreads } from '../engine/threads/threadEngine.js';
+import { getOpenThreads, evaluateThreadState } from '../engine/threads/threadEngine.js';
 import { resolveThreadByParty, ResolveThreadByPartyResult } from '../engine/questChainEngine.js';
 
 dotenv.config({ override: true });
@@ -2723,24 +2723,58 @@ router.post('/party_session/step', async (req, res) => {
       currentMember.gold += gmResult.lootAwarded.gold;
     }
 
-    // Check if player action resolves the active thread (STORY_AUDIT Step 5)
+    // Systemic thread resolution via real physical entity state mutation
     let threadResolutionResult: ResolveThreadByPartyResult | null = null;
     if (livePartySessionState.activeStoryArc?.thread_id && !livePartySessionState.activeStoryArc?.resolved && gmResult.success) {
-      const isResolutionAction = req.body?.resolveThread === true ||
-        declaredAction.toLowerCase().includes("free") ||
-        declaredAction.toLowerCase().includes("liberat") ||
-        declaredAction.toLowerCase().includes("exonerat") ||
-        declaredAction.toLowerCase().includes("unchain") ||
-        declaredAction.toLowerCase().includes("padlock") ||
-        (declaredAction.toLowerCase().includes("doran") && (declaredAction.toLowerCase().includes("save") || declaredAction.toLowerCase().includes("rescue") || declaredAction.toLowerCase().includes("innocen")));
+      const actLower = declaredAction.toLowerCase();
+      let targetDoran = Array.from(brutalGM.activeNPCs.values()).find(n => n.name.toLowerCase().includes("doran") || n.role.toLowerCase().includes("blacksmith"));
 
-      if (isResolutionAction) {
-        threadResolutionResult = await resolveThreadByParty(pool, {
-          threadId: Number(livePartySessionState.activeStoryArc.thread_id),
-          playerOutcome: 'SUCCESS',
-          resolutionNarrative: `Party heroically resolved thread #${livePartySessionState.activeStoryArc.thread_id}: ${currentMember.name} took action: "${declaredAction}". ${gmResult.narrativeResponse}`
-        });
-        livePartySessionState.activeStoryArc.resolved = true;
+      if (targetDoran) {
+        if (actLower.includes("kill") || actLower.includes("stab") || actLower.includes("slay") || actLower.includes("execute") || actLower.includes("murder") || actLower.includes("throat")) {
+          targetDoran.alive = false;
+          targetDoran.hp = 0;
+          if (!targetDoran.tags.includes("#Dead")) targetDoran.tags.push("#Dead", "#Slain");
+          targetDoran.tags = targetDoran.tags.filter(t => !["#InCustody", "#Imprisoned"].includes(t));
+        } else if (actLower.includes("free") || actLower.includes("liberat") || actLower.includes("unlock") || actLower.includes("unchain") || actLower.includes("pick") || actLower.includes("pardon") || actLower.includes("release")) {
+          targetDoran.tags = targetDoran.tags.filter(t => !["#InCustody", "#Imprisoned"].includes(t));
+          if (!targetDoran.tags.includes("#RebelAlly")) targetDoran.tags.push("#RebelAlly", "#VindicatedArtisan");
+          targetDoran.disposition = (targetDoran.disposition || 0) + 3;
+        } else if (actLower.includes("flee") || actLower.includes("escape") || actLower.includes("smuggle") || actLower.includes("hills") || actLower.includes("wild")) {
+          targetDoran.tags = targetDoran.tags.filter(t => !["#InCustody", "#Imprisoned"].includes(t));
+          if (!targetDoran.tags.includes("#Fugitive")) targetDoran.tags.push("#Fugitive", "#InHiding");
+        }
+
+        // Persist NPC updates to sim_sector_layers
+        const npcsArray = Array.from(brutalGM.activeNPCs.values()).map(n => ({
+          id: n.id,
+          name: n.name,
+          role: n.role,
+          disposition: n.disposition,
+          alive: n.alive,
+          hp: n.hp,
+          tags: n.tags
+        }));
+        await pool.query(
+          `UPDATE sim_sector_layers SET npcs = $1 WHERE cell_id = $2 AND rx = $3 AND ry = $4 AND z_layer = $5`,
+          [JSON.stringify(npcsArray), livePartySessionState.cellId, livePartySessionState.rx, livePartySessionState.ry, livePartySessionState.z]
+        );
+      }
+
+      // Check systemic thread resolution based on real entity states
+      const threadRes = await pool.query(`SELECT * FROM sim_threads WHERE id = $1 LIMIT 1`, [livePartySessionState.activeStoryArc.thread_id]);
+      if (threadRes.rows.length > 0) {
+        const currentThread = threadRes.rows[0];
+        const npcsList = Array.from(brutalGM.activeNPCs.values());
+        const propsList = Array.from(brutalGM.activeProps.values());
+        const evaluation = evaluateThreadState(currentThread, npcsList, propsList);
+
+        if (evaluation.isResolved || req.body?.resolveThread) {
+          threadResolutionResult = await resolveThreadByParty(pool, {
+            threadId: Number(currentThread.id),
+            resolutionNarrative: `Party action resolved thread #${currentThread.id}: ${currentMember.name} performed "${declaredAction}". ${evaluation.resolutionNarrative}`
+          });
+          livePartySessionState.activeStoryArc.resolved = true;
+        }
       }
     }
 

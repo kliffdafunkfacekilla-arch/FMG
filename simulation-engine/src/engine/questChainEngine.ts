@@ -3,12 +3,15 @@ import pool from '../db/pool.js';
 import {
   SimThread,
   ThreadWorldDelta,
-  applyThreadWorldDelta
+  applyThreadWorldDelta,
+  evaluateThreadState,
+  resolveThreadNaturally,
+  ThreadStateEvaluation
 } from './threads/threadEngine.js';
 
 export interface ResolveThreadByPartyInput {
   threadId: number;
-  playerOutcome: 'SUCCESS' | 'FAILURE' | 'SABOTAGE';
+  playerOutcome?: 'SUCCESS' | 'FAILURE' | 'SABOTAGE';
   resolutionNarrative?: string;
   currentTick?: number;
   loreDate?: string;
@@ -18,6 +21,7 @@ export interface ResolveThreadByPartyResult {
   threadId: number;
   state: 'resolved';
   resolvedTick: number;
+  outcomeType: string;
   burgId?: number | undefined;
   unrestDelta: number;
   wealthDelta: number;
@@ -26,10 +30,11 @@ export interface ResolveThreadByPartyResult {
 }
 
 /**
- * Resolves an active narrative thread via player action (STORY_AUDIT Step 5).
- * Applies thread.on_resolved_by_party (or on_expire on failure/sabotage) directly to:
+ * Systemically resolves an active narrative thread via player action.
+ * Evaluates the real physical state of sector entities (dead, free, fugitive, working)
+ * and naturally ripples consequences into:
+ * - sim_sector_layers (consequence & ripple tags like #BrokenTools, #SmithyOperational, #MartialTerror)
  * - sim_burg_economy (unrest, wealth, food, raw_materials)
- * - sim_sector_layers (actor tags, disposition, alive status, prop tags, sector features)
  * - sim_events (historical chronicle log)
  * and marks the thread as 'resolved' in sim_threads.
  */
@@ -53,63 +58,85 @@ export async function resolveThreadByParty(
     throw new Error(`[QuestChainEngine] Thread #${input.threadId} is already resolved at tick ${thread.resolved_tick}.`);
   }
 
-  // 2. Select appropriate outcome delta based on party outcome
-  let chosenDelta: ThreadWorldDelta;
-  if (input.playerOutcome === 'SUCCESS') {
-    chosenDelta =
-      thread.on_resolved_by_party && typeof thread.on_resolved_by_party === 'object' && Object.keys(thread.on_resolved_by_party).length > 0
-        ? (typeof thread.on_resolved_by_party === 'string' ? JSON.parse(thread.on_resolved_by_party) : thread.on_resolved_by_party)
-        : {
-            unrestDelta: -10,
-            wealthDelta: 100,
-            narrativeSummary: `Party successfully intervened in thread #${thread.id}: ${thread.question}`
-          };
-  } else {
-    // FAILURE or SABOTAGE: consequences realize as unaddressed or worse
-    chosenDelta =
-      thread.on_expire && typeof thread.on_expire === 'object' && Object.keys(thread.on_expire).length > 0
-        ? (typeof thread.on_expire === 'string' ? JSON.parse(thread.on_expire) : thread.on_expire)
-        : {
-            unrestDelta: 15,
-            wealthDelta: -150,
-            narrativeSummary: `Party failed or sabotaged intervention in thread #${thread.id}: ${thread.stakes}`
-          };
+  // 2. Fetch current physical sector layer state
+  const layerRes = await client.query(
+    `SELECT npcs, props FROM sim_sector_layers WHERE cell_id = $1 AND rx = $2 AND ry = $3 LIMIT 1`,
+    [thread.cell_id, thread.rx, thread.ry]
+  );
+  const npcs = Array.isArray(layerRes.rows[0]?.npcs) ? layerRes.rows[0].npcs : [];
+  const props = Array.isArray(layerRes.rows[0]?.props) ? layerRes.rows[0].props : [];
+
+  // 3. Systemically evaluate real entity states
+  let evaluation = evaluateThreadState(thread, npcs, props);
+
+  // If entities haven't been mutated yet but a clear outcome was declared, synthesize the physical state change
+  if (!evaluation.isResolved && input.playerOutcome) {
+    if (input.playerOutcome === 'SUCCESS') {
+      // Free the captive
+      const targetId = thread.actor_ids[0];
+      const targetNpc = npcs.find((n: any) => String(n.id) === String(targetId));
+      if (targetNpc) {
+        targetNpc.tags = (targetNpc.tags || []).filter((t: string) => !['#InCustody', '#Imprisoned'].includes(t));
+        targetNpc.tags.push('#RebelAlly', '#VindicatedArtisan');
+        targetNpc.disposition = (targetNpc.disposition || 0) + 3;
+      }
+      evaluation = evaluateThreadState(thread, npcs, props);
+    } else if (input.playerOutcome === 'FAILURE' || input.playerOutcome === 'SABOTAGE') {
+      // Target remains in custody or executed
+      evaluation = {
+        isResolved: true,
+        outcomeType: 'EXPIRED',
+        resolutionNarrative: input.resolutionNarrative || `Intervention failed: ${thread.stakes}`,
+        sectorTagsToAdd: ['#BrokenTools', '#SupplyDrought', '#MartialTerror'],
+        actorTagsToAdd: ['#Executed', '#MartyrOfRebellion'],
+        actorTagsToRemove: ['#InCustody', '#Imprisoned'],
+        unrestDelta: 25,
+        wealthDelta: -250,
+        foodDelta: -100,
+        rawMaterialsDelta: -150,
+        crimeRateDelta: 10
+      };
+    }
   }
 
   if (input.resolutionNarrative) {
-    chosenDelta = {
-      ...chosenDelta,
-      narrativeSummary: input.resolutionNarrative
-    };
+    evaluation.resolutionNarrative = input.resolutionNarrative;
   }
 
-  // 3. Apply world delta to sim_burg_economy, sim_sector_layers, and sim_events
-  const deltaResult = await applyThreadWorldDelta(
+  // 4. Resolve naturally with true physical ripple effects
+  const deltaResult = await resolveThreadNaturally(
     client,
     thread,
-    chosenDelta,
+    evaluation,
     currentTick,
-    input.loreDate,
-    'THREAD_RESOLVED_BY_PARTY'
+    input.loreDate
   );
 
-  // 4. Update sim_threads record
-  await client.query(
-    `UPDATE sim_threads 
-     SET state = 'resolved', resolved_tick = $1, resolution = $2 
-     WHERE id = $3`,
-    [currentTick, deltaResult.resolution, thread.id]
-  );
+  const appliedDelta: ThreadWorldDelta = {
+    unrestDelta: evaluation.unrestDelta,
+    wealthDelta: evaluation.wealthDelta,
+    foodDelta: evaluation.foodDelta,
+    rawMaterialsDelta: evaluation.rawMaterialsDelta,
+    crimeRateDelta: evaluation.crimeRateDelta,
+    actorTagsAdd: evaluation.actorTagsToAdd,
+    actorTagsRemove: evaluation.actorTagsToRemove,
+    propTagsAdd: evaluation.propTagsToAdd,
+    propTagsRemove: evaluation.propTagsToRemove,
+    sectorTagsAdd: evaluation.sectorTagsToAdd,
+    sectorTagsRemove: evaluation.sectorTagsToRemove,
+    narrativeSummary: evaluation.resolutionNarrative
+  };
 
   return {
     threadId: thread.id,
     state: 'resolved',
     resolvedTick: currentTick,
+    outcomeType: evaluation.outcomeType,
     burgId: deltaResult.burgId,
     unrestDelta: deltaResult.unrestDelta,
     wealthDelta: deltaResult.wealthDelta,
     resolution: deltaResult.resolution,
-    deltaApplied: chosenDelta
+    deltaApplied: appliedDelta
   };
 }
 
