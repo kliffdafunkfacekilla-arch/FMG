@@ -60,8 +60,12 @@ async function testTacticalInteractions() {
   const tableObj: TaggedObject = {
     id: "prop_table_01",
     name: "Tavern Table",
+    type: "PROP",
     tags: new Set(["table", "flippable", "standing", "wood"]),
-    pos: [10, 10]
+    pos: [10, 10],
+    hp: 20,
+    maxHp: 20,
+    isDestroyed: false
   };
 
   const flipResult = TagMatrixEngine.resolveInteraction(
@@ -87,14 +91,22 @@ async function testTacticalInteractions() {
   const chandelierObj: TaggedObject = {
     id: "prop_chandelier_01",
     name: "Grand Chandelier",
+    type: "PROP",
     tags: new Set(["chandelier", "swingable", "iron"]),
-    pos: [15, 15]
+    pos: [15, 15],
+    hp: 15,
+    maxHp: 15,
+    isDestroyed: false
   };
   const enemyGuard: TaggedObject = {
     id: "npc_guard_01",
     name: "Garrison Sentry",
+    type: "NPC",
     tags: new Set(["hostile", "standing"]),
-    pos: [16, 15] // Within 3.5 distance
+    pos: [16, 15], // Within 3.5 distance
+    hp: 12,
+    maxHp: 12,
+    isDestroyed: false
   };
 
   const swingResult = TagMatrixEngine.resolveInteraction(
@@ -124,14 +136,22 @@ async function testTacticalInteractions() {
   const barrelObj: TaggedObject = {
     id: "prop_barrel_01",
     name: "Heavy Ironwood Barrel",
+    type: "PROP",
     tags: new Set(["barrel", "pushable", "wood"]),
-    pos: [20, 20]
+    pos: [20, 20],
+    hp: 25,
+    maxHp: 25,
+    isDestroyed: false
   };
   const thug: TaggedObject = {
     id: "npc_thug_01",
     name: "Dockside Thug",
+    type: "NPC",
     tags: new Set(["hostile", "standing"]),
-    pos: [22, 20] // Within 4.0 distance
+    pos: [22, 20], // Within 4.0 distance
+    hp: 10,
+    maxHp: 10,
+    isDestroyed: false
   };
 
   const pushResult = TagMatrixEngine.resolveInteraction(
@@ -158,14 +178,22 @@ async function testTacticalInteractions() {
   const torchObj: TaggedObject = {
     id: "prop_torch_01",
     name: "Iron Wall Torch",
+    type: "PROP",
     tags: new Set(["torch", "snuffable", "burning", "illuminated"]),
-    pos: [30, 30]
+    pos: [30, 30],
+    hp: 5,
+    maxHp: 5,
+    isDestroyed: false
   };
   const playerInRoom: TaggedObject = {
     id: "player_patrick",
     name: "Patrick",
+    type: "PLAYER",
     tags: new Set(["standing"]),
-    pos: [32, 30] // Within 6.0 distance
+    pos: [32, 30], // Within 6.0 distance
+    hp: 20,
+    maxHp: 20,
+    isDestroyed: false
   };
 
   const snuffResult = TagMatrixEngine.resolveInteraction(

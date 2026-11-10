@@ -2247,6 +2247,8 @@ export interface PartySessionState {
     inciting_incident: string;
     active_phase: number;
     resolved?: boolean;
+    resolution?: string;
+    decisiveSuccessCount?: number;
     beats: Array<{ phase: number; objective: string; discovery_method: string }>;
   };
   history: Array<{
@@ -2258,6 +2260,7 @@ export interface PartySessionState {
     rollOutcome: any;
     narrative: string;
     success: boolean;
+    threadResolution?: any;
   }>;
 }
 
@@ -2408,19 +2411,18 @@ ${npcsSummary}
 RECENT PARTY ACTIONS & CHRONICLE:
 ${recentChronicle.length > 0 ? recentChronicle.slice(-4).join('\n') : "The party just arrived at this sector."}
 
-TOTAL PLAYER AGENCY:
-You are NOT on rails or restricted to a choice list. You have complete freedom to declare ANY action:
-- Sneak, climb walls/rooftops, pick locks, or slip past sentries.
-- Search containers, examine mechanisms, or tamper with structural supports.
-- Interrogate, negotiate, deceive, or bribe citizens/guards.
-- Cast spells, channel resonance, or manipulate elemental conduits.
-- Attack with weapons, grapple, shove, or set traps.
-- Disarm devices, douse light sources, or stage an environmental distraction.
+STRICT PROACTIVE MANDATE & ANTI-REPETITION:
+1. DO NOT repeat or copy any dialogue or action from the RECENT PARTY ACTIONS list above. That has already happened!
+2. DO NOT say "Keep your eyes open." or do "I survey the area." or take passive observation turns.
+3. You MUST take a PROACTIVE, DECISIVE ACTION that addresses the situation:
+   - Target an actual visible prop or citizen by name (e.g. ${sceneProps[0]?.name ? `"${sceneProps[0].name}"` : 'the sector features'} or ${sceneNPCs[0]?.name ? `"${sceneNPCs[0].name}"` : 'the local citizens'}).
+   - Use an active physical, social, or mechanical verb matching your role: inspect for hidden compartments, interrogate, bribe, pick lock, heave cover, cast spell, barricade, or disarm.
+4. Speak in your authentic persona (${member.persona}).
 
 YOUR TURN:
 Give:
 1) One short spoken line of in-character dialogue.
-2) One clear declared action describing what you do in natural language (e.g. "I climb the eastern scaffolding to survey the guard patrol routes", "I slip 10 gold to the merchant to ask who locked the sluice", "I smash the rusted padlock with my cleaver").
+2) One clear declared action describing what you do in natural language (e.g. "I question ${sceneNPCs[0]?.name || 'the sentry'} about the contraband search", "I examine the mechanism of ${sceneProps[0]?.name || 'the lock'} using my finesse", "I overturn the table to block the garrison's line of sight").
 
 Output format EXACTLY:
 Dialogue: "your spoken words"
@@ -2428,7 +2430,7 @@ Action: I [what you do]`;
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5500);
+    const timeout = setTimeout(() => controller.abort(), 15000);
 
     const res = await fetch("http://127.0.0.1:11434/api/generate", {
       method: "POST",
@@ -2438,7 +2440,7 @@ Action: I [what you do]`;
         model: "llama3.2:latest",
         prompt,
         stream: false,
-        options: { temperature: 0.7, num_predict: 120 }
+        options: { temperature: 0.75, num_predict: 120 }
       })
     });
     clearTimeout(timeout);
@@ -2446,8 +2448,8 @@ Action: I [what you do]`;
     const data: any = await res.json();
     const raw = String(data.response || "").trim();
 
-    let dialogue = "Keep your eyes open.";
-    let action = "I survey the area.";
+    let dialogue = "";
+    let action = "";
 
     const dMatch = raw.match(/Dialogue:\s*["“]?([^"”\n]+)["”]?/i);
     if (dMatch && dMatch[1]) dialogue = dMatch[1].trim();
@@ -2458,6 +2460,38 @@ Action: I [what you do]`;
       if (!action.toLowerCase().startsWith("i ")) action = "I " + action;
     }
 
+    // Check if the LLM emitted a generic passive response or mimicked recent turns
+    const isPassiveOrDuplicate =
+      !action ||
+      action.toLowerCase().includes("survey the area") ||
+      action.toLowerCase().includes("look around") ||
+      action.toLowerCase().includes("scan the area") ||
+      action.toLowerCase().includes("keep my gaze fixed") ||
+      recentChronicle.some(c => c.toLowerCase().includes(action.toLowerCase().slice(0, 35)));
+
+    if (isPassiveOrDuplicate) {
+      const firstProp = sceneProps[0];
+      const firstNpc = sceneNPCs[0];
+
+      if (member.name === "Harrow Grist") {
+        dialogue = firstNpc ? `Listen closely, ${firstNpc.name}. We're resolving this garrison mess right now.` : "Out of my way. I'm securing this checkpoint.";
+        action = firstProp ? `I heave and inspect ${firstProp.name} using brute might to uncover what's hidden` : (firstNpc ? `I confront ${firstNpc.name} and demand answers about the garrison's search` : "I take up position at the entrance to block pursuit");
+      } else if (member.name === "Lyra Swift-Feather") {
+        dialogue = "I see structural marks here. Let me check the perimeter compartments.";
+        action = firstProp ? `I search ${firstProp.name} for concealed compartments or hidden ledgers` : (firstNpc ? `I question ${firstNpc.name} about patrol shift schedules` : "I secure high ground to watch the garrison approaches");
+      } else if (member.name === "Orlo Mind-Weaver") {
+        dialogue = "The resonance conduits in this sector carry subtle traces. Allow me to examine this.";
+        action = firstProp ? `I examine the locking mechanism of ${firstProp.name} using my knowledge` : (firstNpc ? `I assess ${firstNpc.name}'s aura for signs of deception or fear` : "I trace the arcane wards along the doorframe");
+      } else {
+        dialogue = firstNpc ? `A moment of your time, ${firstNpc.name}. A few coins might loosen your tongue.` : "Quietly now. Keep your voices low while I handle the mechanism.";
+        action = firstProp ? `I use my lockpicks on ${firstProp.name} with finesse to bypass the security` : (firstNpc ? `I slide 10 gold to ${firstNpc.name} to learn the garrison's inspection route` : "I slip into the alleyway to create a noise distraction");
+      }
+    }
+
+    if (!dialogue) {
+      dialogue = `I'll handle this. Watch my back.`;
+    }
+
     return { dialogue, action };
   } catch (err) {
     // Dynamic sandbox fallback reflecting character role and sector assets
@@ -2466,23 +2500,23 @@ Action: I [what you do]`;
 
     if (member.name === "Harrow Grist") {
       return {
-        dialogue: "Stand back. If it's in our way, I'll clear it.",
-        action: firstProp ? `I smash ${firstProp.name} with my ${member.weapon}` : "I take a defensive stance and guard the perimeter"
+        dialogue: firstNpc ? `Stand aside, ${firstNpc.name}. We're clearing this chokepoint.` : "Stand back. If it's in our way, I'll clear it.",
+        action: firstProp ? `I smash the locking hasp of ${firstProp.name} with my ${member.weapon}` : "I take a defensive stance and guard the entrance"
       };
     } else if (member.name === "Lyra Swift-Feather") {
       return {
-        dialogue: "Checking high vantage points and scanning for hidden compartments.",
-        action: firstProp ? `I search ${firstProp.name} for concealed compartments or markings` : "I climb to high ground to scout enemy positions"
+        dialogue: "Scanning elevated perimeters and inspecting storage bins.",
+        action: firstProp ? `I search ${firstProp.name} for concealed compartments or contraband` : "I climb to high vantage to scout garrison patrols"
       };
     } else if (member.name === "Orlo Mind-Weaver") {
       return {
-        dialogue: "Notice the resonance patterns here. Something is unusual.",
-        action: firstProp ? `I examine the mechanism of ${firstProp.name} using my knowledge` : "I channel my conduit staff to detect active aether flows"
+        dialogue: "Notice the resonance patterns here. The locking mechanism can be solved.",
+        action: firstProp ? `I solve the keystone sequence of ${firstProp.name} using my knowledge` : "I channel my conduit staff to detect hidden arcane seals"
       };
     } else {
       return {
-        dialogue: "Let me do the talking. Coin and a smile open more doors than iron.",
-        action: firstNpc ? `I talk to ${firstNpc.name} to negotiate and gather intelligence` : "I blend into the shadows to observe unseen"
+        dialogue: firstNpc ? `Let me speak with ${firstNpc.name}. A smile and coin open more doors than iron.` : "Let me do the talking. Coin and a smile open more doors than iron.",
+        action: firstNpc ? `I talk to ${firstNpc.name} to negotiate safe passage and gather intelligence` : (firstProp ? `I pick the lock of ${firstProp.name} using my thieves' tools` : "I blend into the shadows to stage a distraction")
       };
     }
   }
@@ -2768,12 +2802,30 @@ router.post('/party_session/step', async (req, res) => {
         const propsList = Array.from(brutalGM.activeProps.values());
         const evaluation = evaluateThreadState(currentThread, npcsList, propsList);
 
-        if (evaluation.isResolved || req.body?.resolveThread) {
+        // Check keyword alignment between action and thread stakes/objective
+        const textToMatch = `${currentThread.question} ${currentThread.stakes}`.toLowerCase();
+        const actionTokens = actLower.split(/\W+/).filter((w: string) => w.length > 3);
+        const matchesObjective = actionTokens.some((tok: string) => textToMatch.includes(tok));
+
+        if (matchesObjective && gmResult.success) {
+          livePartySessionState.activeStoryArc.decisiveSuccessCount = 
+            (livePartySessionState.activeStoryArc.decisiveSuccessCount || 0) + 1;
+        }
+
+        const shouldResolve =
+          evaluation.isResolved ||
+          req.body?.resolveThread ||
+          (livePartySessionState.activeStoryArc.decisiveSuccessCount || 0) >= 3;
+
+        if (shouldResolve) {
+          const outcome = (evaluation.outcomeType !== 'UNRESOLVED' ? evaluation.outcomeType : 'SUCCESS') as 'SUCCESS' | 'FAILURE' | 'SABOTAGE';
           threadResolutionResult = await resolveThreadByParty(pool, {
             threadId: Number(currentThread.id),
-            resolutionNarrative: `Party action resolved thread #${currentThread.id}: ${currentMember.name} performed "${declaredAction}". ${evaluation.resolutionNarrative}`
+            playerOutcome: outcome === 'FAILURE' || outcome === 'SABOTAGE' ? outcome : 'SUCCESS',
+            resolutionNarrative: `Party action resolved thread #${currentThread.id}: ${currentMember.name} performed "${declaredAction}". ${evaluation.resolutionNarrative || 'The party achieved decisive victory on this objective.'}`
           });
           livePartySessionState.activeStoryArc.resolved = true;
+          livePartySessionState.activeStoryArc.resolution = threadResolutionResult.resolution;
         }
       }
     }
@@ -2802,6 +2854,11 @@ router.post('/party_session/step', async (req, res) => {
       threadResolution: threadResolutionResult
     };
     livePartySessionState.history.push(historyEntry);
+
+    // Cap history to prevent memory/payload bloat
+    if (livePartySessionState.history.length > 25) {
+      livePartySessionState.history = livePartySessionState.history.slice(-20);
+    }
 
     // Advance turn
     livePartySessionState.turnIndex = (livePartySessionState.turnIndex + 1) % livePartySessionState.members.length;

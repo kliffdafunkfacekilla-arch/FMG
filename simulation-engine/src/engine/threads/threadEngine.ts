@@ -226,6 +226,7 @@ export interface ThreadClockAdvanceSummary {
 export interface ThreadStateEvaluation {
   isResolved: boolean;
   outcomeType: 'DEATH' | 'FREEDOM' | 'FLIGHT' | 'COMPROMISE' | 'EXPIRED' | 'UNRESOLVED';
+  actorState?: 'dead' | 'free' | 'fugitive' | 'imprisoned' | undefined;
   resolutionNarrative: string;
   actorTagsToAdd?: string[] | undefined;
   actorTagsToRemove?: string[] | undefined;

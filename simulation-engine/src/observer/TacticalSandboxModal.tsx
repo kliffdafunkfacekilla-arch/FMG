@@ -126,6 +126,9 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
       if (res.ok) {
         const data = await res.json();
         setPartySession(data.sessionState);
+        if (data.sessionState?.activeStoryArc?.resolved) {
+          setAutoPlay(false);
+        }
         await loadLayer(zLayer);
       }
     } catch (err: any) {
@@ -1155,6 +1158,23 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
                     flexDirection: 'column',
                     gap: 8
                   }}>
+                    {partySession?.activeStoryArc?.resolved && (
+                      <div style={{
+                        background: '#064e3b',
+                        border: '1px solid #10b981',
+                        borderRadius: 6,
+                        padding: '8px 12px',
+                        color: '#ecfdf5',
+                        fontSize: 11
+                      }}>
+                        <div style={{ fontWeight: 800, fontSize: 12, marginBottom: 2, color: '#34d399' }}>
+                          🎉 THREAD DECISIVELY RESOLVED BY PARTY ACTION
+                        </div>
+                        <div>
+                          {partySession.activeStoryArc.resolution || "The party has decisively completed the objective and reshaped the sector state."}
+                        </div>
+                      </div>
+                    )}
                     {partySession?.history && partySession.history.length > 0 ? (
                       partySession.history.map((h: any, idx: number) => (
                         <div
