@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import pool from '../../db/pool';
 import { Entity, processSectorNarrativeLayer } from './narrativeTagEngine';
+import type { SimThread, ThreadStateEvaluation } from '../threads/threadEngine';
 
 // =========================================================================
 // 1. DATA CONTRACTS (JSON-to-JSON Pipeline)
@@ -583,5 +584,216 @@ Output strictly valid JSON with this exact structure:
     } catch (err: any) {
         console.warn(`[AI Director] Remote Gemini call encountered error (${err.message}), seamlessly executing procedural fallback.`);
         return synthesizeProceduralStoryArc(inputPayload);
+    }
+}
+
+// =========================================================================
+// 7. STORY RESOLUTION AFTERMATH SYNTHESIZER
+// =========================================================================
+
+export interface ThreadAftermathSynthesis {
+    narrativeSummary: string;
+    forensicTags: string[];
+    lootRewards: Array<{ name: string; tag: string; quantity: number }>;
+    burgShiftNarrative: string;
+    followUpThread?: {
+        question: string;
+        stakes: string;
+        clock_max: number;
+        actor_id: string; // Guaranteed to exist in DB (Rule 7)
+        rule_id?: string;
+    };
+}
+
+/**
+ * Procedurally reasons out the direct physical, forensic, and narrative consequences
+ * of a resolved thread, including scene loot, forensic evidence tags, and an emergent follow-up thread.
+ * Enforces Rule 7: Every actor_id referenced in a follow-up thread MUST exist in eligibleNpcs.
+ */
+export function synthesizeProceduralAftermath(
+    thread: SimThread,
+    evaluation: ThreadStateEvaluation,
+    eligibleNpcs: EligibleNPCAsset[],
+    eligibleProps: EligiblePropAsset[],
+    burgName: string = "the district"
+): ThreadAftermathSynthesis {
+    const actorState = evaluation.actorState || (evaluation.outcomeType === 'EXPIRED' ? 'dead' : 'free');
+    const validActor = eligibleNpcs.find(n => !n.tags.includes('paragon')) || eligibleNpcs[0] || { id: thread.actor_ids[0] || '1', name: 'Citizen' };
+
+    if (actorState === 'dead') {
+        return {
+            narrativeSummary: evaluation.resolutionNarrative || `Martial authorities extinguished all resistance regarding ${thread.stakes}.`,
+            forensicTags: ['#Bloodstain', '#ExecutionMark', '#ShatteredBonds', '#GarrisonTerror'],
+            lootRewards: [
+                { name: 'Blacksmith Chisel', tag: '#ArtisanTool', quantity: 1 },
+                { name: 'Iron Shavings', tag: '#MetalOre', quantity: 5 }
+            ],
+            burgShiftNarrative: `The artisan's demise inflames resentment across ${burgName}; guild workers whisper of a general strike.`,
+            followUpThread: {
+                question: `Will the guild workers in ${burgName} declare an illegal strike against martial confiscation?`,
+                stakes: `Garrison commander intends to arrest apprentice delegates unless the iron quota is met.`,
+                clock_max: 5,
+                actor_id: String(validActor.id),
+                rule_id: 'RULE_PROLETARIAT_STRIKE'
+            }
+        };
+    } else if (actorState === 'fugitive') {
+        return {
+            narrativeSummary: evaluation.resolutionNarrative || `The artisan slipped through the perimeter, seeking shelter in the outer rugged passes.`,
+            forensicTags: ['#DiscreetTracks', '#SmuggledCaravan', '#FalseManifest', '#ShadowTrail'],
+            lootRewards: [
+                { name: 'Mountain Smuggler Map', tag: '#ForensicDocument', quantity: 1 },
+                { name: 'Highland Dried Rations', tag: '#ForageRations', quantity: 4 }
+            ],
+            burgShiftNarrative: `Clandestine supply corridors establish a foothold between ${burgName} and the hills.`,
+            followUpThread: {
+                question: `Can the fugitive artisan evade border wardens and link up with the mountain smuggler cells?`,
+                stakes: `If intercepted on the high trail, the artisan will be executed as a deserter.`,
+                clock_max: 6,
+                actor_id: String(validActor.id),
+                rule_id: 'RULE_SMUGGLER_TRAIL'
+            }
+        };
+    } else {
+        // Free / working / liberated
+        return {
+            narrativeSummary: evaluation.resolutionNarrative || `The artisan was liberated and restored to productive freedom.`,
+            forensicTags: ['#BrokenChains', '#BreachedLock', '#SmuggledEscape', '#ScatteredLedgers'],
+            lootRewards: [
+                { name: 'Clandestine Guild Token', tag: '#ContrabandGuild', quantity: 1 },
+                { name: 'Pouch of Imperial Crowns', tag: '#CurrencyCoin', quantity: 35 }
+            ],
+            burgShiftNarrative: `The artisan's release breaks the garrison's stranglehold on local production; clandestine work resumes.`,
+            followUpThread: {
+                question: `Will the suspicious garrison inspect the reopened workshop looking for illegal arms caches?`,
+                stakes: `An unannounced midnight search will confiscate all hidden masterwork stock.`,
+                clock_max: 4,
+                actor_id: String(validActor.id),
+                rule_id: 'RULE_GARRISON_INSPECTION'
+            }
+        };
+    }
+}
+
+/**
+ * AI-driven or procedural synthesizer that reasons about aftermath consequences.
+ * Returns forensic tags, loot rewards, burg shifts, and an emergent follow-up thread.
+ */
+export async function generateThreadResolutionAftermath(
+    thread: SimThread,
+    evaluation: ThreadStateEvaluation,
+    eligibleNpcs: EligibleNPCAsset[],
+    eligibleProps: EligiblePropAsset[],
+    burgName: string = "the district",
+    playerActionText?: string
+): Promise<ThreadAftermathSynthesis> {
+    const validNpcIds = new Set(eligibleNpcs.map(n => String(n.id)));
+    const apiKey = process.env.GEMINI_API_KEY;
+
+    // Check Ollama local fallback
+    const callOllamaAftermath = async (): Promise<ThreadAftermathSynthesis | null> => {
+        try {
+            const res = await fetch('http://127.0.0.1:11434/api/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: 'llama3:latest',
+                    prompt: `You are the AI Story Director for the B.R.U.T.A.L. tabletop RPG.
+A story thread has just been resolved:
+Thread Question: "${thread.question}"
+Stakes: "${thread.stakes}"
+Outcome: "${evaluation.outcomeType}" (Actor State: ${evaluation.actorState || 'resolved'})
+Player Action: "${playerActionText || 'Direct intervention'}"
+Narrative: "${evaluation.resolutionNarrative}"
+
+Available NPCs in sector (CRITICAL: You may ONLY use these IDs):
+${JSON.stringify(eligibleNpcs.map(n => ({ id: n.id, name: n.name, role: n.role })), null, 2)}
+
+Output strictly valid JSON:
+{
+  "narrativeSummary": "string",
+  "forensicTags": ["#Tag1", "#Tag2"],
+  "lootRewards": [{ "name": "Item Name", "tag": "#Tag", "quantity": 1 }],
+  "burgShiftNarrative": "string",
+  "followUpThread": {
+    "question": "string",
+    "stakes": "string",
+    "clock_max": 4,
+    "actor_id": "EXACT_ID_FROM_LIST_ABOVE",
+    "rule_id": "RULE_STRING"
+  }
+}`,
+                    stream: false,
+                    format: 'json'
+                })
+            });
+
+            if (!res.ok) return null;
+            const data: any = await res.json();
+            const parsed = JSON.parse(data.response);
+            if (parsed && parsed.narrativeSummary) {
+                // Rule 7 guard: Ensure actor_id exists in eligibleNpcs
+                if (parsed.followUpThread && !validNpcIds.has(String(parsed.followUpThread.actor_id))) {
+                    console.warn(`[AI Director] Hallucinated actor_id ${parsed.followUpThread.actor_id} in follow-up thread. Falling back to valid actor.`);
+                    parsed.followUpThread.actor_id = String(eligibleNpcs[0]?.id || thread.actor_ids[0]);
+                }
+                return parsed;
+            }
+        } catch {
+            // Ollama offline or error, proceed to next fallback
+        }
+        return null;
+    };
+
+    try {
+        if (!apiKey || apiKey.startsWith('AQ.') || apiKey.length < 20) {
+            const ollamaResult = await callOllamaAftermath();
+            if (ollamaResult) return ollamaResult;
+            return synthesizeProceduralAftermath(thread, evaluation, eligibleNpcs, eligibleProps, burgName);
+        }
+
+        const ai = new GoogleGenAI({ apiKey });
+        const systemInstruction = `You are the Stateless AI Story Director for B.R.U.T.A.L.
+Reason out the direct physical, forensic, and narrative aftermath of a resolved thread.
+CRITICAL CONSTRAINT: You cannot invent entities. If proposing a followUpThread, the actor_id MUST be one of the provided available NPCs. Output valid JSON.`;
+
+        const prompt = `Synthesize the aftermath of this resolved thread:
+Thread Question: "${thread.question}"
+Stakes: "${thread.stakes}"
+Outcome: "${evaluation.outcomeType}" (Actor state: ${evaluation.actorState})
+Resolution: "${evaluation.resolutionNarrative}"
+Available NPCs: ${JSON.stringify(eligibleNpcs.map(n => ({ id: n.id, name: n.name })), null, 2)}
+
+Output strictly valid JSON matching this schema:
+{
+  "narrativeSummary": "string",
+  "forensicTags": ["#Tag1", "#Tag2"],
+  "lootRewards": [{ "name": "string", "tag": "#Tag", "quantity": 1 }],
+  "burgShiftNarrative": "string",
+  "followUpThread": {
+    "question": "string",
+    "stakes": "string",
+    "clock_max": 4,
+    "actor_id": "EXACT_NPC_ID",
+    "rule_id": "RULE_STRING"
+  }
+}`;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                systemInstruction,
+                responseMimeType: 'application/json'
+            }
+        });
+
+        const parsed = JSON.parse(response.text || '{}') as ThreadAftermathSynthesis;
+        if (parsed.followUpThread && !validNpcIds.has(String(parsed.followUpThread.actor_id))) {
+            parsed.followUpThread.actor_id = String(eligibleNpcs[0]?.id || thread.actor_ids[0]);
+        }
+        return parsed;
+    } catch {
+        return synthesizeProceduralAftermath(thread, evaluation, eligibleNpcs, eligibleProps, burgName);
     }
 }

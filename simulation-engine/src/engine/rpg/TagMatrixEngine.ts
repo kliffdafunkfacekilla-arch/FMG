@@ -508,6 +508,170 @@ export const TAG_REACTION_RULES: TagReactionRule[] = [
       });
       return cascades;
     }
+  },
+
+  // -------------------------------------------------------------
+  // 18. TACTICAL COVER: FLIP TABLE / BARRIER
+  // -------------------------------------------------------------
+  {
+    id: "RULE_FLIP_TABLE",
+    name: "Flip for Tactical Cover",
+    triggerVerbs: ["FLIP_TABLE", "FLIP", "OVERTURN"],
+    triggerActionTags: ["might", "reflex", "flippable", "cover"],
+    targetRequiresAny: ["flippable", "table", "bench", "desk", "counter"],
+    applyTags: ["overturned", "cover_half", "barrier"],
+    removeTags: ["standing"],
+    successLog: (name) => `TACTICAL COVER: '${name}' is heaved onto its side, establishing reliable ballistic half-cover!`,
+    cascadeHandler: (target, nearby) => {
+      const cascades: Array<{ targetId: string; effect: string; damage?: number }> = [];
+      nearby.forEach(other => {
+        if (other.id !== target.id) {
+          const dist = Math.hypot(other.pos[0] - target.pos[0], other.pos[1] - target.pos[1]);
+          if (dist <= 2.5) {
+            cascades.push({
+              targetId: other.id,
+              effect: `Scattering debris and tableware from overturned ${target.name} forces backstep`
+            });
+          }
+        }
+      });
+      return cascades;
+    }
+  },
+
+  // -------------------------------------------------------------
+  // 19. TACTICAL ACROBATICS: SWING CHANDELIER / ROPE
+  // -------------------------------------------------------------
+  {
+    id: "RULE_SWING_CHANDELIER",
+    name: "Swing Chandelier / Rope Traverse",
+    triggerVerbs: ["SWING_CHANDELIER", "SWING", "VAULT"],
+    triggerActionTags: ["reflex", "might", "acrobatics", "swingable"],
+    targetRequiresAny: ["swingable", "chandelier", "rope", "hoist", "chain"],
+    applyTags: ["dislodged", "swinging"],
+    damage: 5,
+    successLog: (name) => `ACROBATIC TRAVERSAL: Swings via '${name}' across the melee, converting momentum into tactical positioning!`,
+    cascadeHandler: (target, nearby) => {
+      const cascades: Array<{ targetId: string; effect: string; damage?: number }> = [];
+      nearby.forEach(other => {
+        if (other.id !== target.id) {
+          const dist = Math.hypot(other.pos[0] - target.pos[0], other.pos[1] - target.pos[1]);
+          if (dist <= 3.5) {
+            other.tags.add("prone");
+            cascades.push({
+              targetId: other.id,
+              effect: "Swinging dropkick momentum knocks target prone to the floor!",
+              damage: 5
+            });
+          }
+        }
+      });
+      return cascades;
+    }
+  },
+
+  // -------------------------------------------------------------
+  // 20. TACTICAL ROLLING HAZARD: PUSH BARREL / CRATE
+  // -------------------------------------------------------------
+  {
+    id: "RULE_PUSH_HAZARD",
+    name: "Push Rolling / Crushing Hazard",
+    triggerVerbs: ["PUSH_OBJECT", "PUSH", "ROLL", "SHOVE"],
+    triggerActionTags: ["might", "force", "shove", "pushable"],
+    targetRequiresAny: ["pushable", "barrel", "crate", "boulder", "cart"],
+    applyTags: ["rolling", "displaced"],
+    damage: 4,
+    successLog: (name) => `CRUSHING MOMENTUM: '${name}' is hurled rolling forward, plowing into the engagement zone!`,
+    cascadeHandler: (target, nearby) => {
+      const cascades: Array<{ targetId: string; effect: string; damage?: number }> = [];
+      nearby.forEach(other => {
+        if (other.id !== target.id) {
+          const dist = Math.hypot(other.pos[0] - target.pos[0], other.pos[1] - target.pos[1]);
+          if (dist <= 4.0) {
+            other.tags.add("prone");
+            cascades.push({
+              targetId: other.id,
+              effect: `Crushed beneath rolling ${target.name}! Knocked flat.`,
+              damage: 6
+            });
+          }
+        }
+      });
+      return cascades;
+    }
+  },
+
+  // -------------------------------------------------------------
+  // 21. TACTICAL IMPROVISED THROW: MUG / BOTTLE / CHAIR
+  // -------------------------------------------------------------
+  {
+    id: "RULE_THROW_IMPROVISED",
+    name: "Throw Improvised Object",
+    triggerVerbs: ["THROW_IMPROVISED", "THROW", "HURL"],
+    triggerActionTags: ["reflex", "finesse", "might", "throwable"],
+    targetRequiresAny: ["throwable", "mug", "bottle", "stone", "chair", "improvised_weapon"],
+    applyTags: ["shattered", "broken"],
+    damage: 4,
+    successLog: (name) => `IMPROVISED IMPACT: '${name}' shatters violently against the target, disorienting them!`,
+    cascadeHandler: (target, nearby) => {
+      const cascades: Array<{ targetId: string; effect: string; damage?: number }> = [];
+      nearby.forEach(other => {
+        if (other.id !== target.id) {
+          const dist = Math.hypot(other.pos[0] - target.pos[0], other.pos[1] - target.pos[1]);
+          if (dist <= 2.0) {
+            other.tags.add("distracted");
+            cascades.push({
+              targetId: other.id,
+              effect: "Flying shards from shattered projectile cause stinging distraction (-1 on next Guard)"
+            });
+          }
+        }
+      });
+      return cascades;
+    }
+  },
+
+  // -------------------------------------------------------------
+  // 22. TACTICAL DARKENING: SNUFF TORCH / BRAZIER
+  // -------------------------------------------------------------
+  {
+    id: "RULE_SNUFF_FLAME",
+    name: "Snuff Light Source",
+    triggerVerbs: ["SNUFF_FLAME", "SNUFF", "EXTINGUISH", "SMOTHER"],
+    triggerActionTags: ["snuff", "douse", "smother", "snuffable"],
+    targetRequiresAny: ["snuffable", "torch", "brazier", "candle", "lantern", "fire"],
+    applyTags: ["snuffed", "extinguished", "darkness"],
+    removeTags: ["burning", "flame", "illuminated"],
+    successLog: (name) => `DARKNESS DESCENDS: '${name}' is violently snuffed out, plunging the immediate radius into shadow!`,
+    cascadeHandler: (target, nearby) => {
+      const cascades: Array<{ targetId: string; effect: string; damage?: number }> = [];
+      nearby.forEach(other => {
+        if (other.id !== target.id) {
+          const dist = Math.hypot(other.pos[0] - target.pos[0], other.pos[1] - target.pos[1]);
+          if (dist <= 6.0) {
+            other.tags.add("concealed_in_shadow");
+            cascades.push({
+              targetId: other.id,
+              effect: "Enveloped in abrupt gloom (+2 to Stealth rolls from obscurity)"
+            });
+          }
+        }
+      });
+      return cascades;
+    }
+  },
+
+  // -------------------------------------------------------------
+  // 23. TACTICAL DEFENSE: BARRICADE DOORWAY / PORTAL
+  // -------------------------------------------------------------
+  {
+    id: "RULE_BARRICADE_WAY",
+    name: "Barricade Way / Portal",
+    triggerVerbs: ["BARRICADE_WAY", "BARRICADE", "BLOCK", "REINFORCE"],
+    triggerActionTags: ["might", "fortitude", "carpentry", "barricadeable"],
+    targetRequiresAny: ["barricadeable", "door", "gate", "window", "passageway"],
+    applyTags: ["barricaded", "reinforced", "impassable"],
+    successLog: (name) => `FORTIFIED CHOKEPOINT: '${name}' is solidly barricaded, barring entry to pursuit!`
   }
 ];
 
@@ -571,8 +735,17 @@ export class TagMatrixEngine {
       "INTIMIDATE": ["intimidate", "might", "terror", "menacing", "social"],
       "DISTRACT": ["subterfuge", "noise", "distraction", "sound"],
       "SNUFF": ["douse", "smother", "snuff", "darkness"],
+      "SNUFF_FLAME": ["douse", "smother", "snuff", "darkness", "snuffable"],
       "CORRODE": ["acid", "corrosive", "chemical"],
-      "DESECRATE": ["willpower", "corrupt", "chaos", "occult"]
+      "DESECRATE": ["willpower", "corrupt", "chaos", "occult"],
+      "FLIP_TABLE": ["might", "reflex", "flippable", "cover"],
+      "FLIP": ["might", "reflex", "flippable", "cover"],
+      "SWING_CHANDELIER": ["reflex", "might", "acrobatics", "swingable"],
+      "SWING": ["reflex", "might", "acrobatics", "swingable"],
+      "PUSH_OBJECT": ["might", "force", "shove", "pushable"],
+      "THROW_IMPROVISED": ["reflex", "finesse", "might", "throwable"],
+      "BARRICADE_WAY": ["might", "fortitude", "carpentry", "barricadeable"],
+      "BARRICADE": ["might", "fortitude", "carpentry", "barricadeable"]
     };
 
     const derived = verbTagMap[verb] || [verb.toLowerCase()];

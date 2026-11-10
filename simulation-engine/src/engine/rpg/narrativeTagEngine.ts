@@ -1,3 +1,5 @@
+import { MasterTagManifest } from './masterTagManifest.js';
+
 export type TagType = string;
 
 export interface Entity {
@@ -20,47 +22,53 @@ export interface Entity {
 
 export const SemanticThesaurus: Record<string, string[]> = {
     // Metalwork & Forging
-    smith: ['blacksmith', 'armorer', 'weaponsmith', 'foundry worker', 'forge', 'smelter', 'metalworker', 'tinsmith'],
+    smith: ['blacksmith', 'armorer', 'weaponsmith', 'foundry worker', 'forge', 'smelter', 'metalworker', 'tinsmith', 'farrier'],
     metalworker: ['blacksmith', 'armorer', 'weaponsmith', 'foundry worker', 'smelter'],
     
     // Commerce & Trade
-    merchant: ['merchant trader', 'trader', 'shopkeeper', 'innkeeper', 'barkeeper', 'grocer', 'vendor', 'market stall', 'clothier'],
+    merchant: ['merchant trader', 'trader', 'shopkeeper', 'innkeeper', 'barkeeper', 'grocer', 'vendor', 'market stall', 'clothier', 'peddler', 'hawker'],
     trader: ['merchant trader', 'trader', 'caravan master', 'purveyor', 'peddler'],
     
     // Law Enforcement, Military, & Security
-    guard: ['city watchman', 'watch captain', 'wall watchman', 'sentry', 'soldier', 'constable', 'militia', 'patrol', 'rampart sentry', 'commander'],
-    soldier: ['soldier', 'footman', 'archer', 'cavalry', 'militia', 'infantry', 'guard'],
+    guard: ['city watchman', 'watch captain', 'watch sergeant', 'wall watchman', 'sentry', 'soldier', 'constable', 'militia', 'patrol', 'rampart sentry', 'commander', 'gate guard'],
+    soldier: ['soldier', 'footman', 'archer', 'cavalry', 'militia', 'infantry', 'guard', 'halberdier', 'pikeman'],
     commander: ['watch captain', 'commander', 'marshal', 'warden', 'captain', 'constable'],
 
     // Civic Leadership & Administration
-    leader: ['town reeve', 'mayor', 'headman', 'burgomaster', 'magistrate', 'counselor', 'chancellor', 'overseer'],
-    official: ['town reeve', 'mayor', 'clerk', 'bureaucrat', 'tax collector', 'magistrate'],
+    leader: ['town reeve', 'mayor', 'headman', 'burgomaster', 'magistrate', 'counselor', 'chancellor', 'overseer', 'alderman', 'bailiff'],
+    official: ['town reeve', 'mayor', 'clerk', 'bureaucrat', 'tax collector', 'magistrate', 'scribe', 'notary', 'beadle'],
 
     // Faith, Alchemy, Medicine, & Magic
-    scholar: ['temple acolyte', 'priest', 'herbalist', 'apothecary', 'alchemist', 'scribe', 'monk', 'naturalist', 'astronomer'],
-    priest: ['temple acolyte', 'priest', 'chaplain', 'curate', 'devotee', 'monk'],
-    healer: ['apothecary apprentice', 'apothecary', 'herbalist', 'physician', 'leech'],
+    scholar: ['temple acolyte', 'priest', 'herbalist', 'apothecary', 'alchemist', 'scribe', 'monk', 'naturalist', 'astronomer', 'cartographer', 'librarian'],
+    priest: ['temple acolyte', 'priest', 'chaplain', 'curate', 'devotee', 'monk', 'friar', 'cleric'],
+    healer: ['apothecary apprentice', 'apothecary', 'herbalist', 'physician', 'chirurgeon', 'leech', 'midwife'],
     mage: ['hedge wizard', 'arcane scholar', 'spellwright', 'sparkborn', 'alchemist'],
 
     // Craftspeople & Artisans
-    artisan: ['carpenter', 'potter', 'weaver', 'tanner', 'clockmaker', 'cooper', 'mason', 'draper', 'cobbler', 'baker'],
-    craftsman: ['carpenter', 'potter', 'weaver', 'tanner', 'clockmaker', 'cooper', 'baker'],
+    artisan: ['carpenter', 'potter', 'weaver', 'tanner', 'clockmaker', 'cooper', 'mason', 'draper', 'cobbler', 'baker', 'brewer', 'chandler', 'glassblower', 'fletcher', 'bowyer'],
+    craftsman: ['carpenter', 'potter', 'weaver', 'tanner', 'clockmaker', 'cooper', 'baker', 'mason', 'joiner'],
 
     // Agrarian & Manual Labor
-    laborer: ['farmer', 'disenfranchised laborer', 'peasant', 'woodcutter', 'quarryman', 'dockworker', 'porter', 'field hand'],
-    farmer: ['farmer', 'husbandman', 'harvester', 'granary hand', 'peasant'],
+    laborer: ['farmer', 'disenfranchised laborer', 'peasant', 'woodcutter', 'quarryman', 'dockworker', 'porter', 'field hand', 'stevedore', 'teamster', 'charcoal burner'],
+    farmer: ['farmer', 'husbandman', 'harvester', 'granary hand', 'peasant', 'shepherd', 'plowman'],
 
     // Criminal Underworld & Fringes
-    criminal: ['smuggler', 'bandit', 'outlaw', 'thief', 'syndicate operative', 'cutpurse', 'raider', 'pirate', 'scoundrel'],
-    outlaw: ['smuggler', 'bandit', 'outlaw', 'raider', 'cartel agent', 'fringe resident'],
+    criminal: ['smuggler', 'bandit', 'outlaw', 'thief', 'syndicate operative', 'cutpurse', 'raider', 'pirate', 'scoundrel', 'pickpocket', 'burglar', 'fence'],
+    outlaw: ['smuggler', 'bandit', 'outlaw', 'raider', 'cartel agent', 'fringe resident', 'highwayman'],
     smuggler: ['shadow courier', 'smuggler', 'cloud-skiff runner', 'contraband runner', 'fence']
 };
 
 export const PropThesaurus: Record<string, string[]> = {
     container: ['container', 'chest', 'crate', 'barrel', 'box', 'storage', 'footlocker', 'coffer', 'urn', 'cask', 'vault', 'hatch'],
     hidden: ['hidden', 'subterranean', 'nook', 'crevice', 'rubble', 'floorboard', 'vault', 'shadow', 'cellar'],
-    workstation: ['anvil', 'forge', 'loom', 'workbench', 'counter', 'kiln', 'desk', 'altar', 'tanning vat', 'grindstone'],
-    doorway: ['door', 'gate', 'hatch', 'trapdoor', 'ladder', 'entrance', 'portal', 'archway', 'flue']
+    workstation: ['anvil', 'forge', 'loom', 'workbench', 'counter', 'kiln', 'desk', 'altar', 'tanning vat', 'grindstone', 'potters wheel', 'furnace', 'sawmill', 'brewery kettle'],
+    doorway: ['door', 'gate', 'hatch', 'trapdoor', 'ladder', 'entrance', 'portal', 'archway', 'flue', 'portcullis'],
+    table: ['table', 'bench', 'desk', 'counter', 'stall', 'dining table', 'tavern table', 'trestle table'],
+    chandelier: ['chandelier', 'lantern', 'lamp', 'hanging rope', 'chain', 'rigging', 'hoist', 'pulley', 'awning', 'brazier'],
+    barrier: ['wall', 'partition', 'railing', 'screen', 'curtain', 'barricade', 'fence'],
+    seating: ['chair', 'bench', 'stool', 'throne', 'seat', 'tavern stool'],
+    combustible: ['pitch', 'oil barrel', 'straw pallet', 'curtain', 'tapestry', 'firewood', 'liquor cask', 'grain bag'],
+    improvised_weapon: ['bottle', 'mug', 'flagon', 'stein', 'stool', 'brick', 'stone', 'iron tongs', 'poker', 'cobblestone']
 };
 
 // -------------------------------------------------------------

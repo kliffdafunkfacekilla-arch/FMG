@@ -6,8 +6,13 @@ import {
   applyThreadWorldDelta,
   evaluateThreadState,
   resolveThreadNaturally,
+  createThread,
   ThreadStateEvaluation
 } from './threads/threadEngine.js';
+import {
+  generateThreadResolutionAftermath,
+  ThreadAftermathSynthesis
+} from './rpg/directorBridge.js';
 
 export interface ResolveThreadByPartyInput {
   threadId: number;
@@ -27,6 +32,7 @@ export interface ResolveThreadByPartyResult {
   wealthDelta: number;
   resolution: string;
   deltaApplied: ThreadWorldDelta;
+  aftermath?: ThreadAftermathSynthesis | undefined;
 }
 
 /**
@@ -127,6 +133,72 @@ export async function resolveThreadByParty(
     narrativeSummary: evaluation.resolutionNarrative
   };
 
+  // 5. AI Story Director aftermath reasoning: forensic tags, scene loot, burg shifts, and follow-up threads
+  let aftermath: ThreadAftermathSynthesis | undefined;
+  try {
+    const eligibleNpcs = npcs.map((n: any) => ({
+      id: String(n.id),
+      name: String(n.name),
+      role: n.role,
+      profession: n.profession,
+      tags: Array.isArray(n.tags) ? n.tags : []
+    }));
+    const eligibleProps = props.map((p: any) => ({
+      id: String(p.id),
+      type: p.name || 'Prop',
+      lx: p.pos ? p.pos[0] : 128,
+      ly: p.pos ? p.pos[1] : 128,
+      tags: Array.isArray(p.tags) ? p.tags : []
+    }));
+
+    aftermath = await generateThreadResolutionAftermath(
+      thread,
+      evaluation,
+      eligibleNpcs,
+      eligibleProps,
+      `Cell #${thread.cell_id}`,
+      input.resolutionNarrative
+    );
+
+    // Apply forensic tags to sector props
+    const currentLayerRes = await client.query(
+      `SELECT props FROM sim_sector_layers WHERE cell_id = $1 AND rx = $2 AND ry = $3 LIMIT 1`,
+      [thread.cell_id, thread.rx, thread.ry]
+    );
+    const currentProps = Array.isArray(currentLayerRes.rows[0]?.props) ? currentLayerRes.rows[0].props : [];
+
+    if (aftermath?.forensicTags && aftermath.forensicTags.length > 0 && currentProps.length > 0) {
+      const primaryProp = currentProps.find((p: any) => String(p.id) === String(thread.actor_ids[0])) || currentProps[0];
+      if (primaryProp) {
+        primaryProp.tags = Array.from(new Set([...(primaryProp.tags || []), ...aftermath.forensicTags]));
+        await client.query(
+          `UPDATE sim_sector_layers SET props = $1 WHERE cell_id = $2 AND rx = $3 AND ry = $4`,
+          [JSON.stringify(currentProps), thread.cell_id, thread.rx, thread.ry]
+        );
+      }
+    }
+
+    // If an emergent follow-up thread was proposed, validate and create it in sim_threads
+    if (aftermath?.followUpThread) {
+      const followUp = aftermath.followUpThread;
+      await createThread(client, {
+        question: followUp.question,
+        stakes: followUp.stakes,
+        actor_ids: [followUp.actor_id],
+        cell_id: thread.cell_id,
+        rx: thread.rx,
+        ry: thread.ry,
+        clock: 0,
+        clock_max: followUp.clock_max,
+        created_tick: currentTick,
+        origin: 'reaction',
+        rule_id: followUp.rule_id || 'RULE_EMERGENT_AFTERMATH'
+      });
+    }
+  } catch (err: any) {
+    console.warn(`[QuestChainEngine] Aftermath synthesis skipped: ${err.message}`);
+  }
+
   return {
     threadId: thread.id,
     state: 'resolved',
@@ -136,7 +208,8 @@ export async function resolveThreadByParty(
     unrestDelta: deltaResult.unrestDelta,
     wealthDelta: deltaResult.wealthDelta,
     resolution: deltaResult.resolution,
-    deltaApplied: appliedDelta
+    deltaApplied: appliedDelta,
+    aftermath
   };
 }
 

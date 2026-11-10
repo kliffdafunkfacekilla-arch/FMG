@@ -37,8 +37,13 @@ async function testThreadClocks() {
   }
   const realBurg = burgRes.rows[0];
   const targetBurgId = Number(realBurg.burg_id);
-  const initialUnrest = Number(realBurg.unrest);
-  const initialWealth = Number(realBurg.wealth);
+  // Reset baseline unrest & wealth so clamp at 100 is not hit
+  await pool.query(
+    `UPDATE sim_burg_economy SET unrest = 30, wealth = 1000 WHERE burg_id = $1`,
+    [targetBurgId]
+  );
+  const initialUnrest = 30;
+  const initialWealth = 1000;
 
   // Ensure sector layer has an NPC with realAgentId to verify sector layer mutation
   let npcs = Array.isArray(layerRowRes.rows[0].npcs) ? layerRowRes.rows[0].npcs : [];

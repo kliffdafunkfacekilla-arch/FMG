@@ -1102,6 +1102,120 @@ export const ATOMIC_TAG_ACTIONS: TagStatAction[] = [
     baseDC: 11,
     category: "SOCIAL",
     description: "Force the bandit to second-guess fighting you."
+  },
+
+  // ==========================================
+  // TAG: "flippable" / "table" (Dynamic Tactical Cover)
+  // ==========================================
+  {
+    id: "table_might_flip",
+    tagRequired: "flippable",
+    verb: "FLIP_TABLE",
+    actionTitle: "🛡️ Flip for Cover",
+    template: "I heave and flip {target} onto its side to establish ballistic cover with brute might",
+    stat: "might",
+    baseDC: 10,
+    category: "TACTICAL",
+    description: "Flip a heavy dining table, bench, or cart onto its side, creating instant half-cover against missile attacks.",
+    toolKeywords: ["iron crowbar", "heavy gauntlets"],
+    toolMod: 2
+  },
+  {
+    id: "table_reflex_heave",
+    tagRequired: "table",
+    verb: "FLIP_TABLE",
+    actionTitle: "🛡️ Heave Table Cover",
+    template: "I grab {target} and rapidly overturn it into a defensive breastwork using my reflex",
+    stat: "reflex",
+    baseDC: 11,
+    category: "TACTICAL",
+    description: "Overturn a table in the heat of an ambush to block incoming missiles."
+  },
+
+  // ==========================================
+  // TAG: "swingable" / "chandelier" (Acrobatic Traversal & Drops)
+  // ==========================================
+  {
+    id: "chandelier_reflex_swing",
+    tagRequired: "swingable",
+    verb: "SWING_CHANDELIER",
+    actionTitle: "🎪 Swing Across Room",
+    template: "I leap and grab the hanging ropes of {target}, swinging across the space using my reflex",
+    stat: "reflex",
+    baseDC: 11,
+    category: "TACTICAL",
+    description: "Grab a chandelier, hoist line, or awning to swing across obstacles and vault onto distant platforms."
+  },
+  {
+    id: "chandelier_might_dropkick",
+    tagRequired: "chandelier",
+    verb: "SWING_CHANDELIER",
+    actionTitle: "💥 Swing & Dropkick",
+    template: "I leap onto {target}, swinging with full body momentum to dropkick the enemy with might",
+    stat: "might",
+    baseDC: 12,
+    category: "TACTICAL",
+    description: "Use swinging momentum to slam into a group of enemies, knocking them prone."
+  },
+
+  // ==========================================
+  // TAG: "pushable" (Rolling & Crushing Hazards)
+  // ==========================================
+  {
+    id: "pushable_might_shove",
+    tagRequired: "pushable",
+    verb: "PUSH_OBJECT",
+    actionTitle: "🪵 Shove / Roll Hazard",
+    template: "I throw my full body weight against {target} to roll it downhill into enemies using might",
+    stat: "might",
+    baseDC: 11,
+    category: "TACTICAL",
+    description: "Push heavy barrels, carts, boulders, or bookcases to crush adversaries or seal chokepoints."
+  },
+
+  // ==========================================
+  // TAG: "throwable" (Improvised Projectiles)
+  // ==========================================
+  {
+    id: "throwable_finesse_hurl",
+    tagRequired: "throwable",
+    verb: "THROW_IMPROVISED",
+    actionTitle: "🎯 Hurl Improvised Weapon",
+    template: "I snatch {target} and hurl it directly at the opponent's skull using my finesse",
+    stat: "finesse",
+    baseDC: 10,
+    category: "TACTICAL",
+    description: "Snatch a tavern mug, bottle, stone, or iron tool and fling it as an improvised missile."
+  },
+
+  // ==========================================
+  // TAG: "snuffable" (Stealth & Light Manipulation)
+  // ==========================================
+  {
+    id: "snuffable_finesse_extinguish",
+    tagRequired: "snuffable",
+    verb: "SNUFF_FLAME",
+    actionTitle: "🌑 Snuff Light",
+    template: "I swiftly smother the flame of {target} to plunge the room into darkness using my finesse",
+    stat: "finesse",
+    baseDC: 9,
+    category: "SUBTERFUGE",
+    description: "Extinguish a torch, lantern, or brazier without burning your fingers, granting immediate shadows for stealth."
+  },
+
+  // ==========================================
+  // TAG: "barricadeable" (Fortifying Doors & Windows)
+  // ==========================================
+  {
+    id: "barricade_might_brace",
+    tagRequired: "barricadeable",
+    verb: "BARRICADE_WAY",
+    actionTitle: "🚧 Barricade & Brace",
+    template: "I wedge heavy beams and furniture against {target} to fortify it with brute might",
+    stat: "might",
+    baseDC: 11,
+    category: "TACTICAL",
+    description: "Brace a door, window, or hallway with heavy obstacles to prevent breach."
   }
 ];
 
@@ -1387,6 +1501,12 @@ export function getAvailableActionsForTarget(
       if (required === "climbable" && (t === "cliff" || t === "ridge" || t === "crag" || t === "elevation" || t === "ledge")) return true;
       if (required === "rubble" && (t === "debris" || t === "barricade" || t === "collapse" || t === "ruins")) return true;
       if (required === "outlaw" && (t === "bandit" || t === "cannibal" || t === "raider" || t === "smuggler" || t === "marauder")) return true;
+      if (required === "flippable" && (t === "table" || t === "bench" || t === "desk" || t === "counter" || t === "cart")) return true;
+      if (required === "swingable" && (t === "chandelier" || t === "rope" || t === "hoist" || t === "chain" || t === "beam")) return true;
+      if (required === "pushable" && (t === "barrel" || t === "crate" || t === "boulder" || t === "wagon" || t === "statue")) return true;
+      if (required === "throwable" && (t === "mug" || t === "bottle" || t === "stone" || t === "torch" || t === "chair" || t === "improvised_weapon")) return true;
+      if (required === "snuffable" && (t === "torch" || t === "brazier" || t === "candle" || t === "lantern" || t === "hearth" || t === "fire")) return true;
+      if (required === "barricadeable" && (t === "door" || t === "gate" || t === "window" || t === "passageway" || t === "archway")) return true;
       return false;
     });
 
