@@ -9,7 +9,7 @@ export interface BiomePalette {
   crag: string;
 }
 
-// Authentic biome color palettes matching Okasha / FMG global layers
+// Authentic biome color palettes matching the Holgaland / FMG global layers
 export const BIOME_PALETTES: Record<number, BiomePalette> = {
   0: { name: "Marine", ground: "#0369a1", lightVeg: "#0284c7", denseVeg: "#0c4a6e", crag: "#082f49" },
   1: { name: "Hot Desert", ground: "#fbe79f", lightVeg: "#ca8a04", denseVeg: "#a16207", crag: "#78350f" },

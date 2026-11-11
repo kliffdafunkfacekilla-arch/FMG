@@ -91,6 +91,6 @@ npm run start
 # Launch the Observer Vite dev server with proxy (port 5174)
 npm run observer
 
-# Hard reset database and resync from Okasha.json
-npm run reset-world
+# Hard reset database and re-ingest data/Holgaland.json (server must be running)
+curl -X POST http://localhost:3000/api/observer/reset
 ```
