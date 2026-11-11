@@ -71,7 +71,7 @@ Refer to the master document: [OSTRAKA_SYSTEM_ROADMAP.md](file:///c:/Users/krazy
 ## 3. MASTER ORCHESTRATOR 11-STEP TICK FLOW
 
 Every master tick (`executeMasterTick()` in `masterOrchestrator.ts`) wraps an atomic database transaction:
-1. `calendarAgent.ts`: Increments tick, computes 541-day cosmic calendar (12 Dragon Months of 44 days + 13-day Shadow Week).
+1. `calendarAgent.ts`: Increments tick, computes the 589-day canon calendar from `canon/calendar.ts` (12 months of 48 days + 13-day Shadowfall).
 2. `weatherAgent.ts` & `trophicEcologyAgent.ts`: Updates planetary temperature, storms, flora, prey, predator, and blight balances.
 3. `chaosFlowAgent.ts`: Updates 12 meandering Chaos Leys, tidal surge cycles, and leyway crossing points.
 4. `burgOperationsAgent.ts`: 12:1 worker ratio harvesting raw materials, refining goods, consuming food, and updating unrest.

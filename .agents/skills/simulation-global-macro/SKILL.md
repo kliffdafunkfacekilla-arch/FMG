@@ -14,12 +14,12 @@ This skill governs the top tier of Ostraka's fractal hierarchy: the realm-wide m
 - **Geographic Scale**: ~16,000 Voronoi cells (`sim_cells`).
 - **Tick Scale**: 1 Master Tick = 1 In-Game Day (`masterOrchestrator.ts`).
 - **Calendar & Cosmology**:
-  - **541-Day Year**: 12 Dragon Months (44 days each = 528 days) + 13-Day "Shadow Week" (Days 529–541 intercalary eclipse).
-  - **8 Seasons** (66 days each): The Bloom, The High Sun, The Harvest, The Withering, The Deep Cold, The Thaw, The Awakening, The Roaring.
-  - **Cruorbus Moon**: 44-day cycle with 5 lunar phases (Empty Eye, Waxing Blood, Full Blood, Mercy Alignment, Nightmare Alignment).
+  - **589-Day Year** (Canon/04): 12 months of 48 days (576 days), then the 13 days of Shadowfall (days 577–589, intercalary eclipse). Source of truth: `simulation-engine/src/engine/canon/calendar.ts`.
+  - **8 Seasons** (96 or 48 days): Shadowburn, Dryspell, Frostin, Greenspan, Dimburn, Cropfade, Dimfreeze, Thawrise.
+  - **Cruorbus**: each season shows one face (The Leering, The Open Eye, The Receding, The Halo); Open Eye seasons add the Nightmare and Mercy Alignments.
 - **Macro Economies (352 Burgs)**:
   - 3-tier production: Raw resources -> Refined goods -> Complex trade inventories.
-  - Population tracking: Groups of 12 (`unit_size = 12`). Pre-industrial birth rate (~3.5% annually, ~0.000065 daily in `pop_growth_pool`). Child maturation is 15 in-game years (`tick % 541 === 0`).
+  - Population tracking: Groups of 12 (`unit_size = 12`). Pre-industrial birth rate (~3.5% annually, divided by `DAYS_PER_YEAR` for the daily rate). Child maturation is 15 in-game years (`isYearEnd(tick)` from `canon/calendar.ts`).
   - Military food upkeep & logistics.
 - **Geopolitics & Sovereign Diplomacy**:
   - 19 sovereign nations running Utility AI evaluations.
@@ -43,7 +43,7 @@ This skill governs the top tier of Ostraka's fractal hierarchy: the realm-wide m
 1. **Performance Target**: Macro tick must complete in ~180ms - 260ms. Never run fine-grained A* pathfinding or individual tactical agent routines at the global layer.
 2. **Zero Generic Spawns**: All casualties, recruits, and leaders must trace to authentic citizens or Paragons in PostgreSQL.
 3. **Purity of Simulation**: Macro modules must be pure calculation functions—never touch UI, canvas, or WebGL.
-4. **Time Scale Integrity**: Never treat days as years. Aging, crop yields, and treaties must adhere to the 541-day calendar.
+4. **Time Scale Integrity**: Never treat days as years. Aging, crop yields, and treaties must adhere to the 589-day canon calendar; import its constants from `canon/calendar.ts`, never hard-code them.
 
 ## 4. Verification Workflow
 When making changes to the Macro Layer:

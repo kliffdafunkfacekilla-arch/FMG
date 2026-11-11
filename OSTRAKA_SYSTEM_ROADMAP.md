@@ -65,7 +65,7 @@ The world of Ostraka is organized into a strictly nested 3-tier fractal hierarch
 ### 1. Global Layer (Macro Continental LOD)
 * **Scale**: ~16,000 Voronoi polygonal cells (`sim_cells`).
 * **Simulation Scope**: Continually simulated worldwide in the background:
-  - 541-day calendar: 12 Dragon Months (44 days each) + 13-day intercalary Shadow Week (`sim_calendar`).
+  - 589-day canon calendar: 12 months of 48 days + 13-day intercalary Shadowfall (`sim_calendar`).
   - Continental weather fronts, temperature gradients, and precipitation (`sim_weather_fronts`).
   - Macro burg economies: 352 burgs, raw/refined stockpiles, food logistics, urban tiers (`sim_burg_economy`, `sim_industrial_stockpiles`).
   - 19 sovereign nations evaluated on staggered bureaucratic turns (`sim_factions`, `sim_faction_wars`).
@@ -106,7 +106,7 @@ The PostgreSQL database (default `postgres` database on port 5432) serves as the
 | `sim_faction_borders` | Voronoi borders between nations (`id`, `faction_id`, `cell_id`, `is_border`, `faction_a`, `faction_b`) |
 | `sim_faction_units` | Military detachments in units of 12 (`id`, `faction_id`, `unit_type`, `count`, `status`, `location_cell_id`, `experience`) |
 | `sim_diplomacy` | Sovereign bilateral relations (`id`, `faction_a_id`, `faction_b_id`, `status`, `tension`) |
-| `sim_calendar` | 541-day cosmic timeline (`id`, `tick`, `year`, `month`, `month_name`, `day_of_month`, `day_of_year`, `moon_phase`, `season`, `active_flow`, `dragon_domain`, `is_shadow_week`) |
+| `sim_calendar` | 589-day canon timeline (`id`, `tick`, `year`, `month`, `month_name`, `day_of_month`, `day_of_year`, `moon_phase`, `season`, `active_flow`, `dragon_domain`, `is_shadow_week`) |
 | `sim_weather_fronts` | Dynamic atmospheric fronts (`id`, `type`, `x`, `y`, `dx`, `dy`, `radius`, `lifetime`) |
 | `sim_chaos_flows` | 12 primordial meandering chaos rivers (`flow_id`, `name`, `dragon_name`, `elemental_power`, `source_coord`, `sink_coord`, `current_surge`, `current_width`, `waypoints`, `narrow_spots`) |
 | `sim_sacred_groves` | 12 self-sustaining Dragon Prisons (`id`, `cell_id`, `dragon_name`, `power_domain`, `seal_strength`) |
@@ -143,7 +143,7 @@ The master tick is executed sequentially by `simulation-engine/src/engine/master
 
 ```mermaid
 flowchart TD
-    T0["masterOrchestrator.ts: BEGIN Transaction"] --> T1["1. Calendar Agent: 541-Day Year, 12 Months + Shadow Week"]
+    T0["masterOrchestrator.ts: BEGIN Transaction"] --> T1["1. Calendar Agent: 589-Day Year, 12 Months + Shadowfall"]
     T1 --> T2["2. Weather & Trophic Ecology: Fronts, Flora/Fauna, Blight"]
     T2 --> T2b["2b. Chaos Flow Agent: 12 Primordial Ley Surges"]
     T2b --> T3["3. Burg Operations Agent: 12:1 Labor, Food, Stockpiles, Unrest"]
@@ -226,7 +226,7 @@ Located in `simulation-engine/src/api/directorRouter.ts`, `src/engine/rpg/WhatEl
 
 ### 2. SIMULATION AGENTS (`simulation-engine/src/engine/agents/`)
 * **`masterOrchestrator.ts`**: Sequential 11-step master tick executor, transactional DB wrapper.
-* **`calendarAgent.ts`**: 541-day cosmic calendar, 12 Dragon Months, 13-day Shadow Week eclipse.
+* **`calendarAgent.ts`**: 589-day canon calendar (canon/calendar.ts), 12 months, 13-day Shadowfall eclipse.
 * **`weatherAgent.ts`**: Atmospheric front physics, temperature drift, blizzard/hurricane/drought disasters.
 * **`trophicEcologyAgent.ts`**: Flora/prey/predator biomass balances, seasonal migrations, chaos mutagens.
 * **`chaosFlowAgent.ts`**: 12 primordial flowing chaos rivers, surge tides, leyway crossings.

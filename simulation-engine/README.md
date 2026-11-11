@@ -7,7 +7,7 @@ The **Ostraka Simulation Engine** is the independent backend macro- and meso-lay
 ## 1. What the Engine Does
 
 1. **Simulates 1 Day per Tick**:
-   - The master orchestrator (`src/engine/masterOrchestrator.ts`) advances time by 1 in-game day per tick across the 541-day Ostraka cosmic year.
+   - The master orchestrator (`src/engine/masterOrchestrator.ts`) advances time by 1 in-game day per tick across the 589-day canon year (12 months of 48 days, then the 13 days of Shadowfall). Year length, the eight seasons and Cruorbus's faces come from `src/engine/canon/calendar.ts`; every agent reads them from there.
 2. **Economic & Demographics Processing**:
    - Manages 352 unique burgs across 10,000+ hexagonal cells.
    - Populates and computes wealth, food, and unrest for over 207,000 citizens organized into a strict **12-to-1 worker ratio** (`unit_size = 12`) in `population_demographics`.
@@ -38,7 +38,7 @@ The **Ostraka Simulation Engine** is the independent backend macro- and meso-lay
 
 Every execution of `/api/observer/tick` runs this exact agentic sequence:
 
-1. **`calendarAgent.ts`**: Advances the 541-day calendar, 12 Dragon Months, and Cruorbus lunar phases.
+1. **`calendarAgent.ts`**: Advances the canon calendar (589-day year, 12 months, eight seasons) and Cruorbus's face.
 2. **`weatherAgent.ts`**: Computes temperature, precipitation, and chaos radiation fronts across the hex grid.
 3. **`burgOperationsAgent.ts`**: Computes production, food consumption, unrest, and wealth using bulk SQL operations.
 4. **`paragonPlanningAgent.ts`**: Executes personality-driven trait modifiers for local burg leaders.
@@ -93,4 +93,35 @@ npm run observer
 
 # Hard reset database and re-ingest data/Holgaland.json (server must be running)
 curl -X POST http://localhost:3000/api/observer/reset
+```
+
+The server listens on `127.0.0.1` only. Set `HOST=0.0.0.0` to expose it to your network; the observer routes (including `reset`) have no authentication.
+
+---
+
+## 6. Testing
+
+```bash
+npm test
+```
+
+This rebuilds `dist/` from scratch and runs every suite in `run-tests.cjs`. The suites read the live PostgreSQL database, so Postgres must be running. The repo's pre-commit hook (`.githooks/pre-commit`, enabled with `git config core.hooksPath .githooks`) runs the same command for any commit touching `simulation-engine/`, and a failing test blocks the commit (AGENT_RULES rule 9).
+
+| Suite | Checks |
+|---|---|
+| `testCalendar` | Calendar matches Canon/04; no old season/moon names or 541-day years anywhere in `src/` |
+| `testCanonMandates` | The seven canon and rule mandates |
+| `testTagMatrixFull` | Fire, water, collapse and lockpicking tag interactions |
+| `testBrutalGMVisual` | The GM's tactical context |
+| `testChaosFlows` | Prison table, flow courses, dragon/Power pairings, live flow rows; no retired dragon names in `src/` |
+
+Add a suite by adding its script name to `SUITES` in `run-tests.cjs`.
+
+## 7. Data repairs
+
+One-off scripts for live data written before a fix. Each previews by default and writes in one transaction with `--apply`:
+
+```bash
+node dist/scripts/repairChaosFlowIdentity.js     # flow names, dragons and endpoints
+node dist/scripts/repairStaleCanonData.js        # stale chaos-ley zones, retired names, calendar row
 ```
