@@ -528,7 +528,7 @@ observerRouter.post("/trigger_crisis", async (req, res) => {
         // 1. Shift calendar to The Deep Cold
         await pool.query(`
           UPDATE sim_calendar
-          SET season = 'The Deep Cold', month_name = 'Lophex'
+          SET season = 'The Deep Cold'
           WHERE id = (SELECT id FROM sim_calendar ORDER BY id DESC LIMIT 1)
         `);
 

@@ -24,7 +24,7 @@ export async function runTrophicEcologyAgent(
     calCtx?: TrophicCalendarContext
 ) {
     const dragonDomain = calCtx?.activeDomain || "Flux";
-    const dragonName = calCtx?.activeDragon || "Aurgenas";
+    const dragonName = calCtx?.activeDragon || "Ulex";
     const moonPhase = calCtx?.cruorbusPhase || "The Waxing Blood";
     const isPeakChaos = moonPhase.includes("Full Blood") || moonPhase.includes("Nightmare");
 

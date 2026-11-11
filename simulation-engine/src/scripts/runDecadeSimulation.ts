@@ -77,7 +77,7 @@ export async function captureDecadeSnapshot(client: any, tick: number): Promise<
   const season = cal.season || "The Bloom";
   const loreDate = cal.is_shadow_week 
     ? `Year ${year}, Shadow Week, Day ${cal.day_of_month || 1}`
-    : `Year ${year}, Month ${cal.month || 1} (${cal.month_name || 'Lophex'}), Day ${cal.day_of_month || 1} (${season})`;
+    : `Year ${year}, Month ${cal.month || 1} (${cal.month_name || 'Nexar'}), Day ${cal.day_of_month || 1} (${season})`;
 
   // 2. Burg Economy & Demographics
   const econRes = await client.query(`

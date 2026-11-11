@@ -5,10 +5,14 @@
  * 2. Every flow's course starts at its own prison and ends at The Verge, inside the Holgaland map.
  * 3. The story engine's prison table sits on the canon prison cells with canon dragons.
  * 4. The live sim_chaos_flows rows carry their canon identity and endpoints.
+ * 5. Every dragon/Power table pairs dragons with their canon Power, and no source file uses a retired name.
  */
+import fs from "fs";
+import path from "path";
 import pool from "../db/pool.js";
 import { CANON_DRAGON_PRISONS, VERGE_COORD } from "../engine/canon/dragonPrisons.js";
-import { computeChaosFlowState, lunarSurgeModifier, parseChaosFlowAnchor } from "../engine/agents/chaosFlowAgent.js";
+import { CHAOS_MUTATIONS, computeChaosFlowState, lunarSurgeModifier, parseChaosFlowAnchor } from "../engine/agents/chaosFlowAgent.js";
+import { DRAGON_DOMAINS } from "../engine/agents/grindCanyonAgent.js";
 import { DRAGON_PRISONS as STORY_PRISONS } from "../engine/rpg/WhatElseStoryEngine.js";
 
 // Canon/06 §2 roster, by clock. Changing this list means canon changed: update it from canon, never by guess.
@@ -86,6 +90,39 @@ async function main() {
         `cell ${p.cell}: story has ${info.dragon}/${info.domain}, canon ${p.dragon}/${p.power}`);
       check(!RETIRED_NAMES.some(n => info.title.includes(n) || info.dragon === n), `cell ${p.cell}: retired name in "${info.title}"`);
     }
+  });
+
+  await run("Dragon tables pair each dragon with its canon Power", () => {
+    const canonPower = new Map(CANON_DRAGON_PRISONS.map(p => [p.dragon, p.power]));
+    const rows = [
+      ...CHAOS_MUTATIONS.map(m => ({ where: `mutation ${m.key}`, dragon: m.dragonName, power: m.domain })),
+      ...DRAGON_DOMAINS.map(d => ({ where: `dragonstone ${d.stone}`, dragon: d.name, power: d.domain })),
+    ];
+    const bad = rows.filter(r => canonPower.get(r.dragon) !== r.power).map(r => `${r.where}: ${r.dragon}/${r.power}`);
+    check(bad.length === 0, bad.join("; "));
+    check(DRAGON_DOMAINS.length === 12, `expected 12 dragonstones, got ${DRAGON_DOMAINS.length}`);
+  });
+
+  await run("No source file uses a retired dragon name", () => {
+    // dist/scripts/testChaosFlows.js -> ../../src
+    const srcDir = path.resolve(__dirname, "..", "..", "src");
+    const self = path.join(srcDir, "scripts", "testChaosFlows.ts");
+    const pattern = new RegExp(`\\b(${RETIRED_NAMES.join("|")})\\b`);
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (/\.(ts|tsx)$/.test(e.name) && p !== self) {
+          fs.readFileSync(p, "utf8").split(/\r?\n/).forEach((line, i) => {
+            const m = line.match(pattern);
+            if (m) hits.push(`${path.relative(srcDir, p)}:${i + 1} (${m[1]})`);
+          });
+        }
+      }
+    };
+    walk(srcDir);
+    check(hits.length === 0, hits.join("; "));
   });
 
   await run("Legacy [x, y] coordinates still parse", () => {

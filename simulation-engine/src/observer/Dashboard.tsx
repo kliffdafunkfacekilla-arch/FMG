@@ -1906,7 +1906,7 @@ export function Dashboard() {
                   <span>🌀</span> 12 Primordial Chaos Flows
                 </h3>
                 <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
-                  Active Month: <strong style={{ color: "#38bdf8" }}>{chaosFlowsData?.calendar?.month_name || "Metrion"}</strong> ({chaosFlowsData?.calendar?.moon_phase || "Cruorbus"})
+                  Active Month: <strong style={{ color: "#38bdf8" }}>{chaosFlowsData?.calendar?.month_name || "Nexar"}</strong> ({chaosFlowsData?.calendar?.moon_phase || "Cruorbus"})
                 </div>
               </div>
 

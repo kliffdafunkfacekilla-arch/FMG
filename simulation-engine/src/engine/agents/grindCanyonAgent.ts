@@ -1,19 +1,27 @@
 import { PoolClient } from "pg";
+import { CANON_DRAGON_PRISONS } from "../canon/dragonPrisons.js";
 
-export const DRAGON_DOMAINS = [
-  { name: "Tiraton", domain: "Mass", stone: "Gravitic Basalt Dragonstone" },
-  { name: "Carulkem", domain: "Nexus", stone: "Astral Weave Dragonstone" },
-  { name: "Stagus", domain: "Ordo", stone: "Geometric Glass Dragonstone" },
-  { name: "Tyrustis", domain: "Lex", stone: "Adamantine Law Dragonstone" },
-  { name: "Vecelo", domain: "Motus", stone: "Kinetic Gale Dragonstone" },
-  { name: "Aurgenas", domain: "Flux", stone: "Molten Pyre Dragonstone" },
-  { name: "Gavusrix", domain: "Vita", stone: "Verdant Marrow Dragonstone" },
-  { name: "Metrion", domain: "Ratio", stone: "Harmonic Prismatic Dragonstone" },
-  { name: "Opecten", domain: "Lux", stone: "Solar Flare Dragonstone" },
-  { name: "Termhill", domain: "Omen", stone: "Void Shadow Dragonstone" },
-  { name: "Virantor", domain: "Aura", stone: "Resonant Aether Dragonstone" },
-  { name: "Lophex", domain: "Anumis", stone: "Spirit Spark Dragonstone" }
-];
+// Dragonstone by Power. Dragon names and Powers come from the canon table (engine/canon/dragonPrisons.ts).
+const DRAGONSTONE_BY_POWER: Record<string, string> = {
+  Mass: "Gravitic Basalt Dragonstone",
+  Nexus: "Astral Weave Dragonstone",
+  Ordo: "Geometric Glass Dragonstone",
+  Lex: "Adamantine Law Dragonstone",
+  Motus: "Kinetic Gale Dragonstone",
+  Flux: "Molten Pyre Dragonstone",
+  Vita: "Verdant Marrow Dragonstone",
+  Ratio: "Harmonic Prismatic Dragonstone",
+  Lux: "Solar Flare Dragonstone",
+  Omen: "Void Shadow Dragonstone",
+  Aura: "Resonant Aether Dragonstone",
+  Anumis: "Spirit Spark Dragonstone",
+};
+
+export const DRAGON_DOMAINS = CANON_DRAGON_PRISONS.map(p => {
+  const stone = DRAGONSTONE_BY_POWER[p.power];
+  if (!stone) throw new Error(`No dragonstone for Power ${p.power}`);
+  return { name: p.dragon, domain: p.power, stone };
+});
 
 export async function runGrindCanyonAgent(client: PoolClient, tick: number, loreDate: string) {
   // 1. Process active open / collapsing Grind Canyons

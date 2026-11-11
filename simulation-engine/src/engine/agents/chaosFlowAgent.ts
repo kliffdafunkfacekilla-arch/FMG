@@ -438,7 +438,7 @@ export const CHAOS_MUTATIONS: ChaosMutationDef[] = [
   {
     key: "decree_brand",
     name: "Iron Decree Brand",
-    dragonName: "Tyrustis",
+    dragonName: "Vahn",
     domain: "Lex",
     description: "Glowing crimson binding runes scorch your vocal cords; your voice commands fearful obedience while souring pleasantries.",
     statModifiers: { willpower: 2, charm: -1 }
@@ -454,7 +454,7 @@ export const CHAOS_MUTATIONS: ChaosMutationDef[] = [
   {
     key: "biomantic_polyp",
     name: "Chimeric Polyp Sprout",
-    dragonName: "Aurgenas",
+    dragonName: "Ulex",
     domain: "Flux",
     description: "Bioluminescent mutating spores take root in your chest, knitting wounds rapidly while repulsive floral growths sprout.",
     statModifiers: { vitality: 2, charm: -2 }
@@ -470,7 +470,7 @@ export const CHAOS_MUTATIONS: ChaosMutationDef[] = [
   {
     key: "clockwork_synapse",
     name: "Ratio Lattice Synapse",
-    dragonName: "Metrion",
+    dragonName: "Eldra",
     domain: "Ratio",
     description: "Neural nodes hum with geometric clockwork frequency, calculating vectors flawlessly but numbing gut instincts.",
     statModifiers: { logic: 2, intuition: -1 }
@@ -478,7 +478,7 @@ export const CHAOS_MUTATIONS: ChaosMutationDef[] = [
   {
     key: "solar_phosphor_sheath",
     name: "Luminescent Phosphor Sheath",
-    dragonName: "Opecten",
+    dragonName: "Lophex",
     domain: "Lux",
     description: "Your epidermis radiates an unearthly golden celestial glow, captivating onlookers but rendering stealth impossible.",
     statModifiers: { charm: 2, finesse: -2 }
@@ -486,7 +486,7 @@ export const CHAOS_MUTATIONS: ChaosMutationDef[] = [
   {
     key: "omen_void_socket",
     name: "Eclipse Void Socket",
-    dragonName: "Termhill",
+    dragonName: "Sevrath",
     domain: "Omen",
     description: "One eye withers into a swirling eclipse abyss that gazes into impending tragedies, taxing your living vitality.",
     statModifiers: { intuition: 2, vitality: -1 }
@@ -502,7 +502,7 @@ export const CHAOS_MUTATIONS: ChaosMutationDef[] = [
   {
     key: "soul_ash_frost",
     name: "Necrotic Ash Frost",
-    dragonName: "Lophex",
+    dragonName: "Grolak",
     domain: "Anumis",
     description: "Black necrotic rime courses through your bloodstream, deadening mortal pain while freezing living warmth.",
     statModifiers: { fortitude: 2, vitality: -1 }
