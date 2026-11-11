@@ -3263,7 +3263,7 @@ export function generateTheVergeSectorMap(cellId: number = 16166): SectorMapResu
     }
   }
 
-  // The Grand Spire of Aetheria (10x10 celestial monolith at the dead center)
+  // The Grand Spire at the Verge (10x10 celestial monolith at the dead center)
   for (let dy = -5; dy <= 5; dy++) {
     for (let dx = -5; dx <= 5; dx++) {
       grid[(CENTER + dy) * SIZE + (CENTER + dx)] = 10; // Ward Monolith
@@ -3286,7 +3286,7 @@ export function generateTheVergeSectorMap(cellId: number = 16166): SectorMapResu
   const props = [
     {
       id: "prop_the_verge_sacred_spire",
-      name: "The Sacred Spire of Aetheria (Adamantine Axis)",
+      name: "The Sacred Spire of the Verge (Adamantine Axis)",
       pos: [CENTER, CENTER] as [number, number],
       tags: ["spire", "ancient", "adamantine", "nexus", "celestial", "indestructible"],
       hp: 100000,

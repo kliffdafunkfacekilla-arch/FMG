@@ -1,3 +1,5 @@
+> **Historical archive.** An extract of early design documents that predates canon. It uses retired dragon names (Tyrustis, Aurgenas, Metrion, Opecten, Termhill) and older mechanics. Canon (`Shatterlands/Canon/`) and AGENT_RULES.md win wherever this disagrees.
+
 # 12 attributes  might endurence , finesse, reflex,.._.docx
 COMPLETE SYSTEM DOCUMENTATION & PRODUCTION SPECIFICATION
 MODULE 14 (REVISED): THE CUSTOM TTRPG RULES ENGINE & CHARACTER MANAGER

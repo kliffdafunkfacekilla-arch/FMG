@@ -86,7 +86,7 @@ async function getMetrics(client, tick) {
 
 async function runAudit() {
     console.log("================================================================================");
-    console.log("            AETHERIA SIMULATION: 100-TICK LONG-TERM STABILITY AUDIT             ");
+    console.log("            OSTRAKA SIMULATION: 100-TICK LONG-TERM STABILITY AUDIT             ");
     console.log("================================================================================");
 
     const client = await pool.connect();

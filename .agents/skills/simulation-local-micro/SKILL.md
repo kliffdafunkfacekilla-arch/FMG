@@ -29,10 +29,8 @@ This skill governs the bottom tier of Ostraka's fractal hierarchy: the tactical 
 
 ## 2. Key Codebase Anchors
 - 3-Layer Generator: `simulation-engine/src/engine/maps/SectorMapGenerator.ts` (`generateBurgSectorLayers`)
-- Sub-Map & Interior Engine: `simulation-engine/src/engine/subMapEngine.ts`
 - Sector API Endpoints: `simulation-engine/src/api/dmRouter.ts` (`/sector_layer`, `/sector_load`, `/interior/enter`)
-- Tactical Player View: `player-client/src/App.tsx` (`handleSwitchSectorLayer`, `fetchSectorState`)
-- Client Grid Generator: `player-client/src/utils/Level3Generator.ts`, `UrbanSettlementGenerator.ts`
+- Tactical Player View: Observer Dashboard (`simulation-engine/src/observer/`). The standalone `player-client/` is parked (PARKING_LOT.md).
 - Database Cache: `sim_sector_layers`, `sim_world_vault_sectors`, `interior_sub_maps`
 
 ## 3. Mandatory Invariants
@@ -50,5 +48,5 @@ When making changes to local sectors:
    `curl "http://localhost:3000/api/dm/sector_layer?cellId=13408&rx=50&ry=50&z=0"`
    `curl "http://localhost:3000/api/dm/sector_layer?cellId=13408&rx=50&ry=50&z=-1"`
    `curl "http://localhost:3000/api/dm/sector_layer?cellId=13408&rx=50&ry=50&z=1"`
-3. Confirm `player-client` compiles without errors (`npm --prefix player-client run build`).
+3. Confirm the engine compiles and the tests pass (`npm --prefix simulation-engine test`).
 

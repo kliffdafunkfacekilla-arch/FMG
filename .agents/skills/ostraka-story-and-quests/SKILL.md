@@ -1,18 +1,18 @@
 ---
-name: aetheria-story-and-quests
+name: ostraka-story-and-quests
 description: >-
   Governs Pillar 4 AI Story Generation, emergent quest arcs, WhatELSE narrative beats, and Gemini lore synthesis.
   Use when developing, debugging, or authoring AI Director blueprints, dynamic quest chains, NPC narrative dialogue,
   free-speech intent parsing, or chronicler event logging in sim_events.
 ---
 
-# Aetheria Story & Quest Generation Skill
+# Ostraka Story & Quest Generation Skill
 
 This skill governs Pillar 4 of the architecture: the Gemini-powered narrative engine that weaves live simulation state, player actions, and emergent drama into organic quests and dialogue.
 
 ## 1. Architectural Scope & Responsibilities
 - **Gemini Narrative Arbiter**:
-  - Translates free-speech natural language actions into structured Concordia GM commands.
+  - Translates free-speech natural language actions into structured B.R.U.T.A.L. GM commands.
   - Generates natural, context-aware NPC dialogue grounded in their authentic personality (`temper`, `instinct`, `motivation`, `childhood_background`).
 - **Organic Lore Weaver**:
   - Dynamically synthesizes emergent lore connecting any two entities in Ostraka (e.g. connecting an honest baker's flour shortage to an Otter Mafia contraband cache in the lower sewers).
@@ -36,13 +36,13 @@ This skill governs Pillar 4 of the architecture: the Gemini-powered narrative en
 - Quest Chain Engine: `simulation-engine/src/engine/questChainEngine.ts`
 - Narrative Reaction: `simulation-engine/src/engine/rpg/narrativeReactionEngine.ts`
 - Chronicler Event Logger: `simulation-engine/src/engine/agents/chroniclerAgent.ts`
-- Dialogue Streaming API: `simulation-engine/src/api/streamingRouter.ts`, `tellerRouter.ts`
+- Dialogue Streaming API: `simulation-engine/src/api/tellerRouter.ts`
 - Database Tables: `sim_events`, `sim_quest_chains`, `sim_lore_codex`
 
 ## 3. Mandatory Invariants
 1. **Simulation Grounding**: Narrative elements must be backed by live database records. If an NPC mentions a war, famine, or cartel, that state must exist in `sim_burg_economy` or `sim_outlaw_factions`.
 2. **Validation Middleware Enforcement**: Any mutation suggested by an AI story blueprint must pass `validateDirectorMutations()`. The AI Director cannot spawn ungrounded physical terrain or overwrite essential structural props.
-3. **No Overriding Mechanical Rules**: The story engine provides color, dialogue, and dramatic framing; it does not dictate dice rolls or bypass Concordia damage calculations.
+3. **No Overriding Mechanical Rules**: The story engine provides color, dialogue, and dramatic framing; it does not dictate dice rolls or bypass B.R.U.T.A.L. damage calculations.
 4. **Persistent Memory**: Major NPC interactions must append concise memory summaries to the NPC's `memoryNotes` array in the sector record.
 
 ## 4. Verification Workflow

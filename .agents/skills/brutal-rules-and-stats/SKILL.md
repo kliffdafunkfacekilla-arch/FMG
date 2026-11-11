@@ -8,7 +8,7 @@ description: >-
 
 # B.R.U.T.A.L. TTRPG Rules & Stats Mechanics Skill (v4.9)
 
-This skill governs Pillar 3 of the architecture: the deterministic, mechanical rules engine of B.R.U.T.A.L. and the Aetheria simulation, aligned 100% with `C:\Users\krazy\Desktop\Shatterlands\Rules\BRUTAL_Rulebook_v3.md` and `Rules_Digest.md`.
+This skill governs Pillar 3 of the architecture: the deterministic, mechanical rules engine of B.R.U.T.A.L. and the Ostraka simulation, aligned 100% with `C:\Users\krazy\Desktop\Shatterlands\Rules\BRUTAL_Rulebook_v3.md` and `Rules_Digest.md`.
 
 ## 1. Architectural Scope & Core Resolution (The d12 Engine)
 - **Zero Hallucination Mandate**: All combat, checks, damage, and health calculations are strictly deterministic mathematical computations executed in TypeScript.

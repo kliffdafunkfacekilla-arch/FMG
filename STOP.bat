@@ -20,6 +20,6 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr :5174 ^| findstr LISTENING') 
 )
 
 echo.
-echo All Aetheria simulation services have been stopped.
+echo All Ostraka simulation services have been stopped.
 echo.
 pause

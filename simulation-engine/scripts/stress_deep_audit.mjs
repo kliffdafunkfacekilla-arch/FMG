@@ -52,7 +52,7 @@ function logResult(suite, name, passed, details) {
 
 async function runAudit() {
   console.log('===============================================================');
-  console.log('🔥 HARD DEEP STRESS AUDIT: OSTRAKA & AETHERIA ENGINE 🔥');
+  console.log('🔥 HARD DEEP STRESS AUDIT: OSTRAKA ENGINE 🔥');
   console.log('===============================================================\n');
 
   // -------------------------------------------------------------

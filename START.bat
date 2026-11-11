@@ -8,7 +8,7 @@ title Fantasy Map Generator - Simulation & Observer Launcher
 color 0B
 
 echo ========================================================
-echo    AETHERIA SIMULATION ENGINE & OBSERVER DASHBOARD
+echo    OSTRAKA SIMULATION ENGINE & OBSERVER DASHBOARD
 echo ========================================================
 echo.
 

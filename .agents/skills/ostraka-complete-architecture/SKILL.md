@@ -1,13 +1,13 @@
 ---
-name: aetheria-complete-architecture
-description: Master architectural roadmap, file-by-file dependency graph, database schema reference, and operational rules governing Pillars 1, 3, and 4 (Simulation Engine, Concordia GM Mechanics, and AI Story/Narration Director). Use on EVERY task involving simulation logic, rule arbitration, data flows, or event narrations.
+name: ostraka-complete-architecture
+description: Master architectural roadmap, file-by-file dependency graph, database schema reference, and operational rules governing Pillars 1, 3, and 4 (Simulation Engine, B.R.U.T.A.L. GM Mechanics, and AI Story/Narration Director). Use on EVERY task involving simulation logic, rule arbitration, data flows, or event narrations.
 ---
 
-# AETHERIA COMPLETE ARCHITECTURE & MASTER SYSTEM ROADMAP
+# OSTRAKA COMPLETE ARCHITECTURE & MASTER SYSTEM ROADMAP
 
-This skill serves as the permanent architectural roadmap and file-by-file connection map across all subsystems of the Aetheria Simulation Engine, Concordia GM Rules Engine, and AI Story Generator.
+This skill serves as the permanent architectural roadmap and file-by-file connection map across all subsystems of the Ostraka Simulation Engine, B.R.U.T.A.L. GM Rules Engine, and AI Story Generator.
 
-Refer to the master document: [AETHERIA_SYSTEM_ROADMAP.md](file:///c:/Users/krazy/Desktop/FMG/AETHERIA_SYSTEM_ROADMAP.md)
+Refer to the master document: [OSTRAKA_SYSTEM_ROADMAP.md](file:///c:/Users/krazy/Desktop/FMG/OSTRAKA_SYSTEM_ROADMAP.md)
 
 ---
 
@@ -21,11 +21,11 @@ Refer to the master document: [AETHERIA_SYSTEM_ROADMAP.md](file:///c:/Users/kraz
    - 12 Primordial Chaos Flows (`sim_chaos_flows`) and 12 Self-Sustaining Dragon Prisons (`sim_sacred_groves`).
    - 72 Grey Wardens (including 12 Eyeless Crypt Elders in the under-spire tomb) and 288 Void Cultists.
 
-2. **Pillar 2: The Player Interface (`player-client/`)**:
+2. **Pillar 2: The Player Interface (Observer Dashboard, `simulation-engine/src/observer/`)**: the standalone `player-client/` is parked (see PARKING_LOT.md).
    - Port 5173. Pure read-only visual projection. Never hallucinate fake map data unbacked by simulation ground-truth.
 
-3. **Pillar 3: Independent Concordia GM Rules Engine (`simulation-engine/src/engine/rpg/`)**:
-   - Deterministic mechanical engine: `ConcordiaGM.ts`, `RulesEngine.ts`, `TagMatrixEngine.ts`, `combatEngine.ts`.
+3. **Pillar 3: Independent B.R.U.T.A.L. GM Rules Engine (`simulation-engine/src/engine/rpg/`)**:
+   - Deterministic mechanical engine: `BrutalGM.ts`, `RulesEngine.ts`, `TagMatrixEngine.ts`, `combatEngine.ts`.
    - 12 Attributes: Might, Endurance, Finesse, Reflex, Vitality, Fortitude, Knowledge, Logic, Awareness, Intuition, Charm, Willpower.
    - 4 Derived Pools: Health, Stamina, Composure, Focus.
    - Opposed 1d20 resolution: `Attacker (1d20 + Stat + Mod) vs Defender (1d20 + Stat + Mod)`.
@@ -34,7 +34,7 @@ Refer to the master document: [AETHERIA_SYSTEM_ROADMAP.md](file:///c:/Users/kraz
 
 4. **Pillar 4: AI Story Generator & Event Narration (`simulation-engine/src/api/directorRouter.ts`)**:
    - Gemini LLM translation: Reads mechanical GM outputs and renders immersive sensory prose.
-   - Free-Speech Intent Parser: Translates natural language player intent into structured Concordia actions.
+   - Free-Speech Intent Parser: Translates natural language player intent into structured B.R.U.T.A.L. actions.
    - Emergent Narrative Weaving: Dynamically connects any two entities in the database through simulation history.
    - Chronicler: Logs historical milestones to `sim_events` (CRITICAL, MAJOR, MINOR, BACKGROUND).
 
@@ -116,8 +116,8 @@ All entities and events interact deterministically via three tag layers:
 | `src/api/observerRouter.ts` | Live telemetry & simulation API | `/state`, `/sectors`, `/ecology`, `/chaos_flows`, `/autoplay`, `/tick`, `/reset` |
 | `src/api/directorRouter.ts` | AI Story Director API | `/blueprint`, `/objectives`, `/emergent_dialogue` |
 | `src/engine/masterOrchestrator.ts` | Master simulation tick runner | `executeMasterTick()` |
-| `src/engine/rpg/ConcordiaGM.ts` | Independent mechanical GM | `handlePlayerAction()`, `resolveOpposedCombat()` |
-| `src/engine/rpg/RulesEngine.ts` | 12-stat Concordia rules | `resolveMeleeAttack()`, `resolveOpposedCombat()` |
+| `src/engine/rpg/BrutalGM.ts` | Independent mechanical GM | `handlePlayerAction()`, `resolveOpposedCombat()` |
+| `src/engine/rpg/RulesEngine.ts` | 12-stat B.R.U.T.A.L. rules | `resolveMeleeAttack()`, `resolveOpposedCombat()` |
 | `src/engine/rpg/TagMatrixEngine.ts` | Physical tag cascades | `resolveInteraction()`, `applyEnvironmentalDamage()` |
 | `src/engine/rpg/narrativeReactionEngine.ts` | Event collision engine | `processDataCollisions()`, `evaluateSectorReactions()` |
 | `src/engine/maps/SectorMapGenerator.ts` | Micro LOD tilemaps | `generateSectorMap()`, `build3TierVerticalStack()` |

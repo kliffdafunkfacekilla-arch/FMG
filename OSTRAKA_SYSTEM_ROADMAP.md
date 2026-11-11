@@ -1,8 +1,8 @@
-# AETHERIA SIMULATION & CONCORDIA GM ENGINE: MASTER SYSTEM ROADMAP
+# OSTRAKA SIMULATION & B.R.U.T.A.L. GM ENGINE: MASTER SYSTEM ROADMAP
 
 > **ARCHITECTURAL SOURCE OF TRUTH (PILLARS 1, 3, & 4)**  
 > *Generated from an exhaustive line-by-line audit across all 60+ files of `simulation-engine/src/`.*  
-> *Governs the Autonomous Simulation Engine, Independent Concordia GM Rules Engine, and AI Story & Narration Director.*
+> *Governs the Autonomous Simulation Engine, Independent B.R.U.T.A.L. GM Rules Engine, and AI Story & Narration Director.*
 
 ---
 
@@ -12,7 +12,7 @@
 3. [The Centralized PostgreSQL Database Schema (All 37 Tables)](#3-the-centralized-postgresql-database-schema-all-37-tables)
 4. [Master Orchestrator: The 11-Step Daily Tick Cycle](#4-master-orchestrator-the-11-step-daily-tick-cycle)
 5. [The Universal Tag Matrix Architecture](#5-the-universal-tag-matrix-architecture)
-6. [Concordia Mechanical GM & Rules Engine (Pillar 3)](#6-concordia-mechanical-gm--rules-engine-pillar-3)
+6. [B.R.U.T.A.L. Mechanical GM & Rules Engine (Pillar 3)](#6-brutal-mechanical-gm--rules-engine-pillar-3)
 7. [AI Story Generator & Event Narration (Pillar 4)](#7-ai-story-generator--event-narration-pillar-4)
 8. [Comprehensive File-by-File Source Code Audit (60+ Files)](#8-comprehensive-file-by-file-source-code-audit-60-files)
 9. [Side Quest Audit Findings: Discovered Bugs & Precise Fixes](#9-side-quest-audit-findings-discovered-bugs--precise-fixes)
@@ -37,7 +37,7 @@ The backend system is strictly partitioned into four autonomous, collaborating p
 |                                         |                                         |
 |                                         v                                         |
 |  PILLAR 3: INDEPENDENT GM ENGINE                   PILLAR 4: AI STORY GENERATOR   |
-|  - Concordia 12-Attribute Matrix                   - Gemini Natural Language Arbiter|
+|  - B.R.U.T.A.L. 12-Attribute Matrix                   - Gemini Natural Language Arbiter|
 |  - 4 Derived Pools (HP, Stamina, Composure, Focus) - Free-Speech Intent Parser    |
 |  - Opposed 1d20 Resolution                         - Narrative Drama & Organic Lore|
 |  - Physical Tag Matrix Cascades                    - Connects Any Two Entities    |
@@ -132,7 +132,7 @@ The PostgreSQL database (default `postgres` database on port 5432) serves as the
 | `sim_character_memorials`| Permadeath memorials for deceased characters (`id`, `player_name`, `level`, `gold`, `cause_of_death`, `sector_x`, `sector_y`, `fallen_at`) |
 | `sim_player_mutations` | Primordial chaos mutations acquired by players (`id`, `player_id`, `mutation_key`, `mutation_name`, `description`, `stat_modifiers`, `acquired_at_tick`, `acquired_source`) |
 | `sim_npc_instances` | Persistent tactical NPCs in active sectors (`id`, `cell_id`, `current_rx`, `current_ry`, `local_pos`, `name`, `role`, `tags`, `hp`, `max_hp`, `disposition`, `alive`, `stats`, `inventory`, `needs`, `mood`) |
-| `sim_gm_memories` | Concordia GM episodic memory log (`id`, `player_id`, `sector_key`, `timestamp`, `summary`, `tags`) |
+| `sim_gm_memories` | B.R.U.T.A.L. GM episodic memory log (`id`, `player_id`, `sector_key`, `timestamp`, `summary`, `tags`) |
 
 ---
 
@@ -208,7 +208,7 @@ Located in `simulation-engine/src/engine/rpg/` and `src/engine/`:
 
 Located in `simulation-engine/src/api/directorRouter.ts`, `src/engine/rpg/WhatElseStoryEngine.ts`, `src/engine/rpg/directorBridge.ts`:
 * **Gemini LLM Arbitration**: Reads pure mechanical results from Pillar 3 and translates them into vivid natural language narrative sensory outputs.
-* **Free-Speech Intent Parser**: Translates player natural language inputs into structured Concordia GM actions (`ActionCategory: COMBAT | SOCIAL | SUBTERFUGE | EXPLORATION | SURVIVAL`).
+* **Free-Speech Intent Parser**: Translates player natural language inputs into structured B.R.U.T.A.L. GM actions (`ActionCategory: COMBAT | SOCIAL | SUBTERFUGE | EXPLORATION | SURVIVAL`).
 * **Emergent Lore Weaving**: Dynamically discovers real simulation connections between any two entities in the database (e.g., linking a displaced tailor in Burg #12 to an Otter Mafia smuggler).
 * **Logging**: All narrative milestones backfeed into `sim_events` and `sim_gm_memories`.
 
@@ -220,13 +220,9 @@ Located in `simulation-engine/src/api/directorRouter.ts`, `src/engine/rpg/WhatEl
 * **`observerRouter.ts`**: Live telemetry, `/state`, `/sectors`, `/ecology`, `/chaos_flows`, `/autoplay`, `/tick`, `/batch_ticks`, `/reset`.
 * **`dmRouter.ts`**: Core tactical GM arbitration: `/sector`, `/act`, `/chat`, `/inventory`, `/sub_map`, `/camp`, `/inspect`.
 * **`directorRouter.ts`**: AI Story Director blueprints, quest objectives, emergent narrative synthesis.
-* **`characterRouter.ts`**: Character sheet CRUD, stat scaling, leveling, equipment swapping, mutations.
-* **`gameRouter.ts`**: Save/load game slots, permadeath memorials, difficulty settings.
 * **`regionalRouter.ts`**: 10,000-cell meso grid query, elevation/moisture noise slices.
-* **`streamingRouter.ts`**: Server-Sent Events (SSE) telemetry stream for real-time observer updates.
 * **`tellerRouter.ts`**: Factual historical and economic chronicler summaries per burg/faction.
 * **`loreCodex.ts`**: Static lore definitions, pantheon, dragon domains, cultural backgrounds.
-* **`dmToolkitRouter.ts`**: Developer debugging tools, force-trigger events, instant level transitions.
 
 ### 2. SIMULATION AGENTS (`simulation-engine/src/engine/agents/`)
 * **`masterOrchestrator.ts`**: Sequential 11-step master tick executor, transactional DB wrapper.
@@ -252,7 +248,7 @@ Located in `simulation-engine/src/api/directorRouter.ts`, `src/engine/rpg/WhatEl
 * **`outlawSyndicates.ts`**: Static lore definitions and unique gear loadouts for all 10 criminal factions.
 
 ### 3. CONCORDIA RULES & DM ENGINE (`simulation-engine/src/engine/rpg/`)
-* **`ConcordiaGM.ts`**: Entity-Component Game Master loop, sensory filters, plausibility checks.
+* **`B.R.U.T.A.L.GM.ts`**: Entity-Component Game Master loop, sensory filters, plausibility checks.
 * **`RulesEngine.ts`**: Opposed 1d20 resolution, injury point calculations, armor soak, disadvantage.
 * **`TagMatrixEngine.ts`**: Declarative reaction rule table, material damage cascades, structural destruction.
 * **`TagRegistry.ts`**: Definitions of all physical, environmental, and behavioral tags + action DCs.
@@ -287,10 +283,8 @@ Located in `simulation-engine/src/api/directorRouter.ts`, `src/engine/rpg/WhatEl
 * **`statScaling.ts`**: Attribute milestone thresholds, scaling formulas, level progression.
 * **`creatureTaxonomy.ts`**: Biome-specific beast and monster definitions based on trophic levels.
 * **`loadoutEngine.ts`**: Generates authentic gear loadouts based on NPC profession and urban tier.
-* **`subMapEngine.ts`**: Manages seamless transitions between overland sectors and interior sub-maps.
 * **`universalInteraction.ts`**: Standardized interaction handler for all world props and mechanisms.
-* **`poiGeneratorEngine.ts`**: Places authentic landmarks, ruins, and resource deposits across cells.
-* **`resetWorld.ts`**: World wipe and re-seeding script from SQLite and JSON canonical sources.
+* **`resetWorld.ts`**: World wipe and re-seed of the PostgreSQL sim_* tables from the Holgaland map and canon tables.
 
 ---
 
@@ -352,5 +346,5 @@ During the comprehensive audit of the 5 active files (`resetWorld.ts`, `observer
 ---
 
 ## 10. SYSTEM ROADMAP CONCLUSION
-With this roadmap and the dedicated workspace skill `.agents/skills/aetheria-complete-architecture/SKILL.md`, the entire 4-pillar architecture, 3-tier fractal hierarchy, 37 database tables, Universal Tag Matrix, Concordia GM mechanics, and AI Story Director are permanently established and cross-referenced for all future development.
+With this roadmap and the dedicated workspace skill `.agents/skills/ostraka-complete-architecture/SKILL.md`, the entire 4-pillar architecture, 3-tier fractal hierarchy, 37 database tables, Universal Tag Matrix, B.R.U.T.A.L. GM mechanics, and AI Story Director are permanently established and cross-referenced for all future development.
 
