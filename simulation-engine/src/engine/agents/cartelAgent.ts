@@ -1,3 +1,4 @@
+import { dateForTick } from "../canon/calendar.js";
 import { PoolClient } from "pg";
 import { getCartelLairType, ensureLairResidents } from "./outlawSyndicates";
 import { recruitInsideMan, tagBurgCitizens, tagSectorEnvironment } from "./citizenPersonaHelper";
@@ -401,8 +402,9 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
             `);
 
             // A. Real Dead Drops Supplied Twice a Year by the Top 4 Sovereign Power Leaders
-            // In a 541-day calendar: twice a year at Tick 135 (mid High Sun) and Tick 405 (mid Thaw)
-            if (tick === 135 || tick === 405) {
+            // Twice a year, every year: mid-Shadowburn (day 48) and mid-Dimburn (day 313), the two Open Eye summers
+            const dropDay = dateForTick(tick).dayOfYear;
+            if (dropDay === 48 || dropDay === 313) {
                 const topPowersRes = await client.query(`
                     SELECT f.id, f.name, f.treasury
                     FROM sim_factions f

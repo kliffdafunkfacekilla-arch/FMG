@@ -1,3 +1,4 @@
+import { SHADOWFALL_MONTH, seasonForMonth } from "../engine/canon/calendar.js";
 export interface CellEcologyState {
   eco_plants: number;
   eco_prey: number;
@@ -24,8 +25,10 @@ export function simulateCellEcology(
     plants = Math.max(0, plants - drain);
   }
   
-  const isWinter = month >= 6 && month <= 8;
-  const isSpring = month >= 1 && month <= 2;
+  // Month 13 is Shadowfall: treated as winter dormancy (total eclipse).
+  const kind = month === SHADOWFALL_MONTH ? "Winter" : seasonForMonth(month)?.kind;
+  const isWinter = kind === "Winter";
+  const isSpring = kind === "Spring";
   
   // Unified Lotka-Volterra Predator-Prey Coefficient Parameters
   let alpha = 0.15; // Plant natural regeneration rate

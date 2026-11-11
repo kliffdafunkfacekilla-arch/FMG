@@ -1,3 +1,4 @@
+import { SHADOWFALL_MONTH, isChaosPeak } from "../canon/calendar.js";
 /**
  * B.R.U.T.A.L. GAME MASTER (ENTITY-COMPONENT GM)
  * =====================================================
@@ -169,7 +170,7 @@ export class BrutalGameMaster {
         context.activeFlow = context.activeFlow || cal.active_flow;
         context.dragonDomain = context.dragonDomain || cal.dragon_domain;
         context.moonPhase = context.moonPhase || cal.moon_phase;
-        if (cal.month === 13 || cal.is_eclipse || cal.moon_phase?.includes("Nightmare") || cal.moon_phase?.includes("Full Blood")) {
+        if (cal.month === SHADOWFALL_MONTH || cal.is_eclipse || isChaosPeak(cal.moon_phase)) {
           context.chaosRadiation = Math.max(context.chaosRadiation || 0, 0.85);
           (context as any).isEclipse = true;
         }

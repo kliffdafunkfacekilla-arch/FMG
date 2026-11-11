@@ -1222,7 +1222,7 @@ export function Dashboard() {
   const cal = state?.calendar;
   const dateDisplay = cal
     ? (cal.is_shadow_week
-        ? `Year ${cal.year}, Shadow Week (Day ${cal.day_of_month || (cal.tick % 13) + 1}/13) • ${cal.moon_phase || 'The Grand Eclipse'} • Chaos Flow: The Void`
+        ? `Year ${cal.year}, Shadowfall (Day ${cal.day_of_month || (cal.tick % 13) + 1}/13) • ${cal.moon_phase || 'The Shadowfall Eclipse'} • Chaos Flow: The Void`
         : `Year ${cal.year}, Month ${cal.month} (${cal.month_name || 'Dragon'}), Day ${cal.day_of_month || ((cal.tick - 1) % 44) + 1}/44 • Season: ${cal.season} • Moon: ${cal.moon_phase} • Flow: ${cal.active_flow} (${cal.dragon_domain})`)
     : "Awaiting simulation initialization...";
 

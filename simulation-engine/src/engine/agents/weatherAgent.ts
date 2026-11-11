@@ -1,4 +1,5 @@
 import { tagBurgCitizens, tagSectorEnvironment } from "./citizenPersonaHelper";
+import { MERCY_ALIGNMENT, NIGHTMARE_ALIGNMENT, SHADOWFALL, moonPhaseFor, seasonByName } from "../canon/calendar.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Weather & Chaos Agent
@@ -6,14 +7,18 @@ import { tagBurgCitizens, tagSectorEnvironment } from "./citizenPersonaHelper";
 //  the lunar cycle of Cruorbus (48-day month).
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Cruorbus lunar phase from dayOfMonth (1–44) & Shadow Week
-function getCruorbusPhase(dayOfMonth: number, isShadowWeek?: boolean): string {
-    if (isShadowWeek)     return "SHADOW_WEEK";
-    if (dayOfMonth <= 9)  return "WAXING";         // chaos building
-    if (dayOfMonth <= 18) return "FULL_BLOOD";     // peak chaos – storms, raids, madness
-    if (dayOfMonth <= 27) return "CHAOS_FLOW";     // chaos rivers drain toward the Void
-    if (dayOfMonth <= 36) return "MERCY";          // calm eye, healing
-    return "NIGHTMARE";                            // day 37-44: the Nightmare Alignment
+// Weather effect for Cruorbus's face (Canon/04 §2), from the canon calendar.
+function getCruorbusPhase(season: string, dayOfMonth: number, isShadowWeek?: boolean): string {
+    if (isShadowWeek) return "SHADOW_WEEK";
+    const s = seasonByName(season);
+    if (!s) return "HALO";
+    const phase = moonPhaseFor(s, dayOfMonth);
+    if (phase === NIGHTMARE_ALIGNMENT) return "NIGHTMARE";  // Open Eye at full moon: peak dread
+    if (phase === MERCY_ALIGNMENT) return "MERCY";          // Open Eye at new moon: chaos damped
+    if (phase === "The Open Eye") return "BLEED";      // the Bleed: storms, raids, madness
+    if (phase === "The Leering") return "CHAOS_FLOW";       // pressure rising: chaos rivers pulse
+    if (phase === "The Receding") return "VOID_DRAIN";      // pressure easing
+    return "HALO";                                          // the mild seasons: the world can breathe
 }
 
 export async function runWeatherAgent(client: any, tick: number, season: string, dayOfMonth: number, loreDate: string, isShadowWeek?: boolean) {
@@ -23,21 +28,21 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
     await client.query("DELETE FROM sim_weather_fronts WHERE lifetime <= 0");
 
     // ── 2. SPAWN new weather fronts based on season + lunar phase ─────────────
-    const phase = getCruorbusPhase(dayOfMonth, isShadowWeek);
+    const phase = getCruorbusPhase(season, dayOfMonth, isShadowWeek);
     const SPAWN_CHANCE: Record<string, number> = {
-        "The Deep Cold": 0.12,
-        "The Withering": 0.08,
-        "The Roaring":   0.10,
-        "The Bloom":     0.05,
-        "The High Sun":  0.04,
-        "The Harvest":   0.04,
-        "The Thaw":      0.06,
-        "The Awakening": 0.05,
+        Shadowburn: 0.04,
+        Dryspell:   0.04,
+        Frostin:    0.08,
+        Greenspan:  0.05,
+        Dimburn:    0.10, // canon: high tides, high storms
+        Cropfade:   0.08,
+        Dimfreeze:  0.12, // canon: deep cold
+        Thawrise:   0.06,
     };
 
-    // Lunar amplification — Cruorbus Full Blood and Nightmare dramatically spike storm spawning
+    // Lunar amplification — the Bleed (Open Eye) and the Nightmare Alignment dramatically spike storm spawning
     let lunarMult = 1.0;
-    if (phase === "FULL_BLOOD")  lunarMult = 2.5;
+    if (phase === "BLEED")  lunarMult = 2.5;
     if (phase === "NIGHTMARE")   lunarMult = 3.0;
     if (phase === "MERCY")       lunarMult = 0.3;
 
@@ -46,11 +51,13 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
     if (Math.random() < spawnChance) {
         // Pick storm type based on season + phase
         let stormType = "STORM";
-        if (season === "The Deep Cold" || season === "The Withering") stormType = "BLIZZARD";
-        else if (season === "The High Sun")  stormType = Math.random() < 0.45 ? "WILDFIRE" : "DROUGHT";
-        else if (season === "The Bloom")  stormType = Math.random() < 0.25 ? "EARTHQUAKE" : "DROUGHT";
-        else if (phase === "FULL_BLOOD" || phase === "NIGHTMARE")      stormType = "CHAOS_STORM";
-        else if (season === "The Roaring")                             stormType = "HURRICANE";
+        const kind = seasonByName(season)?.kind;
+        if (kind === "Winter") stormType = "BLIZZARD";
+        else if (season === "Shadowburn") stormType = Math.random() < 0.45 ? "WILDFIRE" : "DROUGHT";
+        else if (season === "Dryspell") stormType = "DROUGHT";
+        else if (season === "Greenspan") stormType = Math.random() < 0.25 ? "EARTHQUAKE" : "DROUGHT";
+        else if (phase === "BLEED" || phase === "NIGHTMARE") stormType = "CHAOS_STORM";
+        else if (season === "Dimburn") stormType = "HURRICANE";
 
         // Spawn at a random map edge and move inward
         const fromEdge = Math.random() < 0.5;
@@ -204,18 +211,18 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
         }
     }
 
-    // ── 4. CHAOS FLOW — Lunar cycle of Cruorbus & Shadow Week ─────────────────
+    // ── 4. CHAOS FLOW — Cruorbus's faces & Shadowfall ─────────────────
     if (phase === "SHADOW_WEEK") {
-        // Shadow Week: 13-day solar eclipse by Cruorbus.
+        // Shadowfall: 13-day solar eclipse by Cruorbus.
         // Ambient chaos flow calms. The Dragon Prisons (which feed on flowing chaos)
         // do not naturally self-regenerate during these 13 days, giving cultists a window of vulnerability.
         if (tick % 3 === 0) {
             await client.query(
                 `INSERT INTO sim_events (tick, type, message, tier, lore_date) VALUES ($1, 'SHADOW_WEEK_ECLIPSE', $2, 'MAJOR', $3)`,
-                [tick, `Shadow Week Day ${dayOfMonth}: Total darkness blankets Ostraka as Cruorbus blots out the sun. Ambient chaos flows still, depriving the ancient seals of ley energy as Shlaar's whispers intensify in the void.`, loreDate]
+                [tick, `Shadowfall Day ${dayOfMonth}: Total darkness blankets Ostraka as Cruorbus blots out the sun. Ambient chaos flows still, depriving the ancient seals of ley energy as Shlaar's whispers intensify in the void.`, loreDate]
             );
         }
-    } else if (phase === "FULL_BLOOD") {
+    } else if (phase === "BLEED") {
         // Peak chaos: spawn chaos zones, trigger chaos storms across Ostraka
         // Weakened seals may radiate void rifts
         const groveRes = await client.query("SELECT id, cell_id, seal_strength FROM sim_sacred_groves WHERE seal_strength < 40");
@@ -228,7 +235,7 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
             }
         }
 
-        // Chaos storm guaranteed during Full Blood
+        // Chaos storm likely during the Bleed
         if (Math.random() < 0.5) {
             const sx = Math.random() * 100;
             const sy = Math.random() * 100;
@@ -240,7 +247,7 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
 
         await client.query(
             `INSERT INTO sim_events (tick, type, message, tier, lore_date) VALUES ($1, 'LUNAR_HEMORRHAGE', $2, 'MAJOR', $3)`,
-            [tick, `Cruorbus reaches FULL BLOOD — the broken moon vomits raw chaos onto the land. The 12 Seals strain against the tide. Chaos storms birth across the continent.`, loreDate]
+            [tick, `Cruorbus bleeds crimson as the Open Eye faces the world — the broken moon vomits raw chaos onto the land. The 12 Seals strain against the tide. Chaos storms birth across the continent.`, loreDate]
         );
 
     } else if (phase === "CHAOS_FLOW") {
@@ -270,7 +277,7 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
             [tick, `The Mercy Alignment of Cruorbus brings an eerie stillness. The chaos recedes. Forests breathe. Wounds close a little faster.`, loreDate]
         );
 
-    } else if (phase === "VOID_DRAIN" || dayOfMonth === 5) {
+    } else if (phase === "VOID_DRAIN" && dayOfMonth % 12 === 5) {
         await client.query("UPDATE sim_cells SET eco_health = LEAST(COALESCE(eco_max, 100), COALESCE(eco_health, 100) + 2)");
         await client.query(
             `INSERT INTO sim_events (tick, type, message, tier, lore_date) VALUES ($1, 'VOID_DRAIN', $2, 'MINOR', $3)`,
@@ -282,15 +289,15 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
     // Dynamically updates cell temperatures across Ostraka based on season, latitude, elevation, and active fronts
     if (tick % 5 === 0) {
         const SEASON_BASE_TEMPS: Record<string, number> = {
-            "The High Sun": 28,
-            "The Bloom": 18,
-            "The Harvest": 16,
-            "The Awakening": 14,
-            "The Thaw": 8,
-            "The Roaring": 6,
-            "The Withering": 2,
-            "The Deep Cold": -12,
-            "The Shadow Eclipse": -15
+            Shadowburn: 28,
+            Dimburn: 24,
+            Greenspan: 18,
+            Dryspell: 14,
+            Cropfade: 10,
+            Thawrise: 8,
+            Frostin: -2,
+            Dimfreeze: -12,
+            [SHADOWFALL]: -15
         };
         const baseTemp = SEASON_BASE_TEMPS[season] ?? 14;
 

@@ -1,3 +1,4 @@
+import { isYearEnd } from "../canon/calendar.js";
 /**
  * wardenAgent.ts - Autonomous Grey Warden Lifecycle, Aether-Tech Sigil Magic,
  * Ancient Ward Awakenings, Eyeless Flow-Seers, and Spire Crypt Alcoves.
@@ -224,11 +225,11 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
     WHERE role = 'Warden'
   `);
 
-  const isYearEnd = (tick % 541 === 0);
+  const yearEnded = isYearEnd(tick);
 
   for (const w of wardensRes.rows) {
-    // Wardens age 1 year every 541 days (1 in-game year), not 1 year per day!
-    const age = isYearEnd ? ((w.age_ticks || 0) + 1) : (w.age_ticks || 0);
+    // Wardens age 1 year per in-game year (DAYS_PER_YEAR days), not 1 year per day!
+    const age = yearEnded ? ((w.age_ticks || 0) + 1) : (w.age_ticks || 0);
     let corruption = w.corruption || 0;
     let state = w.state || 'PATROLLING_FLOW';
     let subRole = w.sub_role || 'Warden_Sentinel';
@@ -251,7 +252,7 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
         ], 0);
       }
       // Crypt Elders do not suffer road wear or corruption, nor do they die of old age
-      if (isYearEnd) {
+      if (yearEnded) {
         await client.query("UPDATE sim_agents SET age_ticks = $1 WHERE id = $2", [age, w.id]);
       }
       continue;

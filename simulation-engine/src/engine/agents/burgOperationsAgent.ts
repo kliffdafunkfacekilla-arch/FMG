@@ -1,3 +1,4 @@
+import { DAYS_PER_YEAR, SHADOWFALL, isYearEnd, seasonKind } from "../canon/calendar.js";
 import { tagBurgCitizens } from "./citizenPersonaHelper";
 import { 
     getFactionSpecialty, 
@@ -152,8 +153,8 @@ async function spawnImmigrant(client: any, burg: any) {
 }
 
 export async function runBurgOperationsAgent(client: any, tick: number, loreDate: string = "") {
-    if (tick % 541 === 0) {
-        // Natural annual maturation: advance all living citizen ages by 1 year (1 Year = 541 Days)
+    if (isYearEnd(tick)) {
+        // Natural annual maturation: advance all living citizen ages by 1 year (1 year = DAYS_PER_YEAR days)
         await client.query("UPDATE population_demographics SET age = age + 1 WHERE allegiance_status = 'CIVILIAN'").catch(() => { });
     }
 
@@ -219,7 +220,7 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
 
     // ── MACRO WEATHER & COSMIC INSTABILITY LOOKUPS ───────────────────────────
     const calRes = await client.query("SELECT season, month_name, active_flow FROM sim_calendar ORDER BY id DESC LIMIT 1");
-    const currentSeason = calRes.rows[0]?.season || "The Bloom";
+    const currentSeason = calRes.rows[0]?.season || "Greenspan";
 
     // Ambient Chaos Blight intensity per cell
     const chaosRes = await client.query("SELECT cell_id, intensity FROM sim_chaos_zones WHERE intensity >= 60");
@@ -329,10 +330,10 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
         const systemicEffects = evaluateBurgInventoryEffects(invObj);
 
         // --- CONTROLLED INSTABILITY 1: SEASONAL AGRICULTURAL CYCLE & CHAOS BLIGHT ---
-        // Deep Cold cuts base crop yields to 35%; Coal & Stone-Root winter resilience mitigates cold!
-        const isWinterFreeze = currentSeason === 'The Deep Cold' || (burg.current_temp !== undefined && Number(burg.current_temp) < 0);
+        // Winter cuts base crop yields to 35%; Coal & Stone-Root winter resilience mitigates cold!
+        const isWinterFreeze = seasonKind(currentSeason) === "Winter" || currentSeason === SHADOWFALL || (burg.current_temp !== undefined && Number(burg.current_temp) < 0);
         const winterFloor = Math.min(0.85, 0.35 + (systemicEffects.winterResilience * 0.05));
-        const seasonMod = isWinterFreeze ? winterFloor : (currentSeason === 'The Harvest' ? 1.45 : (currentSeason === 'The Bloom' ? 1.20 : 1.0));
+        const seasonMod = isWinterFreeze ? winterFloor : (currentSeason === "Dryspell" ? 1.45 : (seasonKind(currentSeason) === "Spring" ? 1.20 : (currentSeason === "Cropfade" ? 0.8 : 1.0)));
         let foodYieldPerWorker = Math.max(6, Math.floor((28 + (urbanTier * 3)) * seasonMod));
 
         const chaosIntensity = chaosIntensityMap.get(Number(burg.cell_id)) || 0;
@@ -1218,9 +1219,9 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
 
             let births = 0;
             if (newFood > 0 && newHealth >= 40 && newUnrest < 70) {
-                // Realistic pre-industrial annual birth rate (~3.5% annually) divided across 541 days
+                // Realistic pre-industrial annual birth rate (~3.5% annually) divided across the year
                 const annualBirthRate = 0.035 * (newHealth / 100) * (1 - newUnrest / 150);
-                const dailyBirthRate = annualBirthRate / 541;
+                const dailyBirthRate = annualBirthRate / DAYS_PER_YEAR;
                 births = pop * dailyBirthRate;
                 if (pop < 100 && newFood > pop * 2 && Math.random() < 0.05) {
                     births = Math.max(0.1, births);

@@ -412,7 +412,7 @@ export const NarrativeReactionTable: ReactionRule[] = [
         }
     },
 
-    // 6. OCCULT AWAKENING: Cultist Infiltrator + Cruorbus Full Blood Moon = Dragon Seal Weakens
+    // 6. OCCULT AWAKENING: Cultist Infiltrator + Cruorbus in the Bleed = Dragon Seal Weakens
     {
         id: 'cult_blood_moon_ritual',
         name: 'Blood Moon Cult Rites Breach Dragon Seal',

@@ -55,7 +55,7 @@ async function main() {
   });
 
   await run("Flow courses run prison -> The Verge inside the Holgaland map", () => {
-    const phases = ["The Waxing Blood", "Full Blood", "Nightmare", "Mercy"];
+    const phases = ["The Leering", "The Open Eye", "The Nightmare Alignment", "The Mercy Alignment", "The Halo"];
     for (const p of CANON_DRAGON_PRISONS) {
       const anchor = parseChaosFlowAnchor({
         flow_id: p.clock, name: "x", dragon_name: p.dragon, elemental_power: p.power,

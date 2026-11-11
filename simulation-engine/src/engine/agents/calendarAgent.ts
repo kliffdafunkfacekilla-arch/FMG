@@ -1,3 +1,5 @@
+import { dateForTick } from "../canon/calendar.js";
+
 export interface ChaosFlowInfo {
     domain: string;
     dragon: string;
@@ -34,44 +36,18 @@ export const DRAGON_MONTHS: DragonMonthDef[] = [
 
 export const CHAOS_FLOWS: ChaosFlowInfo[] = DRAGON_MONTHS;
 
-// Canonical Calendar Constants (Canon/04 §5)
-export const DAYS_PER_YEAR = 589;
-export const DAYS_PER_DRAGON_MONTH = 48; // 12 x 48 = 576 days
-export const SHADOWFALL_DAYS = 13;      // 576 + 13 = 589 days
-
-/**
- * The Eight Canonical Seasons (Canon/04 §5)
- * Follow Cruorbus's wobble across 576 month-days:
- * Four quarters of 144 days (each 1 Long 96-day season + 1 Short 48-day season)
- */
-export const SEASONS = [
-    "Shadowburn",    // Summer, Long 96 days (Nexar, Massis)
-    "Rimefall",      // Autumn, Short 48 days (Motom)
-    "Deep Chill",    // Winter, Long 96 days (Fluxen, Vitan)
-    "The Green",     // Spring, Short 48 days (Lexis)
-    "High Bloom",    // Summer, Long 96 days (Ration, Ordis)
-    "Rust Harvest",  // Autumn, Short 48 days (Luxen)
-    "The Bitter Void", // Winter, Long 96 days (Omin, Aurum)
-    "The Thaw"       // Spring, Short 48 days (Anum)
-];
+// Year length, seasons and moon phases live in engine/canon/calendar.ts (Canon/04). Re-exported for older imports.
+export { DAYS_PER_YEAR, SHADOWFALL_DAYS, DAYS_PER_MONTH as DAYS_PER_DRAGON_MONTH } from "../canon/calendar.js";
 
 export async function runCalendarAgent(client: any, tick: number) {
-    const zeroDay = Math.max(0, tick - 1);
-    const year = Math.floor(zeroDay / DAYS_PER_YEAR) + 1;
-    const dayOfYear = (zeroDay % DAYS_PER_YEAR) + 1; // 1 to 589
-
-    let month: number;
+    const date = dateForTick(tick);
+    const { year, month, dayOfMonth, dayOfYear, season } = date;
+    const cruorbusPhase = date.moonPhase;
+    const isShadowWeek = date.isShadowfall;
     let monthName: string;
-    let dayOfMonth: number;
-    let season: string;
-    let cruorbusPhase: string;
     let activeFlow: ChaosFlowInfo;
-    let isShadowWeek = false;
 
-    if (dayOfYear <= 576) {
-        // Standard 12 Dragon Months (Days 1 - 576)
-        month = Math.floor((dayOfYear - 1) / DAYS_PER_DRAGON_MONTH) + 1; // 1 to 12
-        dayOfMonth = ((dayOfYear - 1) % DAYS_PER_DRAGON_MONTH) + 1; // 1 to 48
+    if (!isShadowWeek) {
         const dMonth = DRAGON_MONTHS[month - 1]!;
         monthName = dMonth.name;
         activeFlow = {
@@ -80,31 +56,9 @@ export async function runCalendarAgent(client: any, tick: number) {
             description: dMonth.description,
             omen: dMonth.omen
         };
-
-        // Cruorbus Lunar Phases (Canon/04 §2 across 48-day month cycle)
-        if (dayOfMonth <= 10) cruorbusPhase = "The Leering";
-        else if (dayOfMonth <= 20) cruorbusPhase = "The Open Eye";
-        else if (dayOfMonth <= 30) cruorbusPhase = "The Receding";
-        else if (dayOfMonth <= 40) cruorbusPhase = "The Halo";
-        else cruorbusPhase = "The Nightmare Alignment";
-
-        // Map dayOfYear to the 8 Canonical Seasons (96 / 48 alternating quarters)
-        if (dayOfYear <= 96) season = "Shadowburn";
-        else if (dayOfYear <= 144) season = "Rimefall";
-        else if (dayOfYear <= 240) season = "Deep Chill";
-        else if (dayOfYear <= 288) season = "The Green";
-        else if (dayOfYear <= 384) season = "High Bloom";
-        else if (dayOfYear <= 432) season = "Rust Harvest";
-        else if (dayOfYear <= 528) season = "The Bitter Void";
-        else season = "The Thaw";
     } else {
         // Intercalary Shadowfall (Days 577 - 589, 13 days of total eclipse outside the months)
-        isShadowWeek = true;
-        month = 13;
         monthName = "Shadowfall";
-        dayOfMonth = dayOfYear - 576; // 1 to 13
-        season = "The Shadow Eclipse";
-        cruorbusPhase = "The Black Sun Alignment";
         activeFlow = {
             domain: "Chaos",
             dragon: "The Void",

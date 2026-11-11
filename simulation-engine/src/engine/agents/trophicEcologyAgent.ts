@@ -1,3 +1,4 @@
+import { DAYS_PER_WEEK, isChaosPeak } from "../canon/calendar.js";
 import { PoolClient } from "pg";
 import { tagBurgCitizens, tagSectorEnvironment } from "./citizenPersonaHelper";
 
@@ -25,39 +26,41 @@ export async function runTrophicEcologyAgent(
 ) {
     const dragonDomain = calCtx?.activeDomain || "Flux";
     const dragonName = calCtx?.activeDragon || "Ulex";
-    const moonPhase = calCtx?.cruorbusPhase || "The Waxing Blood";
-    const isPeakChaos = moonPhase.includes("Full Blood") || moonPhase.includes("Nightmare");
+    const moonPhase = calCtx?.cruorbusPhase || "The Halo";
+    const isPeakChaos = isChaosPeak(moonPhase);
 
-    // Continental macro-flora dynamics evaluate on weekly intervals (every 7 in-game days)
+    // Continental macro-flora dynamics evaluate once per canon week (12 days)
     // Multiplies daily botanical delta by 7 to achieve identical ecological equilibrium with 7x speedup
-    if (tick % 7 !== 0 && !isPeakChaos) {
+    if (tick % DAYS_PER_WEEK !== 0 && !isPeakChaos) {
         return;
     }
 
-    const intervalDays = 7;
+    const intervalDays = DAYS_PER_WEEK;
 
     // ── 1. SEASONAL FLORA DYNAMICS (0-100/200 Scale) ──────────────────────────
     let plantGrowthDelta = 1.0;
     switch (season) {
-        case "The Bloom":
-        case "The Awakening":
-            plantGrowthDelta = 2.5; // Spring rapid botanical explosion
+        case "Greenspan":
+            plantGrowthDelta = 2.5; // Spring: the Leering, rapid growth and mutation
             break;
-        case "The High Sun":
-        case "The Harvest":
-            plantGrowthDelta = 1.2; // Sustained summer/autumn yields
+        case "Thawrise":
+            plantGrowthDelta = 1.6; // Spring: ice-melt floods replenish the ground
             break;
-        case "The Withering":
-            plantGrowthDelta = -0.6; // Autumn leaf-fall and decay
+        case "Shadowburn":
+        case "Dimburn":
+            plantGrowthDelta = 1.2; // Summer yields
             break;
-        case "The Deep Cold":
-            plantGrowthDelta = -1.8; // Frost kill and winter dormancy
+        case "Dryspell":
+            plantGrowthDelta = -0.6; // Autumn: the world dries out
             break;
-        case "The Thaw":
-            plantGrowthDelta = 1.6; // Snowmelt ground replenishment
+        case "Cropfade":
+            plantGrowthDelta = -0.9; // False autumn: rot and failing chaos-crops
             break;
-        case "The Roaring":
-            plantGrowthDelta = 0.6; // Storm-swept rain growth
+        case "Frostin":
+            plantGrowthDelta = -1.0; // Short winter: cold, stable
+            break;
+        case "Dimfreeze":
+            plantGrowthDelta = -1.8; // Long winter: deep cold dormancy
             break;
         default:
             plantGrowthDelta = 1.0;
@@ -84,7 +87,7 @@ export async function runTrophicEcologyAgent(
     `, [scaledGrowth, 1.2 * intervalDays]);
 
     // ── 2. FLORA MUTAGENESIS UNDER SURGING CHAOS LEYS ────────────────────────
-    // When the broken moon Cruorbus enters Full Blood or Nightmare Alignment,
+    // When the broken moon Cruorbus shows the Open Eye (the Bleed) or the Nightmare Alignment,
     // or near surging chaos flow banks, wild flora mutates according to the dragon domain!
     const DOMAIN_FLORA_TAGS: Record<string, { tags: string[]; name: string; desc: string }> = {
         Flux: {

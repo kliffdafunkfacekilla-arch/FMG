@@ -1,3 +1,4 @@
+import { isChaosPeak } from "../canon/calendar.js";
 import { PoolClient, Pool } from "pg";
 import { Entity } from "../rpg/narrativeTagEngine";
 import { evaluateSectorReactions, SectorContext } from "../rpg/narrativeReactionEngine";
@@ -48,7 +49,7 @@ export async function runBackgroundDirectorAgent(
              ORDER BY tick DESC LIMIT 1`
         );
         const cal = calRes.rows[0] || {};
-        const moonPhase = cal.moon_phase || 'The Full Blood';
+        const moonPhase = cal.moon_phase || 'The Halo';
         const isShadowWeek = Boolean(cal.is_shadow_week);
 
         // 2. Fetch all cached sector layers in the world
@@ -106,7 +107,7 @@ export async function runBackgroundDirectorAgent(
                 }
             }
 
-            if (moonPhase.toLowerCase().includes('full blood')) {
+            if (isChaosPeak(moonPhase)) {
                 globalTags.push('#FullBlood');
             }
             if (isShadowWeek) {

@@ -720,8 +720,8 @@ router.post('/sector_load', async (req, res) => {
       tick: 1,
       year: 1,
       month: 1,
-      season: 'The Bloom',
-      moon_phase: 'The Waxing Blood',
+      season: 'Greenspan',
+      moon_phase: 'The Leering',
       active_flow: 'Mass',
       dragon_domain: 'Tiraton'
     };
@@ -1470,8 +1470,8 @@ router.post('/scene', async (req, res) => {
 
     const calRes = await pool.query('SELECT moon_phase, season, active_flow, dragon_domain FROM sim_calendar ORDER BY id DESC LIMIT 1');
     const cal = calRes.rows[0] || {
-      moon_phase: 'The Waxing Blood',
-      season: 'The Bloom',
+      moon_phase: 'The Leering',
+      season: 'Greenspan',
       active_flow: 'Motus',
       dragon_domain: 'Vecelo'
     };

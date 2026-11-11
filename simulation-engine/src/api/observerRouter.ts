@@ -525,10 +525,10 @@ observerRouter.post("/trigger_crisis", async (req, res) => {
       case "DEEP_COLD_FREEZE": {
         eventType = "HARSH_WINTER_FREEZE";
         eventTier = "MAJOR";
-        // 1. Shift calendar to The Deep Cold
+        // 1. Shift calendar to Dimfreeze, the deep-cold season
         await pool.query(`
           UPDATE sim_calendar
-          SET season = 'The Deep Cold'
+          SET season = 'Dimfreeze'
           WHERE id = (SELECT id FROM sim_calendar ORDER BY id DESC LIMIT 1)
         `);
 

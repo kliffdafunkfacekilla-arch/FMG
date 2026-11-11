@@ -1,3 +1,4 @@
+import { dateForTick } from "../canon/calendar.js";
 /**
  * cultistAgent.ts - Autonomous Cultist lifecycle, burg infiltration, and seal siege engine
  *
@@ -27,8 +28,8 @@ const TARGET_BESIEGER_COUNT = 144;
 export async function runCultistAgent(client: any, tick: number, loreDate: string) {
   // Self-Sustaining Dragon Prisons: The 12 prisons naturally recharge slowly from ambient leys
   // ONLY if no cultist cabal is actively besieging the perimeter!
-  // During Shadow Week (Days 529-541), ambient chaos calms, completely halting self-repair.
-  const isShadowWeek = loreDate.includes('Shadow Week');
+  // During Shadowfall (days 577-589), ambient chaos calms, completely halting self-repair.
+  const isShadowWeek = dateForTick(tick).isShadowfall;
   if (!isShadowWeek) {
     await client.query(`
       UPDATE sim_sacred_groves

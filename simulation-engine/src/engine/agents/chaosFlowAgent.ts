@@ -1,3 +1,4 @@
+import { MERCY_ALIGNMENT, NIGHTMARE_ALIGNMENT } from "../canon/calendar.js";
 import { PoolClient, Pool } from "pg";
 import { tagSectorEnvironment } from "./citizenPersonaHelper";
 
@@ -68,9 +69,10 @@ export function parseChaosFlowAnchor(row: any): ChaosFlowAnchor | null {
 
 /** Surge modifier from the blood moon's phase. */
 export function lunarSurgeModifier(moonPhase: string): number {
-  if (moonPhase.includes("Full Blood") || moonPhase.includes("FULL_BLOOD")) return 0.85; // Peak chaos surge
-  if (moonPhase.includes("Nightmare") || moonPhase.includes("NIGHTMARE")) return 1.2; // Reality-tearing flood
-  if (moonPhase.includes("Mercy") || moonPhase.includes("MERCY")) return -0.45; // Ebb phase, calmed waters
+  if (moonPhase === NIGHTMARE_ALIGNMENT) return 1.2; // Reality-tearing flood
+  if (moonPhase === "The Open Eye") return 0.85; // The Bleed: peak chaos surge
+  if (moonPhase === MERCY_ALIGNMENT) return -0.45; // Wound shadowed, chaos damped
+  if (moonPhase === "The Halo") return -0.2; // The mild seasons
   if (moonPhase.includes("Empty") || moonPhase.includes("Waxing")) return 0.2;
   return 0.0;
 }
@@ -165,7 +167,7 @@ export async function runChaosFlowAgent(
   const ctx = {
     activeFlow: calendarData?.active_flow || "Mass",
     dragonDomain: calendarData?.dragon_domain || "Tiraton",
-    lunarSurgeMod: lunarSurgeModifier(calendarData?.moon_phase || "The Waxing Blood"),
+    lunarSurgeMod: lunarSurgeModifier(calendarData?.moon_phase || "The Halo"),
   };
 
   const anchorRes = await client.query(

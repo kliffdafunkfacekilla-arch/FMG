@@ -8,7 +8,7 @@ const { spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
-const SUITES = ["testCanonMandates", "testTagMatrixFull", "testBrutalGMVisual", "testChaosFlows"];
+const SUITES = ["testCalendar", "testCanonMandates", "testTagMatrixFull", "testBrutalGMVisual", "testChaosFlows"];
 const root = __dirname;
 
 function run(cmd, args, label) {

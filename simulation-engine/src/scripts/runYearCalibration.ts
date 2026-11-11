@@ -1,3 +1,4 @@
+import { CANON_SEASONS, DAYS_PER_YEAR, SHADOWFALL } from "../engine/canon/calendar.js";
 import pool from "../db/pool";
 import { resetWorld } from "../engine/resetWorld";
 import { executeMasterTick } from "../engine/masterOrchestrator";
@@ -92,7 +93,7 @@ async function captureSnapshot(client: any, tick: number, season: string): Promi
 
 export async function runYearCalibration() {
   console.log("================================================================================");
-  console.log("  OSTRAKA SIMULATION CALIBRATION HARNESS: 1 FULL YEAR (541 IN-GAME TICKS)");
+  console.log(`  OSTRAKA SIMULATION CALIBRATION HARNESS: 1 FULL YEAR (${DAYS_PER_YEAR} IN-GAME TICKS)`);
   console.log("================================================================================");
 
   console.log("\n[1/3] Resetting world to canonical baseline...");
@@ -104,27 +105,17 @@ export async function runYearCalibration() {
 
   try {
     console.log("\n[2/3] Capturing Initial Baseline (Tick 1)...");
-    const baseline = await captureSnapshot(client, 1, "The Bloom (Start)");
+    const baseline = await captureSnapshot(client, 1, `${CANON_SEASONS[0]!.name} (Start)`);
     snapshots.push(baseline);
     console.table([baseline]);
 
-    console.log("\n[3/3] Advancing Master Simulation for 541 Ticks (1 Full Year)...");
-    const seasons = [
-      { name: "The Bloom", endTick: 66 },
-      { name: "The High Sun", endTick: 132 },
-      { name: "The Harvest", endTick: 198 },
-      { name: "The Withering", endTick: 264 },
-      { name: "The Deep Cold", endTick: 330 },
-      { name: "The Thaw", endTick: 396 },
-      { name: "The Awakening", endTick: 462 },
-      { name: "The Roaring", endTick: 528 },
-      { name: "Shadow Week (Eclipse)", endTick: 541 }
-    ];
+    console.log(`\n[3/3] Advancing Master Simulation for ${DAYS_PER_YEAR} Ticks (1 Full Year)...`);
+    const seasons = [...CANON_SEASONS.map(c => ({ name: c.name, endTick: c.end })), { name: SHADOWFALL, endTick: DAYS_PER_YEAR }];
 
     let seasonIdx = 0;
     const startMs = Date.now();
 
-    for (let t = 2; t <= 541; t++) {
+    for (let t = 2; t <= DAYS_PER_YEAR; t++) {
       await executeMasterTick();
 
       if (seasonIdx < seasons.length && t === seasons[seasonIdx]?.endTick) {

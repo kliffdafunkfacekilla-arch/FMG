@@ -1,8 +1,10 @@
+import { DAYS_PER_YEAR } from "../engine/canon/calendar.js";
 import pool from "../db/pool";
 import { resetWorld } from "../engine/resetWorld";
 import { executeMasterTick } from "../engine/masterOrchestrator";
 import fs from "fs";
 import path from "path";
+import { dateForTick } from "../engine/canon/calendar.js";
 
 export interface DecadeTelemetrySnapshot {
   tick: number;
@@ -72,11 +74,12 @@ export async function captureDecadeSnapshot(client: any, tick: number): Promise<
   // 1. Calendar
   const calRes = await client.query("SELECT * FROM sim_calendar ORDER BY id DESC LIMIT 1");
   const cal = calRes.rows[0] || {};
-  const year = Number(cal.year) || Math.floor((tick - 1) / 541) + 1;
-  const dayOfYear = Number(cal.day_of_year) || ((tick - 1) % 541) + 1;
-  const season = cal.season || "The Bloom";
+  const fallback = dateForTick(tick);
+  const year = Number(cal.year) || fallback.year;
+  const dayOfYear = Number(cal.day_of_year) || fallback.dayOfYear;
+  const season = cal.season || fallback.season;
   const loreDate = cal.is_shadow_week 
-    ? `Year ${year}, Shadow Week, Day ${cal.day_of_month || 1}`
+    ? `Year ${year}, Shadowfall, Day ${cal.day_of_month || 1}`
     : `Year ${year}, Month ${cal.month || 1} (${cal.month_name || 'Nexar'}), Day ${cal.day_of_month || 1} (${season})`;
 
   // 2. Burg Economy & Demographics
@@ -333,9 +336,9 @@ export function detectAnomalies(curr: DecadeTelemetrySnapshot, prev: DecadeTelem
   return anomalies;
 }
 
-export async function runDecadeSimulation(totalTicks: number = 5410, shouldReset: boolean = true) {
+export async function runDecadeSimulation(totalTicks: number = 10 * DAYS_PER_YEAR, shouldReset: boolean = true) {
   console.log("================================================================================");
-  console.log(`  OSTRAKA DECADE SIMULATION HARNESS: ${totalTicks.toLocaleString()} TICKS (~${(totalTicks / 541).toFixed(1)} YEARS)`);
+  console.log(`  OSTRAKA DECADE SIMULATION HARNESS: ${totalTicks.toLocaleString()} TICKS (~${(totalTicks / DAYS_PER_YEAR).toFixed(1)} YEARS)`);
   console.log("================================================================================");
 
   if (shouldReset) {
@@ -379,7 +382,7 @@ export async function runDecadeSimulation(totalTicks: number = 5410, shouldReset
     let prevSnapshot = baseline;
 
     const sampleInterval = 66; // Capture telemetry at every season change (66 days)
-    const reportYearInterval = 541; // Comprehensive yearly report
+    const reportYearInterval = DAYS_PER_YEAR; // Comprehensive yearly report
 
     for (let t = 1; t <= totalTicks; t++) {
       const tickStart = Date.now();
@@ -467,12 +470,12 @@ export async function runDecadeSimulation(totalTicks: number = 5410, shouldReset
 
 if (require.main === module) {
   const args = process.argv.slice(2);
-  let ticks = 5410; // Default 10 years
+  let ticks = 10 * DAYS_PER_YEAR; // Default 10 years
   let reset = true;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--ticks" && args[i + 1]) ticks = parseInt(args[i + 1]!, 10);
-    if (args[i] === "--years" && args[i + 1]) ticks = parseInt(args[i + 1]!, 10) * 541;
+    if (args[i] === "--years" && args[i + 1]) ticks = parseInt(args[i + 1]!, 10) * DAYS_PER_YEAR;
     if (args[i] === "--no-reset") reset = false;
   }
 
