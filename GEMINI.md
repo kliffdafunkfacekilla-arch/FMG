@@ -56,6 +56,6 @@ Make **one burg, one thread and one play session** work end to end through the l
 
 ## Known contradictions to resolve (don't paper over them)
 
-- **Database:** the docs say PostgreSQL, but `simulation-engine/aetheria.sqlite` exists. Pick one and say which.
+- ~~**Database:**~~ **Resolved 2026-11-11: PostgreSQL is the only database.** `aetheria.sqlite` is untracked and the sqlite migration scripts and `better-sqlite3` are removed.
 - **Dice:** the skills say "1d12 Net Margin" and `SYSTEM_OVERVIEW.md` says "1d20". The answer is B.R.U.T.A.L. (rule 4).
 - **Duplication:** `GEMINI.md` describes world mechanics that duplicate Canon. Trim it to architecture, and point to Canon for the world.
