@@ -13,7 +13,7 @@
  * map directly through this matrix.
  */
 
-export type ConcordiaStat =
+export type BrutalStat =
   | "might"
   | "endurance"
   | "finesse"
@@ -33,7 +33,7 @@ export interface TagStatAction {
   verb: string;
   actionTitle: string; // Short UI button label, e.g. "🗝️ Pick Lock [FIN 13]"
   template: string;    // Natural language prompt: "I pick the lock on {target} using my finesse"
-  stat: ConcordiaStat;
+  stat: BrutalStat;
   baseDC: number;
   category: "SUBTERFUGE" | "EXPLORATION" | "SURVIVAL" | "SOCIAL" | "MAGIC" | "TACTICAL";
   description: string;

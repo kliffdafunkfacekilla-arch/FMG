@@ -2584,4 +2584,3 @@ MANDATORY RULES:
 }
 
 // Backward-compatibility alias for legacy imports
-export { BrutalGameMaster as ConcordiaGameMaster };

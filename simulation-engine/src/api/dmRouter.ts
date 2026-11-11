@@ -1,7 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import zlib from 'zlib';
-import { BrutalGameMaster, ConcordiaGameMaster } from '../engine/rpg/BrutalGM.js';
+import { BrutalGameMaster } from '../engine/rpg/BrutalGM.js';
 import pool from '../db/pool.js';
 import { updateSectorNPCRoutines } from '../engine/agents/npcRoutineAgent.js';
 import { getActiveChaosFlows, evaluatePointChaosFlowProximity } from '../engine/agents/chaosFlowAgent.js';
@@ -60,7 +60,6 @@ import {
 
 // Initialize Singleton B.R.U.T.A.L. Game Master
 const brutalGM = new BrutalGameMaster(pool, process.env.GEMINI_API_KEY || '');
-const concordiaGM = brutalGM;
 
 function parseJsonField(val: any, fallback: any = {}) {
   if (!val) return fallback;
@@ -546,7 +545,7 @@ router.post('/load/:id', async (req, res) => {
     }
 
     if (storyState) {
-      concordiaGM.restoreState(storyState);
+      brutalGM.restoreState(storyState);
     }
 
     const playerRes = await pool.query('SELECT * FROM sim_player_character ORDER BY id ASC LIMIT 1');
@@ -679,7 +678,7 @@ router.get('/memorials', async (req, res) => {
  */
 router.get('/state', (req, res) => {
   try {
-    const entities = concordiaGM.getActiveEntities();
+    const entities = brutalGM.getActiveEntities();
     res.json(entities);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -704,7 +703,7 @@ router.post('/sector_load', async (req, res) => {
       console.warn('Error running sector NPC routine update:', routineErr);
     }
 
-    const injected = await concordiaGM.loadSector(context || {
+    const injected = await brutalGM.loadSector(context || {
       cellId: targetCellId,
       rx: targetRx,
       ry: targetRy,
@@ -1051,7 +1050,7 @@ router.post('/sector_load', async (req, res) => {
         grid: preRenderedMap ? preRenderedMap.grid : undefined,
         vaultName: preRenderedMap ? preRenderedMap.name : undefined,
         poiType: preRenderedMap ? preRenderedMap.poiType : undefined,
-        campaignState: concordiaGM.getStoryEngine().getCampaignState(),
+        campaignState: brutalGM.getStoryEngine().getCampaignState(),
         calendar,
         chaosFlow: flowProximity,
         chaosSurge: (injected as any).activeBeat?.context?.activeSurge || null,
@@ -1466,7 +1465,7 @@ router.get('/flows', async (req, res) => {
 router.post('/scene', async (req, res) => {
   try {
     const { context } = req.body;
-    const beat = concordiaGM.getStoryEngine().getCampaignState().activeBeat;
+    const beat = brutalGM.getStoryEngine().getCampaignState().activeBeat;
 
     const calRes = await pool.query('SELECT moon_phase, season, active_flow, dragon_domain FROM sim_calendar ORDER BY id DESC LIMIT 1');
     const cal = calRes.rows[0] || {
@@ -1498,7 +1497,7 @@ In 2-3 punchy, evocative, sensory sentences, narrate what the wandering adventur
 Highlight tangible atmosphere: sounds on the wind, the eerie glow of the blood moon radiating the active Flow of Chaos, the smell of damp earth or ancient ozone, and visible relics or tense standoff of living entities.
 Do not list numbers or mechanics. End with an urgent question of what they do.`;
 
-    const sceneText = await (concordiaGM as any).callGeminiWithFallback(
+    const sceneText = await (brutalGM as any).callGeminiWithFallback(
       [{ role: 'user', parts: [{ text: arrivalPrompt }] }],
       systemInstruction,
       250,
@@ -1533,7 +1532,7 @@ router.post('/action', async (req, res) => {
       sneakAttack?: boolean;
     };
 
-    const result = await concordiaGM.executeTurn({
+    const result = await brutalGM.executeTurn({
       actionText,
       playerId: playerId || 1,
       playerPos: playerPos || [128, 128],
@@ -1572,7 +1571,7 @@ router.post('/action_stream', async (req, res) => {
       sneakAttack?: boolean;
     };
 
-    const result = await concordiaGM.executeTurn({
+    const result = await brutalGM.executeTurn({
       actionText,
       playerId: playerId || 1,
       playerPos: playerPos || [128, 128],
@@ -2165,7 +2164,7 @@ Base Contracts: ${JSON.stringify(contracts.slice(0, 3))}
 As the Municipal Reeve of ${burgName}, write 3 punchy, flavorful bulletin board postings for adventurers.
 Output ONLY a single valid JSON array of objects with keys: id, title, giver, desc, reward, targetType, status.`;
 
-      const aiText = await concordiaGM.callGeminiWithFallback(
+      const aiText = await brutalGM.callGeminiWithFallback(
         [{ role: 'user', parts: [{ text: prompt }] }],
         'You are the Reeve of a gritty dark fantasy city. Output only valid JSON array.',
         400,

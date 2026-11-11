@@ -100,7 +100,7 @@ export interface BurgSectorLayersResult {
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. BURG URBAN CORE GENERATOR (3 Synchronized Vertical Layers)
 // ─────────────────────────────────────────────────────────────────────────────
-interface ConcordiaStats {
+interface BrutalStats {
   [key: string]: number;
   might: number;
   endurance: number;
@@ -117,9 +117,9 @@ interface ConcordiaStats {
 }
 
 // Helper to calculate 12 B.R.U.T.A.L. attributes deterministically from citizen traits and profession
-function computeCitizenConcordiaStats(c: any, rand: () => number): ConcordiaStats {
+function computeCitizenBrutalStats(c: any, rand: () => number): BrutalStats {
   const base = 10;
-  const stats: ConcordiaStats = {
+  const stats: BrutalStats = {
     might: base + Math.floor(rand() * 4),
     endurance: base + Math.floor(rand() * 4),
     finesse: base + Math.floor(rand() * 4),
@@ -994,7 +994,7 @@ export function generateBurgSectorLayers(
 
     for (let ci = 0; ci < staffCitizens.length && ci < 2; ci++) {
       const c = staffCitizens[ci]!;
-      const stats = computeCitizenConcordiaStats(c, rand);
+      const stats = computeCitizenBrutalStats(c, rand);
 
       // Determine emotional & physiological status from burg indicators
       const statusTags: string[] = [];
