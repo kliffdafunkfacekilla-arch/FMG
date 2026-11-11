@@ -3,11 +3,13 @@
  *
  * 1. The canon prison table pins clock -> dragon -> Power to Canon/06 §2, with no retired names.
  * 2. Every flow's course starts at its own prison and ends at The Verge, inside the Holgaland map.
- * 3. The live sim_chaos_flows rows carry their canon identity and endpoints.
+ * 3. The story engine's prison table sits on the canon prison cells with canon dragons.
+ * 4. The live sim_chaos_flows rows carry their canon identity and endpoints.
  */
 import pool from "../db/pool.js";
 import { CANON_DRAGON_PRISONS, VERGE_COORD } from "../engine/canon/dragonPrisons.js";
 import { computeChaosFlowState, lunarSurgeModifier, parseChaosFlowAnchor } from "../engine/agents/chaosFlowAgent.js";
+import { DRAGON_PRISONS as STORY_PRISONS } from "../engine/rpg/WhatElseStoryEngine.js";
 
 // Canon/06 §2 roster, by clock. Changing this list means canon changed: update it from canon, never by guess.
 const CANON_ROSTER: [number, string, string][] = [
@@ -70,6 +72,19 @@ async function main() {
           check(st.dragonName === p.dragon && st.elementalPower === p.power, `clock ${p.clock}: identity changed by computation`);
         }
       }
+    }
+  });
+
+  await run("Story engine prisons sit on the canon prison cells", () => {
+    const keys = Object.keys(STORY_PRISONS).map(Number).sort((a, b) => a - b);
+    const canonCells = CANON_DRAGON_PRISONS.map(p => p.cell).sort((a, b) => a - b);
+    check(JSON.stringify(keys) === JSON.stringify(canonCells), `story prison cells ${keys.join(",")} != canon ${canonCells.join(",")}`);
+    for (const p of CANON_DRAGON_PRISONS) {
+      const info = STORY_PRISONS[p.cell];
+      check(info, `cell ${p.cell} missing`);
+      check(info.cellId === p.cell && info.dragon === p.dragon && info.domain === p.power,
+        `cell ${p.cell}: story has ${info.dragon}/${info.domain}, canon ${p.dragon}/${p.power}`);
+      check(!RETIRED_NAMES.some(n => info.title.includes(n) || info.dragon === n), `cell ${p.cell}: retired name in "${info.title}"`);
     }
   });
 

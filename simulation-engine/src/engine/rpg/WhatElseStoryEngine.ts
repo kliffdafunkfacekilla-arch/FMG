@@ -16,6 +16,7 @@ import {
   StatKey
 } from "./EquipmentRegistry.js";
 import { ProceduralNPCGenerator } from "./ProceduralNPCGenerator.js";
+import { CANON_DRAGON_PRISONS } from "../canon/dragonPrisons.js";
 
 export interface QuestObjective {
   id: string;
@@ -364,20 +365,37 @@ export interface DragonPrisonInfo {
   title: string;
 }
 
-export const DRAGON_PRISONS: Record<number, DragonPrisonInfo> = {
-  15220: { cellId: 15220, dragon: "Tiraton", domain: "Mass", omen: "Crushing gravity and tectonic basalt tremors", title: "Obsidian Barrow of Tiraton" },
-  7841: { cellId: 7841, dragon: "Carulkem", domain: "Nexus", omen: "Spatial rifts and shimmering mirror mirages", title: "Void Vault of Carulkem" },
-  2813: { cellId: 2813, dragon: "Stagus", domain: "Ordo", omen: "Glacial stasis frost and unyielding crystalline wards", title: "Stasis Barrow of Stagus" },
-  24725: { cellId: 24725, dragon: "Tyrustis", domain: "Lex", omen: "Blood runes and unbreakable iron oaths", title: "Iron Sepulcher of Tyrustis" },
-  18789: { cellId: 18789, dragon: "Vecelo", domain: "Motus", omen: "Howling kinetic squalls and atmospheric tremors", title: "Gale Spires of Vecelo" },
-  3517: { cellId: 3517, dragon: "Aurgenas", domain: "Flux", omen: "Volatile alchemical fumes and chimeric mutations", title: "Chimeric Crucible of Aurgenas" },
-  8171: { cellId: 8171, dragon: "Gavusrix", domain: "Vita", omen: "Carnivorous roots and primeval blood-surges", title: "Primeval Glade of Gavusrix" },
-  29867: { cellId: 29867, dragon: "Metrion", domain: "Ratio", omen: "Clockwork grinding and rhythmic geometric hums", title: "Brass Labyrinth of Metrion" },
-  3442: { cellId: 3442, dragon: "Opecten", domain: "Lux", omen: "Blinding phosphor embers and celestial scorch marks", title: "Solar Spire of Opecten" },
-  32850: { cellId: 32850, dragon: "Termhill", domain: "Omen", omen: "Astral eclipse shadows and creeping augury whispers", title: "Eclipse Crypt of Termhill" },
-  24460: { cellId: 24460, dragon: "Virantor", domain: "Aura", omen: "Phantasmagoric violet mists and psychic hallucinations", title: "Mirage Sanctum of Virantor" },
-  22336: { cellId: 22336, dragon: "Lophex", domain: "Anumis", omen: "Necrotic soul ash and cold whispers of the restless dead", title: "Necrotic Barrow of Lophex" }
+// Prison flavour by Power. Dragon identity, Power and cell come from the canon table
+// (engine/canon/dragonPrisons.ts); only the omen text and the prison epithet live here.
+const PRISON_FLAVOUR_BY_POWER: Record<string, { omen: string; epithet: string }> = {
+  Mass: { omen: "Crushing gravity and tectonic basalt tremors", epithet: "Obsidian Barrow" },
+  Nexus: { omen: "Spatial rifts and shimmering mirror mirages", epithet: "Void Vault" },
+  Ordo: { omen: "Glacial stasis frost and unyielding crystalline wards", epithet: "Stasis Barrow" },
+  Lex: { omen: "Blood runes and unbreakable iron oaths", epithet: "Iron Sepulcher" },
+  Motus: { omen: "Howling kinetic squalls and atmospheric tremors", epithet: "Gale Spires" },
+  Flux: { omen: "Volatile alchemical fumes and chimeric mutations", epithet: "Chimeric Crucible" },
+  Vita: { omen: "Carnivorous roots and primeval blood-surges", epithet: "Primeval Glade" },
+  Ratio: { omen: "Clockwork grinding and rhythmic geometric hums", epithet: "Brass Labyrinth" },
+  Lux: { omen: "Blinding phosphor embers and celestial scorch marks", epithet: "Solar Spire" },
+  Omen: { omen: "Astral eclipse shadows and creeping augury whispers", epithet: "Eclipse Crypt" },
+  Aura: { omen: "Phantasmagoric violet mists and psychic hallucinations", epithet: "Mirage Sanctum" },
+  Anumis: { omen: "Necrotic soul ash and cold whispers of the restless dead", epithet: "Necrotic Barrow" },
 };
+
+/** The 12 Dragon Prisons, keyed by their real Holgaland cell ID. */
+export const DRAGON_PRISONS: Record<number, DragonPrisonInfo> = Object.fromEntries(
+  CANON_DRAGON_PRISONS.map((p): [number, DragonPrisonInfo] => {
+    const flavour = PRISON_FLAVOUR_BY_POWER[p.power];
+    if (!flavour) throw new Error(`No prison flavour for Power ${p.power}`);
+    return [p.cell, {
+      cellId: p.cell,
+      dragon: p.dragon,
+      domain: p.power,
+      omen: flavour.omen,
+      title: `${flavour.epithet} of ${p.dragon}`,
+    }];
+  })
+);
 
 export interface EmergentRelicDef {
   name: string;
