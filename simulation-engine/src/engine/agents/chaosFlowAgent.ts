@@ -1,34 +1,15 @@
 import { PoolClient, Pool } from "pg";
 import { tagSectorEnvironment } from "./citizenPersonaHelper";
 
-export interface DragonFlowDef {
+/** One flow's fixed identity and endpoints, as seeded into sim_chaos_flows by the map ingest. */
+export interface ChaosFlowAnchor {
   flowId: number;
   name: string;
   dragonName: string;
   elementalPower: string;
-  angleDeg: number;
+  source: { x: number; y: number };
+  sink: { x: number; y: number };
 }
-
-export const DRAGON_FLOWS: DragonFlowDef[] = [
-  { flowId: 1,  name: "Tiraton's Gravitic Vein",    dragonName: "Tiraton",  elementalPower: "Mass",    angleDeg: 0 },
-  { flowId: 2,  name: "Carulkem's Nexus Strand",    dragonName: "Carulkem", elementalPower: "Nexus",   angleDeg: 30 },
-  { flowId: 3,  name: "Stagus's Lattice Ribbon",    dragonName: "Stagus",   elementalPower: "Ordo",    angleDeg: 60 },
-  { flowId: 4,  name: "Tyrustis's Decree Current",  dragonName: "Tyrustis", elementalPower: "Lex",     angleDeg: 90 },
-  { flowId: 5,  name: "Vecelo's Kinetic Torrent",   dragonName: "Vecelo",   elementalPower: "Motus",   angleDeg: 120 },
-  { flowId: 6,  name: "Aurgenas's Flux Chasm",      dragonName: "Aurgenas", elementalPower: "Flux",    angleDeg: 150 },
-  { flowId: 7,  name: "Gavusrix's Vital Surge",     dragonName: "Gavusrix", elementalPower: "Vita",    angleDeg: 180 },
-  { flowId: 8,  name: "Metrion's Ratio Run",        dragonName: "Metrion",  elementalPower: "Ratio",   angleDeg: 210 },
-  { flowId: 9,  name: "Opecten's Prism Beam",       dragonName: "Opecten",  elementalPower: "Lux",     angleDeg: 240 },
-  { flowId: 10, name: "Termhill's Omen Wash",       dragonName: "Termhill", elementalPower: "Omen",    angleDeg: 270 },
-  { flowId: 11, name: "Virantor's Aura Stream",     dragonName: "Virantor", elementalPower: "Aura",    angleDeg: 300 },
-  { flowId: 12, name: "Lophex's Anumis Undertow",   dragonName: "Lophex",   elementalPower: "Anumis",  angleDeg: 330 }
-];
-
-// Continental Map Geometry for Okasha (2819 x 1481)
-export const MAP_CENTER_X = 1409;
-export const MAP_CENTER_Y = 740;
-export const MAP_RADIUS_X = 1350;
-export const MAP_RADIUS_Y = 700;
 
 export interface ChaosFlowWaypoint {
   x: number;
@@ -55,134 +36,170 @@ export interface LiveChaosFlowState {
   narrowSpots: NarrowCrossingSpot[];
 }
 
+/** Reads an {x, y} object, an [x, y] array, or a JSON string of either. */
+function parseCoord(raw: unknown): { x: number; y: number } | null {
+  let v: any = raw;
+  if (typeof raw === "string") {
+    try { v = JSON.parse(raw); } catch { return null; }
+  }
+  if (Array.isArray(v) && v.length >= 2 && Number.isFinite(Number(v[0])) && Number.isFinite(Number(v[1]))) {
+    return { x: Number(v[0]), y: Number(v[1]) };
+  }
+  if (v && typeof v === "object" && Number.isFinite(Number(v.x)) && Number.isFinite(Number(v.y))) {
+    return { x: Number(v.x), y: Number(v.y) };
+  }
+  return null;
+}
+
+/** Turns a sim_chaos_flows row into an anchor, or null if its endpoints are missing. */
+export function parseChaosFlowAnchor(row: any): ChaosFlowAnchor | null {
+  const source = parseCoord(row?.source_coord);
+  const sink = parseCoord(row?.sink_coord);
+  if (!source || !sink) return null;
+  return {
+    flowId: Number(row.flow_id),
+    name: String(row.name ?? ""),
+    dragonName: String(row.dragon_name ?? ""),
+    elementalPower: String(row.elemental_power ?? ""),
+    source,
+    sink,
+  };
+}
+
+/** Surge modifier from the blood moon's phase. */
+export function lunarSurgeModifier(moonPhase: string): number {
+  if (moonPhase.includes("Full Blood") || moonPhase.includes("FULL_BLOOD")) return 0.85; // Peak chaos surge
+  if (moonPhase.includes("Nightmare") || moonPhase.includes("NIGHTMARE")) return 1.2; // Reality-tearing flood
+  if (moonPhase.includes("Mercy") || moonPhase.includes("MERCY")) return -0.45; // Ebb phase, calmed waters
+  if (moonPhase.includes("Empty") || moonPhase.includes("Waxing")) return 0.2;
+  return 0.0;
+}
+
+/**
+ * Pure: computes one flow's surge, width and meandering course for a tick.
+ * The course always starts at the flow's own source (its prison) and ends at its sink (The Verge).
+ */
+export function computeChaosFlowState(
+  anchor: ChaosFlowAnchor,
+  tick: number,
+  ctx: { activeFlow: string; dragonDomain: string; lunarSurgeMod: number }
+): LiveChaosFlowState {
+  const { source, sink } = anchor;
+
+  // Ebb & flow power
+  const isDomainAligned = anchor.dragonName.toLowerCase() === ctx.dragonDomain.toLowerCase() ||
+                          anchor.elementalPower.toLowerCase() === ctx.activeFlow.toLowerCase();
+  const baseSurge = isDomainAligned ? 2.1 : 1.0;
+  // Harmonic oscillation over days
+  const waveSurge = Math.sin((tick * 0.06) + (anchor.flowId * 1.3)) * 0.35;
+  const netSurge = Math.max(0.3, parseFloat((baseSurge + ctx.lunarSurgeMod + waveSurge).toFixed(2)));
+
+  // Channel width scales with surge
+  const baseWidth = parseFloat((24.0 * Math.sqrt(netSurge)).toFixed(1));
+
+  // Shifting meander waypoints from source to sink
+  const NUM_SEGMENTS = 10;
+  const waypoints: ChaosFlowWaypoint[] = [];
+  const narrowSpots: NarrowCrossingSpot[] = [];
+
+  const dx = sink.x - source.x;
+  const dy = sink.y - source.y;
+  const dist = Math.hypot(dx, dy) || 1;
+  // Unit normal vector for lateral meander
+  const nx = -dy / dist;
+  const ny = dx / dist;
+
+  for (let s = 0; s <= NUM_SEGMENTS; s++) {
+    const t = s / NUM_SEGMENTS; // 0.0 at source, 1.0 at sink
+    const baseX = source.x + dx * t;
+    const baseY = source.y + dy * t;
+
+    // Sinusoidal lateral drift that moves over game ticks; zero at both ends (sin(0) = sin(pi) = 0)
+    const meanderPhase = (tick * 0.04) + (s * 0.8) + (anchor.flowId * 1.2);
+    const meanderAmplitude = Math.sin(t * Math.PI) * (70.0 * Math.min(1.8, netSurge));
+    const lateralOffset = Math.sin(meanderPhase) * meanderAmplitude;
+
+    const wx = Math.round(baseX + nx * lateralOffset);
+    const wy = Math.round(baseY + ny * lateralOffset);
+
+    waypoints.push({ x: wx, y: wy, segmentIndex: s });
+
+    // Natural narrow constriction points where the flow pinches
+    if (s === 3 || s === 7) {
+      const pinchWidth = Math.max(4.0, parseFloat((baseWidth * 0.32).toFixed(1)));
+      const crossingDC = Math.min(25, Math.max(11, Math.round(12 + (netSurge * 3.5))));
+      narrowSpots.push({
+        x: wx,
+        y: wy,
+        widthMeters: pinchWidth,
+        crossingDC,
+        description: `The Glass-Rock Ford of ${anchor.dragonName}: roaring ${anchor.elementalPower} aether narrows into a jagged chasm (${pinchWidth}m wide).`
+      });
+    }
+  }
+
+  return {
+    flowId: anchor.flowId,
+    name: anchor.name,
+    dragonName: anchor.dragonName,
+    elementalPower: anchor.elementalPower,
+    currentSurge: netSurge,
+    currentWidth: baseWidth,
+    waypoints,
+    narrowSpots
+  };
+}
+
 /**
  * Evaluates the dynamic shifting paths and ebb/flow power of the 12 Primordial Chaos Flows
- * as they surge inward toward the Central Void Sink.
+ * as they surge from their prisons toward The Verge.
+ *
+ * Identity (name, dragon, Power) and endpoints are owned by the map ingest
+ * (engine/canon/dragonPrisons.ts); this agent only updates the per-tick fields.
  */
 export async function runChaosFlowAgent(
   client: PoolClient | Pool,
   tick: number,
   calendarData?: { active_flow?: string; dragon_domain?: string; moon_phase?: string }
 ): Promise<LiveChaosFlowState[]> {
-  const activeFlow = calendarData?.active_flow || "Mass";
-  const dragonDomain = calendarData?.dragon_domain || "Tiraton";
-  const moonPhase = calendarData?.moon_phase || "The Waxing Blood";
+  const ctx = {
+    activeFlow: calendarData?.active_flow || "Mass",
+    dragonDomain: calendarData?.dragon_domain || "Tiraton",
+    lunarSurgeMod: lunarSurgeModifier(calendarData?.moon_phase || "The Waxing Blood"),
+  };
 
-  // Lunar phase surge multiplier
-  let lunarSurgeMod = 0.0;
-  if (moonPhase.includes("Full Blood") || moonPhase.includes("FULL_BLOOD")) {
-    lunarSurgeMod = 0.85; // Peak chaos surge
-  } else if (moonPhase.includes("Nightmare") || moonPhase.includes("NIGHTMARE")) {
-    lunarSurgeMod = 1.20; // Reality-tearing flood
-  } else if (moonPhase.includes("Mercy") || moonPhase.includes("MERCY")) {
-    lunarSurgeMod = -0.45; // Ebb phase, calmed waters
-  } else if (moonPhase.includes("Empty") || moonPhase.includes("Waxing")) {
-    lunarSurgeMod = 0.20;
+  const anchorRes = await client.query(
+    `SELECT flow_id, name, dragon_name, elemental_power, source_coord, sink_coord
+     FROM sim_chaos_flows ORDER BY flow_id ASC`
+  );
+  const anchors = anchorRes.rows
+    .map(parseChaosFlowAnchor)
+    .filter((a): a is ChaosFlowAnchor => a !== null);
+  if (anchors.length === 0) {
+    console.warn("[chaosFlowAgent] sim_chaos_flows has no seeded flows; run the map ingest (world reset).");
+    return [];
   }
 
   const liveFlows: LiveChaosFlowState[] = [];
 
-  for (const def of DRAGON_FLOWS) {
-    // 1. Calculate Source Position on Map Perimeter
-    const rad = (def.angleDeg * Math.PI) / 180;
-    const sourceX = Math.round(MAP_CENTER_X + Math.cos(rad) * MAP_RADIUS_X);
-    const sourceY = Math.round(MAP_CENTER_Y + Math.sin(rad) * MAP_RADIUS_Y);
-
-    // 2. Calculate Ebb & Flow Power
-    const isDomainAligned = def.dragonName.toLowerCase() === dragonDomain.toLowerCase() ||
-                            def.elementalPower.toLowerCase() === activeFlow.toLowerCase();
-    
-    let baseSurge = isDomainAligned ? 2.1 : 1.0;
-    // Add harmonic oscillation over days
-    const waveSurge = Math.sin((tick * 0.06) + (def.flowId * 1.3)) * 0.35;
-    const netSurge = Math.max(0.3, parseFloat((baseSurge + lunarSurgeMod + waveSurge).toFixed(2)));
-
-    // Channel width scales with surge (base 25px to 80px)
-    const baseWidth = parseFloat((24.0 * Math.sqrt(netSurge)).toFixed(1));
-
-    // 3. Generate Shifting Meander Waypoints from Source to Center Sink
-    const NUM_SEGMENTS = 10;
-    const waypoints: ChaosFlowWaypoint[] = [];
-    const narrowSpots: NarrowCrossingSpot[] = [];
-
-    // Direction vector from source to center
-    const dx = MAP_CENTER_X - sourceX;
-    const dy = MAP_CENTER_Y - sourceY;
-    const dist = Math.hypot(dx, dy);
-    // Unit normal vector for lateral meander
-    const nx = -dy / dist;
-    const ny = dx / dist;
-
-    for (let s = 0; s <= NUM_SEGMENTS; s++) {
-      const t = s / NUM_SEGMENTS; // 0.0 at source, 1.0 at center sink
-      const baseX = sourceX + dx * t;
-      const baseY = sourceY + dy * t;
-
-      // Meandering shift: sinusoidal lateral drift that moves over game ticks
-      const meanderPhase = (tick * 0.04) + (s * 0.8) + (def.flowId * 1.2);
-      const meanderAmplitude = Math.sin(t * Math.PI) * (70.0 * Math.min(1.8, netSurge));
-      const lateralOffset = Math.sin(meanderPhase) * meanderAmplitude;
-
-      const wx = Math.round(baseX + nx * lateralOffset);
-      const wy = Math.round(baseY + ny * lateralOffset);
-
-      waypoints.push({ x: wx, y: wy, segmentIndex: s });
-
-      // Identify natural narrow constriction points (e.g. at segment 3 and 7 where river pinches)
-      if (s === 3 || s === 7) {
-        const pinchWidth = Math.max(4.0, parseFloat((baseWidth * 0.32).toFixed(1)));
-        const crossingDC = Math.min(25, Math.max(11, Math.round(12 + (netSurge * 3.5))));
-        narrowSpots.push({
-          x: wx,
-          y: wy,
-          widthMeters: pinchWidth,
-          crossingDC,
-          description: `The Glass-Rock Ford of ${def.dragonName}: roaring ${def.elementalPower} aether narrows into a jagged chasm (${pinchWidth}m wide).`
-        });
-      }
-    }
-
-    const flowState: LiveChaosFlowState = {
-      flowId: def.flowId,
-      name: def.name,
-      dragonName: def.dragonName,
-      elementalPower: def.elementalPower,
-      currentSurge: netSurge,
-      currentWidth: baseWidth,
-      waypoints,
-      narrowSpots
-    };
-
+  for (const anchor of anchors) {
+    const flowState = computeChaosFlowState(anchor, tick, ctx);
     liveFlows.push(flowState);
 
-    // Persist to PostgreSQL table sim_chaos_flows
     await client.query(
-      `INSERT INTO sim_chaos_flows (
-        flow_id, name, dragon_name, elemental_power, source_angle,
-        source_coord, sink_coord, current_surge, current_width,
-        waypoints, narrow_spots, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)
-      ON CONFLICT (flow_id) DO UPDATE SET
-        name = EXCLUDED.name,
-        dragon_name = EXCLUDED.dragon_name,
-        elemental_power = EXCLUDED.elemental_power,
-        current_surge = EXCLUDED.current_surge,
-        current_width = EXCLUDED.current_width,
-        waypoints = EXCLUDED.waypoints,
-        narrow_spots = EXCLUDED.narrow_spots,
-        updated_at = CURRENT_TIMESTAMP`,
+      `UPDATE sim_chaos_flows SET
+         current_surge = $2,
+         current_width = $3,
+         waypoints = $4,
+         narrow_spots = $5,
+         updated_at = CURRENT_TIMESTAMP
+       WHERE flow_id = $1`,
       [
-        def.flowId,
-        def.name,
-        def.dragonName,
-        def.elementalPower,
-        def.angleDeg,
-        JSON.stringify([sourceX, sourceY]),
-        JSON.stringify([MAP_CENTER_X, MAP_CENTER_Y]),
-        netSurge,
-        baseWidth,
-        JSON.stringify(waypoints),
-        JSON.stringify(narrowSpots)
+        anchor.flowId,
+        flowState.currentSurge,
+        flowState.currentWidth,
+        JSON.stringify(flowState.waypoints),
+        JSON.stringify(flowState.narrowSpots)
       ]
     );
   }
