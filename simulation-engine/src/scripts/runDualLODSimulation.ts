@@ -2,9 +2,10 @@ import pool from "../db/pool.js";
 import { executeMasterTick } from "../engine/masterOrchestrator.js";
 import { ensureCellLayers } from "./seedCellLayers.js";
 import zlib from "zlib";
+import { DAYS_PER_MONTH } from "../engine/canon/calendar.js";
 
 const TARGET_CELL_ID = 13408; // Burg #73: Flute (Premier Coastal River Metropolis)
-const TOTAL_TICKS = 44; // 1 Full Dragon Month (Tiraton: Mass)
+const TOTAL_TICKS = DAYS_PER_MONTH; // one full month
 
 function renderAsciiGrid(grid: Uint8Array, width: number = 256, height: number = 256, outW: number = 40, outH: number = 18): string {
   const blockW = Math.floor(width / outW);
@@ -74,8 +75,8 @@ async function main() {
       await executeMasterTick();
       const tickDurationMs = Date.now() - tickStartMs;
 
-      // Report telemetry at key milestones (Days 1, 11, 22, 33, 44)
-      if (t === 1 || t % 11 === 0 || t === TOTAL_TICKS) {
+      // Report telemetry on day 1, at each 12-day week's end, and on the last day
+      if (t === 1 || t % 12 === 0 || t === TOTAL_TICKS) {
         // 1. MACRO CONTINENTAL STATE
         const calRes = await client.query("SELECT tick, month_name, day_of_month, season, moon_phase FROM sim_calendar LIMIT 1");
         const cal = calRes.rows[0];

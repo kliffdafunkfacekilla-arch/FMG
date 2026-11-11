@@ -109,7 +109,7 @@ This rebuilds `dist/` from scratch and runs every suite in `run-tests.cjs`. The 
 
 | Suite | Checks |
 |---|---|
-| `testCalendar` | Calendar matches Canon/04; no old season/moon names or 541-day years anywhere in `src/` |
+| `testCalendar` | Calendar matches Canon/04; no old season/moon names, 541-day years or 44-day months anywhere in `src/` |
 | `testCanonMandates` | The seven canon and rule mandates |
 | `testTagMatrixFull` | Fire, water, collapse and lockpicking tag interactions |
 | `testBrutalGMVisual` | The GM's tactical context |

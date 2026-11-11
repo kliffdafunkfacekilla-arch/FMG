@@ -2,12 +2,14 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { RegionMap } from "./RegionMap";
 import { TacticalSandboxModal } from "./TacticalSandboxModal";
 import { RulesLabTab } from "./RulesLabTab";
+import { DAYS_PER_MONTH, SHADOWFALL_DAYS, SHADOWFALL_MONTH } from "../engine/canon/calendar.js";
 
 interface Faction {
   id: number;
   name: string;
   color: string;
-  wealth?: number;
+  /** The engine writes treasury; sim_factions.wealth is a stale seed column nothing updates. */
+  treasury?: number | string;
   trait_aggression?: number;
 }
 
@@ -1223,7 +1225,7 @@ export function Dashboard() {
   const dateDisplay = cal
     ? (cal.is_shadow_week
         ? `Year ${cal.year}, Shadowfall (Day ${cal.day_of_month || (cal.tick % 13) + 1}/13) • ${cal.moon_phase || 'The Shadowfall Eclipse'} • Chaos Flow: The Void`
-        : `Year ${cal.year}, Month ${cal.month} (${cal.month_name || 'Dragon'}), Day ${cal.day_of_month || ((cal.tick - 1) % 44) + 1}/44 • Season: ${cal.season} • Moon: ${cal.moon_phase} • Flow: ${cal.active_flow} (${cal.dragon_domain})`)
+        : `Year ${cal.year}, Month ${cal.month} (${cal.month_name || 'Dragon'}), Day ${cal.day_of_month}/${cal.month === SHADOWFALL_MONTH ? SHADOWFALL_DAYS : DAYS_PER_MONTH} • Season: ${cal.season} • Moon: ${cal.moon_phase} • Flow: ${cal.active_flow} (${cal.dragon_domain})`)
     : "Awaiting simulation initialization...";
 
   // Selected burg environmental tags
@@ -2288,7 +2290,7 @@ export function Dashboard() {
                       <span style={{ fontSize: 10, color: "#64748b" }}>{factionBurgs.length} burgs</span>
                     </div>
                     <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2, display: "flex", justifyContent: "space-between" }}>
-                      <span>Treasury: <strong style={{ color: "#facc15" }}>{f.wealth?.toLocaleString() || 0}</strong></span>
+                      <span>Treasury: <strong style={{ color: "#facc15" }}>{Number(f.treasury ?? 0).toLocaleString()}</strong></span>
                       <span>Aggression: <strong style={{ color: "#f87171" }}>{f.trait_aggression || 5}</strong></span>
                     </div>
                   </div>

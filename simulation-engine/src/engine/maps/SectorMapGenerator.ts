@@ -646,7 +646,7 @@ export function generateBurgSectorLayers(
       tags: ["type:mechanism", "material:stone", "material:bronze", "astronomy", "civic"],
       hp: 500,
       maxHp: 500,
-      description: "A monumental brass gnomon projecting shadows across 44 carved dragon-month astronomical glyphs."
+      description: "A monumental brass gnomon projecting shadows across 48 carved day-glyphs of the month."
     });
   } else if (hasRiver) {
     props0.push({

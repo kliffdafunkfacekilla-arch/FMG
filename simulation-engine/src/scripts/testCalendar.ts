@@ -81,10 +81,11 @@ run("Every day has a canon season and Cruorbus phase", () => {
   }
 });
 
-run("No source file uses an old season/moon name or a hard-coded 541-day year", () => {
+run("No source file uses an old season/moon name, a hard-coded 541-day year or a 44-day month", () => {
   const srcDir = path.resolve(__dirname, "..", "..", "src");
   const self = path.join(srcDir, "scripts", "testCalendar.ts");
-  const legacy = new RegExp(`["'\`](${LEGACY_NAMES.join("|")})|\\b(${LEGACY_NAMES.join("|")})\\b|\\b(541|5410)\\b`);
+  // The old month was 44 days: catch "% 44", "/44" and "44-day"/"44 ticks" (other 44s, like pixel sizes, are fine).
+  const legacy = new RegExp(`["'\`](${LEGACY_NAMES.join("|")})|\\b(${LEGACY_NAMES.join("|")})\\b|\\b(541|5410)\\b|(%\\s*44\\b|\\/44\\b|\\b44[- ](?:day|tick))`);
   const hits: string[] = [];
   const walk = (dir: string) => {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -93,7 +94,7 @@ run("No source file uses an old season/moon name or a hard-coded 541-day year", 
       else if (/\.(ts|tsx)$/.test(e.name) && p !== self) {
         fs.readFileSync(p, "utf8").split(/\r?\n/).forEach((line, i) => {
           const m = line.match(legacy);
-          if (m) hits.push(`${path.relative(srcDir, p)}:${i + 1} (${m[1] || m[2] || m[3]})`);
+          if (m) hits.push(`${path.relative(srcDir, p)}:${i + 1} (${m[1] || m[2] || m[3] || m[4]})`);
         });
       }
     }

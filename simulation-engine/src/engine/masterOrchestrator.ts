@@ -20,6 +20,7 @@ import { runBackgroundDirectorAgent } from "./agents/backgroundDirector";
 import { backfillBlankPersonas } from "./agents/citizenPersonaHelper";
 import { initSpatialCache } from "./agents/agentMovementHelper";
 import { stepActiveRegions } from "../api/regionalRouter";
+import { DAYS_PER_MONTH } from "./canon/calendar.js";
 
 export async function executeMasterTick(): Promise<{status: string, currentTick: number}> {
     const client = await pool.connect();
@@ -114,9 +115,9 @@ export async function executeMasterTick(): Promise<{status: string, currentTick:
         await client.query("UPDATE sim_burg_economy SET occupier_faction_id = NULL WHERE pop_null <= 0 AND pop_attuned <= 0");
 
         // 12. Event Retention & Storage Maintenance
-        // Every Dragon Month (44 ticks), maintain a rolling buffer of routine minor events (~25,000 recent logs)
+        // Once a month (DAYS_PER_MONTH ticks), maintain a rolling buffer of routine minor events (~25,000 recent logs)
         // Keeps all CRITICAL and MAJOR historical lore forever, preventing multi-million row table bloat
-        if (tick % 44 === 0) {
+        if (tick % DAYS_PER_MONTH === 0) {
             await client.query(`
                 DELETE FROM sim_events
                 WHERE tier = 'MINOR' AND id < COALESCE((

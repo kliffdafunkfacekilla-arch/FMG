@@ -1,6 +1,7 @@
 import { resolveCombat } from '../combatEngine';
 import { FACTION_ACTIONS, FactionState, FactionAction } from '../ai/factionActions';
 import { tagBurgCitizens } from "./citizenPersonaHelper";
+import { DAYS_PER_MONTH } from "../canon/calendar.js";
 
 /**
  * Extracts uppercase trait strings from a paragon's traits column
@@ -271,9 +272,9 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
 
     // --- PHASE 2: UTILITY AI ACTION EVALUATION WITH PERSONALITY & TAG WEIGHTING ---
     // Staggered Bureaucracy: Each sovereign faction evaluates grand strategy ONCE per month
-    // on their own designated day of the 44-day Dragon Month, preventing constant diplomatic flip-flopping.
+    // on their own designated day of the month (DAYS_PER_MONTH), preventing constant diplomatic flip-flopping.
     for (const f of factions) {
-        if ((tick + f.id * 7) % 44 !== 0) continue;
+        if ((tick + f.id * 7) % DAYS_PER_MONTH !== 0) continue;
 
         const state = factionStates.get(f.id);
         if (!state || state.myBurgs.length === 0) continue;
