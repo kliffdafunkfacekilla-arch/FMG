@@ -1,5 +1,5 @@
 /**
- * NPC MIND PURE ENGINE (AETHERIA CONCORDIA COGNITION)
+ * NPC MIND PURE ENGINE (OSTRAKA NPC COGNITION)
  * ====================================================
  * A pure, deterministic evaluation function governing individual NPC cognition.
  * Adheres strictly to GEMINI.md rules:

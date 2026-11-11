@@ -877,7 +877,7 @@ export function generateUniqueOutlawOperative(lair: any, slotIndex: number): any
   // Pick unique role archetype
   const roleDef = def.uniqueRoles[slotIndex % def.uniqueRoles.length] || def.uniqueRoles[0]!;
 
-  // Base 12-stat Concordia generation
+  // Base 12-attribute B.R.U.T.A.L. generation
   const baseStats: Record<string, number> = {
     might: 10,
     endurance: 10,

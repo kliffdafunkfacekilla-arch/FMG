@@ -116,7 +116,7 @@ interface ConcordiaStats {
   willpower: number;
 }
 
-// Helper to calculate 12 Concordia attributes deterministically from citizen traits and profession
+// Helper to calculate 12 B.R.U.T.A.L. attributes deterministically from citizen traits and profession
 function computeCitizenConcordiaStats(c: any, rand: () => number): ConcordiaStats {
   const base = 10;
   const stats: ConcordiaStats = {

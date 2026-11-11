@@ -1242,7 +1242,7 @@ export function Dashboard() {
         {/* Title & Telemetry */}
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 18, color: "#38bdf8", fontWeight: 800, letterSpacing: "-0.5px" }}>AETHERIA</span>
+            <span style={{ fontSize: 18, color: "#38bdf8", fontWeight: 800, letterSpacing: "-0.5px" }}>OSTRAKA</span>
             <span style={{ fontSize: 10, background: "#0369a1", color: "#e0f2fe", padding: "2px 6px", borderRadius: 4, fontWeight: 700, textTransform: "uppercase" }}>Observer</span>
           </div>
 

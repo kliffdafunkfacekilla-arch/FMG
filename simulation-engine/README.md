@@ -1,6 +1,6 @@
-# Aetheria Simulation Engine (`simulation-engine`)
+# Ostraka Simulation Engine (`simulation-engine`)
 
-The **Aetheria Simulation Engine** is the independent backend macro- and meso-layer of the Aetheria / Ostraka world simulation. It runs as an autonomous Node.js service backed by PostgreSQL.
+The **Ostraka Simulation Engine** is the independent backend macro- and meso-layer of the Ostraka world simulation (Shatterlands). It runs as an autonomous Node.js service backed by PostgreSQL.
 
 ---
 

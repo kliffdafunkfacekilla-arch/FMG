@@ -1,7 +1,9 @@
 /**
- * GOOGLE DEEPMIND CONCORDIA-INSPIRED GAME MASTER (ECGM)
+ * B.R.U.T.A.L. GAME MASTER (ENTITY-COMPONENT GM)
  * =====================================================
- * Implements the Entity-Component Game Master loop from Concordia (arXiv:2507.08892):
+ * Architecture follows the Entity-Component Game Master pattern from Google DeepMind's
+ * Concordia paper (arXiv:2507.08892). That is an LLM-agent design reference only; the
+ * game rules are B.R.U.T.A.L. (see AGENT_RULES.md rule 4):
  * - Observation Component: Grounded sensory filter
  * - Intent & Plausibility Component: Anti-hallucination tag & 12-stat validation
  * - Social & Dialogue Component: In-character roleplay & disposition tracking
@@ -527,7 +529,7 @@ Return ONLY valid JSON matching this schema:
 
       const aiJson = await this.callGeminiWithFallback(
         [{ role: "user", parts: [{ text: prompt }] }],
-        "You are the Concordia Game Master for a living simulation sandbox RPG. Output valid JSON only, no markdown formatting.",
+        "You are the B.R.U.T.A.L. Game Master for a living simulation sandbox RPG. Output valid JSON only, no markdown formatting.",
         500,
         0.8
       );
@@ -923,12 +925,12 @@ Return ONLY valid JSON matching this schema:
         const msg = String(err?.message || "");
         if (msg.includes("API key not valid") || msg.includes("API_KEY_INVALID") || err?.status === 401 || err?.status === 403) {
           if (!this.warnedInvalidKey) {
-            console.log("[ConcordiaGM] GEMINI_API_KEY inactive or rejected. Seamlessly routing GM narration to local Ollama (llama3.2)...");
+            console.log("[BrutalGM] GEMINI_API_KEY inactive or rejected. Seamlessly routing GM narration to local Ollama (llama3.2)...");
             this.warnedInvalidKey = true;
           }
           return this.callOllamaFallback(promptText, systemInstruction, maxOutputTokens, temperature);
         }
-        console.warn("[ConcordiaGM] Model " + m + " error: " + (err?.message || err) + ". Trying next...");
+        console.warn("[BrutalGM] Model " + m + " error: " + (err?.message || err) + ". Trying next...");
       }
     }
     return this.callOllamaFallback(promptText, systemInstruction, maxOutputTokens, temperature);
@@ -980,7 +982,7 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
         };
       }
     } catch (e) {
-      console.warn("[ConcordiaGM] Intent parser fallback:", e);
+      console.warn("[BrutalGM] Intent parser fallback:", e);
     }
 
     // Heuristic Fallback
@@ -1097,7 +1099,7 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
   }
 
   /**
-   * COMPONENT 2, 3, 4, 5: THE FULL CONCORDIA GM EXECUTION LOOP
+   * COMPONENT 2, 3, 4, 5: THE FULL B.R.U.T.A.L. GM EXECUTION LOOP
    */  /**
    * Generates a concrete spatial/visual description of the surrounding environment,
    * line-of-sight to props and NPCs, and tactical cover for the Game Master.
@@ -1279,7 +1281,7 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
     let systemLog = "";
     let customNarrative: string | undefined;
 
-    // 4. Multi-Faceted Concordia Resolution
+    // 4. Multi-Faceted B.R.U.T.A.L. Resolution
     const targetTagsList: string[] = targetProp
       ? (Array.isArray(targetProp.tags) ? targetProp.tags : Array.from(targetProp.tags))
       : (targetNPC ? targetNPC.tags : []);

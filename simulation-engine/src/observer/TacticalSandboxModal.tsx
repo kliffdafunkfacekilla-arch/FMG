@@ -62,7 +62,7 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
   const [selectedProp, setSelectedProp] = useState<PropItem | null>(null);
   const [selectedNpc, setSelectedNpc] = useState<NpcItem | null>(null);
 
-  // Concordia GM Action state
+  // B.R.U.T.A.L. GM Action state
   const [actionInput, setActionInput] = useState<string>("Examine surroundings and search for clues");
   const [actionLoading, setActionLoading] = useState<boolean>(false);
   const [actionResult, setActionResult] = useState<any>(null);
@@ -359,7 +359,7 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
     setSelectedNpc(null);
   };
 
-  // Concordia GM Action Execution
+  // B.R.U.T.A.L. GM Action Execution
   const executeGMAction = async (customAction?: string) => {
     const text = customAction || actionInput;
     if (!text.trim()) return;
@@ -840,7 +840,7 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
             </div>
           </div>
 
-          {/* Right Column: AI Story Director & Concordia GM Console */}
+          {/* Right Column: AI Story Director & B.R.U.T.A.L. GM Console */}
           <div style={{
             padding: 16,
             display: 'flex',

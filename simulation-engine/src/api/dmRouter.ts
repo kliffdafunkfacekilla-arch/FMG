@@ -58,7 +58,7 @@ import {
   SANITY_DEFENSIVE_SKILL_TRACKS
 } from '../engine/rpg/SocialSkillProgression.js';
 
-// Initialize Singleton Concordia Game Master
+// Initialize Singleton B.R.U.T.A.L. Game Master
 const brutalGM = new BrutalGameMaster(pool, process.env.GEMINI_API_KEY || '');
 const concordiaGM = brutalGM;
 
@@ -687,7 +687,7 @@ router.get('/state', (req, res) => {
 });
 
 /**
- * POST /sector_load - Initializes WhatELSE story beat and Concordia world injection for sector
+ * POST /sector_load - Initializes WhatELSE story beat and GM world injection for sector
  */
 router.post('/sector_load', async (req, res) => {
   try {
@@ -1492,7 +1492,7 @@ SURROUNDING ENVIRONMENT:
 - Present Entities & Roaming Life: ${(context?.entities || []).join(', ')}
 `;
 
-    const systemInstruction = `You are the Concordia Game Master for a post-apocalyptic dark-fantasy sandbox TTRPG set beneath the blood moon Cruorbus.
+    const systemInstruction = `You are the B.R.U.T.A.L. Game Master for a post-apocalyptic dark-fantasy sandbox TTRPG set beneath the blood moon Cruorbus.
 The 12 Flows of Chaos radiate from the blood moon into the 12 ancient Dragon Prisons guarded by secretive Grey Wardens and besieged by crazed Cultists.
 In 2-3 punchy, evocative, sensory sentences, narrate what the wandering adventurer immediately perceives upon stepping into this sector.
 Highlight tangible atmosphere: sounds on the wind, the eerie glow of the blood moon radiating the active Flow of Chaos, the smell of damp earth or ancient ozone, and visible relics or tense standoff of living entities.
@@ -1515,7 +1515,7 @@ Do not list numbers or mechanics. End with an urgent question of what they do.`;
 });
 
 /**
- * POST /action - The Full Concordia GM Execution Loop
+ * POST /action - The Full B.R.U.T.A.L. GM Execution Loop
  */
 router.post('/action', async (req, res) => {
   try {

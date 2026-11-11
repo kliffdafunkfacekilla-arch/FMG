@@ -1,5 +1,5 @@
 /**
- * AETHERIA PRIMORDIAL CHAOS SURGE & ENVIRONMENTAL STORM ENGINE
+ * OSTRAKA PRIMORDIAL CHAOS SURGE & ENVIRONMENTAL STORM ENGINE
  * ==============================================================
  * Generates truly unpredictable, chaotic environmental anomalies,
  * wild magic surges, atmospheric storms, and ripple cascades for sectors

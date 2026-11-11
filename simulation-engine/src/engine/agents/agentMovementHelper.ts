@@ -1,7 +1,7 @@
 /**
  * agentMovementHelper.ts - High-Performance Macro Spatial Navigation & In-Memory Collision System
  *
- * Implements Level-of-Detail (LOD) optimization for the Aetheria Simulation Engine:
+ * Implements Level-of-Detail (LOD) optimization for the Ostraka Simulation Engine:
  * - In-Memory Spatial Hash Grid: Caches all 34,430 cell coordinates once in memory.
  * - Sub-microsecond geometric navigation without database roundtrips.
  * - Dynamic Agent Collision & Interception: Detects path intersections between moving agents

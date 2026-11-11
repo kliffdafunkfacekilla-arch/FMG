@@ -92,7 +92,7 @@ async function captureSnapshot(client: any, tick: number, season: string): Promi
 
 export async function runYearCalibration() {
   console.log("================================================================================");
-  console.log("  AETHERIA SIMULATION CALIBRATION HARNESS: 1 FULL YEAR (541 IN-GAME TICKS)");
+  console.log("  OSTRAKA SIMULATION CALIBRATION HARNESS: 1 FULL YEAR (541 IN-GAME TICKS)");
   console.log("================================================================================");
 
   console.log("\n[1/3] Resetting world to canonical baseline...");

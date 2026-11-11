@@ -3,7 +3,7 @@
  * ==============================================================================
  * Architecture:
  * - Players: Local Ollama (llama3.2:latest) driving 4 distinct characters in character.
- * - Game Master: ConcordiaGM via Gemini API (gemini-2.5-flash) for narration & NPC dialogue.
+ * - Game Master: BrutalGM via Gemini API (gemini-2.5-flash) for narration & NPC dialogue.
  * - Rules Arbiter: Deterministic B.R.U.T.A.L. v4.9 code (1d12 Net Margin vs Guard).
  * - State: PostgreSQL persistence (sim_player_character, sim_events).
  */
@@ -238,7 +238,7 @@ async function runSession() {
 
   await seedPartyCharacters();
 
-  // Initialize Concordia GM
+  // Initialize B.R.U.T.A.L. GM
   const apiKey = process.env.GEMINI_API_KEY || '';
   const gm = new BrutalGameMaster(pool, apiKey);
 
@@ -341,7 +341,7 @@ async function runSession() {
       console.log(`   🗣️  Dialogue: "${playerIntent.dialogue}"`);
       console.log(`   ⚡  Declared Action: "${playerIntent.action}"`);
 
-      // 2. Dispatch to Concordia GM with B.R.U.T.A.L. v4.9 arbitration
+      // 2. Dispatch to the GM with B.R.U.T.A.L. v4.9 arbitration
       const gmOutput = await gm.executeTurn({
         actionText: playerIntent.action,
         playerId: member.id,

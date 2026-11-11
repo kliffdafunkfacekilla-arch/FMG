@@ -1,5 +1,5 @@
 /**
- * AETHERIA SIMULATION-DRIVEN SECTOR SYNTHESIZER
+ * OSTRAKA SIMULATION-DRIVEN SECTOR SYNTHESIZER
  * ============================================
  * Completely eliminates canned, hardcoded quest checklists and fixed encounters.
  * Procedurally synthesizes tactical entities and landmarks directly from:

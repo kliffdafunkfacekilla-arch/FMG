@@ -1,6 +1,8 @@
 {
-  "name": "Fantasy Map Generator",
-  "description": "Interactive procedural map generator and world simulator.",
+  "name": "Ostraka",
+  "description": "Living Shatterlands world simulation for the B.R.U.T.A.L. TTRPG.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

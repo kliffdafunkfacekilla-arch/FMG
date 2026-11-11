@@ -1,10 +1,10 @@
 /**
- * OSTRAKA & CONCORDIA UNIVERSAL TAG-TO-STAT INTERACTION REGISTRY
+ * OSTRAKA & B.R.U.T.A.L. UNIVERSAL TAG-TO-STAT INTERACTION REGISTRY
  * ==============================================================
  * "1 Code, Infinite Uses"
  * Every interaction in the world is determined by:
  * 1. The target's physical and social tags (e.g. locked, wood, stone, metal, water, beast, merchant)
- * 2. The player's 12 Concordia attributes (Might, Endurance, Finesse, Reflex, Vitality,
+ * 2. The player's 12 B.R.U.T.A.L. attributes (Might, Endurance, Finesse, Reflex, Vitality,
  *    Fortitude, Knowledge, Logic, Awareness, Intuition, Charm, Willpower)
  * 3. Relevant tools, equipment, and situational modifiers.
  *
@@ -43,7 +43,7 @@ export interface TagStatAction {
 
 /**
  * ATOMIC TAG-TO-STAT ACTION MATRIX
- * Maps individual physical, material, or social tags to viable actions across all 12 Concordia stats.
+ * Maps individual physical, material, or social tags to viable actions across all 12 B.R.U.T.A.L. attributes.
  */
 export const ATOMIC_TAG_ACTIONS: TagStatAction[] = [
   // ==========================================

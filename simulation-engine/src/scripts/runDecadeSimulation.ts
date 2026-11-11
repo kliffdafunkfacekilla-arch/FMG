@@ -335,7 +335,7 @@ export function detectAnomalies(curr: DecadeTelemetrySnapshot, prev: DecadeTelem
 
 export async function runDecadeSimulation(totalTicks: number = 5410, shouldReset: boolean = true) {
   console.log("================================================================================");
-  console.log(`  AETHERIA DECADE SIMULATION HARNESS: ${totalTicks.toLocaleString()} TICKS (~${(totalTicks / 541).toFixed(1)} YEARS)`);
+  console.log(`  OSTRAKA DECADE SIMULATION HARNESS: ${totalTicks.toLocaleString()} TICKS (~${(totalTicks / 541).toFixed(1)} YEARS)`);
   console.log("================================================================================");
 
   if (shouldReset) {
