@@ -34,7 +34,7 @@ This skill governs Pillar 4 of the architecture: the Gemini-powered narrative en
 - AI Director Router: `simulation-engine/src/api/directorRouter.ts`
 - WhatELSE Story Engine: `simulation-engine/src/engine/rpg/WhatElseStoryEngine.ts`
 - Quest Chain Engine: `simulation-engine/src/engine/questChainEngine.ts`
-- Lore & Narrative Reaction: `simulation-engine/src/engine/loreEngine.ts`, `narrativeReactionEngine.ts`
+- Narrative Reaction: `simulation-engine/src/engine/rpg/narrativeReactionEngine.ts`
 - Chronicler Event Logger: `simulation-engine/src/engine/agents/chroniclerAgent.ts`
 - Dialogue Streaming API: `simulation-engine/src/api/streamingRouter.ts`, `tellerRouter.ts`
 - Database Tables: `sim_events`, `sim_quest_chains`, `sim_lore_codex`

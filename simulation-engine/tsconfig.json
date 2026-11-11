@@ -21,9 +21,6 @@
   "exclude": [
     "vite.config.ts",
     "dist",
-    "dist-client",
-    "_archive",
-    "src/engine/masterOrchestrator.pg.ts",
-    "engine_backup_pre_9step"
+    "dist-client"
   ]
 }

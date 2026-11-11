@@ -7,9 +7,9 @@
 | # | System | Files | Status | Trigger |
 |---|---|---|---|---|
 | 1 | **Background reactions** | `engine/agents/backgroundDirector.ts`, `engine/rpg/narrativeReactionEngine.ts`, `engine/rpg/narrativeTagEngine.ts` | **Running** | Every tick, from `masterOrchestrator.ts` |
-| 2 | **Sector story beats** | `engine/rpg/WhatElseStoryEngine.ts`, `engine/rpg/ConcordiaGM.ts` | **Running** | Whenever the GM loads a sector |
+| 2 | **Sector story beats** | `engine/rpg/WhatElseStoryEngine.ts`, `engine/rpg/BrutalGM.ts` (ported from ConcordiaGM) | **Running** | Whenever the GM loads a sector |
 | 3 | **Director arcs** | `engine/rpg/directorBridge.ts`, `api/directorRouter.ts` (`/api/dm/story/*`) | **Built, barely used** | Only a button in `observer/TacticalSandboxModal.tsx` |
-| 4 | **Unconnected code** | `engine/questChainEngine.ts`, `engine/eventDirector.ts`, `engine/eventGenerator.ts`, `engine/loreEngine.ts`, `engine/loreFusion.ts` | **Dead** | Nothing imports them |
+| 4 | **Unconnected code** | `engine/questChainEngine.ts` (now wired, step 5); `eventDirector`, `eventGenerator`, `loreEngine`, `loreFusion` deleted 2026-11-11 | ~~Dead~~ | — |
 
 (All paths are under `simulation-engine/src/`.)
 
@@ -40,7 +40,7 @@
 
 ### 4. Unconnected code
 - `questChainEngine.resolveQuestAndMutateWorld()` is the piece that writes a quest's outcome back into the world. That's the last step of the loop, and it isn't connected.
-- The others (`eventDirector`, `eventGenerator`, `loreEngine`, `loreFusion`) are imported nowhere. Either connect each one to a loop step or delete it (rule 10).
+- The others (`eventDirector`, `eventGenerator`, `loreEngine`, `loreFusion`) were imported nowhere. **Deleted 2026-11-11** (rule 10).
 
 ## The gaps, against the loop
 
