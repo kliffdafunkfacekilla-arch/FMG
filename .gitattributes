@@ -11,5 +11,3 @@ simulation-engine/data/Holgaland.json filter=lfs diff=lfs merge=lfs -text
 .githooks/* text eol=lf
 *.sql filter=lfs diff=lfs merge=lfs -text
 *.map filter=lfs diff=lfs merge=lfs -text
-Okasha.json filter=lfs diff=lfs merge=lfs -text
-core_engine_dump.txt filter=lfs diff=lfs merge=lfs -text

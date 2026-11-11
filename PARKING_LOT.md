@@ -12,7 +12,7 @@ Per **Rule 1** of `GEMINI.md`:
 
 1. **Standalone `player-client` React WebApp**:
    - The primary tactical interface and live party watcher are running natively inside the Observer Dashboard (`simulation-engine/src/observer/` on `http://localhost:5174`).
-   - The `player-client/` folder is no longer in the working tree. Its last full version (153 files) is preserved in git history; restore it with `git checkout 2b58ae9^ -- player-client` when this item is unparked.
+   - The `player-client/` folder is no longer in the working tree. Its last full version (153 files) is preserved in git history; restore it with `git checkout a796e0e^ -- player-client` when this item is unparked.
 
 2. **Continental Airship Aerotime Flight Simulation**:
    - High-altitude airship physics, gimbals, and sky-piracy across distant macro cells (`Canon/11`).
