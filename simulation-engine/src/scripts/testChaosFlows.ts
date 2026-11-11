@@ -106,14 +106,15 @@ async function main() {
   await run("No source file uses a retired dragon name", () => {
     // dist/scripts/testChaosFlows.js -> ../../src
     const srcDir = path.resolve(__dirname, "..", "..", "src");
-    const self = path.join(srcDir, "scripts", "testChaosFlows.ts");
+    // Only files whose job is to find retired names may contain them: this test and the data repair.
+    const allowed = new Set(["testChaosFlows.ts", "repairStaleCanonData.ts"].map(f => path.join(srcDir, "scripts", f)));
     const pattern = new RegExp(`\\b(${RETIRED_NAMES.join("|")})\\b`);
     const hits: string[] = [];
     const walk = (dir: string) => {
       for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
         const p = path.join(dir, e.name);
         if (e.isDirectory()) walk(p);
-        else if (/\.(ts|tsx)$/.test(e.name) && p !== self) {
+        else if (/\.(ts|tsx)$/.test(e.name) && !allowed.has(p)) {
           fs.readFileSync(p, "utf8").split(/\r?\n/).forEach((line, i) => {
             const m = line.match(pattern);
             if (m) hits.push(`${path.relative(srcDir, p)}:${i + 1} (${m[1]})`);
