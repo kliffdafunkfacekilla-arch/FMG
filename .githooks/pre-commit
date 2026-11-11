@@ -1,0 +1,8 @@
+#!/bin/sh
+# Rule 9: run the simulation-engine tests before any commit that touches simulation-engine/.
+# Enabled per clone with:  git config core.hooksPath .githooks
+if git diff --cached --name-only | grep -q '^simulation-engine/'; then
+  echo "pre-commit: running simulation-engine tests (Postgres must be running)..."
+  npm --prefix simulation-engine test || exit 1
+fi
+exit 0
