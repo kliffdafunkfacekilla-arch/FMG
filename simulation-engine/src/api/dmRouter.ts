@@ -7,7 +7,6 @@ import { updateSectorNPCRoutines } from '../engine/agents/npcRoutineAgent.js';
 import { getActiveChaosFlows, evaluatePointChaosFlowProximity } from '../engine/agents/chaosFlowAgent.js';
 import { getLairPropDetails, ensureLairResidents } from '../engine/agents/outlawSyndicates.js';
 import { generateGrindCanyonSectorMap, generateBurgSectorLayers, generateOutlyingSectorMap, generateTacticalRegionalSectorMap } from '../engine/maps/SectorMapGenerator.js';
-import { getOrGenerateInteriorSubMap } from '../engine/subMapEngine.js';
 import { getOrCreateRegionalInstance } from './regionalRouter.js';
 import { getFactionSpecialty, FACTION_SPECIALTIES, FactionSpecialty } from '../engine/economy/factionSpecialties.js';
 import { getOpenThreads, evaluateThreadState } from '../engine/threads/threadEngine.js';
@@ -1345,104 +1344,6 @@ router.get('/sector_layer', async (req, res) => {
     });
   } catch (e: any) {
     console.error("Sector layer error:", e);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-/**
- * POST /interior/enter - Enters or creates an authentic 256x256 interior or dungeon sub-map
- */
-router.post('/interior/enter', async (req, res) => {
-  try {
-    const { cellId, rx, ry, propId, propName, propTags, forcedType, parameters } = req.body;
-    const targetCellId = Number(cellId) || 13408;
-    const targetRx = rx !== undefined ? Number(rx) : 50;
-    const targetRy = ry !== undefined ? Number(ry) : 50;
-    const targetPropId = String(propId || 'prop_cellar_hatch');
-    const targetPropName = String(propName || 'Subterranean Vault');
-    const targetPropTags = Array.isArray(propTags) ? propTags : [];
-
-    const interior = await getOrGenerateInteriorSubMap(
-      targetCellId,
-      targetRx,
-      targetRy,
-      targetPropId,
-      targetPropName,
-      targetPropTags,
-      forcedType,
-      parameters
-    );
-
-    res.json({
-      success: true,
-      subMapId: interior.subMapId,
-      name: interior.name,
-      interiorType: interior.interiorType,
-      parentCellId: interior.parentCellId,
-      parentRx: interior.parentRx,
-      parentRy: interior.parentRy,
-      parentPropId: interior.parentPropId,
-      grid: Array.from(interior.grid),
-      props: interior.props,
-      npcs: interior.npcs,
-      playerSpawn: interior.playerSpawn,
-      exitProp: interior.exitProp
-    });
-  } catch (e: any) {
-    console.error('Error entering interior sub-map:', e);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-/**
- * POST /interior/exit - Returns coordinates and details to exit sub-map back to overworld sector
- */
-router.post('/interior/exit', async (req, res) => {
-  try {
-    const { subMapId } = req.body;
-    if (!subMapId) {
-      return res.status(400).json({ error: 'subMapId is required' });
-    }
-    const mapRes = await pool.query(
-      `SELECT parent_cell_id, parent_rx, parent_ry, parent_prop_id, name, interior_type
-       FROM interior_sub_maps WHERE sub_map_id = $1`,
-      [subMapId]
-    );
-    if (mapRes.rows.length === 0) {
-      return res.status(404).json({ error: 'Interior sub-map not found' });
-    }
-    const row = mapRes.rows[0];
-    res.json({
-      success: true,
-      parentCellId: row.parent_cell_id,
-      parentRx: row.parent_rx ?? 50,
-      parentRy: row.parent_ry ?? 50,
-      parentPropId: row.parent_prop_id,
-      name: row.name,
-      interiorType: row.interior_type
-    });
-  } catch (e: any) {
-    console.error('Error exiting interior sub-map:', e);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-/**
- * GET /interior/list - Lists saved interiors, optionally filtered by cell
- */
-router.get('/interior/list', async (req, res) => {
-  try {
-    const cellId = Number(req.query.cellId);
-    let query = 'SELECT sub_map_id, parent_cell_id, parent_prop_id, name, interior_type, created_at FROM interior_sub_maps';
-    const params: any[] = [];
-    if (cellId) {
-      query += ' WHERE parent_cell_id = $1';
-      params.push(cellId);
-    }
-    query += ' ORDER BY created_at DESC LIMIT 50';
-    const result = await pool.query(query, params);
-    res.json({ success: true, interiors: result.rows });
-  } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
 });
