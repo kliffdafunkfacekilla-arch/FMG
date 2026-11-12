@@ -170,7 +170,7 @@ export async function runTrophicEcologyAgent(
             // Check if there is an adjacent burg to receive botanical herbalism effects
             const adjBurg = await client.query(`
                 SELECT burg_id, name FROM sim_burg_economy
-                WHERE cell_id = $1 OR ABS(cell_id - $1) <= 8
+                WHERE cell_id = $1 OR cell_dist2(cell_id, $1) <= 3600
                 LIMIT 1
             `, [cell.id]);
 
@@ -269,7 +269,7 @@ export async function runTrophicEcologyAgent(
         // Check if an adjacent burg's livestock is raided
         const nearbyBurg = await client.query(`
             SELECT burg_id, name, unrest, food FROM sim_burg_economy
-            WHERE cell_id = $1 OR ABS(cell_id - $1) <= 8
+            WHERE cell_id = $1 OR cell_dist2(cell_id, $1) <= 3600
             LIMIT 1
         `, [cell.id]);
 
@@ -329,7 +329,7 @@ export async function runTrophicEcologyAgent(
             // Find nearby settlement to log event
             const nearbyBurg = await client.query(`
                 SELECT burg_id, name FROM sim_burg_economy
-                WHERE cell_id = $1 OR ABS(cell_id - $1) <= 10
+                WHERE cell_id = $1 OR cell_dist2(cell_id, $1) <= 4900
                 LIMIT 1
             `, [zone.id]);
 

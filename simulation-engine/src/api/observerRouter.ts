@@ -302,7 +302,18 @@ observerRouter.get("/filtered_events", async (req, res) => {
         query += ` AND burg_id = $${params.length}`;
       }
     }
-    if (faction_id && keyword) {
+    // Fringe (outlaw) factions: their events carry outlaw_id. Older events stored the outlaw id in
+    // faction_id, where it collides with sovereign ids, so those are matched by name instead.
+    const outlawId = (req.query as any).outlaw_id;
+    if (outlawId) {
+      params.push(Number(outlawId));
+      if (keyword) {
+        params.push(`%${keyword}%`);
+        query += ` AND (outlaw_id = $${params.length - 1} OR message ILIKE $${params.length})`;
+      } else {
+        query += ` AND outlaw_id = $${params.length}`;
+      }
+    } else if (faction_id && keyword) {
       params.push(Number(faction_id));
       params.push(`%${keyword}%`);
       query += ` AND (faction_id = $${params.length - 1} OR message ILIKE $${params.length})`;
@@ -346,23 +357,36 @@ observerRouter.get("/ecology", async (req, res) => {
       FROM sim_cells
     `);
 
+    // Hotspots first, then each one's nearest burg by map distance (it used ABS(cell_id - id) <= 6,
+    // which compares cell id numbers, not places, and also returned one row per matching burg)
     const predatorHotspots = await pool.query(`
-      SELECT c.id as cell_id, c.eco_predators, c.eco_prey, b.name as nearby_burg
-      FROM sim_cells c
-      LEFT JOIN sim_burg_economy b ON ABS(b.cell_id - c.id) <= 6
-      WHERE c.eco_predators > (c.eco_prey * 1.2) AND c.eco_predators >= 15
-      ORDER BY c.eco_predators DESC
-      LIMIT 5
+      SELECT h.cell_id, h.eco_predators, h.eco_prey, nb.name AS nearby_burg
+      FROM (
+        SELECT c.id AS cell_id, c.eco_predators, c.eco_prey, c.center_x, c.center_y
+        FROM sim_cells c
+        WHERE c.eco_predators > (c.eco_prey * 1.2) AND c.eco_predators >= 15
+        ORDER BY c.eco_predators DESC LIMIT 5
+      ) h
+      LEFT JOIN LATERAL (
+        SELECT b.name FROM sim_burg_economy b JOIN sim_cells bc ON bc.id = b.cell_id
+        ORDER BY (bc.center_x - h.center_x) ^ 2 + (bc.center_y - h.center_y) ^ 2 LIMIT 1
+      ) nb ON true
+      ORDER BY h.eco_predators DESC
     `);
 
     const chaosFloraHotspots = await pool.query(`
-      SELECT c.id as cell_id, c.eco_plants, z.intensity, z.type as chaos_type, b.name as nearby_burg
-      FROM sim_cells c
-      JOIN sim_chaos_zones z ON c.id = z.cell_id
-      LEFT JOIN sim_burg_economy b ON ABS(b.cell_id - c.id) <= 6
-      WHERE z.intensity >= 30
-      ORDER BY z.intensity DESC
-      LIMIT 5
+      SELECT h.cell_id, h.eco_plants, h.intensity, h.chaos_type, nb.name AS nearby_burg
+      FROM (
+        SELECT c.id AS cell_id, c.eco_plants, z.intensity, z.type AS chaos_type, c.center_x, c.center_y
+        FROM sim_cells c JOIN sim_chaos_zones z ON c.id = z.cell_id
+        WHERE z.intensity >= 30
+        ORDER BY z.intensity DESC LIMIT 5
+      ) h
+      LEFT JOIN LATERAL (
+        SELECT b.name FROM sim_burg_economy b JOIN sim_cells bc ON bc.id = b.cell_id
+        ORDER BY (bc.center_x - h.center_x) ^ 2 + (bc.center_y - h.center_y) ^ 2 LIMIT 1
+      ) nb ON true
+      ORDER BY h.intensity DESC
     `);
 
     const eventsRes = await pool.query(`

@@ -661,7 +661,7 @@ export class WhatElseStoryEngine {
     const agentTypes = new Set(rawAgents.map(a => a.type));
 
     const activeFlow = context.activeFlow || "Ordo";
-    const moonPhase = context.moonPhase || "Gibbous";
+    const moonPhase = context.moonPhase || "The Halo";
     const dragonDomain = context.dragonDomain || "Stagus";
 
     // Dynamic Emergent Relic for the sector (840+ dynamic architectural combinations)

@@ -1029,7 +1029,7 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
                         const nearestBurgRes = await client.query(`
                             SELECT burg_id, name, wealth, unrest
                             FROM sim_burg_economy
-                            ORDER BY ABS(cell_id - $1) ASC
+                            ORDER BY cell_dist2(cell_id, $1) ASC
                             LIMIT 1
                         `, [canyon.cell_id]);
 

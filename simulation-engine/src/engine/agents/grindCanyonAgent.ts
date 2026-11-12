@@ -163,7 +163,7 @@ export async function runGrindCanyonAgent(client: PoolClient, tick: number, lore
 
       // Find nearest burg to this canyon dive site
       const nearestBurgRes = await client.query(`
-        SELECT burg_id, name, cell_id FROM sim_burg_economy ORDER BY ABS(cell_id - $1) ASC LIMIT 1
+        SELECT burg_id, name, cell_id FROM sim_burg_economy ORDER BY cell_dist2(cell_id, $1) ASC LIMIT 1
       `, [cell.id]);
       const nearestBurg = nearestBurgRes.rows[0];
 

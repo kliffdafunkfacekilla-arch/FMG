@@ -8,7 +8,7 @@ import { getActiveChaosFlows, evaluatePointChaosFlowProximity } from '../engine/
 import { getLairPropDetails, ensureLairResidents } from '../engine/agents/outlawSyndicates.js';
 import { generateGrindCanyonSectorMap, generateBurgSectorLayers, generateOutlyingSectorMap, generateTacticalRegionalSectorMap } from '../engine/maps/SectorMapGenerator.js';
 import { regionalNeighborhood, TERRAIN_VERSION } from '../engine/maps/TacticalTerrain.js';
-import { generateWardDistrictMap } from '../engine/maps/WardDistrict.js';
+import { generateWardDistrictMap, deriveWardLayers } from '../engine/maps/WardDistrict.js';
 import { seedLayerNarrative } from '../engine/rpg/narrativeSeeds.js';
 import { getOrCreateRegionalInstance } from './regionalRouter.js';
 import { getFactionSpecialty, FACTION_SPECIALTIES, FactionSpecialty } from '../engine/economy/factionSpecialties.js';
@@ -805,12 +805,23 @@ router.post('/sector_load', async (req, res) => {
             }
           );
           if (!(targetRx === 50 && targetRy === 50)) {
-            layers.layer0 = generateWardDistrictMap({
+            const wardInput = {
               burg, factionName, cellId: targetCellId, rx: targetRx, ry: targetRy, ward: wardFocus,
               biomeId: regInstance?.biomeMap?.[cellIdx] ?? (Number(cellRes.rows[0]?.biome) || 4),
               hood: regionalNeighborhood(regInstance, targetRx, targetRy),
               citizens: citRes.rows, paragons: paragonRes.rows
-            });
+
+            };
+
+            layers.layer0 = generateWardDistrictMap(wardInput);
+
+            // Its cellars and rooftops follow its own streets and buildings (they were the whole town's, shared)
+
+            const derived = deriveWardLayers(layers.layer0, wardInput);
+
+            layers.layerMinus1 = derived.minus1;
+
+            layers.layerPlus1 = derived.plus1;
           }
           await seedLayerNarrative(pool, targetCellId, layers.layer0.npcs); // simulation facts -> story tags
 
@@ -1112,8 +1123,9 @@ router.get('/sector_layer', async (req, res) => {
     // used to get the same map) is regenerated as its own district too.
     const cached = layerRes.rows[0]?.features;
     const isTownCentre = targetRx === 50 && targetRy === 50;
-    const staleRegional = layerRes.rows.length > 0 && targetZ === 0 && cached?.terrainVersion !== TERRAIN_VERSION && (
-      cached?.terrainType !== undefined || (cached?.burgId !== undefined && !isTownCentre)
+    // Town tiles: every level (their cellars and rooftops are derived from their own surface now).
+    const staleRegional = layerRes.rows.length > 0 && cached?.terrainVersion !== TERRAIN_VERSION && (
+      (targetZ === 0 && cached?.terrainType !== undefined) || (cached?.burgId !== undefined && !isTownCentre)
     );
 
     if (layerRes.rows.length > 0 && !staleRegional) {
@@ -1213,12 +1225,23 @@ router.get('/sector_layer', async (req, res) => {
       );
       // The whole-town picture stays on the town's centre tile; every other town tile shows its own district.
       if (!isTownCentre) {
-        layers.layer0 = generateWardDistrictMap({
+        const wardInput = {
           burg, factionName, cellId: targetCellId, rx: targetRx, ry: targetRy, ward: wardFocus,
           biomeId: regInstance?.biomeMap?.[cellIdx] ?? (Number(cellRes.rows[0]?.biome) || 4),
           hood: regionalNeighborhood(regInstance, targetRx, targetRy),
           citizens: citRes.rows, paragons: paragonRes.rows
-        });
+
+        };
+
+        layers.layer0 = generateWardDistrictMap(wardInput);
+
+        // Its cellars and rooftops follow its own streets and buildings (they were the whole town's, shared)
+
+        const derived = deriveWardLayers(layers.layer0, wardInput);
+
+        layers.layerMinus1 = derived.minus1;
+
+        layers.layerPlus1 = derived.plus1;
       }
       await seedLayerNarrative(pool, targetCellId, layers.layer0.npcs); // simulation facts -> story tags
 
@@ -1568,7 +1591,7 @@ router.get('/trade/catalog', async (req, res) => {
        FROM sim_burg_economy b
        LEFT JOIN sim_cells c ON b.cell_id = c.id
        LEFT JOIN sim_factions f ON c.faction_id = f.id
-       ORDER BY ABS(b.cell_id - $1) ASC LIMIT 1`,
+       ORDER BY cell_dist2(b.cell_id, $1) ASC LIMIT 1`,
       [cellId]
     );
     const burg = burgRes.rows[0] || { burg_id: 1, food: 200, wealth: 500, unrest: 15, health: 80, crime_rate: 10, faction_id: 0, faction_name: "The Realm" };
@@ -1586,7 +1609,7 @@ router.get('/trade/catalog', async (req, res) => {
     const calRes = await pool.query(
       `SELECT active_flow, dragon_domain, moon_phase FROM sim_calendar ORDER BY id DESC LIMIT 1`
     );
-    const calendar = calRes.rows[0] || { active_flow: 'Ordo', dragon_domain: 'Stagus', moon_phase: 'Gibbous' };
+    const calendar = calRes.rows[0] || { active_flow: 'Ordo', dragon_domain: 'Stagus', moon_phase: 'The Halo' };
     const flow = calendar.active_flow || 'Ordo';
 
     // 3. Fetch live commodity prices
@@ -1911,7 +1934,7 @@ router.post('/trade/buy', async (req, res) => {
       await pool.query(
         `UPDATE sim_burg_economy
          SET wealth = COALESCE(wealth, 0) + GREATEST(1, FLOOR($1 * 0.2))
-         WHERE cell_id = $2 OR burg_id = (SELECT burg_id FROM sim_burg_economy ORDER BY ABS(cell_id - $2) ASC LIMIT 1)`,
+         WHERE cell_id = $2 OR burg_id = (SELECT burg_id FROM sim_burg_economy ORDER BY cell_dist2(cell_id, $2) ASC LIMIT 1)`,
         [itemCost, cellId]
       );
       await pool.query(
@@ -1980,7 +2003,7 @@ router.post('/trade/sell', async (req, res) => {
         await pool.query(
           `UPDATE sim_industrial_stockpiles
            SET raw_herbs = COALESCE(raw_herbs, 0) + 1
-           WHERE burg_id = (SELECT burg_id FROM sim_burg_economy ORDER BY ABS(cell_id - $1) ASC LIMIT 1)`,
+           WHERE burg_id = (SELECT burg_id FROM sim_burg_economy ORDER BY cell_dist2(cell_id, $1) ASC LIMIT 1)`,
           [cellId]
         );
       }
@@ -2005,7 +2028,7 @@ router.get('/bounties', async (req, res) => {
 
     // 1. Fetch nearest burg economy
     const burgRes = await pool.query(
-      `SELECT * FROM sim_burg_economy ORDER BY ABS(cell_id - $1) ASC LIMIT 1`,
+      `SELECT * FROM sim_burg_economy ORDER BY cell_dist2(cell_id, $1) ASC LIMIT 1`,
       [cellId]
     );
     const burg = burgRes.rows[0] || { burg_id: 1, name: 'Regional Citadel', food: 100, unrest: 20, crime_rate: 15, cell_id: cellId };
@@ -2025,7 +2048,7 @@ router.get('/bounties', async (req, res) => {
     const calRes = await pool.query(
       `SELECT active_flow, dragon_domain, moon_phase FROM sim_calendar ORDER BY id DESC LIMIT 1`
     );
-    const calendar = calRes.rows[0] || { active_flow: 'Ordo', dragon_domain: 'Stagus', moon_phase: 'Gibbous' };
+    const calendar = calRes.rows[0] || { active_flow: 'Ordo', dragon_domain: 'Stagus', moon_phase: 'The Halo' };
     const flow = calendar.active_flow || 'Ordo';
     const dragon = calendar.dragon_domain || 'Stagus';
 
@@ -2494,7 +2517,9 @@ router.post('/party_session/init', async (req, res) => {
 
     if (layerRes.rows.length === 0) {
       // Trigger local sector layer generation
-      await fetch(`http://127.0.0.1:3000/api/dm/sector_layer?cellId=${targetCellId}&rx=${targetRx}&ry=${targetRy}&z=${targetZ}`).catch(() => {});
+      // Same server, whatever port it runs on (was hard-coded to 3000)
+      await fetch(`http://127.0.0.1:${Number(process.env.PORT) || 3000}/api/dm/sector_layer?cellId=${targetCellId}&rx=${targetRx}&ry=${targetRy}&z=${targetZ}`)
+        .catch((e) => console.warn(`[party_session] Could not pre-render sector: ${e.message}`));
       layerRes = await pool.query(
         `SELECT * FROM sim_sector_layers
          WHERE cell_id = $1 AND rx = $2 AND ry = $3 AND z_layer = $4 LIMIT 1`,

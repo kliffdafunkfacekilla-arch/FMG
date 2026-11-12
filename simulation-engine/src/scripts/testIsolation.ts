@@ -10,6 +10,21 @@
  * Ollama.
  */
 import pool from "../db/pool.js";
+import zlib from "zlib";
+
+/**
+ * Makes sure a surface tactical map row exists at (cellId, rx, ry), creating a blank one if not.
+ * Tests must not depend on which maps happen to be cached in the live world (they broke when a cleanup
+ * removed the one they relied on). Inside isolateTest() the row disappears again at rollback.
+ */
+export async function ensureFixtureLayer(cellId: number, rx: number, ry: number): Promise<void> {
+  await pool.query(
+    `INSERT INTO sim_sector_layers (cell_id, rx, ry, z_layer, layer_name, compressed_terrain, props, npcs, features)
+     VALUES ($1, $2, $3, 0, 'Test fixture', $4, '[]', '[]', '{}')
+     ON CONFLICT (cell_id, rx, ry, z_layer) DO NOTHING`,
+    [cellId, rx, ry, zlib.gzipSync(Buffer.alloc(256 * 256))]
+  );
+}
 
 export async function isolateTest(): Promise<() => Promise<void>> {
   process.env.STORY_LLM = "off";

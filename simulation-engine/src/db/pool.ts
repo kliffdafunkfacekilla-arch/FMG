@@ -1,6 +1,9 @@
 import { Pool } from "pg";
 import dotenv from "dotenv";
-dotenv.config();
+import path from "path";
+// Load simulation-engine/.env by this file's location (dist/db/pool.js), not the current folder: started
+// from the repo root, a bare dotenv.config() found no .env and DATABASE_URL / GEMINI_API_KEY were ignored.
+dotenv.config({ path: path.resolve(__dirname, "..", "..", ".env") });
 
 // Create a Postgres Pool
 const pool = new Pool({

@@ -182,7 +182,7 @@ export class BrutalGameMaster {
       const burgRes = await this.pool.query(
         `SELECT b.burg_id, b.name, b.food, b.wealth, b.unrest, b.crime_rate 
          FROM sim_burg_economy b
-         ORDER BY ABS(b.cell_id - $1) ASC LIMIT 1`,
+         ORDER BY cell_dist2(b.cell_id, $1) ASC LIMIT 1`,
         [cellId]
       );
       if (burgRes.rows.length > 0) {
@@ -484,7 +484,7 @@ export class BrutalGameMaster {
       const prompt = `LIVE SIMULATION CONTEXT:
 Sector Coordinates: (${rx}, ${ry}) in Cell ${cellId}
 Biome: ${context.biomeName || "Wilderness"}
-Active Cosmic Chaos Flow: ${context.activeFlow || "Ordo"} (Cruorbus Phase: ${context.moonPhase || "Gibbous"})
+Active Cosmic Chaos Flow: ${context.activeFlow || "Ordo"} (Cruorbus Phase: ${context.moonPhase || "The Halo"})
 Dragon Domain: ${context.dragonDomain || "Stagus"}
 Sovereignty: ${context.factionOwner || "Frontier Wilds"}
 Warzone Status: ${context.isWarzone ? "Active Warzone Frontline" : "Peacetime Border"}
@@ -2163,7 +2163,7 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
           `UPDATE sim_burg_economy
            SET crime_rate = GREATEST(0, COALESCE(crime_rate, 20) - 3),
                unrest = GREATEST(0, COALESCE(unrest, 10) - 2)
-           WHERE cell_id = $1 OR burg_id = (SELECT burg_id FROM sim_burg_economy ORDER BY ABS(cell_id - $1) ASC LIMIT 1)`,
+           WHERE cell_id = $1 OR burg_id = (SELECT burg_id FROM sim_burg_economy ORDER BY cell_dist2(cell_id, $1) ASC LIMIT 1)`,
           [cellId]
         );
         await this.pool.query(
@@ -2188,7 +2188,7 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
           `UPDATE sim_fringe_lairs
            SET manpower = GREATEST(0, manpower - 4),
                heat = LEAST(100, heat + 8)
-           WHERE id = (SELECT id FROM sim_fringe_lairs ORDER BY ABS(cell_id - $1) ASC LIMIT 1)`,
+           WHERE id = (SELECT id FROM sim_fringe_lairs ORDER BY cell_dist2(cell_id, $1) ASC LIMIT 1)`,
           [cellId]
         );
         await this.pool.query(
@@ -2323,7 +2323,7 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
               `UPDATE sim_burg_economy
                SET food = COALESCE(food, 0) + $1,
                    unrest = GREATEST(0, COALESCE(unrest, 0) - 1)
-               WHERE cell_id = $2 OR burg_id = (SELECT burg_id FROM sim_burg_economy ORDER BY ABS(cell_id - $2) ASC LIMIT 1)`,
+               WHERE cell_id = $2 OR burg_id = (SELECT burg_id FROM sim_burg_economy ORDER BY cell_dist2(cell_id, $2) ASC LIMIT 1)`,
               [foodUnits, cellId]
             );
             if (this.activeContext?.factionOwner) {
@@ -2335,7 +2335,7 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
             await this.pool.query(
               `UPDATE sim_industrial_stockpiles
                SET raw_herbs = COALESCE(raw_herbs, 0) + $1
-               WHERE burg_id = (SELECT burg_id FROM sim_burg_economy ORDER BY ABS(cell_id - $2) ASC LIMIT 1)`,
+               WHERE burg_id = (SELECT burg_id FROM sim_burg_economy ORDER BY cell_dist2(cell_id, $2) ASC LIMIT 1)`,
               [matsSold, cellId]
             );
             await this.pool.query(
@@ -2362,7 +2362,7 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
         await this.pool.query(
           `UPDATE sim_sacred_groves
            SET seal_strength = LEAST(100, seal_strength + 4)
-           WHERE cell_id = $1 OR cell_id = (SELECT cell_id FROM sim_sacred_groves ORDER BY ABS(cell_id - $1) ASC LIMIT 1)`,
+           WHERE cell_id = $1 OR cell_id = (SELECT cell_id FROM sim_sacred_groves ORDER BY cell_dist2(cell_id, $1) ASC LIMIT 1)`,
           [cellId]
         );
         await this.pool.query(
@@ -2402,7 +2402,7 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
         const groveUpdate = await this.pool.query(
           `UPDATE sim_sacred_groves
            SET seal_strength = GREATEST(0, seal_strength - $1)
-           WHERE cell_id = $2 OR cell_id = (SELECT cell_id FROM sim_sacred_groves ORDER BY ABS(cell_id - $2) ASC LIMIT 1)
+           WHERE cell_id = $2 OR cell_id = (SELECT cell_id FROM sim_sacred_groves ORDER BY cell_dist2(cell_id, $2) ASC LIMIT 1)
            RETURNING dragon_name, power_domain, seal_strength`,
           [sealDmg, cellId]
         );
@@ -2450,7 +2450,7 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
           await this.pool.query(
             `UPDATE sim_burg_economy
              SET unrest = LEAST(100, COALESCE(unrest, 0) + 25)
-             WHERE cell_id = $1 OR burg_id IN (SELECT burg_id FROM sim_burg_economy ORDER BY ABS(cell_id - $1) ASC LIMIT 3)`,
+             WHERE cell_id = $1 OR burg_id IN (SELECT burg_id FROM sim_burg_economy ORDER BY cell_dist2(cell_id, $1) ASC LIMIT 3)`,
             [cellId]
           );
         }

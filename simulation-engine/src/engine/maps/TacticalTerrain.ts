@@ -22,7 +22,7 @@ import { SimplexNoise } from "../../regional/SimplexNoise";
  * Bump when the surface generator changes how a map looks. Cached regional surface maps
  * (sim_sector_layers, features.terrainVersion) older than this are regenerated on next view.
  */
-export const TERRAIN_VERSION = 5;
+export const TERRAIN_VERSION = 6;
 
 /** Surface tile ids. 0-12 existed before; 13+ are the natural-ground tiles added here. */
 export const TILE = {

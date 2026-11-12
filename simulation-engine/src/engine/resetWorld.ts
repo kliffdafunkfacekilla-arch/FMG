@@ -188,6 +188,7 @@ CREATE TABLE sim_events (
   lore_date  TEXT,
   burg_id    INT,
   faction_id INT,
+  outlaw_id  INT,
   cell_id    INT,
   z_layer    INT  DEFAULT 0
 );

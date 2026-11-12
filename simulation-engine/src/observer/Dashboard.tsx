@@ -1183,7 +1183,7 @@ export function Dashboard() {
       if (!selectedFringe) return;
       const cleanKeyword = selectedFringe.name.replace(/^The\s+/, "");
       try {
-        const res = await fetch(`/api/observer/filtered_events?faction_id=${selectedFringe.id}&keyword=${encodeURIComponent(cleanKeyword)}&limit=150`);
+        const res = await fetch(`/api/observer/filtered_events?outlaw_id=${selectedFringe.id}&keyword=${encodeURIComponent(cleanKeyword)}&limit=150`);
         if (res.ok) {
           const data = await res.json();
           setFringeEvents(data.events || []);

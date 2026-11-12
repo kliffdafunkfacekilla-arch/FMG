@@ -41,6 +41,67 @@ export interface WardDistrictInput {
   paragons?: any[];
 }
 
+// Street mask of the district most recently generated (for deriveWardLayers)
+let lastStreetMask: Uint8Array | null = null;
+
+/**
+ * The district's underground and upper levels, derived from its surface so the three line up.
+ * Every tile of a town used to share the whole-town cellars and ramparts.
+ *   z = -1: sewer tunnels (with a water channel) under the streets, cellars under buildings, bedrock elsewhere
+ *   z = +1: rooftops over buildings, battlements and a wall-walk on the town wall, canopy over trees, open sky
+ * Tile ids follow the viewer's palettes for those levels (TacticalSandboxModal.tsx).
+ */
+export function deriveWardLayers(surface: SectorMapResult, input: WardDistrictInput): { minus1: SectorMapResult; plus1: SectorMapResult } {
+  const { cellId, rx, ry } = input;
+  const burgName = input.burg?.name || `Burg #${input.burg?.burg_id}`;
+  const street = lastStreetMask && lastStreetMask.length === SIZE * SIZE ? lastStreetMask : new Uint8Array(SIZE * SIZE);
+  const s = surface.grid;
+  const under = new Uint8Array(SIZE * SIZE).fill(6); // bedrock
+  const over = new Uint8Array(SIZE * SIZE); // open sky
+  const at = (g: Uint8Array, x: number, y: number) => (x < 0 || y < 0 || x >= SIZE || y >= SIZE ? -1 : g[y * SIZE + x]!);
+
+  for (let y = 0; y < SIZE; y++) for (let x = 0; x < SIZE; x++) {
+    const k = y * SIZE + x, t = s[k]!;
+    // Underground
+    if (street[k]) {
+      const across = [at(street, x - 1, y), at(street, x + 1, y), at(street, x, y - 1), at(street, x, y + 1)].filter(v => v === 1).length;
+      under[k] = across === 4 && (x + y) % 3 !== 0 ? 5 : 1; // channel down the middle, flagstone walkways
+    } else if (t === TILE.ROOF || t === TILE.FIRE) {
+      under[k] = 4; // cellar floor
+    } else if (t === TILE.ROCK && [at(s, x - 1, y), at(s, x + 1, y), at(s, x, y - 1), at(s, x, y + 1)].some(n => n === TILE.ROOF)) {
+      under[k] = 2; // cellar wall
+    }
+    // Upper level
+    if (t === TILE.ROOF || t === TILE.FIRE) over[k] = 7;
+    else if (t === TILE.ROCK) {
+      const nearRoof = [at(s, x - 1, y), at(s, x + 1, y), at(s, x, y - 1), at(s, x, y + 1)].some(n => n === TILE.ROOF);
+      over[k] = nearRoof ? 4 : 6; // parapet on a building, battlements on the town wall
+    } else if (t === TILE.TREES || t === TILE.CONIFER || t === TILE.JUNGLE) over[k] = 1;
+    else if (t === TILE.BRIDGE) over[k] = 3;
+  }
+  // Wall-walk: the inner edge of the battlements
+  for (let y = 1; y < SIZE - 1; y++) for (let x = 1; x < SIZE - 1; x++) {
+    const k = y * SIZE + x;
+    if (over[k] === 0 && s[k] !== TILE.ROCK && [over[k - 1], over[k + 1], over[k - SIZE], over[k + SIZE]].includes(6)) over[k] = 8;
+  }
+
+  const hub = (surface.props.find(p => p.id.startsWith("prop_drain_"))?.pos || [128, 128]) as [number, number];
+  const base = { cellId, rx, ry, burgId: input.burg?.burg_id, ward: surface.features?.ward, terrainVersion: TERRAIN_VERSION, derivedFromSurface: true };
+  const minus1: SectorMapResult = {
+    grid: under, compressed: zlib.gzipSync(Buffer.from(under)), npcs: [], poiType: `${surface.poiType}_UNDER`,
+    name: `${burgName} - ${surface.features?.ward ? String(surface.features.ward).charAt(0) + String(surface.features.ward).slice(1).toLowerCase() : "Town"} Sewers & Cellars (Subterranean Z=-1 r[${rx}, ${ry}])`,
+    props: [{ id: `prop_sewer_ladder_${cellId}_${rx}_${ry}`, name: "Rusted Ladder to the Drain Grate (Surface Exit)", pos: hub, tags: ["type:portal", "material:iron", "stairs_up", "climbable"], hp: 200, maxHp: 200, description: "Iron rungs slick with damp, climbing to the street grate above." }],
+    features: { ...base, z: -1 },
+  };
+  const plus1: SectorMapResult = {
+    grid: over, compressed: zlib.gzipSync(Buffer.from(over)), npcs: [], poiType: `${surface.poiType}_ROOFS`,
+    name: `${burgName} - Rooftops & Wall-Walk (Upper Z=+1 r[${rx}, ${ry}])`,
+    props: [{ id: `prop_roof_hatch_${cellId}_${rx}_${ry}`, name: "Roof Hatch (Stairs Down)", pos: hub, tags: ["type:portal", "material:wood", "stairs_down", "openable"], hp: 120, maxHp: 120, description: "A weathered trapdoor between chimney stacks, latched from below." }],
+    features: { ...base, z: 1 },
+  };
+  return { minus1, plus1 };
+}
+
 export function generateWardDistrictMap(input: WardDistrictInput): SectorMapResult {
   const { burg, factionName, cellId, rx, ry, biomeId, hood } = input;
   const ward: Ward = (["RESIDENTIAL", "MARKET", "ARTISAN", "CITADEL"].includes(input.ward) ? input.ward : "RESIDENTIAL") as Ward;
@@ -323,6 +384,7 @@ export function generateWardDistrictMap(input: WardDistrictInput): SectorMapResu
     });
   }
 
+  lastStreetMask = street;
   return {
     grid,
     compressed: zlib.gzipSync(Buffer.from(grid)),

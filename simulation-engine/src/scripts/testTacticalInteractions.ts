@@ -1,5 +1,5 @@
 import pool from "../db/pool.js";
-import { isolateTest } from "./testIsolation.js";
+import { isolateTest, ensureFixtureLayer } from "./testIsolation.js";
 import { getAvailableActionsForTarget } from "../engine/rpg/TagRegistry.js";
 import { TagMatrixEngine, TaggedObject } from "../engine/rpg/TagMatrixEngine.js";
 import { resolveThreadByParty } from "../engine/questChainEngine.js";
@@ -230,6 +230,7 @@ async function testTacticalInteractions() {
 
   // Clean up previous test threads
   await pool.query(`DELETE FROM sim_threads WHERE cell_id = $1 AND rx = $2 AND ry = $3`, [testCellId, testRx, testRy]);
+  await ensureFixtureLayer(testCellId, testRx, testRy);
 
   // Seed sector layer with real NPC and prop
   await pool.query(

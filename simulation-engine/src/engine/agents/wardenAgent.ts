@@ -67,7 +67,7 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
           AND allegiance_status = 'CIVILIAN'
           AND settlement_id IN (
             SELECT burg_id FROM sim_burg_economy
-            ORDER BY ABS(cell_id - $1) ASC
+            ORDER BY cell_dist2(cell_id, $1) ASC
             LIMIT 10
           )
         ORDER BY 
@@ -227,15 +227,47 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
 
   const yearEnded = isYearEnd(tick);
 
+  // Staffing: ~6 wardens per prison. Wardens used to default to prison 1 (`|| 1`), and those spawned
+  // by flow surges carried a cultist state this agent never handled, so every warden stood frozen at
+  // prison 1 while the other eleven seals failed. Unknown states fall back to patrol, and patrolling
+  // wardens of an over-staffed prison move to the least-staffed one.
+  const HANDLED_STATES = new Set(['SPIRE_CRYPT_VIGIL', 'PILGRIMAGE_TO_SPIRE', 'TRAVELING_TO_SPIRE_TOMB', 'PATROLLING_FLOW', 'DEFENDING_SEAL', 'HUNTING_CULTS']);
+  const groveIds: number[] = (await client.query("SELECT id FROM sim_sacred_groves ORDER BY id")).rows.map((r: any) => Number(r.id));
+  const staffing = new Map<number, number>(groveIds.map(g => [g, 0]));
+  const fieldWardens = wardensRes.rows.filter((w: any) => w.state !== 'SPIRE_CRYPT_VIGIL');
+  for (const w of fieldWardens) {
+    const g = Number(w.target_grove_id);
+    if (staffing.has(g)) staffing.set(g, staffing.get(g)! + 1);
+  }
+  const perGrove = Math.max(1, Math.ceil(fieldWardens.length / Math.max(1, groveIds.length)));
+  const leastStaffedGrove = (): number | null => {
+    let best: number | null = null;
+    for (const [g, n] of staffing) if (best === null || n < staffing.get(best)!) best = g;
+    return best;
+  };
+  const reassign = (from: number | null): number | null => {
+    if (from !== null && staffing.has(from)) staffing.set(from, staffing.get(from)! - 1);
+    const to = leastStaffedGrove();
+    if (to !== null) staffing.set(to, staffing.get(to)! + 1);
+    return to;
+  };
+
   for (const w of wardensRes.rows) {
     // Wardens age 1 year per in-game year (DAYS_PER_YEAR days), not 1 year per day!
     const age = yearEnded ? ((w.age_ticks || 0) + 1) : (w.age_ticks || 0);
     let corruption = w.corruption || 0;
-    let state = w.state || 'PATROLLING_FLOW';
+    let state = HANDLED_STATES.has(w.state) ? w.state : 'PATROLLING_FLOW';
     let subRole = w.sub_role || 'Warden_Sentinel';
     let locCellId = w.location_cell_id || CONVERGENCE_SPIRE_CELL;
-    let targetCellId = w.target_cell_id;
-    let targetGroveId = w.target_grove_id || 1;
+    let targetCellId = state === w.state ? w.target_cell_id : null;
+    let targetGroveId: number | null = staffing.has(Number(w.target_grove_id)) ? Number(w.target_grove_id) : null;
+    if (state !== 'SPIRE_CRYPT_VIGIL' && state !== 'PILGRIMAGE_TO_SPIRE') {
+      const crowded = targetGroveId !== null && staffing.get(targetGroveId)! > perGrove && state === 'PATROLLING_FLOW';
+      if (targetGroveId === null || crowded) {
+        targetGroveId = reassign(targetGroveId);
+        targetCellId = null;
+      }
+    }
     const temper = w.personality_temper || 'STOIC';
     const citizenName = w.citizen_name || w.name;
     const profession = w.profession || 'Guardian';
@@ -267,8 +299,8 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
         // Arrival at the Spire: Take the sacred Grey Vow and receive Aether-Tech Sigil equipment
         state = 'PATROLLING_FLOW';
         subRole = 'Warden_Sentinel';
-        // Assign to a flow corridor
-        targetGroveId = targetGroveId || (Math.floor(Math.random() * 12) + 1);
+        // Assign to the flow corridor of the least-staffed prison
+        targetGroveId = reassign(null);
 
         // Find a starting waypoint along assigned flow
         const flowWards = await client.query(
@@ -362,14 +394,15 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
     if (state === 'PATROLLING_FLOW') {
       // Priority Grove Defense Check: Wardens sense tremors along the Chaos Flows when a sacred prison seal is threatened
       if (Math.random() < 0.40) {
+        // Own prison first if it is in danger, else the weakest one (all 72 used to rush the same seal)
         const endangeredGrove = await client.query(`
           SELECT g.id, g.cell_id, g.dragon_name, g.seal_strength
           FROM sim_sacred_groves g
           WHERE g.seal_strength < 85
              OR g.id IN (SELECT target_grove_id FROM sim_agents WHERE role = 'Cultist' AND state = 'BESIEGING_SEAL')
-          ORDER BY g.seal_strength ASC
+          ORDER BY (g.id = $1) DESC, g.seal_strength ASC
           LIMIT 1
-        `);
+        `, [targetGroveId ?? 0]);
         if (endangeredGrove.rowCount > 0) {
           state = 'DEFENDING_SEAL';
           targetGroveId = endangeredGrove.rows[0].id;

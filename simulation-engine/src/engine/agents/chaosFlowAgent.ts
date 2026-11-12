@@ -1,6 +1,7 @@
-import { MERCY_ALIGNMENT, NIGHTMARE_ALIGNMENT } from "../canon/calendar.js";
+import { DAYS_PER_WEEK, MERCY_ALIGNMENT, NIGHTMARE_ALIGNMENT } from "../canon/calendar.js";
 import { PoolClient, Pool } from "pg";
 import { tagSectorEnvironment } from "./citizenPersonaHelper";
+import { removeCellTags } from "../cellTags.js";
 
 /** One flow's fixed identity and endpoints, as seeded into sim_chaos_flows by the map ingest. */
 export interface ChaosFlowAnchor {
@@ -67,14 +68,74 @@ export function parseChaosFlowAnchor(row: any): ChaosFlowAnchor | null {
   };
 }
 
+/** Environmental tags a flow leaves on the cells along its banks, by Power. */
+const FLOW_DOMAIN_TAGS: Record<string, string[]> = {
+  Mass: ["#GraviticAnomaly", "#DenseIronwood", "#BasaltFaultLine"],
+  Nexus: ["#SpatialFoldMirage", "#DimensionalFissure", "#PhaseSlip"],
+  Ordo: ["#TemporalStasisFrost", "#CrystallineLichen", "#StasisField"],
+  Lex: ["#IronRunicResonance", "#BindingLey", "#DecreeAura"],
+  Motus: ["#KineticGaleRifts", "#SquallWarpedTerrain", "#HowlingLeys"],
+  Flux: ["#BiomanticMutationZone", "#ChimericEcology", "#VolatileAether"],
+  Vita: ["#BloodBloomOvergrowth", "#ApexPredatorFrenzy", "#PrimevalHypergrowth"],
+  Ratio: ["#ClockworkFaultLines", "#HarmonicHum", "#GeometricResonance"],
+  Lux: ["#BlindingPhosphorFlats", "#RadiantEmberFlora", "#SolarAether"],
+  Omen: ["#EclipseShadowWash", "#OmenBlight", "#AstralWhispers"],
+  Aura: ["#PhantasmagoricMists", "#HallucinogenicSpores", "#VioletAura"],
+  Anumis: ["#SoulAshMiasma", "#RestlessShades", "#NecroticChill"]
+};
+
+/** A flow's banks: anything within this many map px of its current course (meander + band). */
+const FLOW_CORRIDOR = 250;
+
+function distToPolyline(x: number, y: number, pts: Array<{ x: number; y: number }>): number {
+  let best = Infinity;
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const a = pts[i]!, b = pts[i + 1]!;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / len2));
+    best = Math.min(best, Math.hypot(x - (a.x + t * dx), y - (a.y + t * dy)));
+  }
+  return best;
+}
+
+/**
+ * Flows meander, but the tags and chaos-ley zones they left were never cleared, so cells kept them
+ * long after the flow moved away. Weekly, remove a flow's marks from cells now off its corridor.
+ */
+async function pruneDriftedFlowMarks(client: PoolClient | Pool, flows: LiveChaosFlowState[]): Promise<number> {
+  let pruned = 0;
+  for (const flow of flows) {
+    if (!flow.waypoints?.length) continue;
+    const leyTag = `#DragonLeys_${flow.dragonName}`;
+    const marked = await client.query(
+      `SELECT c.id, c.center_x, c.center_y FROM sim_cells c
+       WHERE c.id IN (SELECT cell_id FROM sim_cell_tags WHERE z_layer = 0 AND tags ? $1)
+          OR c.id IN (SELECT cell_id FROM sim_chaos_zones WHERE type = $2)`,
+      [leyTag, `${flow.elementalPower.toUpperCase()}_CHAOS_LEYS`]
+    );
+    for (const cell of marked.rows) {
+      if (distToPolyline(Number(cell.center_x), Number(cell.center_y), flow.waypoints) <= FLOW_CORRIDOR) continue;
+      await removeCellTags(client, Number(cell.id), [leyTag, ...(FLOW_DOMAIN_TAGS[flow.elementalPower] || [])]);
+      await client.query(`DELETE FROM sim_chaos_zones WHERE cell_id = $1 AND type = $2`, [cell.id, `${flow.elementalPower.toUpperCase()}_CHAOS_LEYS`]);
+      pruned++;
+    }
+  }
+  // Shores with no flow left beside them lose the shore tag
+  await client.query(`
+    UPDATE sim_cell_tags SET tags = COALESCE((SELECT jsonb_agg(e) FROM jsonb_array_elements_text(tags) e WHERE e <> '#ChaosFlowShores'), '[]'::jsonb)
+    WHERE z_layer = 0 AND tags ? '#ChaosFlowShores'
+      AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(tags) e WHERE e LIKE '#DragonLeys\\_%')`);
+  return pruned;
+}
+
 /** Surge modifier from the blood moon's phase. */
 export function lunarSurgeModifier(moonPhase: string): number {
   if (moonPhase === NIGHTMARE_ALIGNMENT) return 1.2; // Reality-tearing flood
   if (moonPhase === "The Open Eye") return 0.85; // The Bleed: peak chaos surge
   if (moonPhase === MERCY_ALIGNMENT) return -0.45; // Wound shadowed, chaos damped
   if (moonPhase === "The Halo") return -0.2; // The mild seasons
-  if (moonPhase.includes("Empty") || moonPhase.includes("Waxing")) return 0.2;
-  return 0.0;
+  return 0.0; // The Leering, The Receding, the Shadowfall Eclipse: no modifier
 }
 
 /**
@@ -219,6 +280,11 @@ export async function runChaosFlowAgent(
     ).catch(() => {});
   }
 
+  // 3b. Weekly: clear the marks flows left on cells they have since meandered away from
+  if (tick % DAYS_PER_WEEK === 0) {
+    await pruneDriftedFlowMarks(client, liveFlows);
+  }
+
   // 4. Update Ambient Chaos & Attract Cultists / Wardens along Flow Banks
   if (tick % 2 === 0) {
     try {
@@ -252,24 +318,10 @@ export async function runChaosFlowAgent(
               ).catch(() => {});
 
               // Apply primordial chaos environmental tags to the sector layer
-              const domainTags: Record<string, string[]> = {
-                Mass: ["#GraviticAnomaly", "#DenseIronwood", "#BasaltFaultLine"],
-                Nexus: ["#SpatialFoldMirage", "#DimensionalFissure", "#PhaseSlip"],
-                Ordo: ["#TemporalStasisFrost", "#CrystallineLichen", "#StasisField"],
-                Lex: ["#IronRunicResonance", "#BindingLey", "#DecreeAura"],
-                Motus: ["#KineticGaleRifts", "#SquallWarpedTerrain", "#HowlingLeys"],
-                Flux: ["#BiomanticMutationZone", "#ChimericEcology", "#VolatileAether"],
-                Vita: ["#BloodBloomOvergrowth", "#ApexPredatorFrenzy", "#PrimevalHypergrowth"],
-                Ratio: ["#ClockworkFaultLines", "#HarmonicHum", "#GeometricResonance"],
-                Lux: ["#BlindingPhosphorFlats", "#RadiantEmberFlora", "#SolarAether"],
-                Omen: ["#EclipseShadowWash", "#OmenBlight", "#AstralWhispers"],
-                Aura: ["#PhantasmagoricMists", "#HallucinogenicSpores", "#VioletAura"],
-                Anumis: ["#SoulAshMiasma", "#RestlessShades", "#NecroticChill"]
-              };
               const flowTags = [
                 "#ChaosFlowShores",
                 `#DragonLeys_${flow.dragonName}`,
-                ...(domainTags[flow.elementalPower] || ["#PrimordialAether"])
+                ...(FLOW_DOMAIN_TAGS[flow.elementalPower] || ["#PrimordialAether"])
               ];
               await tagSectorEnvironment(client, cell.id, flowTags, 0);
 
@@ -278,20 +330,23 @@ export async function runChaosFlowAgent(
                 if (roll < 0.50) {
                   const cCount = await client.query("SELECT COUNT(*) as cnt FROM sim_agents WHERE role = 'Cultist'");
                   if (parseInt(cCount.rows[0].cnt) < 288) {
+                    // Bound for this flow's own prison (flow_id is the prison/grove id)
                     await client.query(
-                      `INSERT INTO sim_agents (name, role, sub_role, location_cell_id, state, corruption, age_ticks, active_plot)
-                       VALUES ($1, 'Cultist', 'Cultist_Pilgrim', $2, 'TRAVELING_TO_SEAL', 20, 0, 'Communing with chaotic aether along flow banks')`,
-                      [`Flow Cabal of ${flow.dragonName}`, cell.id]
-                    ).catch(() => {});
+                      `INSERT INTO sim_agents (name, role, sub_role, location_cell_id, target_grove_id, state, corruption, age_ticks, active_plot)
+                       VALUES ($1, 'Cultist', 'Cultist_Pilgrim', $2, $3, 'TRAVELING_TO_SEAL', 20, 0, 'Communing with chaotic aether along flow banks')`,
+                      [`Flow Cabal of ${flow.dragonName}`, cell.id, flow.flowId]
+                    );
                   }
                 } else if (roll < 0.80) {
                   const wCount = await client.query("SELECT COUNT(*) as cnt FROM sim_agents WHERE role = 'Warden'");
                   if (parseInt(wCount.rows[0].cnt) < 72) {
+                    // A warden state the warden agent handles (it has no TRAVELING_TO_SEAL: that is a cultist state,
+                    // and wardens spawned with it stood frozen forever), patrolling this flow's prison.
                     await client.query(
-                      `INSERT INTO sim_agents (name, role, sub_role, location_cell_id, state, corruption, age_ticks, active_plot)
-                       VALUES ($1, 'Warden', 'Warden_Sentinel', $2, 'TRAVELING_TO_SEAL', 5, 0, 'Patrolling primordial flow perimeter')`,
-                      [`Grey Warden Flow-Patrol`, cell.id]
-                    ).catch(() => {});
+                      `INSERT INTO sim_agents (name, role, sub_role, location_cell_id, target_grove_id, state, corruption, age_ticks, active_plot)
+                       VALUES ($1, 'Warden', 'Warden_Sentinel', $2, $3, 'PATROLLING_FLOW', 5, 0, 'Patrolling primordial flow perimeter')`,
+                      [`Grey Warden Flow-Patrol`, cell.id, flow.flowId]
+                    );
                   }
                 } else {
                   const zCount = await client.query("SELECT COUNT(*) as cnt FROM sim_agents WHERE role = 'Chain_Zealot'");
@@ -300,7 +355,7 @@ export async function runChaosFlowAgent(
                       `INSERT INTO sim_agents (name, role, sub_role, location_cell_id, state, drained_power, age_ticks, active_plot)
                        VALUES ($1, 'Chain_Zealot', 'Chain_Inquisitor', $2, 'WITCH_HUNTING', 15, 0, 'Hunting wild sparks drawn to the flow')`,
                       [`Null-Chain Outriders`, cell.id]
-                    ).catch(() => {});
+                    );
                   }
                 }
               }

@@ -195,22 +195,30 @@ async function runCanonMandateTests() {
   // -------------------------------------------------------------
   try {
     process.stdout.write("Test 5: Pure Simulation Boundary... ");
-    let simDir = path.resolve(process.cwd(), 'src', 'simulation');
-    if (!fs.existsSync(simDir)) {
-      simDir = path.resolve(process.cwd(), 'simulation-engine', 'src', 'simulation');
-    }
-    if (!fs.existsSync(simDir)) {
-      simDir = path.resolve(__dirname, '..', '..', 'src', 'simulation');
-    }
-    const files = fs.readdirSync(simDir).filter(f => f.endsWith('.ts'));
+    // The simulation is src/engine (src/simulation held one dead file and is gone). Every module in it,
+    // recursively, must import nothing from the UI: no React/Vite/DOM packages and no observer code.
+    const simDir = path.resolve(__dirname, '..', '..', 'src', 'engine');
+    const files: string[] = [];
+    const walk = (d: string) => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const p = path.join(d, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (e.name.endsWith('.ts')) files.push(p);
+      }
+    };
+    walk(simDir);
+    if (files.length < 20) throw new Error(`only ${files.length} engine modules found under ${simDir}`);
 
     const forbiddenImports = ['react', 'react-dom', 'vite', 'canvas', 'window', 'document'];
     for (const file of files) {
-      const content = fs.readFileSync(path.join(simDir, file), 'utf8');
+      const content = fs.readFileSync(file, 'utf8');
       for (const forbidden of forbiddenImports) {
         if (content.includes(`from '${forbidden}'`) || content.includes(`from "${forbidden}"`)) {
-          throw new Error(`Simulation module ${file} imports forbidden UI package '${forbidden}'!`);
+          throw new Error(`Simulation module ${path.relative(simDir, file)} imports forbidden UI package '${forbidden}'!`);
         }
+      }
+      if (/from ['"][^'"]*\/observer\//.test(content)) {
+        throw new Error(`Simulation module ${path.relative(simDir, file)} imports dashboard (observer) code!`);
       }
     }
     console.log("✅ PASSED");

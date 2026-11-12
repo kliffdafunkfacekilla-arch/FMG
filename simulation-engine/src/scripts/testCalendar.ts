@@ -27,7 +27,7 @@ const PHASES = new Set(["The Leering", "The Open Eye", "The Receding", "The Halo
 const LEGACY_NAMES = [
   "The Bloom", "The High Sun", "The Harvest", "The Withering", "The Deep Cold", "The Thaw", "The Awakening", "The Roaring",
   "Rimefall", "Deep Chill", "The Green", "High Bloom", "Rust Harvest", "The Bitter Void", "The Shadow Eclipse",
-  "Waxing Blood", "Full Blood", "FULL_BLOOD", "FullBlood", "Shadow Week",
+  "Waxing Blood", "Full Blood", "FULL_BLOOD", "FullBlood", "Shadow Week", "Gibbous", "Waxing",
 ];
 
 function check(cond: unknown, msg: string): asserts cond {

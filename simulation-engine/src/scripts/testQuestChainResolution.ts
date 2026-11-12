@@ -1,5 +1,5 @@
 import pool from "../db/pool.js";
-import { isolateTest } from "./testIsolation.js";
+import { isolateTest, ensureFixtureLayer } from "./testIsolation.js";
 import {
   ensureThreadTable,
   createThread
@@ -20,7 +20,8 @@ async function testQuestChainResolution() {
   if (!realAgent) throw new Error("No real agent found for test!");
   const realAgentId = String(realAgent.id);
 
-  const layerRowRes = await pool.query(`SELECT cell_id, rx, ry, npcs, props FROM sim_sector_layers WHERE z_layer = 0 LIMIT 1`);
+  await ensureFixtureLayer(13408, 50, 50);
+  const layerRowRes = await pool.query(`SELECT cell_id, rx, ry, npcs, props FROM sim_sector_layers WHERE cell_id = 13408 AND rx = 50 AND ry = 50 AND z_layer = 0`);
   if (layerRowRes.rows.length === 0) throw new Error("No sector layer found in sim_sector_layers!");
   const targetCellId = Number(layerRowRes.rows[0].cell_id);
   const targetRx = Number(layerRowRes.rows[0].rx);

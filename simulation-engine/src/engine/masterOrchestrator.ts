@@ -21,10 +21,31 @@ import { backfillBlankPersonas } from "./agents/citizenPersonaHelper";
 import { initSpatialCache } from "./agents/agentMovementHelper";
 import { stepActiveRegions } from "../api/regionalRouter";
 import { DAYS_PER_MONTH } from "./canon/calendar.js";
+import { runMarketAgent } from "./economy/marketAgent.js";
+import { runFactionCollapse } from "./agents/factionCollapse.js";
+import { applySchemaPatches } from "../db/schemaPatches.js";
+
+let schemaPatched = false;
 
 export async function executeMasterTick(): Promise<{status: string, currentTick: number}> {
     const client = await pool.connect();
+    // Agents swallow many query errors. In a transaction the first failed query aborts everything after
+    // it, and COMMIT then silently becomes ROLLBACK. Record every failure so a lost tick is never silent.
+    const failedQueries: string[] = [];
+    const rawQuery = client.query.bind(client) as (...args: any[]) => Promise<any>;
+    (client as any).query = (...args: any[]) => {
+        const p = rawQuery(...args);
+        if (p && typeof p.catch === 'function') {
+            p.catch((err: any) => {
+                const sql = typeof args[0] === 'string' ? args[0] : args[0]?.text || '';
+                failedQueries.push(`${err?.message} :: ${String(sql).replace(/\s+/g, ' ').trim().slice(0, 160)}`);
+            });
+        }
+        return p;
+    };
     try {
+        // Scripts tick without the server, so make sure added columns exist (once per process)
+        if (!schemaPatched) { await applySchemaPatches(client); schemaPatched = true; }
         await client.query('BEGIN');
         
         // Ensure in-memory spatial cache is initialized once for sub-microsecond agent navigation
@@ -33,11 +54,10 @@ export async function executeMasterTick(): Promise<{status: string, currentTick:
         // Ensure all active sim_agents retain living citizen personas
         await backfillBlankPersonas(client);
         
-        // Fetch current tick
+        // Fetch current tick: the calendar is the only clock (an event stamped in the future used to make
+        // the whole world jump ahead, because the highest event tick counted too)
         const calTickRes = await client.query('SELECT COALESCE(MAX(tick), 0) as t FROM sim_calendar');
-        const eventTickRes = await client.query('SELECT COALESCE(MAX(tick), 0) as t FROM sim_events');
-        const maxTick = Math.max(Number(calTickRes.rows[0]?.t || 0), Number(eventTickRes.rows[0]?.t || 0));
-        const tick = maxTick + 1;
+        const tick = Number(calTickRes.rows[0]?.t || 0) + 1;
 
         // 1. Calendar
         const cal = await runCalendarAgent(client, tick);
@@ -67,7 +87,8 @@ export async function executeMasterTick(): Promise<{status: string, currentTick:
         // 4. Local Paragon AI
         await runLocalParagonAgent(client, tick, loreDate);
 
-        // 5. Faction Planning (Geopolitics)
+        // 5. Faction Planning (Geopolitics): factions with nothing left collapse first
+        await runFactionCollapse(client, tick, loreDate);
         await runFactionPlanningAgent(client, tick, loreDate);
 
         // 5b. Burg Expansion (found new settlements when rich & stable)
@@ -75,6 +96,9 @@ export async function executeMasterTick(): Promise<{status: string, currentTick:
 
         // 5c. Inter-Faction Commodity Trade & Embargo Engine
         await runInterFactionTradeEngine(client, tick, loreDate);
+
+        // 5d. World market: prices follow world stock levels (weekly)
+        await runMarketAgent(client, tick);
 
         // 6. Wardens
         await runWardenAgent(client, tick, loreDate);
@@ -86,7 +110,14 @@ export async function executeMasterTick(): Promise<{status: string, currentTick:
         await runMandateAgent(client, tick, loreDate);
 
         // 8. Underworld Cartels & Autonomous Syndicates
+        // The cartel agent writes its outlaw faction ids into sim_events.faction_id (sovereign ids);
+        // move them to outlaw_id so faction 1 is never both the Avian Empire and the Gilded Compass.
+        const lastEventBeforeCartels = Number((await client.query('SELECT COALESCE(MAX(id), 0) AS m FROM sim_events')).rows[0]?.m) || 0;
         await runCartelAgent(client, tick, loreDate);
+        await client.query(
+            'UPDATE sim_events SET outlaw_id = faction_id, faction_id = NULL WHERE id > $1 AND faction_id IS NOT NULL',
+            [lastEventBeforeCartels]
+        );
 
         // 8b. Grind Canyon Dynamic Chasms (Pre-Cruor Ruins & Dragonstone Diving)
         await runGrindCanyonAgent(client, tick, loreDate);
@@ -126,13 +157,20 @@ export async function executeMasterTick(): Promise<{status: string, currentTick:
             `);
         }
 
-        await client.query('COMMIT');
+        const commit = await client.query('COMMIT');
+        if (failedQueries.length) {
+            console.warn(`[tick ${tick}] ${failedQueries.length} quer${failedQueries.length === 1 ? 'y' : 'ies'} failed and were swallowed by agents:\n  ` + failedQueries.slice(0, 12).join('\n  '));
+        }
+        if (commit?.command === 'ROLLBACK') {
+            throw new Error(`Tick ${tick} was rolled back: a query failed inside the transaction (${failedQueries[0] || 'unknown'})`);
+        }
         return { status: "success", currentTick: tick };
     } catch (e) {
-        await client.query('ROLLBACK');
+        await client.query('ROLLBACK').catch(() => {});
         console.error("Master tick failed:", e);
         throw e;
     } finally {
+        (client as any).query = rawQuery;
         client.release();
     }
 }

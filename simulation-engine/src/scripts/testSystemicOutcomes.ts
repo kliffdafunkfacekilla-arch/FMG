@@ -1,5 +1,5 @@
 import pool from "../db/pool.js";
-import { isolateTest } from "./testIsolation.js";
+import { isolateTest, ensureFixtureLayer } from "./testIsolation.js";
 import {
   ensureThreadTable,
   createThread,
@@ -26,6 +26,7 @@ async function testSystemicOutcomes() {
 
   // Clean up any test threads
   await pool.query(`DELETE FROM sim_threads WHERE cell_id = $1`, [targetCellId]);
+  await ensureFixtureLayer(targetCellId, targetRx, targetRy);
 
   // Reset burg economy baseline
   await pool.query(

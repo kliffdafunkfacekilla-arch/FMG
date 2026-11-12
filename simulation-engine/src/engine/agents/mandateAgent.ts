@@ -118,7 +118,17 @@ export async function runMandateAgent(client: any, tick: number, loreDate: strin
     const ferocityMult = temper === 'VENGEFUL' ? 1.8 : temper === 'BITTER' ? 1.5 : 1.0;
 
     // --- PHASE A: WITCH-HUNTING OUTSIDE BURGS ---
-    if (state === 'WITCH_HUNTING') {
+    // After discharging at a prison the warband is sent home (targetCellId), but nothing ever moved it:
+    // every witch-hunting warband stood at a prison and drained its home burg from afar. Walk home first.
+    const awayFromHome = state === 'WITCH_HUNTING' && targetCellId && locCellId !== targetCellId;
+    if (awayFromHome) {
+      const moveResult = await stepTowardCell(client, locCellId, targetCellId, 65);
+      locCellId = moveResult.nextCellId;
+      if (moveResult.arrived) locCellId = targetCellId;
+    }
+    if (state === 'WITCH_HUNTING' && awayFromHome) {
+      // still on the road home: no hunting this tick
+    } else if (state === 'WITCH_HUNTING') {
       if (Math.random() < 0.65) {
         const stolenSpark = Math.round((Math.floor(Math.random() * 12 + 15)) * ferocityMult);
         drainedPower += stolenSpark;
@@ -160,7 +170,11 @@ export async function runMandateAgent(client: any, tick: number, loreDate: strin
 
     // --- PHASE B: PILGRIMAGE TO DRAGON PRISON ---
     else if (state === 'PILGRIMAGE_TO_SEAL') {
-      if (targetCellId) {
+      if (targetCellId && locCellId === targetCellId) {
+        // Already at the prison (arrival used to be checked only after a move, so warbands that reached
+        // it stayed "on pilgrimage" forever)
+        state = 'DISCHARGING_CHAINS';
+      } else if (targetCellId) {
         const moveResult = await stepTowardCell(client, locCellId, targetCellId, 65);
         locCellId = moveResult.nextCellId;
 
