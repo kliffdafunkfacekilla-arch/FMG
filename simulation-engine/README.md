@@ -117,6 +117,15 @@ This rebuilds `dist/` from scratch and runs every suite in `run-tests.cjs`. The 
 | `testTagMatrixFull` | Fire, water, collapse and lockpicking tag interactions |
 | `testBrutalGMVisual` | The GM's tactical context |
 | `testChaosFlows` | Prison table, flow courses, dragon/Power pairings, live flow rows; no retired dragon names in `src/` |
+| `testThreadActors` | Threads only name actors that exist (rule 7) |
+| `testThreadReactions` | Tag collisions open threads |
+| `testThreadClocks` | Thread clocks escalate and resolve, changing the world |
+| `testQuestChainResolution` | A party resolving a thread changes the world |
+| `testSystemicOutcomes` | Killing, freeing or smuggling a thread's actor each play out differently |
+| `testTacticalInteractions` | Fire, collapse and custody interactions open an emergent thread with a real actor |
+| `testStoryPipeline` | Narrative seeds, world-event threads, managed arcs, the procedural director, the Bleed rule |
+
+The thread suites write while they run, but inside one transaction that is rolled back (`src/scripts/testIsolation.ts`) with LLM calls switched off (`STORY_LLM=off`), so they never change the live world or send data to Gemini or Ollama. `testFullLoopIntegration` is different: it drives the running server over HTTP and really ticks the world, so it only runs with `--live` and is not part of `npm test`.
 
 Add a suite by adding its script name to `SUITES` in `run-tests.cjs`.
 
@@ -128,4 +137,5 @@ One-off scripts for live data written before a fix. Each previews by default and
 node dist/scripts/repairChaosFlowIdentity.js     # flow names, dragons and endpoints
 node dist/scripts/repairStaleCanonData.js        # stale chaos-ley zones, retired names, calendar row
 node dist/scripts/repairDuplicateBurgNames.js    # burgs sharing a name (older expansion naming)
+node dist/scripts/repairStoryTestPollution.js    # maps, threads and events written by un-isolated test runs
 ```

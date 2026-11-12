@@ -1,7 +1,7 @@
 import { Pool, PoolClient } from "pg";
 
 export type ThreadState = "open" | "escalated" | "resolved";
-export type ThreadOrigin = "reaction" | "beat" | "arc";
+export type ThreadOrigin = "reaction" | "beat" | "arc" | "world";
 
 export interface ThreadWorldDelta {
   unrestDelta?: number | undefined;
@@ -111,6 +111,15 @@ export async function validateActorIds(
     const cleanId = String(id).trim();
     if (!cleanId) continue;
 
+    // Typed ids name one record exactly: paragon:<id>, citizen:<citizen_id>, agent:<id>, faction:<id>
+    const typed = cleanId.match(/^(paragon|citizen|agent|faction):(\d+)$/);
+    if (typed) {
+      const table = { paragon: "sim_paragons WHERE id", citizen: "population_demographics WHERE citizen_id", agent: "sim_agents WHERE id", faction: "sim_factions WHERE id" }[typed[1] as "paragon" | "citizen" | "agent" | "faction"];
+      const r = await client.query(`SELECT 1 FROM ${table} = $1 LIMIT 1`, [Number(typed[2])]);
+      if (r.rowCount === 0) invalidIds.push(cleanId);
+      continue;
+    }
+
     const checkRes = await client.query(
       `
       SELECT 1 FROM sim_agents WHERE id::text = $1 OR name = $1
@@ -137,6 +146,21 @@ export async function validateActorIds(
     valid: invalidIds.length === 0,
     invalidIds
   };
+}
+
+/**
+ * True when a map NPC is one of the thread's actors: by its own id, or by the record its id names
+ * (npc_paragon_12 is paragon:12; npc_ward_345 / npc_demographic_345 / npc_citizen_345 are citizen:345).
+ */
+export function npcIsActor(npc: any, actorIds: Iterable<string>): boolean {
+  const set = actorIds instanceof Set ? actorIds as Set<string> : new Set(Array.from(actorIds, String));
+  const id = String(npc?.id ?? "");
+  if (set.has(id)) return true;
+  const paragon = id.match(/^npc_paragon_(\d+)$/);
+  if (paragon && set.has(`paragon:${paragon[1]}`)) return true;
+  const citizen = id.match(/^npc_(?:ward|demographic|citizen)_(\d+)$/);
+  if (citizen && set.has(`citizen:${citizen[1]}`)) return true;
+  return false;
 }
 
 /**
@@ -257,7 +281,7 @@ export function evaluateThreadState(
   props: any[]
 ): ThreadStateEvaluation {
   const actorIds = new Set((thread.actor_ids || []).map(id => String(id)));
-  const threadActors = (npcs || []).filter(n => actorIds.has(String(n.id)));
+  const threadActors = (npcs || []).filter(n => npcIsActor(n, actorIds));
   const primaryActor = threadActors[0];
 
   if (!primaryActor) {
@@ -444,9 +468,10 @@ export async function applyThreadWorldDelta(
     );
   }
 
-  // 2. Mutate sim_sector_layers
+  // 2. Mutate sim_sector_layers: the surface layer only. (Without z_layer this read an arbitrary level
+  //    and wrote it back over all three, copying surface NPCs into cellars and ramparts.)
   const layerRes = await client.query(
-    `SELECT npcs, props, features FROM sim_sector_layers WHERE cell_id = $1 AND rx = $2 AND ry = $3 LIMIT 1`,
+    `SELECT npcs, props, features FROM sim_sector_layers WHERE cell_id = $1 AND rx = $2 AND ry = $3 AND z_layer = 0`,
     [thread.cell_id, thread.rx, thread.ry]
   );
   if (layerRes.rows.length > 0) {
@@ -456,9 +481,9 @@ export async function applyThreadWorldDelta(
     let mutated = false;
 
     // Mutate thread actors
-    const actorSet = new Set(thread.actor_ids || []);
+    const actorSet = new Set((thread.actor_ids || []).map(String));
     npcs = npcs.map((npc: any) => {
-      if (actorSet.has(String(npc.id))) {
+      if (npcIsActor(npc, actorSet)) {
         mutated = true;
         let tags = Array.isArray(npc.tags) ? [...npc.tags] : [];
         if (delta.actorTagsRemove) {
@@ -519,7 +544,7 @@ export async function applyThreadWorldDelta(
 
     if (mutated) {
       await client.query(
-        `UPDATE sim_sector_layers SET npcs = $1, props = $2, features = $3 WHERE cell_id = $4 AND rx = $5 AND ry = $6`,
+        `UPDATE sim_sector_layers SET npcs = $1, props = $2, features = $3 WHERE cell_id = $4 AND rx = $5 AND ry = $6 AND z_layer = 0`,
         [JSON.stringify(npcs), JSON.stringify(props), JSON.stringify(features), thread.cell_id, thread.rx, thread.ry]
       );
     }

@@ -11,6 +11,7 @@ import tellerRouter from './api/tellerRouter';
 import directorRouter from './api/directorRouter';
 import { rulesRouter } from './api/rulesRouter';
 import { ensureCellTagsTable } from './engine/cellTags';
+import { ensureArcTable } from './engine/threads/storyArcs';
 
 dotenv.config();
 
@@ -45,5 +46,6 @@ app.listen(PORT, HOST, () => {
   console.log(`Simulation Engine Server running on http://${HOST}:${PORT}`);
   // Tables added after a world was created (live databases are never reset just to add one).
   ensureCellTagsTable(pool).catch((e) => console.error(`[db] Could not ensure sim_cell_tags: ${e.message}`));
+  ensureArcTable(pool).catch((e) => console.error(`[db] Could not ensure sim_story_arcs: ${e.message}`));
 });
 

@@ -1,4 +1,16 @@
+/**
+ * LIVE smoke run, not a unit test: drives the RUNNING server over HTTP (POST /tick, party session
+ * init/step). It advances the real world by a tick and may call the server's LLMs. No transaction can
+ * isolate that, so it is not in `npm test` and refuses to run without --live.
+ *   node dist/scripts/testFullLoopIntegration.js --live
+ */
 import pool from '../db/pool.js';
+
+if (!process.argv.includes('--live')) {
+  console.log('testFullLoopIntegration advances the LIVE world (a real tick + party turns on the running server).');
+  console.log('Re-run with --live if that is what you want.');
+  process.exit(0);
+}
 
 async function testFullLoop() {
   console.log("================================================================");

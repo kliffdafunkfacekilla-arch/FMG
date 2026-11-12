@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import pool from '../db/pool';
+import { createManagedArc, listArcs } from '../engine/threads/storyArcs.js';
 import { 
     DirectorPlanningPass, 
     resolveDirectorInjections, 
@@ -129,9 +130,23 @@ directorRouter.post('/generate_arc', async (req: Request, res: Response): Promis
         // 4. Commit mutations to persistent database
         const commitResult = await commitDirectorMutations(cellId, rx, ry, z, validation.sanitizedBlueprint);
 
+        // 5. Store it as a managed arc and open a thread for its first beat
+        const framework = validation.sanitizedBlueprint.story_arc_framework;
+        const managed = framework?.inciting_incident ? await createManagedArc(pool, {
+            cellId, rx, ry, z,
+            arcKey: framework.arc_id || `arc_${cellId}_${rx}_${ry}`,
+            incitingIncident: framework.inciting_incident,
+            beats: framework.beats || [],
+            focusNpcId: validation.sanitizedBlueprint.database_mutations.npc_alterations[0]?.target_id ?? null,
+            source: validation.sanitizedBlueprint.source || 'procedural'
+        }) : null;
+
         res.status(200).json({
             success: true,
             message: "Simulation-driven narrative arc generated, validated, and committed to world state.",
+            arcId: managed?.arc.id ?? null,
+            threadId: managed?.threadId ?? null,
+            source: validation.sanitizedBlueprint.source || 'procedural',
             validationReport: {
                 valid: validation.valid,
                 rejectedNpcIds: validation.rejectedNpcIds,
@@ -145,6 +160,24 @@ directorRouter.post('/generate_arc', async (req: Request, res: Response): Promis
     } catch (error: any) {
         console.error('Error generating narrative arc:', error);
         res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * GET /api/dm/story/arcs?cellId=  -  managed arcs (newest first) with their phase, state and beat threads
+ */
+directorRouter.get('/arcs', async (req: Request, res: Response): Promise<void> => {
+    try {
+        const cellId = req.query.cellId !== undefined ? Number(req.query.cellId) : undefined;
+        const arcs = await listArcs(pool, cellId);
+        const threadIds = arcs.flatMap(a => a.thread_ids || []);
+        const threads = threadIds.length
+            ? (await pool.query(`SELECT id, question, state, clock, clock_max, resolution FROM sim_threads WHERE id = ANY($1::int[])`, [threadIds])).rows
+            : [];
+        const byId = new Map(threads.map((t: any) => [t.id, t]));
+        res.json({ arcs: arcs.map(a => ({ ...a, threads: (a.thread_ids || []).map(id => byId.get(id) || { id, state: 'deleted' }) })) });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
     }
 });
 

@@ -285,7 +285,11 @@ export function generateWardDistrictMap(input: WardDistrictInput): SectorMapResu
       name: c.name || `${burgName} resident`,
       role: guard ? "Citadel Guard" : c.profession || "Townsfolk",
       pos,
-      tags: [`species:${String(c.species || "human").toLowerCase()}`, `temper:${String(c.temper || "steady").toLowerCase()}`, `ward:${ward.toLowerCase()}`],
+      tags: [
+        `species:${String(c.species || "human").toLowerCase()}`, `temper:${String(c.temper || "steady").toLowerCase()}`,
+        `spark:${String(c.spark_tier || "null").toLowerCase()}`, `profession:${String(c.profession || "townsfolk").toLowerCase().replace(/[\s-]+/g, "_")}`,
+        `ward:${ward.toLowerCase()}`
+      ],
       faction: factionName,
       hp: guard ? 30 : 22,
       maxHp: guard ? 30 : 22,
@@ -293,6 +297,29 @@ export function generateWardDistrictMap(input: WardDistrictInput): SectorMapResu
       alive: true,
       equippedWeapon: guard ? "Spear & Shield" : "Belt Knife",
       memoryNotes: [`Lives and works in the ${title.toLowerCase()} of ${burgName}.`],
+    });
+  }
+
+  // The burg's paragons keep office in their wards: the civic head in the market, the security head in
+  // the citadel (titles tell them apart). Real records, so the narrative seeds can tag them.
+  const isSecurity = (p: any) => /commander|marshal|warden|captain|sheriff|constable|watch/i.test(String(p.title || ""));
+  const office = ward === "CITADEL" ? (input.paragons || []).find(isSecurity)
+    : ward === "MARKET" ? (input.paragons || []).find(p => !isSecurity(p) && !p.outlaw_id) : undefined;
+  if (office) {
+    const seat = lots.find(l => l.kind === (ward === "CITADEL" ? "barracks" : "shop")) || lots[0];
+    npcs.push({
+      id: `npc_paragon_${office.id}`,
+      name: office.name,
+      role: office.title || "Paragon",
+      pos: seat ? [seat.x + Math.floor(seat.w / 2), Math.min(SIZE - 3, seat.y + seat.h)] : hub,
+      tags: ["paragon", "leader", `ward:${ward.toLowerCase()}`],
+      faction: factionName,
+      hp: 40,
+      maxHp: 40,
+      disposition: 0,
+      alive: true,
+      equippedWeapon: isSecurity(office) ? "Longsword" : "Signet Ring & Ledger",
+      memoryNotes: [`${office.title || "Paragon"} of ${burgName}.`],
     });
   }
 

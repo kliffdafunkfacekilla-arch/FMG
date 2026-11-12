@@ -1,4 +1,5 @@
 import pool from "../db/pool.js";
+import { isolateTest } from "./testIsolation.js";
 import { evaluateSectorReactions, SectorContext } from "../engine/rpg/narrativeReactionEngine.js";
 import { Entity } from "../engine/rpg/narrativeTagEngine.js";
 import { ensureThreadTable, getOpenThreads, createThread } from "../engine/threads/threadEngine.js";
@@ -155,7 +156,8 @@ async function testThreadReactions() {
   await pool.end();
 }
 
-testThreadReactions().catch(err => {
+// Rule 9 tests must not change the live world: run inside a rolled-back transaction, LLMs off.
+isolateTest().then(done => testThreadReactions().then(done, async (e: unknown) => { await done(); throw e; })).catch(err => {
   console.error("Test failed:", err);
   process.exit(1);
 });

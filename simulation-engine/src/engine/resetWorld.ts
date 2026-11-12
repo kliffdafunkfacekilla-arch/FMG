@@ -34,6 +34,9 @@ DROP TABLE IF EXISTS sim_world_landmarks CASCADE;
 DROP TABLE IF EXISTS sim_grind_canyons CASCADE;
 DROP TABLE IF EXISTS sim_sector_layers CASCADE;
 DROP TABLE IF EXISTS sim_cell_tags CASCADE;
+-- Stories belong to the world they happened in
+DROP TABLE IF EXISTS sim_threads CASCADE;
+DROP TABLE IF EXISTS sim_story_arcs CASCADE;
 
 DROP TABLE IF EXISTS sim_active_projects CASCADE;
 
@@ -203,10 +206,33 @@ CREATE TABLE IF NOT EXISTS sim_threads (
   origin         VARCHAR(32) NOT NULL DEFAULT 'reaction',
   created_tick   INT NOT NULL DEFAULT 0,
   resolved_tick  INT DEFAULT NULL,
-  resolution     TEXT DEFAULT NULL
+  resolution     TEXT DEFAULT NULL,
+  rule_id        VARCHAR(64) DEFAULT NULL,
+  on_expire      JSONB DEFAULT '{}'::jsonb,
+  on_resolved_by_party JSONB DEFAULT '{}'::jsonb
 );
 CREATE INDEX IF NOT EXISTS idx_sim_threads_state ON sim_threads(state);
 CREATE INDEX IF NOT EXISTS idx_sim_threads_loc ON sim_threads(cell_id, rx, ry);
+
+-- Managed story arcs (engine/threads/storyArcs.ts keeps the same definition for live databases)
+CREATE TABLE IF NOT EXISTS sim_story_arcs (
+    id                SERIAL PRIMARY KEY,
+    arc_key           VARCHAR(160) NOT NULL,
+    cell_id           INT NOT NULL,
+    rx                INT NOT NULL,
+    ry                INT NOT NULL,
+    z                 INT NOT NULL DEFAULT 0,
+    inciting_incident TEXT NOT NULL,
+    beats             JSONB NOT NULL DEFAULT '[]'::jsonb,
+    active_phase      INT NOT NULL DEFAULT 1,
+    state             VARCHAR(16) NOT NULL DEFAULT 'active',
+    thread_ids        INT[] NOT NULL DEFAULT '{}',
+    actor_id          TEXT,
+    source            VARCHAR(16) NOT NULL DEFAULT 'procedural',
+    created_tick      INT NOT NULL DEFAULT 0,
+    resolved_tick     INT
+);
+CREATE INDEX IF NOT EXISTS idx_story_arcs_loc ON sim_story_arcs(cell_id, rx, ry);
 
 CREATE TABLE sim_outlaw_factions (
   id SERIAL PRIMARY KEY,

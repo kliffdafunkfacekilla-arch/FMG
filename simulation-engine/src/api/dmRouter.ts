@@ -9,6 +9,7 @@ import { getLairPropDetails, ensureLairResidents } from '../engine/agents/outlaw
 import { generateGrindCanyonSectorMap, generateBurgSectorLayers, generateOutlyingSectorMap, generateTacticalRegionalSectorMap } from '../engine/maps/SectorMapGenerator.js';
 import { regionalNeighborhood, TERRAIN_VERSION } from '../engine/maps/TacticalTerrain.js';
 import { generateWardDistrictMap } from '../engine/maps/WardDistrict.js';
+import { seedLayerNarrative } from '../engine/rpg/narrativeSeeds.js';
 import { getOrCreateRegionalInstance } from './regionalRouter.js';
 import { getFactionSpecialty, FACTION_SPECIALTIES, FactionSpecialty } from '../engine/economy/factionSpecialties.js';
 import { getOpenThreads, evaluateThreadState } from '../engine/threads/threadEngine.js';
@@ -811,6 +812,7 @@ router.post('/sector_load', async (req, res) => {
               citizens: citRes.rows, paragons: paragonRes.rows
             });
           }
+          await seedLayerNarrative(pool, targetCellId, layers.layer0.npcs); // simulation facts -> story tags
 
           await pool.query(
             `INSERT INTO sim_sector_layers (cell_id, rx, ry, z_layer, layer_name, compressed_terrain, props, npcs, features)
@@ -897,6 +899,7 @@ router.post('/sector_load', async (req, res) => {
               events: eventsRes.rows,
               stockpile: stockpileRes.rows[0]
             });
+            await seedLayerNarrative(pool, targetCellId, tacticalMap.npcs); // simulation facts -> story tags
 
             await pool.query(
               `INSERT INTO sim_sector_layers (cell_id, rx, ry, z_layer, layer_name, compressed_terrain, props, npcs, features)
@@ -1217,6 +1220,7 @@ router.get('/sector_layer', async (req, res) => {
           citizens: citRes.rows, paragons: paragonRes.rows
         });
       }
+      await seedLayerNarrative(pool, targetCellId, layers.layer0.npcs); // simulation facts -> story tags
 
       // Persist all 3 layers to sim_sector_layers
       await pool.query(
@@ -1348,6 +1352,8 @@ router.get('/sector_layer', async (req, res) => {
       events: eventsRes.rows,
       stockpile: stockpileRes.rows[0]
     });
+
+    if (targetZ === 0) await seedLayerNarrative(pool, targetCellId, tacticalMap.npcs); // simulation facts -> story tags
 
     // Save to sim_sector_layers
     await pool.query(
@@ -2537,7 +2543,9 @@ router.post('/party_session/init', async (req, res) => {
 
     // 3. Check for persistent open threads in this sector (STORY_AUDIT Step 2)
     // A stable economy must NOT produce a crisis thread!
-    const openThreads = await getOpenThreads(pool, targetCellId);
+    // Prefer a thread on the tile the party is standing on, then any in the cell
+    const openThreads = (await getOpenThreads(pool, targetCellId))
+      .sort((a, b) => Number(b.rx === targetRx && b.ry === targetRy) - Number(a.rx === targetRx && a.ry === targetRy));
     let activeStoryArc: any;
 
     if (openThreads.length > 0 && openThreads[0]) {

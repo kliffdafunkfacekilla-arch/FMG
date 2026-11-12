@@ -1,4 +1,5 @@
 import pool from "../db/pool.js";
+import { isolateTest } from "./testIsolation.js";
 import { getAvailableActionsForTarget } from "../engine/rpg/TagRegistry.js";
 import { TagMatrixEngine, TaggedObject } from "../engine/rpg/TagMatrixEngine.js";
 import { resolveThreadByParty } from "../engine/questChainEngine.js";
@@ -327,13 +328,11 @@ async function testTacticalInteractions() {
   console.log("==================================================================");
 }
 
-testTacticalInteractions()
-  .then(async () => {
-    await pool.end();
-    process.exit(0);
-  })
-  .catch(async (err) => {
+// Rule 9 tests must not change the live world: run inside a rolled-back transaction, LLMs off.
+isolateTest()
+  .then(done => testTacticalInteractions().then(done, async (e: unknown) => { await done(); throw e; }))
+  .then(() => process.exit(0))
+  .catch((err) => {
     console.error("\nTEST FAILED:", err);
-    await pool.end();
     process.exit(1);
   });

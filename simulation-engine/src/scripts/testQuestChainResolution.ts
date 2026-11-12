@@ -1,4 +1,5 @@
 import pool from "../db/pool.js";
+import { isolateTest } from "./testIsolation.js";
 import {
   ensureThreadTable,
   createThread
@@ -19,7 +20,7 @@ async function testQuestChainResolution() {
   if (!realAgent) throw new Error("No real agent found for test!");
   const realAgentId = String(realAgent.id);
 
-  const layerRowRes = await pool.query(`SELECT cell_id, rx, ry, npcs, props FROM sim_sector_layers LIMIT 1`);
+  const layerRowRes = await pool.query(`SELECT cell_id, rx, ry, npcs, props FROM sim_sector_layers WHERE z_layer = 0 LIMIT 1`);
   if (layerRowRes.rows.length === 0) throw new Error("No sector layer found in sim_sector_layers!");
   const targetCellId = Number(layerRowRes.rows[0].cell_id);
   const targetRx = Number(layerRowRes.rows[0].rx);
@@ -62,7 +63,7 @@ async function testQuestChainResolution() {
   });
 
   await pool.query(
-    `UPDATE sim_sector_layers SET npcs = $1, props = $2 WHERE cell_id = $3 AND rx = $4 AND ry = $5`,
+    `UPDATE sim_sector_layers SET npcs = $1, props = $2 WHERE cell_id = $3 AND rx = $4 AND ry = $5 AND z_layer = 0`,
     [JSON.stringify(npcs), JSON.stringify(props), targetCellId, targetRx, targetRy]
   );
 
@@ -141,7 +142,7 @@ async function testQuestChainResolution() {
   // 6. Verify sector layer entity mutations
   process.stdout.write("5. Verifying sector entity consequence tags and disposition... ");
   const layerAfterRes = await pool.query(
-    `SELECT npcs, props FROM sim_sector_layers WHERE cell_id = $1 AND rx = $2 AND ry = $3`,
+    `SELECT npcs, props FROM sim_sector_layers WHERE cell_id = $1 AND rx = $2 AND ry = $3 AND z_layer = 0`,
     [targetCellId, targetRx, targetRy]
   );
   const afterNpcs = layerAfterRes.rows[0].npcs || [];
@@ -185,7 +186,8 @@ async function testQuestChainResolution() {
   await pool.end();
 }
 
-testQuestChainResolution().catch(err => {
+// Rule 9 tests must not change the live world: run inside a rolled-back transaction, LLMs off.
+isolateTest().then(done => testQuestChainResolution().then(done, async (e: unknown) => { await done(); throw e; })).catch(err => {
   console.error("Test failed:", err);
   process.exit(1);
 });

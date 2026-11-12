@@ -8,7 +8,13 @@ const { spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
-const SUITES = ["testCalendar", "testCanonMandates", "testTagMatrixFull", "testBrutalGMVisual", "testChaosFlows"];
+// The thread/quest suites write while they run, but inside a transaction that is rolled back
+// (src/scripts/testIsolation.ts), with LLM calls off, so they leave the live world untouched.
+const SUITES = [
+  "testCalendar", "testCanonMandates", "testTagMatrixFull", "testBrutalGMVisual", "testChaosFlows",
+  "testThreadActors", "testThreadReactions", "testThreadClocks", "testQuestChainResolution", "testSystemicOutcomes",
+  "testTacticalInteractions", "testStoryPipeline",
+];
 const root = __dirname;
 
 function run(cmd, args, label) {

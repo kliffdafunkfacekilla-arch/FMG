@@ -1,4 +1,5 @@
 import pool from "../db/pool.js";
+import { isolateTest } from "./testIsolation.js";
 import {
   ensureThreadTable,
   createThread,
@@ -124,7 +125,8 @@ async function testThreadActors() {
   await pool.end();
 }
 
-testThreadActors().catch(err => {
+// Rule 9 tests must not change the live world: run inside a rolled-back transaction, LLMs off.
+isolateTest().then(done => testThreadActors().then(done, async (e: unknown) => { await done(); throw e; })).catch(err => {
   console.error("Test failed:", err);
   process.exit(1);
 });

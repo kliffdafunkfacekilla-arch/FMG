@@ -424,7 +424,7 @@ export const NarrativeReactionTable: ReactionRule[] = [
             forbiddenTags: ['#RitualDisrupted', '#Dead', '#Banished', '#ChaosAura']
         },
         environmentConditions: {
-            requiredGlobalTags: ['#FullBlood']
+            requiredGlobalTags: ['#TheBleed'] // Cruorbus's chaos peak (Canon/04 §2)
         },
         resultantMutations: {
             addTags: ['#PossessedZealot', '#ChaosAura'],

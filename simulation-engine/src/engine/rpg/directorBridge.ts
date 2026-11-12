@@ -101,6 +101,8 @@ export interface DatabaseMutationsBlueprint {
 export interface DirectorOutputBlueprint {
     story_arc_framework: StoryArcFramework;
     database_mutations: DatabaseMutationsBlueprint;
+    /** Which director wrote it (stored on the managed arc). */
+    source?: 'gemini' | 'ollama' | 'procedural';
 }
 
 // =========================================================================
@@ -155,6 +157,7 @@ export function validateDirectorMutations(
     const warningCount = rejectedNpcIds.length + rejectedPropIds.length;
 
     const sanitizedBlueprint: DirectorOutputBlueprint = {
+        ...(blueprint.source ? { source: blueprint.source } : {}),
         story_arc_framework: blueprint.story_arc_framework,
         database_mutations: {
             npc_alterations: sanitizedNpcAlterations,
@@ -221,7 +224,8 @@ export async function buildDirectorInputPayload(
         [playerId]
     );
     const player = playerRes.rows[0] || {};
-    const legalName = player.name || "Patrick Gordon Morris";
+    // No hard-coded person: without a player character row the arc addresses "the party".
+    const legalName = player.name || "the party";
     const backstoryHooks = [
         `${player.species || 'Human'} from ${player.institution || 'Provincial Guild'}`,
         ...(player.passive_traits || [])
@@ -370,77 +374,134 @@ export async function commitDirectorMutations(
 // 5. PROCEDURAL STORY ARC SYNTHESIZER (Guaranteed Offline Fallback)
 // =========================================================================
 
+/**
+ * Offline story director: builds an arc from what is actually going on in the sector, without an LLM.
+ * Picks an archetype that fits the local simulation state, aims it at a fitting NPC and container on
+ * the map, and leaves tags the reaction rules respond to (e.g. a crackdown marks a craftsperson as
+ * #RebelInformant, which the garrison-raid rule picks up under martial law).
+ */
+interface ArcArchetype {
+    key: string;
+    fits: (econ: string[], faction: string[], npcs: EligibleNPCAsset[]) => boolean;
+    pickNpc: (npcs: EligibleNPCAsset[]) => EligibleNPCAsset | undefined;
+    incident: (faction: string, npc: EligibleNPCAsset, party: string) => string;
+    beats: (npc: EligibleNPCAsset, cache: EligiblePropAsset | undefined) => Array<{ objective: string; discovery_method: string }>;
+    npcTags: string[];
+    cacheTags: string[];
+    dialogue: (npc: EligibleNPCAsset, faction: string) => string;
+}
+
+const roleText = (n: EligibleNPCAsset) => `${n.role || ''} ${n.profession || ''} ${n.name} ${(n.tags || []).join(' ')}`.toLowerCase();
+const isCivilian = (n: EligibleNPCAsset) => !n.tags.includes('paragon') && !n.tags.includes('leader') && !n.tags.includes('beast');
+const byRole = (re: RegExp) => (npcs: EligibleNPCAsset[]) => npcs.find(n => isCivilian(n) && re.test(roleText(n)));
+
+const ARC_ARCHETYPES: ArcArchetype[] = [
+    {
+        key: 'grain',
+        fits: econ => econ.some(t => /Famine|GrainShortage|ResourceScarcity/.test(t)),
+        pickNpc: byRole(/miller|baker|farm|granary|merchant|trader/),
+        incident: (f) => `${f} has seized the grain stores, and a black market now feeds whoever can pay.`,
+        beats: (npc, cache) => [
+            { objective: `Learn from ${npc.name} who is selling the seized grain`, discovery_method: 'Questioning, a favour, or coin.' },
+            { objective: cache ? `Find the smugglers' tally hidden in ${cache.type}` : `Find where the smugglers keep their tally`, discovery_method: 'Search or force the cache.' },
+            { objective: `Expose the grain ring or strike a bargain with it`, discovery_method: 'Confront the ring, or deal.' },
+        ],
+        npcTags: ['#NarrativeTarget', '#UndergroundContact', '#ExtortionVictim'],
+        cacheTags: ['#PlotClueCarrier', '#ContrabandSource'],
+        dialogue: (_n, f) => `Keep your voice down. ${f}'s men count every sack that leaves this street.`,
+    },
+    {
+        key: 'ledgers',
+        fits: econ => econ.some(t => /CommercialBoom|HarvestAbundance/.test(t)),
+        pickNpc: byRole(/clerk|scribe|merchant|trader|banker|factor/),
+        incident: (f) => `Prices are being fixed in ${f}'s markets, and someone is keeping two sets of ledgers.`,
+        beats: (npc, cache) => [
+            { objective: `Persuade ${npc.name} to say who pays for the rigged prices`, discovery_method: 'Social pressure, or proof of their own part in it.' },
+            { objective: cache ? `Recover the second ledger from ${cache.type}` : `Recover the second ledger`, discovery_method: 'Theft, search or bribery.' },
+        ],
+        npcTags: ['#NarrativeTarget', '#UndergroundContact'],
+        cacheTags: ['#PlotClueCarrier', '#Ledger'],
+        dialogue: () => `Two books, two sets of numbers. Only one of them goes to the tax-house.`,
+    },
+    {
+        key: 'crackdown',
+        fits: (_e, faction) => faction.some(t => /MartialLaw|UndergroundUnrest/.test(t)),
+        pickNpc: byRole(/smith|forge|mason|carpenter|cooper|tanner|weaver|wright|artisan/),
+        incident: (f, npc) => `${f}'s watch is hunting informants, and ${npc.name}'s name is on their list.`,
+        beats: (npc, cache) => [
+            { objective: `Reach ${npc.name} before the watch does`, discovery_method: 'Move fast, or create a distraction.' },
+            { objective: cache ? `Get rid of the evidence hidden in ${cache.type}` : `Get rid of the evidence`, discovery_method: 'Burn it, hide it, or plant it on someone else.' },
+            { objective: `Get ${npc.name} clear of the crackdown`, discovery_method: 'Hide them, smuggle them out, or bargain with the watch.' },
+        ],
+        npcTags: ['#NarrativeTarget', '#RebelInformant', '#AnxiousBehavior'],
+        cacheTags: ['#PlotClueCarrier', '#EvidenceSeized'],
+        dialogue: (_n, f) => `They know. ${f}'s patrols came by twice last night.`,
+    },
+    {
+        key: 'cult',
+        fits: (_e, _f, npcs) => npcs.some(n => n.tags.includes('#CultistInfiltrator')),
+        pickNpc: npcs => npcs.find(n => n.tags.includes('#CultistInfiltrator')),
+        incident: (_f, npc) => `Strange rites have been heard at night, and ${npc.name} is never home when they are.`,
+        beats: (npc, cache) => [
+            { objective: `Follow ${npc.name} after dark`, discovery_method: 'Stealth and patience.' },
+            { objective: cache ? `Find what is hidden in ${cache.type}` : `Find where the rites are held`, discovery_method: 'Search, or watch the place.' },
+            { objective: `Stop the rite before the seal weakens`, discovery_method: 'Disrupt it, or turn the cultist.' },
+        ],
+        npcTags: ['#NarrativeTarget', '#AnxiousBehavior'],
+        cacheTags: ['#PlotClueCarrier', '#ForbiddenTome'],
+        dialogue: () => `You hear it too? Chanting, under the floor, every night the moon bleeds.`,
+    },
+    {
+        key: 'courier',
+        fits: () => true,
+        pickNpc: npcs => npcs.find(isCivilian),
+        incident: (f, npc) => `A courier carrying ${f}'s sealed letters never arrived, and ${npc.name} was the last to see them.`,
+        beats: (npc, cache) => [
+            { objective: `Find out what ${npc.name} saw of the missing courier`, discovery_method: 'Questioning or a favour.' },
+            { objective: cache ? `Search ${cache.type} for the courier's satchel` : `Find the courier's satchel`, discovery_method: 'Search the area.' },
+        ],
+        npcTags: ['#NarrativeTarget', '#UndergroundContact'],
+        cacheTags: ['#PlotClueCarrier'],
+        dialogue: () => `The rider went past at dusk, and the horse came back alone at dawn.`,
+    },
+];
+
 export function synthesizeProceduralStoryArc(inputPayload: DirectorInputPayload): DirectorOutputBlueprint {
     const sim = inputPayload.simulation_state;
-    const player = inputPayload.player_profile_context;
+    const party = inputPayload.player_profile_context.legal_name;
     const npcs = inputPayload.available_sector_assets.eligible_npcs;
     const props = inputPayload.available_sector_assets.eligible_props;
+    const econ = sim.economic_indicators.active_tags;
+    const faction = sim.faction_dynamics.active_tags;
+    const controller = sim.faction_dynamics.controlling_faction;
 
-    const primaryEcon = sim.economic_indicators.active_tags[0] || '#ResourceScarcity';
-    const primaryFaction = sim.faction_dynamics.controlling_faction;
-    const arcId = `arc_${primaryEcon.replace('#', '').toLowerCase()}_${sim.cell_id}_${Date.now()}`;
-
-    // Select primary candidate (prefer civilian artisan/merchant)
-    const targetNpc = npcs.find(n => !n.tags.includes('paragon') && !n.tags.includes('leader')) || npcs[0] || { id: 'npc_citizen_default', name: 'Local Resident' };
-
-    // Select container prop
-    const targetContainer = props.find(p => p.tags.some(t => ['container', 'chest', 'crate', 'storage'].includes(t.toLowerCase()))) || props[0] || { id: 'prop_container_default' };
-
-    // Select terrain/boulder prop for dungeon/POE
-    const targetPoi = props.find(p => p.id !== targetContainer.id) || props[1];
-
-    let incitingIncident = `${primaryFaction} has declared strict emergency regulations amid ${primaryEcon.replace('#', '')}, explicitly monitoring individuals associated with ${player.legal_name}.`;
-    if (primaryEcon.includes('Famine')) {
-        incitingIncident = `${primaryFaction} has seized emergency grain caches following a famine outbreak, forcing local workers to seek underground contraband.`;
-    } else if (primaryEcon.includes('HarvestAbundance') || primaryEcon.includes('CommercialBoom')) {
-        incitingIncident = `A sudden commercial boom under ${primaryFaction} has triggered cartel price-fixing and smuggled ledgers in the municipal markets.`;
-    }
+    // Every archetype that fits and has someone to aim at; vary between them over time
+    const options = ARC_ARCHETYPES
+        .filter(a => a.fits(econ, faction, npcs))
+        .map(a => ({ a, npc: a.pickNpc(npcs) || npcs.find(isCivilian) || npcs[0] }))
+        .filter(o => o.npc);
+    const roll = Math.abs((sim.cell_id * 31 + sim.sector_coords.rx * 7 + sim.sector_coords.ry * 13 + Math.floor(Date.now() / 60000)) % 997);
+    const chosen = options.length ? options[roll % options.length]! : null;
+    const npc = chosen?.npc || { id: '', name: 'a local', tags: [] };
+    const archetype = chosen?.a || ARC_ARCHETYPES[ARC_ARCHETYPES.length - 1]!;
+    const cache = props.find(p => p.tags.some(t => ['container', 'chest', 'crate', 'storage', 'searchable'].includes(t.toLowerCase())));
+    const beats = archetype.beats(npc as EligibleNPCAsset, cache).map((b, i) => ({ phase: i + 1, ...b }));
 
     return {
+        source: 'procedural',
         story_arc_framework: {
-            arc_id: arcId,
-            inciting_incident: incitingIncident,
+            arc_id: `arc_${archetype.key}_${sim.cell_id}_${sim.sector_coords.rx}_${sim.sector_coords.ry}_${Date.now()}`,
+            inciting_incident: archetype.incident(controller, npc as EligibleNPCAsset, party),
             active_phase: 1,
-            beats: [
-                {
-                    phase: 1,
-                    objective: `Establish contact with ${targetNpc.name} to uncover the source of the market disturbance.`,
-                    discovery_method: 'Social questioning or reputation check with the civilian asset.'
-                },
-                {
-                    phase: 2,
-                    objective: 'Retrieve the hidden manifest concealed in the compromised storage cache.',
-                    discovery_method: 'Environmental search of the secure container.'
-                }
-            ]
+            beats
         },
         database_mutations: {
-            npc_alterations: [
-                {
-                    target_id: targetNpc.id,
-                    append_tags: ['#NarrativeTarget', '#UndergroundContact', '#AnxiousBehavior'],
-                    metadata_overrides: {
-                        temporary_dialogue_node: `Keep your voice down, ${player.legal_name.split(' ')[0]}. ${primaryFaction} patrols are inspecting the trade records. Look in the central cache before they seal it.`
-                    }
-                }
-            ],
-            prop_alterations: [
-                {
-                    target_id: targetContainer.id,
-                    append_tags: ['#PlotClueCarrier', '#ContrabandSource'],
-                    metadata_overrides: {
-                        injected_loot_item_id: 'item_coded_trade_manifest'
-                    }
-                },
-                ...(targetPoi ? [{
-                    target_id: targetPoi.id,
-                    append_tags: ['#PoiPlacement', '#DungeonEntrance'],
-                    metadata_overrides: {
-                        tile_sprite_override_id: 'tile_stairs_down_02',
-                        target_destination_scene_id: 'sub_map_vault_01'
-                    }
-                }] : [])
-            ]
+            npc_alterations: npc.id ? [{
+                target_id: npc.id,
+                append_tags: archetype.npcTags,
+                metadata_overrides: { temporary_dialogue_node: archetype.dialogue(npc as EligibleNPCAsset, controller) }
+            }] : [],
+            prop_alterations: cache ? [{ target_id: cache.id, append_tags: archetype.cacheTags }] : []
         }
     };
 }
@@ -449,9 +510,15 @@ export function synthesizeProceduralStoryArc(inputPayload: DirectorInputPayload)
 // 6. GEMINI AI DIRECTOR ENGINE (Strict JSON Schema Execution with Fallback)
 // =========================================================================
 
+/** True when LLM calls are switched off (tests set this; also useful offline): STORY_LLM=off. */
+export function llmDisabled(): boolean {
+    return String(process.env.STORY_LLM || '').toLowerCase() === 'off';
+}
+
 export async function generateStoryArcWithGemini(
     inputPayload: DirectorInputPayload
 ): Promise<DirectorOutputBlueprint> {
+    if (llmDisabled()) return synthesizeProceduralStoryArc(inputPayload);
     const apiKey = process.env.GEMINI_API_KEY;
 
     // Helper: Ollama local fallback
@@ -510,7 +577,7 @@ Output ONLY raw JSON with:
     try {
         if (!apiKey || apiKey.startsWith('AQ.') || apiKey.length < 20) {
             const ollamaResult = await callOllamaDirector();
-            if (ollamaResult) return ollamaResult;
+            if (ollamaResult) return { ...ollamaResult, source: 'ollama' };
             console.log('[AI Director] Using procedural fallback generator.');
             return synthesizeProceduralStoryArc(inputPayload);
         }
@@ -580,7 +647,7 @@ Output strictly valid JSON with this exact structure:
 
         const rawText = response.text || '{}';
         const parsed = JSON.parse(rawText) as DirectorOutputBlueprint;
-        return parsed;
+        return { ...parsed, source: 'gemini' };
     } catch (err: any) {
         console.warn(`[AI Director] Remote Gemini call encountered error (${err.message}), seamlessly executing procedural fallback.`);
         return synthesizeProceduralStoryArc(inputPayload);
@@ -688,6 +755,7 @@ export async function generateThreadResolutionAftermath(
     playerActionText?: string
 ): Promise<ThreadAftermathSynthesis> {
     const validNpcIds = new Set(eligibleNpcs.map(n => String(n.id)));
+    if (llmDisabled()) return synthesizeProceduralAftermath(thread, evaluation, eligibleNpcs, eligibleProps, burgName);
     const apiKey = process.env.GEMINI_API_KEY;
 
     // Check Ollama local fallback

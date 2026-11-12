@@ -1,4 +1,14 @@
+/**
+ * LIVE smoke run, not a unit test: writes fixtures into the live database and drives the RUNNING
+ * server's party session over HTTP. Not in `npm test`; refuses to run without --live.
+ *   node dist/scripts/testFullLoopLiveSession.js --live
+ */
 import pool from "../db/pool.js";
+if (!process.argv.includes("--live")) {
+  console.log("testFullLoopLiveSession writes fixtures into the LIVE world and plays party turns on the running server.");
+  console.log("Re-run with --live if that is what you want.");
+  process.exit(0);
+}
 import {
   ensureThreadTable,
   createThread,

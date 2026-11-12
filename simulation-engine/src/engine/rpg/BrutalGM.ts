@@ -853,6 +853,7 @@ Return ONLY valid JSON matching this schema:
     maxTokens = 250,
     temperature = 0.7
   ): Promise<string | null> {
+    if (String(process.env.STORY_LLM || "").toLowerCase() === "off") return null; // tests / offline
     try {
       const isJsonRequested = systemInstruction?.toLowerCase().includes("json") || prompt.toLowerCase().includes("json");
       const fullPrompt = `${systemInstruction ? `[SYSTEM INSTRUCTION]\n${systemInstruction}\n\n` : ""}[SCENARIO & ACTION]\n${prompt}`;
@@ -896,6 +897,7 @@ Return ONLY valid JSON matching this schema:
     }
     const promptText = typeof payload === "string" ? payload : JSON.stringify(payload);
 
+    if (String(process.env.STORY_LLM || "").toLowerCase() === "off") return null; // tests / offline
     const key = process.env.GEMINI_API_KEY?.trim();
     if (!key || this.warnedInvalidKey) {
       return this.callOllamaFallback(promptText, systemInstruction, maxOutputTokens, temperature);
@@ -2135,6 +2137,22 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
     const ry = this.activeContext?.ry ?? 112;
     let simDeltaNotice = "";
 
+    // Stamp chronicle events with the real tick, date, burg and faction of this sector
+    // (they were all written as tick 1, burg 1, faction 1, "Cruorbus 1st Era").
+    const stampRes = await this.pool.query(
+      `SELECT (SELECT tick FROM sim_calendar ORDER BY id DESC LIMIT 1) AS tick,
+              (SELECT 'Year ' || year || ', ' || month_name || ' ' || day_of_month FROM sim_calendar ORDER BY id DESC LIMIT 1) AS lore_date,
+              (SELECT burg_id FROM sim_burg_economy WHERE cell_id = $1 LIMIT 1) AS burg_id,
+              (SELECT faction_id FROM sim_cells WHERE id = $1) AS faction_id`,
+      [cellId]
+    ).catch(() => ({ rows: [] as any[] }));
+    const stamp = {
+      tick: Number(stampRes.rows[0]?.tick) || 1,
+      loreDate: stampRes.rows[0]?.lore_date || "Unknown date",
+      burgId: stampRes.rows[0]?.burg_id ?? null,
+      factionId: stampRes.rows[0]?.faction_id ?? null,
+    };
+
     // A. Outlaw / Raider Defeated -> Decrease Crime Rate & Unrest in Province + Sovereign Rep
     if (targetNPC && !targetNPC.alive && (targetNPC.tags.includes("outlaw") || targetNPC.tags.includes("bandit") || targetNPC.tags.includes("cannibal") || targetNPC.role.toLowerCase().includes("outlaw") || targetNPC.role.toLowerCase().includes("marauder"))) {
       try {
@@ -2416,10 +2434,10 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
           `INSERT INTO sim_events (tick, tier, lore_date, burg_id, faction_id, type, message)
            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
           [
-            1,
+            stamp.tick,
             isDestroyed ? "CRITICAL" : "MAJOR",
-            "Cruorbus 1st Era",
-            1, 1,
+            stamp.loreDate,
+            stamp.burgId, stamp.factionId,
             isDestroyed ? "DRAGON_SEAL_SHATTERED" : "SEAL_STRAINED",
             isDestroyed
               ? `REALITY CATACLYSM: The prison of Dragon ${grove.dragon_name} has been BROKEN by ${player.name} in Sector (${rx}, ${ry})! Leylines convulse!`
@@ -2449,11 +2467,11 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
         `INSERT INTO sim_events (tick, tier, lore_date, burg_id, faction_id, type, message)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         [
-          1,
+          stamp.tick,
           objectiveUpdate.beatCompleted ? "MAJOR" : "MINOR",
-          "Cruorbus 1st Era",
-          1,
-          1,
+          stamp.loreDate,
+          stamp.burgId,
+          stamp.factionId,
           "PLAYER_ACTION",
           `${player.name} executed ${intent.verb} on ${intent.targetName}: ${hit ? "SUCCESS" : "FAILED"}`
         ]
