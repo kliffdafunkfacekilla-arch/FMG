@@ -94,7 +94,7 @@ function resolveSpecies(demographicsStr: string): string {
     return "Human";
 }
 
-function getWorkplaceForProfession(profession: string, burgName: string): { type: string; name: string } {
+export function getWorkplaceForProfession(profession: string, burgName: string): { type: string; name: string } {
     if (profession === "Baker") return { type: "BAKERY", name: `${burgName} Communal Hearth Bakery` };
     if (["Blacksmith", "Armorer", "Foundry Worker"].includes(profession)) return { type: "FORGE", name: `${burgName} Armory & Smithy` };
     if (["Brewmaster", "Brewer"].includes(profession)) return { type: "BREWERY", name: `${burgName} Brewhouse & Tavern` };

@@ -6,7 +6,74 @@
 //  2. Grand Faction Colonization: Rich factions fund frontier settlements.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { generateOutlyingSectorMap } from "../maps/SectorMapGenerator.js";
+import { getWorkplaceForProfession } from "./burgOperationsAgent.js";
+
+type SatelliteType = "HAMLET" | "FARMLAND" | "LOGGING" | "WATCHTOWER";
+
+/** The trades a parent burg sends to found each kind of satellite (first choice; anyone fills the rest). */
+const FOUNDER_TRADES: Record<SatelliteType, string[]> = {
+  HAMLET: ["Farmer", "Miller", "Carpenter", "Baker", "Disenfranchised Laborer", "Stonemason"],
+  FARMLAND: ["Farmer", "Miller", "Disenfranchised Laborer", "Brewmaster"],
+  LOGGING: ["Carpenter", "Cooper", "Bowyer", "Tanner", "Disenfranchised Laborer"],
+  WATCHTOWER: ["City Watchman", "Gate Sentry", "Armorer", "Bowyer", "Blacksmith"],
+};
+
+/**
+ * Moves real citizens from the parent burg to a newly founded satellite. Expansion used to move a
+ * population number only, so every satellite had pop_null > 0 and no people: its maps came out empty
+ * and stories there had nobody to involve. Founders are living adult civilians of the parent, preferring
+ * the trades the settlement needs, plus children who share a founder's family name. The number of
+ * records follows the parent's own people-per-record density, so the hamlet is as detailed as its parent.
+ * Returns how many records moved.
+ */
+export async function settleSatellite(
+  client: any,
+  parent: { burg_id: number; name: string },
+  satellite: { burg_id: number; cell_id: number; name: string; type: SatelliteType; pioneers: number }
+): Promise<number> {
+  const density = await client.query(`
+    SELECT (b.pop_null + COALESCE(b.pop_attuned, 0))::float / NULLIF(COUNT(d.citizen_id), 0) AS per_record
+    FROM sim_burg_economy b
+    LEFT JOIN population_demographics d ON d.settlement_id = b.burg_id AND d.allegiance_status = 'CIVILIAN'
+    WHERE b.burg_id = $1 GROUP BY b.burg_id`, [parent.burg_id]);
+  const perRecord = Number(density.rows[0]?.per_record) || 8.5;
+  const total = Math.max(3, Math.min(16, Math.round(satellite.pioneers / perRecord)));
+  const adultsWanted = Math.max(2, Math.ceil(total * 0.75));
+
+  const adults = await client.query(`
+    SELECT citizen_id, profession, split_part(name, ' ', 2) AS family
+    FROM population_demographics
+    WHERE settlement_id = $1 AND allegiance_status = 'CIVILIAN' AND life_stage = 'ADULT'
+    ORDER BY (profession = ANY($2)) DESC, random()
+    LIMIT $3`, [parent.burg_id, FOUNDER_TRADES[satellite.type], adultsWanted]);
+  if (adults.rows.length === 0) return 0;
+
+  const families = [...new Set(adults.rows.map((a: any) => String(a.family)).filter(Boolean))];
+  const children = await client.query(`
+    SELECT citizen_id FROM population_demographics
+    WHERE settlement_id = $1 AND allegiance_status = 'CIVILIAN' AND life_stage = 'CHILD'
+    ORDER BY (split_part(name, ' ', 2) = ANY($2)) DESC, random()
+    LIMIT $3`, [parent.burg_id, families, Math.max(0, total - adults.rows.length)]);
+
+  const motivation = `Left ${parent.name} to help found ${satellite.name}.`;
+  for (const a of adults.rows) {
+    const wp = getWorkplaceForProfession(String(a.profession), satellite.name);
+    await client.query(`
+      UPDATE population_demographics
+      SET settlement_id = $1, home_cell_id = $2, motivation = $3, birthplace = COALESCE(birthplace, $4),
+          workplace_type = $5, workplace_name = $6
+      WHERE citizen_id = $7`,
+      [satellite.burg_id, satellite.cell_id, motivation, parent.name, wp.type, wp.name, a.citizen_id]);
+  }
+  if (children.rows.length) {
+    await client.query(`
+      UPDATE population_demographics
+      SET settlement_id = $1, home_cell_id = $2, birthplace = COALESCE(birthplace, $3)
+      WHERE citizen_id = ANY($4)`,
+      [satellite.burg_id, satellite.cell_id, parent.name, children.rows.map((c: any) => c.citizen_id)]);
+  }
+  return adults.rows.length + children.rows.length;
+}
 
 const SETTLEMENT_HAMLET_PREFIXES = [
   "Upper", "Lower", "Little", "Old", "South", "North", "West", "East", "High", "Green", "River", "Stone", "Briar", "Pine"
@@ -97,7 +164,7 @@ export async function runBurgExpansionAgent(client: any, tick: number, loreDate:
 
     // Determine satellite settlement type based on biome & needs
     const biome = Number(targetCell.biome) || 6;
-    let satType: "HAMLET" | "FARMLAND" | "LOGGING" | "WATCHTOWER" = "HAMLET";
+    let satType: SatelliteType = "HAMLET";
     if (biome === 3 || biome === 4) satType = "LOGGING";
     else if (biome === 1 || biome === 2) satType = "FARMLAND";
     else if (Math.random() < 0.25) satType = "WATCHTOWER";
@@ -105,6 +172,8 @@ export async function runBurgExpansionAgent(client: any, tick: number, loreDate:
     const hamletName = uniqueBurgName(genHamletName(parent.name, satType), takenNames);
     takenNames.add(hamletName);
     const migratePop = Math.min(120, Math.max(24, Math.floor(parent.pop_null * 0.05)));
+    // Pioneers are 80% null, 20% attuned; both leave the parent (the attuned share used to appear from nothing)
+    const migrateAttuned = Math.floor(migratePop * 0.2);
     const startWealth = Math.min(300, Math.floor(parent.wealth * 0.1));
     const startFood = migratePop * 12;
 
@@ -130,11 +199,14 @@ export async function runBurgExpansionAgent(client: any, tick: number, loreDate:
       hamletName,
       parent.burg_id,
       satType,
-      migratePop,
-      Math.floor(migratePop * 0.2),
+      migratePop - migrateAttuned,
+      migrateAttuned,
       startWealth,
       startFood
     ]);
+    const settlers = await settleSatellite(client, parent, {
+      burg_id: newBurgId, cell_id: targetCell.id, name: hamletName, type: satType, pioneers: migratePop,
+    });
 
     // Insert industrial stockpile for satellite
     await client.query(
@@ -146,51 +218,16 @@ export async function runBurgExpansionAgent(client: any, tick: number, loreDate:
     await client.query(`
       UPDATE sim_burg_economy
       SET pop_null = GREATEST(200, pop_null - $1),
+          pop_attuned = GREATEST(0, COALESCE(pop_attuned, 0) - $5),
           wealth = GREATEST(100, wealth - $2),
           food = GREATEST(200, food - $3)
       WHERE burg_id = $4
-    `, [migratePop, startWealth, startFood, parent.burg_id]);
+    `, [migratePop - migrateAttuned, startWealth, startFood, parent.burg_id, migrateAttuned]);
 
-    // Pre-render the 256x256 tactical sector map for the new hamlet
-    const factionName = parent.faction_name || "Provincial Sovereignty";
-    const mapResult = generateOutlyingSectorMap(
-      parent,
-      satType,
-      112,
-      112,
-      targetCell.id,
-      factionName
-    );
 
-    // Insert into sim_world_vault_sectors
-    await client.query(`
-      INSERT INTO sim_world_vault_sectors (
-        cell_id, rx, ry, biome_id, elevation, moisture, chaos_radiation,
-        infrastructure_mask, poi_type, compressed_terrain, name, props, npcs, features
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-      ON CONFLICT (cell_id, rx, ry) DO UPDATE SET
-        poi_type = EXCLUDED.poi_type,
-        compressed_terrain = EXCLUDED.compressed_terrain,
-        name = EXCLUDED.name,
-        props = EXCLUDED.props,
-        npcs = EXCLUDED.npcs,
-        features = EXCLUDED.features;
-    `, [
-      targetCell.id,
-      112,
-      112,
-      biome,
-      Math.round((Number(targetCell.elevation) || 50) * 10),
-      500,
-      5,
-      8,
-      `OUTLYING_${satType}`,
-      mapResult.compressed,
-      hamletName,
-      JSON.stringify(mapResult.props),
-      JSON.stringify(mapResult.npcs),
-      JSON.stringify(mapResult.features)
-    ]);
+    // Its maps are built on demand when a tile is opened (dmRouter /sector_layer), from these settlers.
+    // A 256x256 map used to be pre-rendered here into sim_world_vault_sectors at tile (112,112): off the
+    // 0-99 grid, never read by anything, and paid for inside the tick.
 
     // Create trade link / road connecting parent burg cell to the hamlet cell
     await client.query(`
@@ -209,6 +246,6 @@ export async function runBurgExpansionAgent(client: any, tick: number, loreDate:
       loreDate
     ]);
 
-    console.log(`[BurgExpansion] Founded satellite ${satType} "${hamletName}" (Burg #${newBurgId}) in Cell ${targetCell.id} for parent ${parent.name}`);
+    console.log(`[BurgExpansion] Founded satellite ${satType} "${hamletName}" (Burg #${newBurgId}) in Cell ${targetCell.id} for parent ${parent.name} with ${settlers} settler records`);
   }
 }

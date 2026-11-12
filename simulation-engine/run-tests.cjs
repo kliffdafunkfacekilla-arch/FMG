@@ -13,7 +13,7 @@ const path = require("path");
 const SUITES = [
   "testCalendar", "testCanonMandates", "testTagMatrixFull", "testBrutalGMVisual", "testChaosFlows",
   "testThreadActors", "testThreadReactions", "testThreadClocks", "testQuestChainResolution", "testSystemicOutcomes",
-  "testTacticalInteractions", "testStoryPipeline",
+  "testTacticalInteractions", "testStoryPipeline", "testSettlement",
 ];
 const root = __dirname;
 

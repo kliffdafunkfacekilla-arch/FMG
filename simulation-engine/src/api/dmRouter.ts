@@ -64,22 +64,6 @@ import {
 // Initialize Singleton B.R.U.T.A.L. Game Master
 const brutalGM = new BrutalGameMaster(pool);
 
-/**
- * A burg founded by expansion has no citizens of its own yet, so its town maps came out empty (no NPCs,
- * no story actors). Its people are the ones who moved from the parent burg: use those.
- */
-async function residentsOrParentBurgs(rows: any[], burg: any): Promise<any[]> {
-  if (rows.length > 0 || !burg?.parent_burg_id) return rows;
-  const parent = await pool.query(
-    `SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation,
-            workplace_type, workplace_name, childhood_background, allegiance_status
-     FROM population_demographics WHERE settlement_id = $1 AND life_stage = 'ADULT'
-     ORDER BY citizen_id ASC LIMIT 60`,
-    [burg.parent_burg_id]
-  );
-  return parent.rows;
-}
-
 function parseJsonField(val: any, fallback: any = {}) {
   if (!val) return fallback;
   if (typeof val === 'object') return val;
@@ -796,14 +780,13 @@ router.post('/sector_load', async (req, res) => {
           const factionName = burg.faction_name || "Provincial Sovereignty";
           const wardFocus = regInstance?.wardMap?.[cellIdx] || (targetRx === 50 && targetRy === 50 ? 'CITADEL' : 'RESIDENTIAL');
           const [citRes, lairRes, paragonRes, stockpileRes, eventsRes, cellRes] = await Promise.all([
-            pool.query(`SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation, workplace_type, workplace_name, childhood_background, allegiance_status FROM population_demographics WHERE (home_cell_id = $1 OR settlement_id = $2) AND life_stage = 'ADULT' ORDER BY citizen_id ASC LIMIT 60`, [targetCellId, burg.burg_id]),
+            pool.query(`SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation, workplace_type, workplace_name, childhood_background, allegiance_status FROM population_demographics WHERE (home_cell_id = $1 OR settlement_id = $2) AND life_stage = 'ADULT' AND allegiance_status <> 'DECEASED' ORDER BY citizen_id ASC LIMIT 60`, [targetCellId, burg.burg_id]),
             pool.query(`SELECT l.*, o.name AS cartel_name, o.type AS cartel_type, o.contraband_types FROM sim_fringe_lairs l JOIN sim_outlaw_factions o ON o.id = l.faction_id WHERE l.burg_id = $1 OR l.cell_id = $2`, [burg.burg_id, targetCellId]),
             pool.query(`SELECT * FROM sim_paragons WHERE burg_id = $1 OR outlaw_id IN (SELECT faction_id FROM sim_fringe_lairs WHERE burg_id = $1 OR cell_id = $2)`, [burg.burg_id, targetCellId]),
             pool.query(`SELECT * FROM sim_industrial_stockpiles WHERE burg_id = $1 LIMIT 1`, [burg.burg_id]),
             pool.query(`SELECT * FROM sim_events WHERE burg_id = $1 OR cell_id = $2 ORDER BY id DESC LIMIT 25`, [burg.burg_id, targetCellId]),
             pool.query(`SELECT id, faction_id, biome, elevation FROM sim_cells WHERE id = $1 LIMIT 1`, [targetCellId])
           ]);
-          citRes.rows = await residentsOrParentBurgs(citRes.rows, burg);
 
           const layers = generateBurgSectorLayers(
             burg,
@@ -875,7 +858,7 @@ router.post('/sector_load', async (req, res) => {
           // Outlying Regional Sector (Farmstead, Logging Camp, Mine, Watchtower, Hamlet, or Wilderness)
           const [cellRes, citRes, paragonRes, lairRes, eventsRes, stockpileRes] = await Promise.all([
             pool.query(`SELECT c.*, f.name AS faction_name FROM sim_cells c LEFT JOIN sim_factions f ON f.id = c.faction_id WHERE c.id = $1 LIMIT 1`, [targetCellId]),
-            pool.query(`SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation, workplace_type, workplace_name, childhood_background, allegiance_status FROM population_demographics WHERE (home_cell_id = $1 OR settlement_id = $2) AND life_stage = 'ADULT' ORDER BY citizen_id ASC LIMIT 60`, [targetCellId, burgRes.rows[0]?.burg_id || 0]),
+            pool.query(`SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation, workplace_type, workplace_name, childhood_background, allegiance_status FROM population_demographics WHERE (home_cell_id = $1 OR settlement_id = $2) AND life_stage = 'ADULT' AND allegiance_status <> 'DECEASED' ORDER BY citizen_id ASC LIMIT 60`, [targetCellId, burgRes.rows[0]?.burg_id || 0]),
             pool.query(`SELECT * FROM sim_paragons WHERE burg_id = $1 LIMIT 10`, [burgRes.rows[0]?.burg_id || 0]),
             pool.query(`SELECT l.*, o.name AS cartel_name, o.type AS cartel_type FROM sim_fringe_lairs l JOIN sim_outlaw_factions o ON o.id = l.faction_id WHERE l.burg_id = $1 OR l.cell_id = $2 LIMIT 10`, [burgRes.rows[0]?.burg_id || 0, targetCellId]),
             pool.query(`SELECT * FROM sim_events WHERE (burg_id = $1 OR cell_id = $2) ORDER BY id DESC LIMIT 25`, [burgRes.rows[0]?.burg_id || 0, targetCellId]),
@@ -1145,15 +1128,15 @@ router.get('/sector_layer', async (req, res) => {
     let staleRegional = layerRes.rows.length > 0 && cached?.terrainVersion !== TERRAIN_VERSION && (
       (targetZ === 0 && cached?.terrainType !== undefined) || (cached?.burgId !== undefined && !isTownCentre)
     );
-    // A town surface cached empty before expansion burgs borrowed their parent's residents: rebuild it
-    // once those people exist, so stories there have real actors instead of invented ones.
+    // A town surface cached empty while its burg had no citizen records (satellites were founded without
+    // any until settlers moved with them): rebuild it once residents exist, so its people appear.
     const cachedNpcs = layerRes.rows[0]?.npcs;
     if (!staleRegional && targetZ === 0 && cached?.burgId !== undefined && Array.isArray(cachedNpcs) && cachedNpcs.length === 0) {
-      const parent = await pool.query(
-        `SELECT 1 FROM sim_burg_economy b JOIN population_demographics d ON d.settlement_id = b.parent_burg_id AND d.life_stage = 'ADULT'
-         WHERE b.burg_id = $1 LIMIT 1`, [cached.burgId]
+      const residents = await pool.query(
+        `SELECT 1 FROM population_demographics WHERE settlement_id = $1 AND life_stage = 'ADULT' AND allegiance_status <> 'DECEASED' LIMIT 1`,
+        [cached.burgId]
       );
-      staleRegional = parent.rows.length > 0;
+      staleRegional = residents.rows.length > 0;
     }
 
     if (layerRes.rows.length > 0 && !staleRegional) {
@@ -1204,12 +1187,11 @@ router.get('/sector_layer', async (req, res) => {
         `SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation,
                 workplace_type, workplace_name, childhood_background, allegiance_status
          FROM population_demographics
-         WHERE (home_cell_id = $1 OR settlement_id = $2) AND life_stage = 'ADULT'
+         WHERE (home_cell_id = $1 OR settlement_id = $2) AND life_stage = 'ADULT' AND allegiance_status <> 'DECEASED'
          ORDER BY citizen_id ASC
          LIMIT 60`,
         [targetCellId, burg.burg_id]
       );
-      citRes.rows = await residentsOrParentBurgs(citRes.rows, burg);
 
       // Fetch active fringe cartels & underworld lairs for this burg
       const lairRes = await pool.query(
@@ -1324,7 +1306,7 @@ router.get('/sector_layer', async (req, res) => {
         `SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation,
                 workplace_type, workplace_name, childhood_background, allegiance_status
          FROM population_demographics
-         WHERE (home_cell_id = $1 OR settlement_id = $2) AND life_stage = 'ADULT'
+         WHERE (home_cell_id = $1 OR settlement_id = $2) AND life_stage = 'ADULT' AND allegiance_status <> 'DECEASED'
          ORDER BY citizen_id ASC
          LIMIT 60`,
         [targetCellId, burgRes.rows[0]?.burg_id || 0]

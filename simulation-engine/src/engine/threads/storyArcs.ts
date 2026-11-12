@@ -65,7 +65,7 @@ async function resolveActor(db: Db, cellId: number, rx: number, ry: number, pref
   // thread the party can pick up. Typed ids match those people when they appear on a map.
   const records = await db.query(
     `SELECT (SELECT p.id FROM sim_paragons p WHERE p.burg_id = b.burg_id AND p.outlaw_id IS NULL ORDER BY p.id LIMIT 1) AS paragon_id,
-            (SELECT d.citizen_id FROM population_demographics d WHERE d.settlement_id IN (b.burg_id, b.parent_burg_id) AND d.life_stage = 'ADULT' ORDER BY d.citizen_id LIMIT 1) AS citizen_id
+            (SELECT d.citizen_id FROM population_demographics d WHERE d.settlement_id = b.burg_id AND d.life_stage = 'ADULT' AND d.allegiance_status = 'CIVILIAN' ORDER BY d.citizen_id LIMIT 1) AS citizen_id
      FROM sim_burg_economy b WHERE b.cell_id = $1 LIMIT 1`,
     [cellId]
   );
