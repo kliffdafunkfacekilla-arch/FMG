@@ -1,9 +1,9 @@
 /**
- * 4-PLAYER TTRPG PARTY SESSION RUNNER (OLLAMA + GEMINI GM + B.R.U.T.A.L. v4.9)
+ * 4-PLAYER TTRPG PARTY SESSION RUNNER (OLLAMA PLAYERS + OLLAMA GM + B.R.U.T.A.L. v4.9)
  * ==============================================================================
  * Architecture:
  * - Players: Local Ollama (llama3.2:latest) driving 4 distinct characters in character.
- * - Game Master: BrutalGM via Gemini API (gemini-2.5-flash) for narration & NPC dialogue.
+ * - Game Master: BrutalGM via local Ollama (engine/llm.ts) for narration & NPC dialogue.
  * - Rules Arbiter: Deterministic B.R.U.T.A.L. v4.9 code (1d12 Net Margin vs Guard).
  * - State: PostgreSQL persistence (sim_player_character, sim_events).
  */
@@ -11,6 +11,7 @@
 import dotenv from 'dotenv';
 import pool from '../db/pool.js';
 import { BrutalGameMaster } from '../engine/rpg/BrutalGM.js';
+import { ollamaGenerate } from '../engine/llm.js';
 import { TaggedObject } from '../engine/rpg/TagMatrixEngine.js';
 import { calculateDerivedPools, calculateDerivedSenses, Attributes } from '../engine/customRulesEngine.js';
 
@@ -194,21 +195,9 @@ Dialogue: "your spoken words"
 Action: I [what you do]`;
 
   try {
-    const res = await fetch("http://127.0.0.1:11434/api/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "llama3.2:latest",
-        prompt,
-        stream: false,
-        options: {
-          temperature: 0.7,
-          num_predict: 120
-        }
-      })
-    });
-
-    const data: any = await res.json();
+    const text = await ollamaGenerate(prompt, { temperature: 0.7, maxTokens: 120, timeoutMs: 60000 });
+    if (text === null) throw new Error("local model unavailable");
+    const data: any = { response: text };
     const raw = String(data.response || "").trim();
 
     let dialogue = "Let's stay sharp.";
@@ -233,14 +222,13 @@ Action: I [what you do]`;
 
 async function runSession() {
   console.log("================================================================================");
-  console.log("       B.R.U.T.A.L. v4.9 4-PLAYER OLLAMA + GEMINI GM SESSION TEST");
+  console.log("       B.R.U.T.A.L. v4.9 4-PLAYER OLLAMA SESSION TEST");
   console.log("================================================================================");
 
   await seedPartyCharacters();
 
   // Initialize B.R.U.T.A.L. GM
-  const apiKey = process.env.GEMINI_API_KEY || '';
-  const gm = new BrutalGameMaster(pool, apiKey);
+  const gm = new BrutalGameMaster(pool);
 
   // Setup the encounter sector: Burg 81 (Roromijima Harbor Sluice Gate)
   const burgRes = await pool.query("SELECT * FROM sim_burg_economy WHERE burg_id = 81");

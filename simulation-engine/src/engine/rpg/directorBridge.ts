@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
+import { llmDisabled, ollamaJson } from '../llm.js';
 import pool from '../../db/pool';
 import { Entity, processSectorNarrativeLayer } from './narrativeTagEngine';
 import type { SimThread, ThreadStateEvaluation } from '../threads/threadEngine';
@@ -102,7 +102,7 @@ export interface DirectorOutputBlueprint {
     story_arc_framework: StoryArcFramework;
     database_mutations: DatabaseMutationsBlueprint;
     /** Which director wrote it (stored on the managed arc). */
-    source?: 'gemini' | 'ollama' | 'procedural';
+    source?: 'ollama' | 'procedural';
 }
 
 // =========================================================================
@@ -507,151 +507,66 @@ export function synthesizeProceduralStoryArc(inputPayload: DirectorInputPayload)
 }
 
 // =========================================================================
-// 6. GEMINI AI DIRECTOR ENGINE (Strict JSON Schema Execution with Fallback)
+// 6. AI DIRECTOR (local Ollama, procedural fallback)
 // =========================================================================
 
-/** True when LLM calls are switched off (tests set this; also useful offline): STORY_LLM=off. */
-export function llmDisabled(): boolean {
-    return String(process.env.STORY_LLM || '').toLowerCase() === 'off';
-}
+/** True when model calls are switched off (STORY_LLM=off: tests, or playing offline). */
+export { llmDisabled };
 
-export async function generateStoryArcWithGemini(
-    inputPayload: DirectorInputPayload
-): Promise<DirectorOutputBlueprint> {
-    if (llmDisabled()) return synthesizeProceduralStoryArc(inputPayload);
-    const apiKey = process.env.GEMINI_API_KEY;
-
-    // Helper: Ollama local fallback
-    const callOllamaDirector = async (): Promise<DirectorOutputBlueprint | null> => {
-        try {
-            console.log('[AI Director] Querying local Ollama (llama3.2) for dynamic story arc...');
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 6000);
-            const res = await fetch("http://127.0.0.1:11434/api/generate", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                signal: controller.signal,
-                body: JSON.stringify({
-                    model: "llama3.2:latest",
-                    prompt: `You are the Stateless AI Director for a tabletop simulation engine.
-Read this simulation state:
+/**
+ * Writes an arc for the sector with the local model (engine/llm.ts), validated against the real
+ * assets afterwards by validateDirectorMutations. Falls back to the procedural director when the model
+ * is off, unreachable, or returns something unusable.
+ */
+export async function generateStoryArc(inputPayload: DirectorInputPayload): Promise<DirectorOutputBlueprint> {
+    // With nobody real on the map a model invents a cast (rule 7); the procedural arc does not.
+    if (llmDisabled() || inputPayload.available_sector_assets.eligible_npcs.length === 0) return synthesizeProceduralStoryArc(inputPayload);
+    const system = `You are the story director for a tabletop simulation. Read the simulation state, the party, and the
+sector's real NPCs and props. Write one local story arc that grows out of the economy, the faction situation and those
+assets. Rules: never invent people, places or items; to involve a character, use the exact "id" of one of
+eligible_npcs; to plant a clue or entrance, use the exact "id" of one of eligible_props. In every sentence
+(inciting_incident, objective, discovery_method, dialogue) refer to people and things by their plain names: never
+write an id, a tag (words starting with #) or a field name in prose. npc_alterations may only target ids listed in
+eligible_npcs and prop_alterations only ids in eligible_props; leave a list empty if none fit. Reply with JSON only.`;
+    const prompt = `Simulation state:
 ${JSON.stringify(inputPayload, null, 2)}
 
-Synthesize a local Story Arc Framework that bridges the trouble, economy, and assets.
-Output ONLY raw JSON with:
+Reply with JSON of exactly this shape:
 {
   "story_arc_framework": {
-    "arc_id": "arc_unique_id",
-    "inciting_incident": "one evocative sentence describing the active crisis",
+    "arc_id": "short_snake_case_id",
+    "inciting_incident": "one vivid sentence describing the crisis",
     "active_phase": 1,
     "beats": [
-      {
-        "phase": 1,
-        "objective": "specific goal targeting one of the eligible NPCs or props",
-        "discovery_method": "method to achieve it"
-      }
+      { "phase": 1, "objective": "a concrete goal naming one eligible NPC or prop", "discovery_method": "how the party can achieve it" },
+      { "phase": 2, "objective": "...", "discovery_method": "..." }
     ]
   },
   "database_mutations": {
-    "npc_alterations": [],
-    "prop_alterations": []
-  }
-}`,
-                    stream: false,
-                    options: { temperature: 0.6, num_predict: 350 }
-                })
-            });
-            clearTimeout(timeout);
-            const data: any = await res.json();
-            const raw = String(data.response || "").replace(/```json|```/g, "").trim();
-            const parsed = JSON.parse(raw);
-            if (parsed.story_arc_framework && parsed.story_arc_framework.inciting_incident) {
-                return parsed;
-            }
-        } catch (e) {
-            console.log('[AI Director] Ollama fallback skipped, using procedural synthesizer.');
-        }
-        return null;
-    };
-
-    try {
-        if (!apiKey || apiKey.startsWith('AQ.') || apiKey.length < 20) {
-            const ollamaResult = await callOllamaDirector();
-            if (ollamaResult) return { ...ollamaResult, source: 'ollama' };
-            console.log('[AI Director] Using procedural fallback generator.');
-            return synthesizeProceduralStoryArc(inputPayload);
-        }
-
-        const ai = new GoogleGenAI({ apiKey });
-
-        const systemInstruction = `You are the Stateless AI Director for a 1-to-1 scale tabletop simulation engine.
-Your objective is to read the 'simulation_state', 'player_profile_context', and 'available_sector_assets'.
-You must synthesize a local Story Arc Framework that logically bridges these inputs.
-
-CRITICAL CONSTRAINTS:
-1. You cannot invent physical space or materialize completely new tokens.
-2. To introduce plot items, you must target and tag an existing item container inside 'eligible_props' using their exact 'id'.
-3. To introduce character threads, you must target and tag an existing individual inside 'eligible_npcs' using their unique 'id'.
-4. To create a dungeon entrance or Point of Interest, you must alter an existing asset inside 'eligible_props'.
-5. You must output exclusively valid JSON matching the exact schema provided. No markdown text wrapper.`;
-
-        const prompt = `Synthesize a narrative arc blueprint for the following simulation state:
-${JSON.stringify(inputPayload, null, 2)}
-
-Output strictly valid JSON with this exact structure:
-{
-  "story_arc_framework": {
-    "arc_id": "string",
-    "inciting_incident": "string",
-    "active_phase": 1,
-    "beats": [
-      {
-        "phase": 1,
-        "objective": "string",
-        "discovery_method": "string"
-      }
-    ]
-  },
-  "database_mutations": {
-    "npc_alterations": [
-      {
-        "target_id": "string",
-        "append_tags": ["string"],
-        "metadata_overrides": {
-          "temporary_dialogue_node": "string"
-        }
-      }
-    ],
-    "prop_alterations": [
-      {
-        "target_id": "string",
-        "append_tags": ["string"],
-        "metadata_overrides": {
-          "injected_loot_item_id": "string",
-          "tile_sprite_override_id": "string",
-          "target_destination_scene_id": "string"
-        }
-      }
-    ]
+    "npc_alterations": [ { "target_id": "exact npc id", "append_tags": ["#NarrativeTarget"], "metadata_overrides": { "temporary_dialogue_node": "a line they say" } } ],
+    "prop_alterations": [ { "target_id": "exact prop id", "append_tags": ["#PlotClueCarrier"] } ]
   }
 }`;
-
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-                systemInstruction,
-                responseMimeType: 'application/json'
-            }
-        });
-
-        const rawText = response.text || '{}';
-        const parsed = JSON.parse(rawText) as DirectorOutputBlueprint;
-        return { ...parsed, source: 'gemini' };
-    } catch (err: any) {
-        console.warn(`[AI Director] Remote Gemini call encountered error (${err.message}), seamlessly executing procedural fallback.`);
+    const parsed = await ollamaJson<DirectorOutputBlueprint>(prompt, { system, temperature: 0.7, maxTokens: 700, timeoutMs: 120000 });
+    const fw = parsed?.story_arc_framework;
+    if (!fw?.inciting_incident || !Array.isArray(fw.beats) || fw.beats.length === 0) {
         return synthesizeProceduralStoryArc(inputPayload);
     }
+    // Small local models still echo tags into prose ("#GuildDominance's ..."): turn them back into words.
+    const prose = (s: any) => String(s || '').replace(/#([A-Za-z]+)/g, (_m, w: string) => w.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()).trim();
+    return {
+        source: 'ollama',
+        story_arc_framework: {
+            arc_id: String(fw.arc_id || `arc_${inputPayload.simulation_state.cell_id}_${Date.now()}`).slice(0, 120),
+            inciting_incident: prose(fw.inciting_incident),
+            active_phase: 1,
+            beats: fw.beats.filter(b => b && b.objective).map((b, i) => ({ phase: i + 1, objective: prose(b.objective), discovery_method: prose(b.discovery_method) })),
+        },
+        database_mutations: {
+            npc_alterations: Array.isArray(parsed?.database_mutations?.npc_alterations) ? parsed!.database_mutations.npc_alterations : [],
+            prop_alterations: Array.isArray(parsed?.database_mutations?.prop_alterations) ? parsed!.database_mutations.prop_alterations : [],
+        },
+    };
 }
 
 // =========================================================================
@@ -754,114 +669,42 @@ export async function generateThreadResolutionAftermath(
     burgName: string = "the district",
     playerActionText?: string
 ): Promise<ThreadAftermathSynthesis> {
+    const fallback = () => synthesizeProceduralAftermath(thread, evaluation, eligibleNpcs, eligibleProps, burgName);
+    if (llmDisabled()) return fallback();
     const validNpcIds = new Set(eligibleNpcs.map(n => String(n.id)));
-    if (llmDisabled()) return synthesizeProceduralAftermath(thread, evaluation, eligibleNpcs, eligibleProps, burgName);
-    const apiKey = process.env.GEMINI_API_KEY;
-
-    // Check Ollama local fallback
-    const callOllamaAftermath = async (): Promise<ThreadAftermathSynthesis | null> => {
-        try {
-            const res = await fetch('http://127.0.0.1:11434/api/generate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model: 'llama3:latest',
-                    prompt: `You are the AI Story Director for the B.R.U.T.A.L. tabletop RPG.
-A story thread has just been resolved:
-Thread Question: "${thread.question}"
+    const prompt = `A story thread in ${burgName} has just been resolved.
+Question: "${thread.question}"
 Stakes: "${thread.stakes}"
-Outcome: "${evaluation.outcomeType}" (Actor State: ${evaluation.actorState || 'resolved'})
-Player Action: "${playerActionText || 'Direct intervention'}"
-Narrative: "${evaluation.resolutionNarrative}"
+Outcome: ${evaluation.outcomeType} (actor: ${evaluation.actorState || 'resolved'})
+What the party did: "${playerActionText || 'direct intervention'}"
+What happened: "${evaluation.resolutionNarrative}"
 
-Available NPCs in sector (CRITICAL: You may ONLY use these IDs):
+People present (you may ONLY use these ids):
 ${JSON.stringify(eligibleNpcs.map(n => ({ id: n.id, name: n.name, role: n.role })), null, 2)}
 
-Output strictly valid JSON:
+Reply with JSON only:
 {
-  "narrativeSummary": "string",
+  "narrativeSummary": "two or three sentences on the aftermath",
   "forensicTags": ["#Tag1", "#Tag2"],
-  "lootRewards": [{ "name": "Item Name", "tag": "#Tag", "quantity": 1 }],
-  "burgShiftNarrative": "string",
-  "followUpThread": {
-    "question": "string",
-    "stakes": "string",
-    "clock_max": 4,
-    "actor_id": "EXACT_ID_FROM_LIST_ABOVE",
-    "rule_id": "RULE_STRING"
-  }
-}`,
-                    stream: false,
-                    format: 'json'
-                })
-            });
-
-            if (!res.ok) return null;
-            const data: any = await res.json();
-            const parsed = JSON.parse(data.response);
-            if (parsed && parsed.narrativeSummary) {
-                // Rule 7 guard: Ensure actor_id exists in eligibleNpcs
-                if (parsed.followUpThread && !validNpcIds.has(String(parsed.followUpThread.actor_id))) {
-                    console.warn(`[AI Director] Hallucinated actor_id ${parsed.followUpThread.actor_id} in follow-up thread. Falling back to valid actor.`);
-                    parsed.followUpThread.actor_id = String(eligibleNpcs[0]?.id || thread.actor_ids[0]);
-                }
-                return parsed;
-            }
-        } catch {
-            // Ollama offline or error, proceed to next fallback
-        }
-        return null;
-    };
-
-    try {
-        if (!apiKey || apiKey.startsWith('AQ.') || apiKey.length < 20) {
-            const ollamaResult = await callOllamaAftermath();
-            if (ollamaResult) return ollamaResult;
-            return synthesizeProceduralAftermath(thread, evaluation, eligibleNpcs, eligibleProps, burgName);
-        }
-
-        const ai = new GoogleGenAI({ apiKey });
-        const systemInstruction = `You are the Stateless AI Story Director for B.R.U.T.A.L.
-Reason out the direct physical, forensic, and narrative aftermath of a resolved thread.
-CRITICAL CONSTRAINT: You cannot invent entities. If proposing a followUpThread, the actor_id MUST be one of the provided available NPCs. Output valid JSON.`;
-
-        const prompt = `Synthesize the aftermath of this resolved thread:
-Thread Question: "${thread.question}"
-Stakes: "${thread.stakes}"
-Outcome: "${evaluation.outcomeType}" (Actor state: ${evaluation.actorState})
-Resolution: "${evaluation.resolutionNarrative}"
-Available NPCs: ${JSON.stringify(eligibleNpcs.map(n => ({ id: n.id, name: n.name })), null, 2)}
-
-Output strictly valid JSON matching this schema:
-{
-  "narrativeSummary": "string",
-  "forensicTags": ["#Tag1", "#Tag2"],
-  "lootRewards": [{ "name": "string", "tag": "#Tag", "quantity": 1 }],
-  "burgShiftNarrative": "string",
-  "followUpThread": {
-    "question": "string",
-    "stakes": "string",
-    "clock_max": 4,
-    "actor_id": "EXACT_NPC_ID",
-    "rule_id": "RULE_STRING"
-  }
+  "lootRewards": [{ "name": "item", "tag": "#Tag", "quantity": 1 }],
+  "burgShiftNarrative": "one sentence on how the town changes",
+  "followUpThread": { "question": "a new open question", "stakes": "what is at risk", "clock_max": 4, "actor_id": "EXACT id from the list", "rule_id": "RULE_SNAKE_CASE" }
 }`;
-
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-                systemInstruction,
-                responseMimeType: 'application/json'
-            }
-        });
-
-        const parsed = JSON.parse(response.text || '{}') as ThreadAftermathSynthesis;
-        if (parsed.followUpThread && !validNpcIds.has(String(parsed.followUpThread.actor_id))) {
-            parsed.followUpThread.actor_id = String(eligibleNpcs[0]?.id || thread.actor_ids[0]);
+    const parsed = await ollamaJson<ThreadAftermathSynthesis>(prompt, {
+        system: 'You are the story director for a tabletop RPG. Reason out the physical and social aftermath of a resolved thread. Never invent people. Reply with JSON only.',
+        temperature: 0.7, maxTokens: 500, timeoutMs: 120000,
+    });
+    if (!parsed?.narrativeSummary) return fallback();
+    if (parsed.followUpThread) {
+        // Rule 7: a follow-up thread may only name someone who is really there
+        if (!validNpcIds.has(String(parsed.followUpThread.actor_id))) {
+            const fallbackActor = eligibleNpcs[0]?.id || thread.actor_ids[0];
+            if (fallbackActor) parsed.followUpThread.actor_id = String(fallbackActor);
+            else delete (parsed as any).followUpThread;
         }
-        return parsed;
-    } catch {
-        return synthesizeProceduralAftermath(thread, evaluation, eligibleNpcs, eligibleProps, burgName);
+        if (parsed.followUpThread) parsed.followUpThread.clock_max = Math.max(2, Math.min(8, Number(parsed.followUpThread.clock_max) || 4));
     }
+    parsed.forensicTags = Array.isArray(parsed.forensicTags) ? parsed.forensicTags.filter(t => typeof t === 'string' && t.startsWith('#')).slice(0, 6) : [];
+    parsed.lootRewards = Array.isArray(parsed.lootRewards) ? parsed.lootRewards.slice(0, 4) : [];
+    return parsed;
 }

@@ -375,7 +375,7 @@ export function evaluateNPCMind(
   else if (clampedDisposition <= -1) priceMult += 0.30;
   const clampedPrice = Math.max(0.75, Math.min(1.60, Number(priceMult.toFixed(2))));
 
-  // Semantic dialogue tags for Gemini GM prompt context
+  // Semantic dialogue tags for the GM prompt context
   const dialogueTags: string[] = [];
   if (nextNeeds.food < 0.25) dialogueTags.push("starving", "haggard");
   else if (nextNeeds.food < 0.5) dialogueTags.push("hungry");

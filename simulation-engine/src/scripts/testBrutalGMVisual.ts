@@ -4,7 +4,7 @@ import { BrutalGameMaster } from '../engine/rpg/BrutalGM.js';
 async function main() {
   console.log("=== Testing BrutalGameMaster & Sector Visual Grounding ===");
 
-  const gm = new BrutalGameMaster(pool, process.env.GEMINI_API_KEY || '');
+  const gm = new BrutalGameMaster(pool);
 
   // 1. Setup sector mock entities
   gm.activeProps.set("prop_gate", {

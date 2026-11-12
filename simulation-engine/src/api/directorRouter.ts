@@ -12,7 +12,7 @@ import {
     buildDirectorInputPayload,
     validateDirectorMutations,
     commitDirectorMutations,
-    generateStoryArcWithGemini
+    generateStoryArc
 } from '../engine/rpg/directorBridge';
 
 const directorRouter = Router();
@@ -100,7 +100,7 @@ directorRouter.post('/validate_mutations', validateBlueprintMiddleware, async (r
  * POST /api/dm/story/generate_arc
  * Autonomous Closed-Loop:
  * 1. Reads live economic and faction simulation state from PostgreSQL.
- * 2. Feeds the structured JSON prompt into Gemini.
+ * 2. Feeds the structured JSON prompt to the local model (Ollama), procedural fallback.
  * 3. Enforces the output schema contract.
  * 4. Runs validation middleware to drop any hallucinated tokens.
  * 5. Commits sanitized mutations to sim_sector_layers and sim_events.
@@ -121,8 +121,8 @@ directorRouter.post('/generate_arc', async (req: Request, res: Response): Promis
         // 1. Synthesize input payload from living simulation state
         const inputPayload = await buildDirectorInputPayload(cellId, rx, ry, z, pId);
 
-        // 2. Generate blueprint via Gemini using structured JSON schema
-        const rawBlueprint = await generateStoryArcWithGemini(inputPayload);
+        // 2. Generate blueprint with the local model (Ollama), procedural fallback
+        const rawBlueprint = await generateStoryArc(inputPayload);
 
         // 3. Validate against real sector assets
         const validation = validateDirectorMutations(inputPayload, rawBlueprint);

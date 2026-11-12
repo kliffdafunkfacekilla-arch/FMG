@@ -6,7 +6,7 @@
  * on one connection inside a single transaction that `done()` rolls back. Transactions the code opens
  * itself (BEGIN / COMMIT / ROLLBACK) become savepoints inside it, so nothing can commit for real.
  *
- * Also sets STORY_LLM=off so story code uses its procedural paths: tests never send data to Gemini or
+ * Also sets STORY_LLM=off so story code uses its procedural paths: tests never call
  * Ollama.
  */
 import pool from "../db/pool.js";

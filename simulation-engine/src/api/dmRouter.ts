@@ -10,6 +10,7 @@ import { generateGrindCanyonSectorMap, generateBurgSectorLayers, generateOutlyin
 import { regionalNeighborhood, TERRAIN_VERSION } from '../engine/maps/TacticalTerrain.js';
 import { generateWardDistrictMap, deriveWardLayers } from '../engine/maps/WardDistrict.js';
 import { seedLayerNarrative } from '../engine/rpg/narrativeSeeds.js';
+import { ollamaGenerate } from '../engine/llm.js';
 import { getOrCreateRegionalInstance } from './regionalRouter.js';
 import { getFactionSpecialty, FACTION_SPECIALTIES, FactionSpecialty } from '../engine/economy/factionSpecialties.js';
 import { getOpenThreads, evaluateThreadState } from '../engine/threads/threadEngine.js';
@@ -61,7 +62,23 @@ import {
 } from '../engine/rpg/SocialSkillProgression.js';
 
 // Initialize Singleton B.R.U.T.A.L. Game Master
-const brutalGM = new BrutalGameMaster(pool, process.env.GEMINI_API_KEY || '');
+const brutalGM = new BrutalGameMaster(pool);
+
+/**
+ * A burg founded by expansion has no citizens of its own yet, so its town maps came out empty (no NPCs,
+ * no story actors). Its people are the ones who moved from the parent burg: use those.
+ */
+async function residentsOrParentBurgs(rows: any[], burg: any): Promise<any[]> {
+  if (rows.length > 0 || !burg?.parent_burg_id) return rows;
+  const parent = await pool.query(
+    `SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation,
+            workplace_type, workplace_name, childhood_background, allegiance_status
+     FROM population_demographics WHERE settlement_id = $1 AND life_stage = 'ADULT'
+     ORDER BY citizen_id ASC LIMIT 60`,
+    [burg.parent_burg_id]
+  );
+  return parent.rows;
+}
 
 function parseJsonField(val: any, fallback: any = {}) {
   if (!val) return fallback;
@@ -786,6 +803,7 @@ router.post('/sector_load', async (req, res) => {
             pool.query(`SELECT * FROM sim_events WHERE burg_id = $1 OR cell_id = $2 ORDER BY id DESC LIMIT 25`, [burg.burg_id, targetCellId]),
             pool.query(`SELECT id, faction_id, biome, elevation FROM sim_cells WHERE id = $1 LIMIT 1`, [targetCellId])
           ]);
+          citRes.rows = await residentsOrParentBurgs(citRes.rows, burg);
 
           const layers = generateBurgSectorLayers(
             burg,
@@ -1124,9 +1142,19 @@ router.get('/sector_layer', async (req, res) => {
     const cached = layerRes.rows[0]?.features;
     const isTownCentre = targetRx === 50 && targetRy === 50;
     // Town tiles: every level (their cellars and rooftops are derived from their own surface now).
-    const staleRegional = layerRes.rows.length > 0 && cached?.terrainVersion !== TERRAIN_VERSION && (
+    let staleRegional = layerRes.rows.length > 0 && cached?.terrainVersion !== TERRAIN_VERSION && (
       (targetZ === 0 && cached?.terrainType !== undefined) || (cached?.burgId !== undefined && !isTownCentre)
     );
+    // A town surface cached empty before expansion burgs borrowed their parent's residents: rebuild it
+    // once those people exist, so stories there have real actors instead of invented ones.
+    const cachedNpcs = layerRes.rows[0]?.npcs;
+    if (!staleRegional && targetZ === 0 && cached?.burgId !== undefined && Array.isArray(cachedNpcs) && cachedNpcs.length === 0) {
+      const parent = await pool.query(
+        `SELECT 1 FROM sim_burg_economy b JOIN population_demographics d ON d.settlement_id = b.parent_burg_id AND d.life_stage = 'ADULT'
+         WHERE b.burg_id = $1 LIMIT 1`, [cached.burgId]
+      );
+      staleRegional = parent.rows.length > 0;
+    }
 
     if (layerRes.rows.length > 0 && !staleRegional) {
       const row = layerRes.rows[0];
@@ -1181,6 +1209,7 @@ router.get('/sector_layer', async (req, res) => {
          LIMIT 60`,
         [targetCellId, burg.burg_id]
       );
+      citRes.rows = await residentsOrParentBurgs(citRes.rows, burg);
 
       // Fetch active fringe cartels & underworld lairs for this burg
       const lairRes = await pool.query(
@@ -1463,7 +1492,7 @@ In 2-3 punchy, evocative, sensory sentences, narrate what the wandering adventur
 Highlight tangible atmosphere: sounds on the wind, the eerie glow of the blood moon radiating the active Flow of Chaos, the smell of damp earth or ancient ozone, and visible relics or tense standoff of living entities.
 Do not list numbers or mechanics. End with an urgent question of what they do.`;
 
-    const sceneText = await (brutalGM as any).callGeminiWithFallback(
+    const sceneText = await brutalGM.callModel(
       [{ role: 'user', parts: [{ text: arrivalPrompt }] }],
       systemInstruction,
       250,
@@ -2118,7 +2147,7 @@ router.get('/bounties', async (req, res) => {
       status: 'OPEN'
     });
 
-    // Try Gemini enrichment if AI is available
+    // Try model enrichment if the local model is available
     try {
       const prompt = `Live Simulation Context for ${burgName}:
 Famine Status: ${burg.food < 120 ? 'Critical Shortage (' + burg.food + ' food)' : 'Stable'}
@@ -2130,7 +2159,7 @@ Base Contracts: ${JSON.stringify(contracts.slice(0, 3))}
 As the Municipal Reeve of ${burgName}, write 3 punchy, flavorful bulletin board postings for adventurers.
 Output ONLY a single valid JSON array of objects with keys: id, title, giver, desc, reward, targetType, status.`;
 
-      const aiText = await brutalGM.callGeminiWithFallback(
+      const aiText = await brutalGM.callModel(
         [{ role: 'user', parts: [{ text: prompt }] }],
         'You are the Reeve of a gritty dark fantasy city. Output only valid JSON array.',
         400,
@@ -2168,7 +2197,7 @@ Output ONLY a single valid JSON array of objects with keys: id, title, giver, de
 // ==========================================
 import {
   buildDirectorInputPayload,
-  generateStoryArcWithGemini,
+  generateStoryArc,
   validateDirectorMutations,
   commitDirectorMutations
 } from '../engine/rpg/directorBridge.js';
@@ -2394,23 +2423,10 @@ Dialogue: "your spoken words"
 Action: I [what you do]`;
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-
-    const res = await fetch("http://127.0.0.1:11434/api/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: "llama3.2:latest",
-        prompt,
-        stream: false,
-        options: { temperature: 0.75, num_predict: 120 }
-      })
-    });
-    clearTimeout(timeout);
-
-    const data: any = await res.json();
+    // Local model via engine/llm.ts (configured URL/model, 60 s: a CPU model needs more than the old 15 s)
+    const text = await ollamaGenerate(prompt, { temperature: 0.75, maxTokens: 120, timeoutMs: 60000 });
+    if (text === null) throw new Error("local model unavailable");
+    const data: any = { response: text };
     const raw = String(data.response || "").trim();
 
     let dialogue = "";

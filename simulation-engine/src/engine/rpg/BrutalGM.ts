@@ -15,7 +15,7 @@ import { SHADOWFALL_MONTH, isChaosPeak } from "../canon/calendar.js";
  * - Narrative Observation Component: Grounded sensory outcome generation
  */
 
-import { GoogleGenAI } from "@google/genai";
+import { ollamaGenerate } from "../llm.js";
 import { Pool } from "pg";
 import { TagMatrixEngine, TaggedObject, TagInteractionResult } from "./TagMatrixEngine.js";
 import { WhatElseStoryEngine, StoryBeat, SectorContext, InjectedNPC, InjectedWorldState } from "./WhatElseStoryEngine.js";
@@ -100,7 +100,6 @@ export interface GMResolutionOutput {
 
 export class BrutalGameMaster {
   private pool: Pool;
-  private ai: GoogleGenAI;
   private storyEngine: WhatElseStoryEngine;
   private memoryStream: Array<{ timestamp: number; summary: string; tags: string[] }> = [];
 
@@ -109,18 +108,10 @@ export class BrutalGameMaster {
   public activeNPCs: Map<string, InjectedNPC> = new Map();
   private activeContext: SectorContext | null = null;
 
-  // Tried in order. Gemini 1.5/2.0 are shut down and 2.5 is being retired, so
-  // "gemini-flash-latest" stays last as an alias Google keeps pointed at a live model.
-  private readonly CANDIDATE_MODELS = [
-    "gemini-2.5-flash",
-    "gemini-2.5-pro",
-    "gemini-flash-latest"
-  ];
-  private warnedInvalidKey = false;
 
-  constructor(pool: Pool, apiKey: string) {
+  /** The second argument used to be a Gemini API key; the GM now uses local Ollama only (engine/llm.ts). */
+  constructor(pool: Pool, _unused?: string) {
     this.pool = pool;
-    this.ai = new GoogleGenAI({ apiKey: apiKey || "" });
     this.storyEngine = new WhatElseStoryEngine();
   }
 
@@ -476,7 +467,7 @@ export class BrutalGameMaster {
     const seedVal = (cellId * 73856093) ^ (rx * 19349663) ^ (ry * 83492791);
     const beat = this.storyEngine.generateBeatFromSector(context);
 
-    // Synthesize real-time emergent situation using Gemini AI (with deterministic fallback)
+    // Synthesize real-time emergent situation using the local model (with deterministic fallback)
     let parsedEmergentProps: any[] = [];
     let parsedEmergentNPCs: any[] = [];
     try {
@@ -528,7 +519,7 @@ Return ONLY valid JSON matching this schema:
   ]
 }`;
 
-      const aiJson = await this.callGeminiWithFallback(
+      const aiJson = await this.callModel(
         [{ role: "user", parts: [{ text: prompt }] }],
         "You are the B.R.U.T.A.L. Game Master for a living simulation sandbox RPG. Output valid JSON only, no markdown formatting.",
         500,
@@ -845,47 +836,10 @@ Return ONLY valid JSON matching this schema:
   }
 
   /**
-   * Resilient local Ollama fallback for GM narration, NPC dialogue, and intent parsing.
+   * GM narration, NPC dialogue and intent parsing through the local model (engine/llm.ts). Returns null
+   * when Ollama is off or fails; every caller has a procedural fallback.
    */
-  public async callOllamaFallback(
-    prompt: string,
-    systemInstruction: string,
-    maxTokens = 250,
-    temperature = 0.7
-  ): Promise<string | null> {
-    if (String(process.env.STORY_LLM || "").toLowerCase() === "off") return null; // tests / offline
-    try {
-      const isJsonRequested = systemInstruction?.toLowerCase().includes("json") || prompt.toLowerCase().includes("json");
-      const fullPrompt = `${systemInstruction ? `[SYSTEM INSTRUCTION]\n${systemInstruction}\n\n` : ""}[SCENARIO & ACTION]\n${prompt}`;
-
-      const res = await fetch("http://127.0.0.1:11434/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "llama3.2:latest",
-          prompt: fullPrompt,
-          stream: false,
-          format: isJsonRequested ? "json" : undefined,
-          options: {
-            temperature,
-            num_predict: maxTokens
-          }
-        })
-      });
-
-      if (!res.ok) return null;
-      const data: any = await res.json();
-      const text = String(data.response || "").trim();
-      return text.length > 0 ? text : null;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Resilient LLM helper with automatic model fallback (Gemini API -> local Ollama).
-   */
-  public async callGeminiWithFallback(
+  public async callModel(
     contents: any,
     systemInstruction: string,
     maxOutputTokens = 250,
@@ -895,48 +849,9 @@ Return ONLY valid JSON matching this schema:
     if (Array.isArray(contents) && contents.length === 1 && contents[0]?.parts?.[0]?.text) {
       payload = contents[0].parts[0].text;
     }
-    const promptText = typeof payload === "string" ? payload : JSON.stringify(payload);
-
-    if (String(process.env.STORY_LLM || "").toLowerCase() === "off") return null; // tests / offline
-    const key = process.env.GEMINI_API_KEY?.trim();
-    if (!key || this.warnedInvalidKey) {
-      return this.callOllamaFallback(promptText, systemInstruction, maxOutputTokens, temperature);
-    }
-
-    const isJsonRequested = systemInstruction?.toLowerCase().includes("json");
-
-    for (const m of this.CANDIDATE_MODELS) {
-      try {
-        const config: any = {
-          systemInstruction,
-          temperature,
-          maxOutputTokens
-        };
-        if (isJsonRequested) {
-          config.responseMimeType = "application/json";
-        }
-
-        const res = await this.ai.models.generateContent({
-          model: m,
-          contents: payload,
-          config
-        });
-        if (res.text && res.text.trim().length > 0) {
-          return res.text.trim();
-        }
-      } catch (err: any) {
-        const msg = String(err?.message || "");
-        if (msg.includes("API key not valid") || msg.includes("API_KEY_INVALID") || err?.status === 401 || err?.status === 403) {
-          if (!this.warnedInvalidKey) {
-            console.log("[BrutalGM] GEMINI_API_KEY inactive or rejected. Seamlessly routing GM narration to local Ollama (llama3.2)...");
-            this.warnedInvalidKey = true;
-          }
-          return this.callOllamaFallback(promptText, systemInstruction, maxOutputTokens, temperature);
-        }
-        console.warn("[BrutalGM] Model " + m + " error: " + (err?.message || err) + ". Trying next...");
-      }
-    }
-    return this.callOllamaFallback(promptText, systemInstruction, maxOutputTokens, temperature);
+    const prompt = typeof payload === "string" ? payload : JSON.stringify(payload);
+    const json = /json/i.test(systemInstruction || "") || /json/i.test(prompt);
+    return ollamaGenerate(prompt, { system: systemInstruction, json, maxTokens: maxOutputTokens, temperature });
   }
 
   /**
@@ -962,7 +877,7 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
 }`;
 
     try {
-      const raw = await this.callGeminiWithFallback(
+      const raw = await this.callModel(
         [{ role: "user", parts: [{ text: prompt }] }],
         "You are an exact intent parser for a dark fantasy RPG engine. Output only JSON.",
         400,
@@ -1476,7 +1391,7 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
         }
       } catch (err) {}
 
-      // Generate In-Character Dialogue via Gemini GABM
+      // Generate In-Character Dialogue via the local model
       const repNote = targetFactionRep !== 0
         ? `The player has an underlying reputation of ${targetFactionRep} with your faction ('${npcFaction}'). Reflect this subtly in your tone, respect, suspicion, or hostility without mentioning numbers.`
         : "";
@@ -1493,7 +1408,7 @@ ${repNote}
 ${recentRumors ? `Recent genuine rumors & occurrences across the realm:\n${recentRumors}\nIf appropriate to the player's query or disposition, weave one of these rumors into your dialogue.` : ""}
 Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks responding to the player. Mention your faction or secret motives.`;
 
-      const dialogueRes = await this.callGeminiWithFallback(
+      const dialogueRes = await this.callModel(
         [{ role: "user", parts: [{ text: dialoguePrompt }] }],
         "You are an actor playing an authentic dark fantasy character. Output only spoken dialogue in quotation marks.",
         150,
@@ -2490,7 +2405,7 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
       systemLog += simDeltaNotice;
     }
 
-    // 7. Grounded Sensory Narrative Synthesis (Gemini) with Persistent Memory Retrieval
+    // 7. Grounded Sensory Narrative Synthesis (local model) with Persistent Memory Retrieval
     let recentMemoriesContext = "";
     try {
       const memRes = await this.pool.query(
@@ -2549,7 +2464,7 @@ MANDATORY RULES:
 5. VISUAL SPATIAL AWARENESS: Ground your physical description in the visual environment (distance in meters, bearings, stone walls/cover, water canal).
 6. LENGTH: 2 to 4 crisp sentences max. Output only the GM narration.`;
 
-    const narrativeResponse = customNarrative || (await this.callGeminiWithFallback(
+    const narrativeResponse = customNarrative || (await this.callModel(
       [{ role: "user", parts: [{ text: narrativePrompt }] }],
       gmInstruction,
       250,

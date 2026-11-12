@@ -1,5 +1,5 @@
 /**
- * Managed story arcs: a generated arc (story director: Gemini, Ollama or the procedural fallback) is
+ * Managed story arcs: a generated arc (story director: local Ollama or the procedural fallback) is
  * stored with its beats and current phase, and each beat is played out as a real thread.
  *
  *   arc created         -> thread for beat 1 (actor: the NPC the director tagged, else one on the map)
@@ -60,7 +60,19 @@ async function resolveActor(db: Db, cellId: number, rx: number, ry: number, pref
   const npcs: any[] = Array.isArray(r.rows[0]?.npcs) ? r.rows[0].npcs : [];
   if (preferred && npcs.some(n => String(n.id) === preferred)) return preferred;
   const living = npcs.find(n => n.alive !== false && !(n.tags || []).includes("beast"));
-  return living ? String(living.id) : null;
+  if (living) return String(living.id);
+  // Nobody on that map: the burg's own records (its paragon, else a resident), so the arc still gets a
+  // thread the party can pick up. Typed ids match those people when they appear on a map.
+  const records = await db.query(
+    `SELECT (SELECT p.id FROM sim_paragons p WHERE p.burg_id = b.burg_id AND p.outlaw_id IS NULL ORDER BY p.id LIMIT 1) AS paragon_id,
+            (SELECT d.citizen_id FROM population_demographics d WHERE d.settlement_id IN (b.burg_id, b.parent_burg_id) AND d.life_stage = 'ADULT' ORDER BY d.citizen_id LIMIT 1) AS citizen_id
+     FROM sim_burg_economy b WHERE b.cell_id = $1 LIMIT 1`,
+    [cellId]
+  );
+  const rec = records.rows[0];
+  if (rec?.paragon_id) return `paragon:${rec.paragon_id}`;
+  if (rec?.citizen_id) return `citizen:${rec.citizen_id}`;
+  return null;
 }
 
 async function openBeatThread(db: Db, arc: ManagedArc, tick: number): Promise<number | null> {
