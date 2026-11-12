@@ -3,6 +3,8 @@ import pool from "../db/pool";
 import { executeMasterTick } from "../engine/masterOrchestrator";
 import { resetWorld } from "../engine/resetWorld";
 import { FACTION_SPECIALTIES } from "../engine/economy/factionSpecialties";
+import { VERGE_COORD } from "../engine/canon/dragonPrisons.js";
+import { addCellTags, loadCellTagMap } from "../engine/cellTags.js";
 
 const observerRouter = Router();
 
@@ -35,6 +37,28 @@ observerRouter.get("/economy/specialties", async (req, res) => {
         res.status(500).json({ error: e.message });
     }
 });
+let tickInProgress = false;
+let resetInProgress = false;
+// The last tick failure (manual, batch or autoplay), so the dashboard can show it. Cleared by the next good tick.
+let lastTickError: { tick: number | null; message: string; at: string } | null = null;
+
+async function currentTick(): Promise<number | null> {
+  const r = await pool.query("SELECT tick FROM sim_calendar ORDER BY id DESC LIMIT 1");
+  return r.rows[0] ? Number(r.rows[0].tick) : null;
+}
+
+/** Runs one tick under the shared lock and records success or failure for /status. */
+async function runTrackedTick() {
+  try {
+    const result = await executeMasterTick();
+    lastTickError = null;
+    return result;
+  } catch (e: any) {
+    lastTickError = { tick: await currentTick().catch(() => null), message: e?.message || String(e), at: new Date().toISOString() };
+    throw e;
+  }
+}
+
 let autoplayTimer: any = null;
 observerRouter.post("/autoplay", (req, res) => {
     const { enabled } = req.body;
@@ -42,7 +66,7 @@ observerRouter.post("/autoplay", (req, res) => {
         autoplayTimer = setInterval(async () => {
             if (!tickInProgress && !resetInProgress) {
                 tickInProgress = true;
-                try { await executeMasterTick(); } catch(e) { console.error("Autoplay tick err", e); }
+                try { await runTrackedTick(); } catch(e) { console.error("Autoplay tick err", e); }
                 tickInProgress = false;
             }
         }, 1500);
@@ -56,56 +80,62 @@ observerRouter.get("/autoplay", (req, res) => {
     res.json({ autoplay: !!autoplayTimer });
 });
 
+// Cheap poll target: the dashboard polls this and refetches everything else only when `tick` changes.
+observerRouter.get("/status", async (req, res) => {
+  try {
+    res.json({ tick: await currentTick(), tickInProgress, resetInProgress, autoplay: !!autoplayTimer, lastTickError });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
-let tickInProgress = false;
-let resetInProgress = false;
-
+// Static cell geometry and terrain. Large (~11 MB): the dashboard loads it once per page.
+// Ordered by id so /map_live columns line up with it.
 observerRouter.get("/map", async (req, res) => {
   try {
     const z = parseInt(req.query.z as string) || 0;
-    const cells = await pool.query(`SELECT id, faction_id, biome, center_x, center_y, geometry, eco_plants, eco_prey, eco_predators, eco_resources, elevation, z_layer FROM sim_cells WHERE z_layer = $1`, [z]);
+    const cells = await pool.query(`SELECT id, faction_id, biome, center_x, center_y, geometry, eco_plants, eco_prey, eco_predators, eco_resources, elevation, z_layer FROM sim_cells WHERE z_layer = $1 ORDER BY id`, [z]);
     res.json({ cells: cells.rows.map(c => ({ ...c, geometry: typeof c.geometry === "string" ? (function(){ try { return JSON.parse(c.geometry); } catch(e) { return null; } })() : c.geometry })) });
   } catch(e: any) {
     res.status(500).json({error: e.message});
   }
 });
 
+// The per-cell values the simulation changes every tick (owner and ecology), as parallel columns in id order.
+// The dashboard merges these into the geometry it loaded from /map, instead of reloading 11 MB.
+observerRouter.get("/map_live", async (req, res) => {
+  try {
+    const z = parseInt(req.query.z as string) || 0;
+    const r = await pool.query(
+      `SELECT id, faction_id, round(eco_plants::numeric, 1) AS p, round(eco_prey::numeric, 1) AS y, round(eco_predators::numeric, 1) AS d
+       FROM sim_cells WHERE z_layer = $1 ORDER BY id`, [z]);
+    res.json({
+      tick: await currentTick(),
+      id: r.rows.map(c => c.id),
+      faction_id: r.rows.map(c => c.faction_id),
+      eco_plants: r.rows.map(c => c.p === null ? null : Number(c.p)),
+      eco_prey: r.rows.map(c => c.y === null ? null : Number(c.y)),
+      eco_predators: r.rows.map(c => c.d === null ? null : Number(c.d)),
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// What the dashboard header, faction list, event feed and unrest overlay need. Fetched once per tick.
 observerRouter.get("/state", async (req, res) => {
   try {
-    const factions = await pool.query("SELECT * FROM sim_factions");
-    const events = await pool.query("SELECT * FROM sim_events ORDER BY tick DESC, id DESC LIMIT 100");
-    const chaosZones = await pool.query("SELECT * FROM sim_chaos_zones");
-    const economy = await pool.query("SELECT b.burg_id, b.name, b.food, b.wealth, b.unrest, b.health, b.pop_null, b.crime_rate, b.military_forces, b.demographics, b.species_demographics, b.cell_id, c.faction_id FROM sim_burg_economy b JOIN sim_cells c ON b.cell_id = c.id");
-    const agents = await pool.query("SELECT * FROM sim_agents");
-    const sacredGroves = await pool.query("SELECT * FROM sim_sacred_groves");
-    const calendar = await pool.query("SELECT * FROM sim_calendar ORDER BY id DESC LIMIT 1");
-    const outlaws = await pool.query(`
-      SELECT o.*,
-             COALESCE(SUM(l.manpower), 0)::int AS lair_manpower,
-             (COALESCE(o.manpower, 0) + COALESCE(SUM(l.manpower), 0))::int AS total_manpower
-      FROM sim_outlaw_factions o
-      LEFT JOIN sim_fringe_lairs l ON l.faction_id = o.id
-      GROUP BY o.id, o.name, o.type, o.origin_cell_id, o.manpower, o.worker_groups, o.wealth, o.heat, o.description, o.contraband_types
-      ORDER BY o.name ASC
-    `);
-    const prices = await pool.query("SELECT * FROM sim_commodity_prices ORDER BY commodity");
-
+    const [factions, events, economy, calendar] = await Promise.all([
+      pool.query("SELECT id, name, color, trait_aggression, treasury FROM sim_factions ORDER BY id"),
+      pool.query("SELECT * FROM sim_events ORDER BY tick DESC, id DESC LIMIT 100"),
+      pool.query("SELECT b.burg_id, b.cell_id, b.unrest, c.faction_id FROM sim_burg_economy b JOIN sim_cells c ON b.cell_id = c.id"),
+      pool.query("SELECT * FROM sim_calendar ORDER BY id DESC LIMIT 1"),
+    ]);
     res.json({
       factions: factions.rows,
-      fringeFactions: outlaws.rows,
-      cells: [],
       events: events.rows,
-      chaosZones: chaosZones.rows,
-      economy: economy.rows.map((e) => ({
-        ...e,
-        demographics: e.demographics ? (typeof e.demographics === "string" ? (function(){ try { return JSON.parse(e.demographics); } catch(e) { return {}; } })() : e.demographics) : {},
-        military_forces: e.military_forces ? (typeof e.military_forces === "string" ? (function(){ try { return JSON.parse(e.military_forces); } catch(e) { return {}; } })() : e.military_forces) : {},
-      })),
-      agents: agents.rows,
-      sacredGroves: sacredGroves.rows,
+      economy: economy.rows,
       calendar: calendar.rows[0] || null,
-      outlaws: outlaws.rows,
-      prices: prices.rows,
       tickInProgress,
       resetInProgress,
     });
@@ -117,7 +147,7 @@ observerRouter.get("/state", async (req, res) => {
 
 observerRouter.post("/tick", async (req, res) => {
   if (tickInProgress) {
-    return res.status(429).json({ error: "Tick already in progress. Please wait." });
+    return res.status(429).json({ error: autoplayTimer ? "Autoplay is running: stop it to step by hand." : "A tick is already running. Please wait." });
   }
   if (resetInProgress) {
     return res.status(429).json({ error: "World reset in progress. Please wait." });
@@ -125,7 +155,7 @@ observerRouter.post("/tick", async (req, res) => {
 
   tickInProgress = true;
   try {
-    const result = await executeMasterTick();
+    const result = await runTrackedTick();
     res.json(result);
   } catch (error: any) {
     console.error("Tick error:", error.stack);
@@ -138,7 +168,7 @@ observerRouter.post("/tick", async (req, res) => {
 // Run batch ticks at will (1, 5, 10)
 observerRouter.post("/batch_ticks", async (req, res) => {
   if (tickInProgress) {
-    return res.status(429).json({ error: "Tick already in progress. Please wait." });
+    return res.status(429).json({ error: autoplayTimer ? "Autoplay is running: stop it to step by hand." : "A tick is already running. Please wait." });
   }
   if (resetInProgress) {
     return res.status(429).json({ error: "World reset in progress. Please wait." });
@@ -149,7 +179,7 @@ observerRouter.post("/batch_ticks", async (req, res) => {
   try {
     const results = [];
     for (let i = 0; i < count; i++) {
-      const r = await executeMasterTick();
+      const r = await runTrackedTick();
       results.push(r);
     }
     res.json({
@@ -166,7 +196,7 @@ observerRouter.post("/batch_ticks", async (req, res) => {
   }
 });
 
-// Get comprehensive sector data: all 352 Burgs, 12 Dragon Prisons, and Convergence Nexus
+// Sector data: every burg, the 12 Dragon Prisons, and the Verge
 observerRouter.get("/sectors", async (req, res) => {
   try {
     const burgsRes = await pool.query(`
@@ -186,10 +216,18 @@ observerRouter.get("/sectors", async (req, res) => {
     `);
 
     const layersRes = await pool.query(`
-      SELECT cell_id, features
+      SELECT DISTINCT ON (cell_id) cell_id, features
       FROM sim_sector_layers
       WHERE z_layer = 0
+      ORDER BY cell_id, created_at DESC
     `);
+    // Tags live per cell (engine/cellTags.ts), not only on rendered tactical layers.
+    const tagMap = await loadCellTagMap(pool);
+    const featuresByCell = new Map<number, any>();
+    for (const r of layersRes.rows) featuresByCell.set(Number(r.cell_id), { ...(r.features || {}) });
+    for (const [cellId, tags] of tagMap) {
+      featuresByCell.set(cellId, { ...(featuresByCell.get(cellId) || {}), environmental_tags: tags });
+    }
 
     const grovesRes = await pool.query(`
       SELECT id, cell_id, dragon_name, power_domain, seal_strength
@@ -197,23 +235,22 @@ observerRouter.get("/sectors", async (req, res) => {
       ORDER BY id ASC
     `);
 
-    const convergenceRes = await pool.query(`
-      SELECT cell_id, intensity, type
-      FROM sim_chaos_zones
-      WHERE type = 'NEXUS_CHAOS_LEYS'
-      ORDER BY intensity DESC LIMIT 10
+    // The Verge: where all twelve flows meet and drain (Canon/03 §1 item 5).
+    const flowsRes = await pool.query(`
+      SELECT flow_id, name, dragon_name, elemental_power, current_surge
+      FROM sim_chaos_flows ORDER BY flow_id
     `);
 
     res.json({
       burgs: burgsRes.rows,
       paragons: paragonsRes.rows,
-      sectorFeatures: layersRes.rows,
+      sectorFeatures: Array.from(featuresByCell, ([cell_id, features]) => ({ cell_id, features })),
       prisons: grovesRes.rows,
-      convergence: {
-        name: "The Cruorbus Convergence Nexus",
-        cell_id: 11429,
-        description: "The planetary nexus where Cruorbus eclipse leylines align, channeling ambient primordial chaos through continental fault lines.",
-        zones: convergenceRes.rows
+      verge: {
+        name: "The Verge",
+        cell_id: VERGE_COORD.cell,
+        description: "All twelve flows meet at the Verge: a crater at the head of the Engineer's Range, with a permanent chaos storm and the floating ruin of the Fae capital at its heart, and the Sacred Spire on its rim. It drains chaos back into the void (Canon/03).",
+        flows: flowsRes.rows
       }
     });
   } catch (err: any) {
@@ -274,8 +311,9 @@ observerRouter.get("/filtered_events", async (req, res) => {
       query += ` AND faction_id = $${params.length}`;
     } else if (keyword) {
       const kw = String(keyword).trim();
-      if (kw.toLowerCase() === 'convergence') {
-        query += ` AND (message ILIKE '%Convergence%' OR message ILIKE '%Cruorbus%' OR message ILIKE '%Chaos Flow%' OR type IN ('CHAOS_SURGE', 'CONVERGENCE_ECLIPSE', 'SHADOW_WEEK_ECLIPSE', 'AURA_RIVER'))`;
+      if (kw.toLowerCase() === 'verge') {
+        // The Verge drains all twelve flows: its feed is the flow and surge events plus anything naming it or the Spire.
+        query += ` AND (message ILIKE '%Verge%' OR message ILIKE '%Sacred Spire%' OR type IN ('CHAOS_SURGE', 'SHADOW_WEEK_ECLIPSE'))`;
       } else {
         params.push(`%${kw}%`);
         query += ` AND (message ILIKE $${params.length} OR type ILIKE $${params.length})`;
@@ -595,15 +633,7 @@ observerRouter.post("/trigger_crisis", async (req, res) => {
         }
 
         // 3. Inject CompassEmbargo tag into sector features
-        await pool.query(`
-          UPDATE sim_sector_layers
-          SET features = jsonb_set(
-            COALESCE(features, '{}'::jsonb),
-            '{environmental_tags}',
-            COALESCE(features->'environmental_tags', '[]'::jsonb) || '["#CompassEmbargo", "#TradeBlockaded"]'::jsonb
-          )
-          WHERE cell_id = $1
-        `, [cellId]);
+        await addCellTags(pool, cellId, ["#CompassEmbargo", "#TradeBlockaded"]);
 
         eventMessage = `⚖️ GILDED COMPASS TRADE EMBARGO: Local authorities in Cell #${cellId} were caught embezzling municipal treasury funds and defaulting on mercantile credit! The Gilded Compass has declared an immediate trade blockade, freezing commercial shipping!`;
         break;

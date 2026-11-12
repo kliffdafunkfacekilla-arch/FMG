@@ -3,6 +3,7 @@
  * how their distinct human personalities influence their behavior as Cultists,
  * Wardens, or Mandate Zealots.
  */
+import { addCellTags } from "../cellTags.js";
 
 export interface CitizenPersona {
   citizenName: string;
@@ -149,7 +150,7 @@ export function recruitWardenPersona(): CitizenPersona {
       "Cannot bear to see another child mutated by raw aetheric radiation; volunteers for the frontline."
     ],
     SCHOLARLY: [
-      "Fascinated by ancient Warden rune-weaving; seeks to master sigil mathematics at the Spire of Convergence.",
+      "Fascinated by ancient Warden rune-weaving; seeks to master sigil mathematics at the Sacred Spire.",
       "Believes that stabilizing the 12 cosmic flows is the ultimate intellectual calling of humankind."
     ],
     FANATICAL: [
@@ -397,7 +398,7 @@ export async function recruitInsideMan(
 }
 
 /**
- * Injects or updates environmental tags on a sector layer (features->'environmental_tags')
+ * Adds environmental tags to a map cell (any cell, rendered tactical layer or not).
  */
 export async function tagSectorEnvironment(
   client: any,
@@ -405,26 +406,8 @@ export async function tagSectorEnvironment(
   tags: string[],
   zLayer: number = 0
 ): Promise<void> {
-  try {
-    const tagsJson = JSON.stringify(tags);
-    await client.query(`
-      UPDATE sim_sector_layers
-      SET features = jsonb_set(
-        COALESCE(features, '{}'::jsonb),
-        '{environmental_tags}',
-        (
-          SELECT jsonb_agg(DISTINCT elem)
-          FROM (
-            SELECT jsonb_array_elements_text(COALESCE(features->'environmental_tags', '[]'::jsonb)) AS elem
-            UNION
-            SELECT jsonb_array_elements_text($1::jsonb) AS elem
-          ) t
-        )
-      )
-      WHERE cell_id = $2 AND z_layer = $3
-    `, [tagsJson, cellId, zLayer]);
-  } catch (err) {
-    // Non-fatal if sector layer hasn't been prerendered for this cell
-  }
+  // Stored per cell in sim_cell_tags (and mirrored into any rendered tactical layer); see engine/cellTags.ts.
+  // No try/catch: a failed query inside the tick transaction aborts it, so the error must reach the tick.
+  await addCellTags(client, cellId, tags, zLayer);
 }
 

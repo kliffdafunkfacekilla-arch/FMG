@@ -26,9 +26,30 @@ function genHamletName(parentName: string, type: "HAMLET" | "FARMLAND" | "LOGGIN
   return `${prefix}-${pBase}${root}`;
 }
 
+/**
+ * Makes a satellite name unique among existing burgs. Timberlands and Sentinel Redoubts are named from
+ * the parent's first word only, so a second camp (or two parents sharing a first word) used to collide.
+ * Tries the name as is, then with each hamlet prefix ("Upper Ha Timberlands"), then a numeral.
+ */
+export function uniqueBurgName(base: string, taken: Set<string>): string {
+  if (!taken.has(base)) return base;
+  for (const prefix of SETTLEMENT_HAMLET_PREFIXES) {
+    if (base.startsWith(`${prefix} `) || base.startsWith(`${prefix}-`)) continue;
+    const candidate = `${prefix} ${base}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  for (let n = 2; ; n++) {
+    const candidate = `${base} ${n}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
 export async function runBurgExpansionAgent(client: any, tick: number, loreDate: string) {
   // Run expansion checks every 10 ticks
   if (tick % 10 !== 0) return;
+
+  const namesRes = await client.query("SELECT name FROM sim_burg_economy");
+  const takenNames = new Set<string>(namesRes.rows.map((r: any) => String(r.name)));
 
   // 1. Fetch prosperous candidate parent burgs
   const candidateBurgsRes = await client.query(`
@@ -81,7 +102,8 @@ export async function runBurgExpansionAgent(client: any, tick: number, loreDate:
     else if (biome === 1 || biome === 2) satType = "FARMLAND";
     else if (Math.random() < 0.25) satType = "WATCHTOWER";
 
-    const hamletName = genHamletName(parent.name, satType);
+    const hamletName = uniqueBurgName(genHamletName(parent.name, satType), takenNames);
+    takenNames.add(hamletName);
     const migratePop = Math.min(120, Math.max(24, Math.floor(parent.pop_null * 0.05)));
     const startWealth = Math.min(300, Math.floor(parent.wealth * 0.1));
     const startFood = migratePop * 12;

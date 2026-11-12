@@ -99,17 +99,26 @@ interface PrisonItem {
 
 interface ObserverState {
   factions: Faction[];
-  fringeFactions: FringeFaction[];
-  cells: Cell[];
   events: SimEvent[];
   calendar: any;
   tickInProgress: boolean;
-  economy: any[];
+  economy: { burg_id: number; cell_id: number; unrest: number; faction_id: number | null }[];
+}
+
+/** fetch + JSON that throws on HTTP errors, using the server's { error } message when it sends one. */
+async function getJson(url: string, init?: RequestInit): Promise<any> {
+  const res = await fetch(url, init);
+  let body: any = null;
+  try { body = await res.json(); } catch { /* non-JSON body */ }
+  if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
+  return body;
 }
 
 type MainTab = "MAP" | "SECTORS" | "FRINGE" | "ECOLOGY_CHAOS" | "EVENTS" | "ECONOMY" | "RULES_LAB";
 type ViewMode = "Political" | "Biome" | "Ecology" | "Unrest";
-type SectorCategory = "ALL_BURGS" | "PRISONS" | "CONVERGENCE";
+type SectorCategory = "ALL_BURGS" | "PRISONS" | "VERGE";
+// One poll per POLL_MS: a tiny /status call. Everything else is refetched only when the tick changes.
+const POLL_MS = 1500;
 
 const BIOME_COLORS: Record<number, string> = {
   0: "#1e3a8a", 1: "#fde047", 2: "#d6d3d1", 3: "#fcd34d", 4: "#a3e635", 5: "#65a30d",
@@ -129,7 +138,7 @@ function MapCanvas({
   economy,
   burgs = [],
   prisons = [],
-  convergence,
+  verge,
   onCellClick,
   selectedCellId,
   selectedFactionId
@@ -137,6 +146,7 @@ function MapCanvas({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [canvasSize, setCanvasSize] = useState({ w: 0, h: 0 });
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0 });
   const lastMouse = useRef({ x: 0, y: 0 });
@@ -149,7 +159,7 @@ function MapCanvas({
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [isSearchFocused, setIsSearchFocused] = useState<boolean>(false);
   const [hoveredMarker, setHoveredMarker] = useState<{
-    type: "BURG" | "PRISON" | "CONVERGENCE";
+    type: "BURG" | "PRISON" | "VERGE";
     item: any;
     screenX: number;
     screenY: number;
@@ -214,9 +224,11 @@ function MapCanvas({
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
         if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
+          // Setting canvas.width wipes the canvas; bump canvasSize so the render effect draws it again.
+          // (setZoom(z => z) did nothing: React skips a re-render when the value is unchanged.)
           canvas.width = entry.contentRect.width;
           canvas.height = entry.contentRect.height;
-          setZoom(z => z);
+          setCanvasSize({ w: canvas.width, h: canvas.height });
         }
       }
     });
@@ -364,9 +376,9 @@ function MapCanvas({
       }
     }
 
-    // 3. Render Cruorbus Convergence Nexus
-    if (convergence) {
-      const coord = cellCoordMap.get(convergence.cell_id || 11429);
+    // 3. Render the Verge, where all twelve flows meet (Canon/03)
+    if (verge) {
+      const coord = cellCoordMap.get(verge.cell_id);
       if (coord) {
         const px = coord.cx * baseScale + bounds.current.baseOffX;
         const py = coord.cy * baseScale + bounds.current.baseOffY;
@@ -390,7 +402,7 @@ function MapCanvas({
           ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
           ctx.textAlign = "center";
           ctx.textBaseline = "top";
-          const label = `⚡ Spire of Convergence`;
+          const label = `⚡ The Verge`;
           ctx.lineWidth = 3 / zoom;
           ctx.strokeStyle = "rgba(0, 0, 0, 0.95)";
           ctx.strokeText(label, px, py + r + 3 / zoom);
@@ -508,7 +520,7 @@ function MapCanvas({
     }
 
     ctx.restore();
-  }, [cells, factions, viewMode, economy, zoom, offset, selectedCellId, selectedFactionId, showBurgs, showPrisons, showLabels, hoveredMarker, burgs, prisons, convergence]);
+  }, [cells, factions, viewMode, economy, zoom, offset, canvasSize, selectedCellId, selectedFactionId, showBurgs, showPrisons, showLabels, hoveredMarker, burgs, prisons, verge]);
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
@@ -567,11 +579,11 @@ function MapCanvas({
       }
     }
 
-    // Check Convergence
-    if (!hitMarker && convergence) {
-      const coord = cellCoordMap.get(convergence.cell_id || 11429);
+    // Check the Verge
+    if (!hitMarker && verge) {
+      const coord = cellCoordMap.get(verge.cell_id);
       if (coord && Math.hypot(coord.cx - mapX, coord.cy - mapY) < Math.max(8, 16 / zoom)) {
-        hitMarker = { type: "CONVERGENCE", item: convergence, screenX: mouseX, screenY: mouseY };
+        hitMarker = { type: "VERGE", item: verge, screenX: mouseX, screenY: mouseY };
       }
     }
 
@@ -646,14 +658,14 @@ function MapCanvas({
   const searchResults = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return [];
-    const res: Array<{ type: "BURG" | "PRISON" | "CONVERGENCE"; name: string; cell_id: number; subtitle: string }> = [];
+    const res: Array<{ type: "BURG" | "PRISON" | "VERGE"; name: string; cell_id: number; subtitle: string }> = [];
 
-    if ("spire".includes(q) || "convergence".includes(q) || "nexus".includes(q)) {
+    if (verge && ("the verge".includes(q) || "sacred spire".includes(q))) {
       res.push({
-        type: "CONVERGENCE",
-        name: "Cruorbus Convergence Nexus",
-        cell_id: convergence?.cell_id || 11429,
-        subtitle: "Planetary Ley Nexus"
+        type: "VERGE",
+        name: "The Verge",
+        cell_id: verge.cell_id,
+        subtitle: "Where all twelve flows meet and drain"
       });
     }
 
@@ -681,7 +693,7 @@ function MapCanvas({
     }
 
     return res;
-  }, [searchQuery, burgs, prisons, convergence]);
+  }, [searchQuery, burgs, prisons, verge]);
 
   return (
     <div style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden" }}>
@@ -762,7 +774,7 @@ function MapCanvas({
                   onMouseLeave={(e) => (e.currentTarget.style.background = "#0f172a")}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontWeight: 700, fontSize: 12, color: r.type === "PRISON" ? "#c084fc" : r.type === "CONVERGENCE" ? "#38bdf8" : "#f1f5f9" }}>
+                    <span style={{ fontWeight: 700, fontSize: 12, color: r.type === "PRISON" ? "#c084fc" : r.type === "VERGE" ? "#38bdf8" : "#f1f5f9" }}>
                       {r.name}
                     </span>
                     <span style={{ fontSize: 10, color: "#94a3b8" }}>Cell #{r.cell_id}</span>
@@ -790,7 +802,7 @@ function MapCanvas({
               backdropFilter: "blur(6px)"
             }}
           >
-            🏰 Burgs: {showBurgs === "all" ? "All (352)" : showBurgs === "cities" ? "Cities Only" : "Off"}
+            🏰 Burgs: {showBurgs === "all" ? `All (${burgs.length})` : showBurgs === "cities" ? "Cities Only" : "Off"}
           </button>
 
           <button
@@ -807,7 +819,7 @@ function MapCanvas({
               backdropFilter: "blur(6px)"
             }}
           >
-            🐉 Prisons: {showPrisons ? "Active (12)" : "Off"}
+            🐉 Prisons: {showPrisons ? `Active (${prisons.length})` : "Off"}
           </button>
 
           <button
@@ -828,7 +840,7 @@ function MapCanvas({
           </button>
 
           <button
-            onClick={() => flyToCell(convergence?.cell_id || 11429)}
+            onClick={() => verge && flyToCell(verge.cell_id)}
             style={{
               padding: "4px 8px",
               background: "rgba(56, 189, 248, 0.2)",
@@ -840,7 +852,7 @@ function MapCanvas({
               cursor: "pointer"
             }}
           >
-            ⚡ Spire
+            ⚡ Verge
           </button>
         </div>
       </div>
@@ -913,16 +925,16 @@ function MapCanvas({
             </div>
           )}
 
-          {hoveredMarker.type === "CONVERGENCE" && (
+          {hoveredMarker.type === "VERGE" && (
             <div>
               <div style={{ fontWeight: 800, fontSize: 13, color: "#38bdf8" }}>
-                ⚡ Cruorbus Convergence Nexus
+                ⚡ The Verge
               </div>
               <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
-                Planetary Nexus of the 12 Primordial Chaos Leys.
+                Where all twelve flows meet and drain. The Sacred Spire stands on its rim.
               </div>
               <div style={{ marginTop: 6, paddingTop: 4, borderTop: "1px solid #334155", fontSize: 10, color: "#38bdf8", fontWeight: 600 }}>
-                ⚔️ Click to inspect The Spire & tactical battle map
+                ⚔️ Click to inspect the Verge & tactical battle map
               </div>
             </div>
           )}
@@ -944,7 +956,6 @@ function MapCanvas({
 export function Dashboard() {
   const [state, setState] = useState<ObserverState | null>(null);
   const [cells, setCells] = useState<Cell[]>([]);
-  const [hasFetchedMap, setHasFetchedMap] = useState(false);
   const [economyMap, setEconomyMap] = useState<Record<number, any>>({});
   const [factionMap, setFactionMap] = useState<Record<number, Faction>>({});
   const [activeTab, setActiveTab] = useState<MainTab>("MAP");
@@ -963,13 +974,13 @@ export function Dashboard() {
   const [burgs, setBurgs] = useState<BurgItem[]>([]);
   const [paragons, setParagons] = useState<ParagonItem[]>([]);
   const [prisons, setPrisons] = useState<PrisonItem[]>([]);
-  const [convergence, setConvergence] = useState<any>(null);
+  const [verge, setVerge] = useState<any>(null);
   const [sectorFeatures, setSectorFeatures] = useState<Record<number, any>>({});
   const [selectedCategory, setSelectedCategory] = useState<SectorCategory>("ALL_BURGS");
   const [sectorSearch, setSectorSearch] = useState("");
   const [selectedBurg, setSelectedBurg] = useState<BurgItem | null>(null);
   const [selectedPrison, setSelectedPrison] = useState<PrisonItem | null>(null);
-  const [isConvergenceSelected, setIsConvergenceSelected] = useState(false);
+  const [isVergeSelected, setIsVergeSelected] = useState(false);
 
   // Fringe Faction State
   const [fringeDetail, setFringeDetail] = useState<{ factions: FringeFaction[]; lairs: FringeLair[] }>({ factions: [], lairs: [] });
@@ -995,111 +1006,137 @@ export function Dashboard() {
   const [economyCategoryFilter, setEconomyCategoryFilter] = useState<string>("ALL");
   const [economySearch, setEconomySearch] = useState<string>("");
 
-  // Fetch core simulation state
-  const fetchState = useCallback(async () => {
-    if (!hasFetchedMap) {
+  // ── Data loading ──────────────────────────────────────────────────────────
+  // 1. /map (cell geometry, ~11 MB) loads ONCE per page.
+  // 2. /status (a few bytes) is polled every POLL_MS.
+  // 3. When its tick changes, refreshAll() refetches state, sectors, fringe and /map_live
+  //    (owner + ecology per cell) and merges map_live into the loaded geometry.
+  // refreshAll has no dependencies, so selecting things never restarts loading.
+  const [serverDown, setServerDown] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [serverTickError, setServerTickError] = useState<{ tick: number | null; message: string } | null>(null);
+  const [tickInProgress, setTickInProgress] = useState(false);
+  const mapRequested = useRef(false);
+  const cellsLoaded = useRef(false);
+  const lastSeenTick = useRef<number | null | undefined>(undefined);
+
+  const applyMapLive = useCallback((live: any) => {
+    if (!live?.id) return;
+    const idx = new Map<number, number>();
+    live.id.forEach((id: number, i: number) => idx.set(id, i));
+    setCells(prev => prev.map(c => {
+      const i = idx.get(c.id);
+      if (i === undefined) return c;
+      return { ...c, faction_id: live.faction_id[i], eco_plants: live.eco_plants[i], eco_prey: live.eco_prey[i], eco_predators: live.eco_predators[i] };
+    }));
+  }, []);
+
+  const refreshAll = useCallback(async () => {
+    const errors: string[] = [];
+    const load = async (label: string, url: string, apply: (d: any) => void) => {
       try {
-        const mapRes = await fetch(`/api/observer/map?z=0`);
-        if (mapRes.ok) {
-          const mapData = await mapRes.json();
-          setCells(mapData.cells || []);
-          setHasFetchedMap(true);
-        }
-      } catch (e) {}
-    }
-    try {
-      const res = await fetch(`/api/observer/state?z=0`);
-      if (!res.ok) return;
-      const data = await res.json();
-      setState(data);
-      const fm: Record<number, Faction> = {};
-      (data.factions || []).forEach((f: Faction) => { fm[f.id] = f; });
-      setFactionMap(fm);
-      const em: Record<number, any> = {};
-      (data.economy || []).forEach((e: any) => { em[e.cell_id] = e; });
-      setEconomyMap(em);
-    } catch (e) {
-      console.error("Fetch state error:", e);
-    }
-  }, [hasFetchedMap]);
-
-  // Fetch comprehensive sector data (352 Burgs, 12 Prisons, Convergence)
-  const fetchSectors = useCallback(async () => {
-    try {
-      const res = await fetch("/api/observer/sectors");
-      if (!res.ok) return;
-      const data = await res.json();
-      setBurgs(data.burgs || []);
-      setParagons(data.paragons || []);
-      setPrisons(data.prisons || []);
-      setConvergence(data.convergence || null);
-
-      const sf: Record<number, any> = {};
-      (data.sectorFeatures || []).forEach((f: any) => { sf[f.cell_id] = f.features; });
-      setSectorFeatures(sf);
-
-      // Select Heartspire or first burg by default if none selected
-      if (!selectedBurg && (data.burgs || []).length > 0) {
-        const defaultBurg = data.burgs.find((b: any) => b.burg_id === 25) || data.burgs[0];
-        setSelectedBurg(defaultBurg);
-        setFocusedCellId(prev => prev ?? defaultBurg.cell_id);
+        apply(await getJson(url));
+      } catch (e: any) {
+        errors.push(`${label}: ${e.message}`);
       }
-    } catch (e) {
-      console.error("Fetch sectors error:", e);
-    }
-  }, [selectedBurg]);
+    };
+    await Promise.all([
+      load("World state", "/api/observer/state", (data) => {
+        setState(data);
+        const fm: Record<number, Faction> = {};
+        (data.factions || []).forEach((f: Faction) => { fm[f.id] = f; });
+        setFactionMap(fm);
+        const em: Record<number, any> = {};
+        (data.economy || []).forEach((e: any) => { em[e.cell_id] = e; });
+        setEconomyMap(em);
+      }),
+      load("Sectors", "/api/observer/sectors", (data) => {
+        const list: BurgItem[] = data.burgs || [];
+        const prisonList: PrisonItem[] = data.prisons || [];
+        setBurgs(list);
+        setParagons(data.paragons || []);
+        setPrisons(prisonList);
+        setVerge(data.verge || null);
+        const sf: Record<number, any> = {};
+        (data.sectorFeatures || []).forEach((f: any) => { sf[f.cell_id] = f.features; });
+        setSectorFeatures(sf);
+        // Keep the selection, but point it at this tick's row so its numbers are current.
+        setSelectedBurg(prev => {
+          if (prev) return list.find(b => b.burg_id === prev.burg_id) ?? prev;
+          const first = list.find(b => b.burg_id === 25) || list[0] || null;
+          if (first) setFocusedCellId(f => f ?? first.cell_id);
+          return first;
+        });
+        setSelectedPrison(prev => (prev ? prisonList.find(p => p.id === prev.id) ?? prev : prev));
+      }),
+      load("Fringe factions", "/api/observer/fringe_detail", (data) => {
+        setFringeDetail(data);
+        setSelectedFringe(prev => {
+          const list: FringeFaction[] = data.factions || [];
+          if (prev) return list.find(f => f.id === prev.id) ?? prev;
+          return list[0] || null;
+        });
+      }),
+      // Only once the geometry is in: map_live is merged into it.
+      cellsLoaded.current ? load("Map overlays", "/api/observer/map_live?z=0", applyMapLive) : Promise.resolve(),
+    ]);
+    setLoadError(errors.length ? errors.join(" • ") : null);
+  }, [applyMapLive]);
 
-  // Fetch fringe factions and lairs
-  const fetchFringe = useCallback(async () => {
-    try {
-      const res = await fetch("/api/observer/fringe_detail");
-      if (!res.ok) return;
-      const data = await res.json();
-      setFringeDetail(data);
-      if (!selectedFringe && (data.factions || []).length > 0) {
-        setSelectedFringe(data.factions[0]);
-      }
-    } catch (e) {
-      console.error("Fetch fringe error:", e);
-    }
-  }, [selectedFringe]);
-
+  // Cell geometry: once per page (StrictMode-safe: the ref survives the dev double-mount).
   useEffect(() => {
-    fetchState();
-    fetchSectors();
-    fetchFringe();
-  }, [fetchState, fetchSectors, fetchFringe]);
+    if (mapRequested.current) return;
+    mapRequested.current = true;
+    getJson("/api/observer/map?z=0")
+      .then(async (mapData) => {
+        setCells(mapData.cells || []);
+        cellsLoaded.current = true;
+        // The geometry is from load time; bring owner/ecology up to the current tick.
+        applyMapLive(await getJson("/api/observer/map_live?z=0"));
+      })
+      .catch((e) => {
+        mapRequested.current = false; // let the next poll retry
+        setLoadError(`World map: ${e.message}`);
+      });
+  }, [applyMapLive]);
 
-  // Polling loop for active state
+  // Poll /status; refetch everything only when the tick moves (or on first contact).
   useEffect(() => {
     let active = true;
     let timerId: any = null;
 
     async function poll() {
-      if (!active) return;
-      await fetchState();
-      if (active) timerId = setTimeout(poll, 1500);
+      try {
+        const s = await getJson("/api/observer/status");
+        if (!active) return;
+        setServerDown(null);
+        setIsPlaying(!!s.autoplay);
+        setTickInProgress(!!s.tickInProgress);
+        setServerTickError(s.lastTickError || null);
+        if (s.tick !== lastSeenTick.current) {
+          lastSeenTick.current = s.tick;
+          await refreshAll();
+        }
+      } catch (e: any) {
+        if (active) setServerDown(`Simulation server unreachable (${e.message}). Is it running, and is Postgres up?`);
+      }
+      if (active) timerId = setTimeout(poll, POLL_MS);
     }
 
     poll();
-
-    fetch("/api/observer/autoplay")
-      .then(r => r.json())
-      .then(d => { if (active) setIsPlaying(d.autoplay); })
-      .catch(() => {});
-
     return () => {
       active = false;
       if (timerId) clearTimeout(timerId);
     };
-  }, [fetchState]);
+  }, [refreshAll]);
 
   // Fetch filtered sector events when selection changes
   useEffect(() => {
     async function loadSectorEvents() {
       let url = "/api/observer/filtered_events?limit=150";
-      if (isConvergenceSelected) {
-        url += "&keyword=Convergence";
+      if (isVergeSelected) {
+        url += "&keyword=verge";
       } else if (selectedPrison) {
         url += `&keyword=${encodeURIComponent(selectedPrison.dragon_name)}`;
       } else if (selectedBurg) {
@@ -1119,7 +1156,8 @@ export function Dashboard() {
     }
 
     loadSectorEvents();
-  }, [selectedBurg, selectedPrison, isConvergenceSelected, tierFilter, state?.calendar?.tick]);
+    // Keyed on ids: each refresh swaps in a new row object for the same selection.
+  }, [selectedBurg?.burg_id, selectedPrison?.id, isVergeSelected, tierFilter, state?.calendar?.tick]);
 
   // Fetch sampled living citizens with active narrative tags when a burg is selected
   useEffect(() => {
@@ -1133,7 +1171,7 @@ export function Dashboard() {
         setBurgCitizens(d.citizens || []);
       })
       .catch(() => {});
-  }, [selectedBurg, state?.calendar?.tick]);
+  }, [selectedBurg?.burg_id, state?.calendar?.tick]);
 
   // Fetch filtered fringe faction events when fringe selection changes
   useEffect(() => {
@@ -1150,68 +1188,60 @@ export function Dashboard() {
     }
 
     loadFringeEvents();
-  }, [selectedFringe, state?.calendar?.tick]);
+  }, [selectedFringe?.id, state?.calendar?.tick]);
 
   // Fetch Ecology and Chaos Flows telemetry
   useEffect(() => {
+    const fail = (what: string) => (e: any) => setLoadError(`${what}: ${e.message}`);
     if (activeTab === "ECOLOGY_CHAOS") {
-      fetch("/api/observer/ecology").then(r => r.json()).then(d => setEcologyData(d)).catch(() => {});
-      fetch("/api/observer/chaos_flows").then(r => r.json()).then(d => {
+      getJson("/api/observer/ecology").then(d => setEcologyData(d)).catch(fail("Ecology"));
+      getJson("/api/observer/chaos_flows").then(d => {
         setChaosFlowsData(d);
-        if (d.flows && d.flows.length > 0 && !selectedFlow) {
-          setSelectedFlow(d.flows[0]);
-        }
-      }).catch(() => {});
+        const flows: any[] = d.flows || [];
+        // Keep the selected flow, refreshed to this tick's values.
+        setSelectedFlow((prev: any) => (prev ? flows.find(f => f.flow_id === prev.flow_id) ?? prev : flows[0] ?? null));
+      }).catch(fail("Chaos flows"));
     }
     if (activeTab === "ECONOMY") {
-      fetch("/api/observer/economy/specialties")
-        .then(r => r.json())
-        .then(d => setEconomyData(d))
-        .catch(() => {});
+      getJson("/api/observer/economy/specialties").then(d => setEconomyData(d)).catch(fail("Economy"));
     }
   }, [activeTab, state?.calendar?.tick]);
 
-  // Controls: Step 1 Tick
-  const runSingleTick = async () => {
+  // Controls: ticks run on the server; the /status poll picks up the new tick and refreshes the panels.
+  const postTick = async (url: string, body?: any) => {
     if (isBatchRunning) return;
     setIsBatchRunning(true);
+    setActionError(null);
     try {
-      await fetch("/api/observer/tick", { method: "POST" });
-      await fetchState();
-      await fetchSectors();
-    } catch (e) {
-    } finally {
-      setIsBatchRunning(false);
-    }
-  };
-
-  // Controls: Batch Run Ticks (5, 10)
-  const runBatchTicks = async (count: number) => {
-    if (isBatchRunning) return;
-    setIsBatchRunning(true);
-    try {
-      await fetch("/api/observer/batch_ticks", {
+      await getJson(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ count })
+        body: JSON.stringify(body ?? {})
       });
-      await fetchState();
-      await fetchSectors();
-    } catch (e) {
+      lastSeenTick.current = undefined; // force the refresh now instead of on the next poll
+      await refreshAll();
+    } catch (e: any) {
+      setActionError(e.message);
     } finally {
       setIsBatchRunning(false);
     }
   };
+  const runSingleTick = () => postTick("/api/observer/tick");
+  const runBatchTicks = (count: number) => postTick("/api/observer/batch_ticks", { count });
 
-  // Controls: Autoplay Toggle
+  // Controls: Autoplay Toggle (the server's answer is the truth, not our guess)
   const togglePlay = async () => {
-    const nextState = !isPlaying;
-    setIsPlaying(nextState);
-    await fetch("/api/observer/autoplay", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled: nextState })
-    });
+    setActionError(null);
+    try {
+      const d = await getJson("/api/observer/autoplay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !isPlaying })
+      });
+      setIsPlaying(!!d.autoplay);
+    } catch (e: any) {
+      setActionError(`Autoplay: ${e.message}`);
+    }
   };
 
   // Filtered Burg list based on search
@@ -1249,7 +1279,7 @@ export function Dashboard() {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#0f172a", border: "1px solid #1e293b", padding: "4px 10px", borderRadius: 6, fontSize: 12 }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: isPlaying || isBatchRunning || state?.tickInProgress ? "#22c55e" : "#64748b", boxShadow: isPlaying ? "0 0 8px #22c55e" : "none" }} />
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: serverDown ? "#ef4444" : isPlaying || isBatchRunning || tickInProgress ? "#22c55e" : "#64748b", boxShadow: isPlaying ? "0 0 8px #22c55e" : "none" }} />
             <span style={{ color: "#94a3b8" }}>Tick <strong style={{ color: "#38bdf8", fontSize: 13 }}>{cal?.tick || 0}</strong></span>
             <span style={{ color: "#334155" }}>|</span>
             <span style={{ color: cal?.is_shadow_week ? "#f87171" : "#e2e8f0", fontWeight: 500 }}>{dateDisplay}</span>
@@ -1334,13 +1364,28 @@ export function Dashboard() {
         </div>
       </header>
 
+      {/* Problems the dashboard would otherwise hide: server down, failed loads, rejected or failed ticks */}
+      {(serverDown || actionError || serverTickError || loadError) && (
+        <div role="alert" style={{ display: "flex", flexDirection: "column", gap: 2, padding: "6px 18px", background: "#450a0a", borderBottom: "1px solid #7f1d1d", color: "#fecaca", fontSize: 12 }}>
+          {serverDown && <div>⛔ {serverDown}</div>}
+          {actionError && (
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+              <span>⚠️ {actionError}</span>
+              <button onClick={() => setActionError(null)} style={{ background: "none", border: "none", color: "#fecaca", cursor: "pointer", fontSize: 12 }}>Dismiss</button>
+            </div>
+          )}
+          {serverTickError && <div>💥 Last tick failed{serverTickError.tick != null ? ` after tick ${serverTickError.tick}` : ""}: {serverTickError.message} (see the server log)</div>}
+          {loadError && !serverDown && <div>⚠️ Could not load: {loadError}</div>}
+        </div>
+      )}
+
       {/* ============================================================= */}
       {/* 2. BODY CONTENT ROUTER                                        */}
       {/* ============================================================= */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
 
         {/* ------------------------------------------------------------- */}
-        {/* TAB 1: TERRITORIAL SECTOR LOGS (BURGS, PRISONS, CONVERGENCE)  */}
+        {/* TAB 1: TERRITORIAL SECTOR LOGS (BURGS, PRISONS, THE VERGE)    */}
         {/* ------------------------------------------------------------- */}
         {activeTab === "SECTORS" && (
           <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
@@ -1351,22 +1396,22 @@ export function Dashboard() {
               {/* Category Pills */}
               <div style={{ padding: "12px 14px 6px 14px", display: "flex", gap: 6 }}>
                 <button
-                  onClick={() => { setSelectedCategory("ALL_BURGS"); setIsConvergenceSelected(false); setSelectedPrison(null); }}
+                  onClick={() => { setSelectedCategory("ALL_BURGS"); setIsVergeSelected(false); setSelectedPrison(null); }}
                   style={{ flex: 1, padding: "6px 4px", fontSize: 11, fontWeight: 700, border: "none", borderRadius: 4, cursor: "pointer", background: selectedCategory === "ALL_BURGS" ? "#0284c7" : "#1e293b", color: selectedCategory === "ALL_BURGS" ? "#fff" : "#94a3b8" }}
                 >
-                  Burgs (352)
+                  Burgs ({burgs.length})
                 </button>
                 <button
-                  onClick={() => { setSelectedCategory("PRISONS"); setIsConvergenceSelected(false); if (prisons.length > 0) setSelectedPrison(prisons[0] || null); }}
+                  onClick={() => { setSelectedCategory("PRISONS"); setIsVergeSelected(false); if (prisons.length > 0) setSelectedPrison(prisons[0] || null); }}
                   style={{ flex: 1, padding: "6px 4px", fontSize: 11, fontWeight: 700, border: "none", borderRadius: 4, cursor: "pointer", background: selectedCategory === "PRISONS" ? "#9333ea" : "#1e293b", color: selectedCategory === "PRISONS" ? "#fff" : "#94a3b8" }}
                 >
-                  Prisons (12)
+                  Prisons ({prisons.length})
                 </button>
                 <button
-                  onClick={() => { setSelectedCategory("CONVERGENCE"); setIsConvergenceSelected(true); setSelectedPrison(null); }}
-                  style={{ flex: 1, padding: "6px 4px", fontSize: 11, fontWeight: 700, border: "none", borderRadius: 4, cursor: "pointer", background: selectedCategory === "CONVERGENCE" ? "#dc2626" : "#1e293b", color: selectedCategory === "CONVERGENCE" ? "#fff" : "#94a3b8" }}
+                  onClick={() => { setSelectedCategory("VERGE"); setIsVergeSelected(true); setSelectedPrison(null); }}
+                  style={{ flex: 1, padding: "6px 4px", fontSize: 11, fontWeight: 700, border: "none", borderRadius: 4, cursor: "pointer", background: selectedCategory === "VERGE" ? "#dc2626" : "#1e293b", color: selectedCategory === "VERGE" ? "#fff" : "#94a3b8" }}
                 >
-                  Convergence
+                  The Verge
                 </button>
               </div>
 
@@ -1387,12 +1432,12 @@ export function Dashboard() {
               <div style={{ flex: 1, overflowY: "auto", padding: "6px 10px" }}>
                 {selectedCategory === "ALL_BURGS" && (
                   filteredBurgs.map(b => {
-                    const isSelected = selectedBurg?.burg_id === b.burg_id && !isConvergenceSelected && !selectedPrison;
+                    const isSelected = selectedBurg?.burg_id === b.burg_id && !isVergeSelected && !selectedPrison;
                     const hasUnrest = b.unrest >= 40;
                     return (
                       <div
                         key={b.burg_id}
-                        onClick={() => { setSelectedBurg(b); setSelectedPrison(null); setIsConvergenceSelected(false); }}
+                        onClick={() => { setSelectedBurg(b); setSelectedPrison(null); setIsVergeSelected(false); }}
                         style={{
                           padding: "8px 10px",
                           marginBottom: 4,
@@ -1424,7 +1469,7 @@ export function Dashboard() {
                     return (
                       <div
                         key={p.id}
-                        onClick={() => { setSelectedPrison(p); setSelectedBurg(null); setIsConvergenceSelected(false); }}
+                        onClick={() => { setSelectedPrison(p); setSelectedBurg(null); setIsVergeSelected(false); }}
                         style={{
                           padding: "10px 12px",
                           marginBottom: 6,
@@ -1446,14 +1491,14 @@ export function Dashboard() {
                   })
                 )}
 
-                {selectedCategory === "CONVERGENCE" && (
+                {selectedCategory === "VERGE" && (
                   <div
-                    onClick={() => { setIsConvergenceSelected(true); setSelectedBurg(null); setSelectedPrison(null); }}
+                    onClick={() => { setIsVergeSelected(true); setSelectedBurg(null); setSelectedPrison(null); }}
                     style={{ padding: "12px", borderRadius: 6, background: "#1e1b4b", borderLeft: "4px solid #ef4444", cursor: "pointer" }}
                   >
-                    <div style={{ fontWeight: 700, fontSize: 14, color: "#f87171" }}>The Planetary Convergence</div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: "#f87171" }}>The Verge</div>
                     <div style={{ fontSize: 12, color: "#cbd5e1", marginTop: 4 }}>
-                      Central Leyline Nexus (Cell 11429) where all 12 Chaos Rivers meet.
+                      Cell {verge?.cell_id}: where all twelve flows meet and drain.
                     </div>
                   </div>
                 )}
@@ -1465,20 +1510,29 @@ export function Dashboard() {
               
               {/* Telemetry Header */}
               <div style={{ padding: "16px 20px", background: "#0b111a", borderBottom: "1px solid #1e293b" }}>
-                {isConvergenceSelected ? (
+                {isVergeSelected ? (
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <span style={{ fontSize: 20, fontWeight: 800, color: "#f87171" }}>The Cruorbus Convergence Nexus</span>
-                      <span style={{ fontSize: 11, background: "#7f1d1d", color: "#fecaca", padding: "2px 8px", borderRadius: 4, fontWeight: 700 }}>WORLD CORE NEXUS</span>
+                      <span style={{ fontSize: 20, fontWeight: 800, color: "#f87171" }}>{verge?.name || "The Verge"}</span>
+                      <span style={{ fontSize: 11, background: "#7f1d1d", color: "#fecaca", padding: "2px 8px", borderRadius: 4, fontWeight: 700 }}>THE DRAIN</span>
                     </div>
-                    <p style={{ fontSize: 12, color: "#94a3b8", margin: "6px 0 10px 0" }}>{convergence?.description}</p>
+                    <p style={{ fontSize: 12, color: "#94a3b8", margin: "6px 0 10px 0" }}>{verge?.description}</p>
+                    {(verge?.flows || []).length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+                        {verge.flows.map((fl: any) => (
+                          <span key={fl.flow_id} style={{ fontSize: 10, background: "#1e293b", color: "#cbd5e1", padding: "2px 6px", borderRadius: 4 }}>
+                            {fl.dragon_name} ({fl.elemental_power}) <strong style={{ color: Number(fl.current_surge) >= 1 ? "#f87171" : "#38bdf8" }}>{Number(fl.current_surge).toFixed(2)}×</strong>
+                          </span>
+                        ))}
+                      </div>
+                    )}
                     <div style={{ display: "flex", gap: 16, fontSize: 12, alignItems: "center" }}>
-                      <div>Cell ID: <strong>{convergence?.cell_id}</strong></div>
-                      <div>Active Leyline Branches: <strong>{convergence?.zones?.length || 10}</strong></div>
-                      {convergence?.cell_id && (
+                      <div>Cell ID: <strong>{verge?.cell_id}</strong></div>
+                      <div>Flows draining here: <strong>{verge?.flows?.length ?? 0}</strong></div>
+                      {verge?.cell_id && (
                         <button
                           onClick={() => {
-                            setFocusedCellId(convergence.cell_id);
+                            setFocusedCellId(verge.cell_id);
                             setShowRegionalWindow(true);
                             setActiveTab("MAP");
                           }}
@@ -2306,7 +2360,7 @@ export function Dashboard() {
                 economy={economyMap}
                 burgs={burgs}
                 prisons={prisons}
-                convergence={convergence}
+                verge={verge}
                 selectedFactionId={selectedFactionId}
                 onCellClick={(id: number) => {
                   setFocusedCellId(id);

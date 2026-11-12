@@ -10,6 +10,7 @@ import { regionalRouter } from './api/regionalRouter';
 import tellerRouter from './api/tellerRouter';
 import directorRouter from './api/directorRouter';
 import { rulesRouter } from './api/rulesRouter';
+import { ensureCellTagsTable } from './engine/cellTags';
 
 dotenv.config();
 
@@ -42,5 +43,7 @@ const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
 app.listen(PORT, HOST, () => {
   console.log(`Simulation Engine Server running on http://${HOST}:${PORT}`);
+  // Tables added after a world was created (live databases are never reset just to add one).
+  ensureCellTagsTable(pool).catch((e) => console.error(`[db] Could not ensure sim_cell_tags: ${e.message}`));
 });
 

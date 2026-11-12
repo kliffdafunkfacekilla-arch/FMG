@@ -155,7 +155,7 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
           ward.cell_id,
           CONVERGENCE_SPIRE_CELL,
           ward.flow_id,
-          `Compelled by cosmic vision of the 12 Dragon Prisons and Chaos Flows to journey to the Spire of Convergence`
+          `Compelled by cosmic vision of the 12 Dragon Prisons and Chaos Flows to journey to the Sacred Spire`
         ]);
 
         await client.query(`
@@ -163,7 +163,7 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
           VALUES ($1, 'WARDEN_ANCIENT_WARD_AWAKENING', $2, 'MAJOR', $3, $4)
         `, [
           tick,
-          `⚡ COSMIC AWAKENING: ${citizen.name} (${citizen.profession}) stepped across an overgrown ancient ward along the ${ward.path_name} (Cell #${ward.cell_id})! A flash of cosmic revelation exposed the 12 Dragon Prisons, the surging Chaos Flows, and Shlaar's whispering horror. Driven by the vision, they began their pilgrimage to the Spire of Convergence to join the Grey Wardens!`,
+          `⚡ COSMIC AWAKENING: ${citizen.name} (${citizen.profession}) stepped across an overgrown ancient ward along the ${ward.path_name} (Cell #${ward.cell_id})! A flash of cosmic revelation exposed the 12 Dragon Prisons, the surging Chaos Flows, and Shlaar's whispering horror. Driven by the vision, they began their pilgrimage to the Sacred Spire to join the Grey Wardens!`,
           ward.cell_id,
           loreDate
         ]);
@@ -282,7 +282,7 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
           VALUES ($1, 'WARDEN_VOW_TAKEN', $2, 'MINOR', $3, $4)
         `, [
           tick,
-          `🗡️ GREY VOW TAKEN: Pilgrim ${citizenName} (${profession}) has reached the Spire of Convergence! Swearing the ancient Grey Vow, they were bound with aether-tech sigils to channel primordial chaos safely, deployed to patrol the flow corridors.`,
+          `🗡️ GREY VOW TAKEN: Pilgrim ${citizenName} (${profession}) has reached the Sacred Spire! Swearing the ancient Grey Vow, they were bound with aether-tech sigils to channel primordial chaos safely, deployed to patrol the flow corridors.`,
           CONVERGENCE_SPIRE_CELL,
           loreDate
         ]);
@@ -324,7 +324,7 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
         VALUES ($1, 'EYELESS_ELDER_RETIRING', $2, 'MINOR', $3, $4)
       `, [
         tick,
-        `🏛️ CALL OF THE CRYPT: Eyeless Elder ${citizenName}, their mortal frame worn from over two centuries of wielding the curved blade along the roaring flows, has turned back toward the Spire of Convergence to enter the eternal subterranean crypt alcoves.`,
+        `🏛️ CALL OF THE CRYPT: Eyeless Elder ${citizenName}, their mortal frame worn from over two centuries of wielding the curved blade along the roaring flows, has turned back toward the Sacred Spire to enter the eternal subterranean crypt alcoves.`,
         locCellId,
         loreDate
       ]);
@@ -344,7 +344,7 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
           VALUES ($1, 'EYELESS_ELDER_CRYPT_VIGIL', $2, 'MAJOR', $3, $4)
         `, [
           tick,
-          `🏛️ TOMB OF THE WATCHERS: Venerable Eyeless Elder ${citizenName} has descended into the subterranean tomb beneath the Spire of Convergence. Taking their place in an ancient carved stone alcove, they will watch the 12 Chaos Flows across Ostraka forever, telepathically advising active Elders on the surface.`,
+          `🏛️ TOMB OF THE WATCHERS: Venerable Eyeless Elder ${citizenName} has descended into the subterranean tomb beneath the Sacred Spire. Taking their place in an ancient carved stone alcove, they will watch the 12 Chaos Flows across Ostraka forever, telepathically advising active Elders on the surface.`,
           CONVERGENCE_SPIRE_CELL,
           loreDate
         ]);

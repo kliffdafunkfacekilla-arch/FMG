@@ -57,9 +57,12 @@ Every execution of `/api/observer/tick` runs this exact agentic sequence:
 
 ## 3. Key Endpoints
 
-- `GET /api/observer/state`: Returns the live global world state (tick, date, weather, faction metrics).
-- `POST /api/observer/tick`: Triggers a 1-day simulation step.
-- `GET /api/observer/map`: Returns the macro Voronoi cell geometry, biomes, center coordinates, and borders.
+- `GET /api/observer/status`: The current tick, whether a tick is running, autoplay, and the last tick error. The dashboard polls this and refetches everything else only when the tick changes.
+- `GET /api/observer/state`: Calendar, factions (treasury), the latest 100 events, and per-burg unrest for the map.
+- `POST /api/observer/tick`: Triggers a 1-day simulation step (429 with a reason if a tick or autoplay is already running).
+- `GET /api/observer/map`: Cell geometry, biomes and centres (~11 MB). Loaded once per page.
+- `GET /api/observer/map_live`: The per-cell values ticks change (owner, flora, prey, predators), as columns in cell-id order.
+- `GET /api/observer/sectors`: Every burg, the 12 prisons, the Verge with its flows, and each cell's environmental tags.
 - `GET /api/regional/live/:cell_id`: Instantiates and returns the 10,000-cell ($100 \times 100$) regional meso overland mesh, elevation, vegetation, infrastructure (roads/smuggler trails/ruins), and roaming agents.
 - `GET /api/regional/agents/:cell_id`: Lightweight high-frequency endpoint returning live coordinates of regional agents (predators chasing prey, merchant caravans, guards, smugglers, cultists).
 - `GET /api/dm/sector_layer?cellId=...&rx=...&ry=...&z=...`: Generates and retrieves the 256x256 tactical map layer with authentic citizens, military squads of 12, underworld lairs, and paragons.
@@ -124,4 +127,5 @@ One-off scripts for live data written before a fix. Each previews by default and
 ```bash
 node dist/scripts/repairChaosFlowIdentity.js     # flow names, dragons and endpoints
 node dist/scripts/repairStaleCanonData.js        # stale chaos-ley zones, retired names, calendar row
+node dist/scripts/repairDuplicateBurgNames.js    # burgs sharing a name (older expansion naming)
 ```

@@ -2,6 +2,7 @@ import { resolveCombat } from '../combatEngine';
 import { FACTION_ACTIONS, FactionState, FactionAction } from '../ai/factionActions';
 import { tagBurgCitizens } from "./citizenPersonaHelper";
 import { DAYS_PER_MONTH } from "../canon/calendar.js";
+import { loadCellTagMap } from "../cellTags.js";
 
 /**
  * Extracts uppercase trait strings from a paragon's traits column
@@ -36,17 +37,7 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
     const bordersRes = await client.query("SELECT * FROM sim_faction_borders");
 
     // Fetch environmental / sector tags across cells
-    const sectorTagsRes = await client.query(`
-        SELECT cell_id, features->'environmental_tags' as env_tags 
-        FROM sim_sector_layers 
-        WHERE z_layer = 0 AND features->'environmental_tags' IS NOT NULL
-    `);
-    const sectorTagsMap = new Map<number, string[]>();
-    for (const r of sectorTagsRes.rows) {
-        if (Array.isArray(r.env_tags)) {
-            sectorTagsMap.set(Number(r.cell_id), r.env_tags);
-        }
-    }
+    const sectorTagsMap = await loadCellTagMap(client);
 
     const factions = factionRes.rows;
     const burgs = burgRes.rows;

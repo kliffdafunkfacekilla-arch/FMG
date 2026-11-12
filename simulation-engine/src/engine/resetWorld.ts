@@ -33,6 +33,7 @@ DROP TABLE IF EXISTS sim_world_vault_sectors CASCADE;
 DROP TABLE IF EXISTS sim_world_landmarks CASCADE;
 DROP TABLE IF EXISTS sim_grind_canyons CASCADE;
 DROP TABLE IF EXISTS sim_sector_layers CASCADE;
+DROP TABLE IF EXISTS sim_cell_tags CASCADE;
 
 DROP TABLE IF EXISTS sim_active_projects CASCADE;
 
@@ -652,6 +653,14 @@ CREATE TABLE IF NOT EXISTS sim_sector_layers (
     PRIMARY KEY (cell_id, rx, ry, z_layer)
 );
 CREATE INDEX IF NOT EXISTS idx_sector_layers_lookup ON sim_sector_layers(cell_id, rx, ry, z_layer);
+
+-- Environmental tags per cell (engine/cellTags.ts keeps the same definition for live databases)
+CREATE TABLE IF NOT EXISTS sim_cell_tags (
+    cell_id INT NOT NULL,
+    z_layer INT NOT NULL DEFAULT 0,
+    tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+    PRIMARY KEY (cell_id, z_layer)
+);
 
 `;
 

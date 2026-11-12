@@ -6,6 +6,7 @@
  * 3. The story engine's prison table sits on the canon prison cells with canon dragons.
  * 4. The live sim_chaos_flows rows carry their canon identity and endpoints.
  * 5. Every dragon/Power table pairs dragons with their canon Power, and no source file uses a retired name.
+ * 6. The Verge is never renamed to an invented "Convergence Nexus" or "Spire of Convergence".
  */
 import fs from "fs";
 import path from "path";
@@ -124,6 +125,29 @@ async function main() {
     };
     walk(srcDir);
     check(hits.length === 0, hits.join("; "));
+  });
+
+  await run("The Verge keeps its canon name (no invented Convergence Nexus / Spire)", () => {
+    // Canon/03: the flows meet at the Verge; the Sacred Spire stands on its rim (rule 7: no invented entities).
+    const srcDir = path.resolve(__dirname, "..", "..", "src");
+    const self = path.join(srcDir, "scripts", "testChaosFlows.ts");
+    const pattern = /Convergence Nexus|Spire of Convergence|Cruorbus Convergence|Planetary Convergence/;
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (/\.(ts|tsx)$/.test(e.name) && p !== self) {
+          fs.readFileSync(p, "utf8").split(/\r?\n/).forEach((line, i) => {
+            const m = line.match(pattern);
+            if (m) hits.push(`${path.relative(srcDir, p)}:${i + 1} (${m[0]})`);
+          });
+        }
+      }
+    };
+    walk(srcDir);
+    check(hits.length === 0, hits.join("; "));
+    check(VERGE_COORD.cell > 0, "VERGE_COORD has no cell");
   });
 
   await run("Legacy [x, y] coordinates still parse", () => {

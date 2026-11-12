@@ -1,4 +1,5 @@
 import { tagBurgCitizens, tagSectorEnvironment } from "./citizenPersonaHelper";
+import { loadCellTagMap, removeCellTags } from "../cellTags.js";
 
 /**
  * Helper to extract uppercase trait names from a paragon's traits column
@@ -37,17 +38,7 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
     const paragonRes = await client.query("SELECT * FROM sim_paragons");
     
     // Fetch active environmental tags across sectors
-    const sectorTagsRes = await client.query(`
-        SELECT cell_id, features->'environmental_tags' as env_tags 
-        FROM sim_sector_layers 
-        WHERE z_layer = 0 AND features->'environmental_tags' IS NOT NULL
-    `);
-    const sectorTagsMap = new Map<number, string[]>();
-    for (const r of sectorTagsRes.rows) {
-        if (Array.isArray(r.env_tags)) {
-            sectorTagsMap.set(Number(r.cell_id), r.env_tags);
-        }
-    }
+    const sectorTagsMap = await loadCellTagMap(client);
 
     // Group paragons by burg
     const paragonsByBurg = new Map<number, any[]>();
@@ -606,19 +597,7 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
                             tier: "MINOR",
                             msg: `🕊️ IRON CURFEW LIFTED: With civil order restored, ${p.title} ${p.name} opened the gates and stood down dusk-to-dawn curfew patrols across ${burg.name}.`
                         });
-                        await client.query(`
-                            UPDATE sim_sector_layers
-                            SET features = jsonb_set(
-                                features, 
-                                '{environmental_tags}', 
-                                COALESCE((
-                                    SELECT jsonb_agg(elem)
-                                    FROM jsonb_array_elements_text(features->'environmental_tags') elem
-                                    WHERE elem != '#NightfallCurfewActive'
-                                ), '[]'::jsonb)
-                            )
-                            WHERE cell_id = $1 AND z_layer = 0
-                        `, [cellId]);
+                        await removeCellTags(client, cellId, ["#NightfallCurfewActive"]);
                         break;
                     }
                     case "COMMANDER_CONTRABAND_RAID": {

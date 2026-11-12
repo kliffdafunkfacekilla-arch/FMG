@@ -1,5 +1,6 @@
 import { DAYS_PER_YEAR, SHADOWFALL, isYearEnd, seasonKind } from "../canon/calendar.js";
 import { tagBurgCitizens } from "./citizenPersonaHelper";
+import { loadCellTagMap } from "../cellTags.js";
 import { 
     getFactionSpecialty, 
     getGoodsByCategory, 
@@ -230,17 +231,9 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
     }
 
     // Trade Blockades & Mercantile Embargoes (Gilded Compass sanctions)
-    const sectorTagsRes = await client.query(`
-        SELECT cell_id, features->'environmental_tags' as env_tags 
-        FROM sim_sector_layers 
-        WHERE z_layer = 0 AND features->'environmental_tags' IS NOT NULL
-    `);
     const sectorBlockadeMap = new Map<number, boolean>();
-    for (const r of sectorTagsRes.rows) {
-        if (Array.isArray(r.env_tags)) {
-            const hasEmbargo = r.env_tags.some((t: string) => t.includes("Blockade") || t.includes("Embargo") || t.includes("CompassEmbargo"));
-            if (hasEmbargo) sectorBlockadeMap.set(Number(r.cell_id), true);
-        }
+    for (const [cellId, tags] of await loadCellTagMap(client)) {
+        if (tags.some((t: string) => t.includes("Blockade") || t.includes("Embargo"))) sectorBlockadeMap.set(cellId, true);
     }
 
     // ── QUANTITATIVE ECOLOGY (QE) & INFRASTRUCTURE SETUP ─────────────────────
