@@ -969,6 +969,10 @@ export function Dashboard() {
   const [showRegionalWindow, setShowRegionalWindow] = useState<boolean>(true);
   const [cellSearchInput, setCellSearchInput] = useState<string>("");
   const [tacticalModalTarget, setTacticalModalTarget] = useState<{ cellId: number; rx: number; ry: number } | null>(null);
+  // The regional (100x100) cell picked in the region window. Every tactical button opens this one.
+  const [regionSelection, setRegionSelection] = useState<{ rx: number; ry: number }>({ rx: 50, ry: 50 });
+  // A new region starts at its centre.
+  useEffect(() => { setRegionSelection({ rx: 50, ry: 50 }); }, [focusedCellId]);
 
   // Sector Division State
   const [burgs, setBurgs] = useState<BurgItem[]>([]);
@@ -1612,7 +1616,9 @@ export function Dashboard() {
                           </button>
                           <button
                             onClick={() => {
-                              setTacticalModalTarget({ cellId: selectedBurg.cell_id, rx: 50, ry: 50 });
+                              // The burg's own cell: use the regional cell picked there, else the town centre.
+                              const sel = focusedCellId === selectedBurg.cell_id ? regionSelection : { rx: 50, ry: 50 };
+                              setTacticalModalTarget({ cellId: selectedBurg.cell_id, rx: sel.rx, ry: sel.ry });
                             }}
                             style={{
                               background: "linear-gradient(135deg, #0284c7, #7c3aed)",
@@ -2258,8 +2264,12 @@ export function Dashboard() {
                     >
                       {showRegionalWindow ? "Hide Regional Window" : "Open Regional Window"}
                     </button>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span>Selected regional cell:</span>
+                      <strong style={{ color: "#38bdf8" }}>rx {regionSelection.rx}, ry {regionSelection.ry}</strong>
+                    </div>
                     <button
-                      onClick={() => setTacticalModalTarget({ cellId: focusedCellId, rx: 50, ry: 50 })}
+                      onClick={() => setTacticalModalTarget({ cellId: focusedCellId, rx: regionSelection.rx, ry: regionSelection.ry })}
                       style={{
                         marginTop: 2,
                         padding: "5px 8px",
@@ -2377,6 +2387,8 @@ export function Dashboard() {
                   cellId={focusedCellId}
                   tick={state?.calendar?.tick}
                   isFloating={true}
+                  selectedCell={regionSelection}
+                  onSelectCell={setRegionSelection}
                   onClose={() => setShowRegionalWindow(false)}
                 />
               )}

@@ -87,10 +87,10 @@ export function generateProceduralLoggingSurface(cfg: FacilityGeneratorConfig): 
     const bX = poiCX - 16, bY = poiCY - 4;
     for (let dy = 0; dy < bH; dy++) {
       for (let dx = 0; dx < bW; dx++) {
-        grid[(bY + dy) * SIZE + (bX + dx)] = (dx === 0 || dx === bW - 1 || dy === 0 || dy === bH - 1) ? 7 : 8;
+        grid[(bY + dy) * SIZE + (bX + dx)] = (dx === 0 || dx === bW - 1 || dy === 0 || dy === bH - 1) ? 5 : 7; // walls, roofed interior
       }
     }
-    grid[(bY + Math.floor(bH / 2)) * SIZE + (bX + bW - 1)] = 8; // East door facing flume
+    grid[(bY + Math.floor(bH / 2)) * SIZE + (bX + bW - 1)] = 3; // East door facing flume
 
     props.push({
       id: `prop_water_sawframe_${cellId}_${rx}_${ry}`,
@@ -183,10 +183,10 @@ export function generateProceduralLoggingSurface(cfg: FacilityGeneratorConfig): 
     const bX = poiCX - 6, bY = poiCY - 14;
     for (let dy = 0; dy < bH; dy++) {
       for (let dx = 0; dx < bW; dx++) {
-        grid[(bY + dy) * SIZE + (bX + dx)] = (dx === 0 || dx === bW - 1 || dy === 0 || dy === bH - 1) ? 7 : 8;
+        grid[(bY + dy) * SIZE + (bX + dx)] = (dx === 0 || dx === bW - 1 || dy === 0 || dy === bH - 1) ? 5 : 7; // walls, roofed interior
       }
     }
-    grid[(bY + bH - 1) * SIZE + (bX + 6)] = 8; // Door
+    grid[(bY + bH - 1) * SIZE + (bX + 6)] = 3; // Door
 
     // Ricks of drying cedar shingles
     for (let x = poiCX - 18; x <= poiCX + 18; x += 8) {
@@ -230,10 +230,10 @@ export function generateProceduralLoggingSurface(cfg: FacilityGeneratorConfig): 
     const bX = poiCX - 18, bY = poiCY - 12;
     for (let dy = 0; dy < bH; dy++) {
       for (let dx = 0; dx < bW; dx++) {
-        grid[(bY + dy) * SIZE + (bX + dx)] = (dx === 0 || dx === bW - 1 || dy === 0 || dy === bH - 1) ? 7 : 8;
+        grid[(bY + dy) * SIZE + (bX + dx)] = (dx === 0 || dx === bW - 1 || dy === 0 || dy === bH - 1) ? 5 : 7; // walls, roofed interior
       }
     }
-    grid[(bY + bH - 1) * SIZE + (bX + 5)] = 8;
+    grid[(bY + bH - 1) * SIZE + (bX + 5)] = 3; // Door
 
     // Log skidway dirt trench
     for (let x = poiCX - 10; x <= poiCX + 35; x++) {
@@ -936,7 +936,7 @@ export function generateProceduralWatchtowerSurface(cfg: FacilityGeneratorConfig
     const bhW = 8, bhH = 6;
     for (let dy = -bhH; dy <= bhH; dy++) {
       for (let dx = -bhW; dx <= bhW; dx++) {
-        grid[(poiCY + dy) * SIZE + (poiCX + dx)] = (Math.abs(dx) === bhW || Math.abs(dy) === bhH) ? 7 : 8;
+        grid[(poiCY + dy) * SIZE + (poiCX + dx)] = (Math.abs(dx) === bhW || Math.abs(dy) === bhH) ? 5 : 7; // walls, roofed interior
       }
     }
 

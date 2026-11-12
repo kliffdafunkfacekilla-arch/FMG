@@ -219,7 +219,7 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
       } else {
         // Surface ground palette
         switch (tile) {
-          case 0: return [42, 75, 42]; // natural meadow ground / soil
+          case 0: return [86, 122, 60]; // natural meadow ground / soil (lighter than tall grass and woods)
           case 1: return [22, 60, 26]; // woodland trees / foliage
           case 2: return [25, 90, 180]; // river / lake / ocean water
           case 3: return [135, 95, 55]; // dirt road / rural lane
@@ -232,18 +232,42 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
           case 10: return [110, 125, 140]; // ancient monolith stone
           case 11: return [195, 210, 225]; // snow frost / wetland marsh
           case 12: return [35, 30, 45]; // volcanic basalt / obsidian
-          default: return [42, 75, 42];
+          // Natural ground tiles (engine/maps/TacticalTerrain.ts TILE)
+          case 13: return [222, 230, 238]; // snow
+          case 14: return [168, 205, 228]; // ice
+          case 15: return [24, 52, 40]; // conifer
+          case 16: return [66, 100, 46]; // tall grass / moss
+          case 17: return [64, 92, 78]; // marsh / reeds
+          case 18: return [128, 124, 116]; // scree / gravel
+          case 19: return [168, 150, 82]; // dry grass
+          case 20: return [16, 70, 34]; // jungle
+          case 21: return [16, 52, 120]; // deep water
+          case 22: return [112, 88, 62]; // bare earth / mud
+          case 23: return [60, 88, 52]; // shrub / scrub
+          case 24: return [120, 84, 48]; // bridge planks
+          default: return [86, 122, 60];
         }
       }
     };
 
+    // Per-pixel texture: a fixed hash per pixel shades each tile a little lighter or darker, and canopy
+    // and water get a coarser mottle, so ground reads as ground instead of flat fills.
+    const isCanopy = (t: number) => t === 1 || t === 15 || t === 20 || t === 23;
+    const isWater = (t: number) => t === 2 || t === 21 || t === 17;
     for (let i = 0; i < SIZE * SIZE; i++) {
       const tile = layerData.grid[i] || 0;
       const [r, g, b] = getTileColor(tile, layerData.z);
+      const x = i % SIZE, y = (i / SIZE) | 0;
+      let h = (x * 374761393 + y * 668265263) ^ 0x5bd1e995;
+      h = Math.imul(h ^ (h >>> 13), 1274126177);
+      const fine = (((h >>> 16) & 255) / 255 - 0.5) * 0.14;
+      const coarseSeed = Math.imul(((x >> 2) * 73856093) ^ ((y >> 2) * 19349663), 83492791);
+      const coarse = isCanopy(tile) || isWater(tile) ? ((((coarseSeed >>> 16) & 255) / 255) - 0.5) * 0.18 : 0;
+      const k = 1 + fine + coarse;
       const idx = i * 4;
-      data[idx] = r;
-      data[idx + 1] = g;
-      data[idx + 2] = b;
+      data[idx] = Math.max(0, Math.min(255, r * k));
+      data[idx + 1] = Math.max(0, Math.min(255, g * k));
+      data[idx + 2] = Math.max(0, Math.min(255, b * k));
       data[idx + 3] = 255;
     }
 

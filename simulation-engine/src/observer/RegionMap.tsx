@@ -134,12 +134,18 @@ export function RegionMap({
   cellId,
   tick,
   onClose,
-  isFloating = true
+  isFloating = true,
+  selectedCell,
+  onSelectCell
 }: {
   cellId: number;
   tick?: number;
   onClose?: () => void;
   isFloating?: boolean;
+  /** Controlled selection: when given, the parent owns which regional cell is selected (so its own
+   *  tactical buttons open the same cell). Otherwise the map keeps its own. */
+  selectedCell?: { rx: number; ry: number } | null;
+  onSelectCell?: (cell: { rx: number; ry: number }) => void;
 }) {
   const [regionData, setRegionData] = useState<RegionLiveState | null>(null);
   const [agents, setAgents] = useState<RegionAgent[]>([]);
@@ -148,7 +154,12 @@ export function RegionMap({
   const [hoveredPos, setHoveredPos] = useState<{ rx: number; ry: number } | null>(null);
   const [hoveredAgent, setHoveredAgent] = useState<RegionAgent | null>(null);
   const [hoveredFacility, setHoveredFacility] = useState<RegionalFacility | null>(null);
-  const [selectedLocalCell, setSelectedLocalCell] = useState<{ rx: number; ry: number } | null>({ rx: 50, ry: 50 });
+  const [ownSelection, setOwnSelection] = useState<{ rx: number; ry: number } | null>({ rx: 50, ry: 50 });
+  const selectedLocalCell = selectedCell !== undefined ? selectedCell : ownSelection;
+  const setSelectedLocalCell = (cell: { rx: number; ry: number }) => {
+    if (onSelectCell) onSelectCell(cell);
+    if (selectedCell === undefined) setOwnSelection(cell);
+  };
   const [showAgents, setShowAgents] = useState(true);
   const [showTacticalModal, setShowTacticalModal] = useState<boolean>(false);
 

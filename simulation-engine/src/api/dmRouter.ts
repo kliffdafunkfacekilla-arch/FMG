@@ -7,6 +7,8 @@ import { updateSectorNPCRoutines } from '../engine/agents/npcRoutineAgent.js';
 import { getActiveChaosFlows, evaluatePointChaosFlowProximity } from '../engine/agents/chaosFlowAgent.js';
 import { getLairPropDetails, ensureLairResidents } from '../engine/agents/outlawSyndicates.js';
 import { generateGrindCanyonSectorMap, generateBurgSectorLayers, generateOutlyingSectorMap, generateTacticalRegionalSectorMap } from '../engine/maps/SectorMapGenerator.js';
+import { regionalNeighborhood, TERRAIN_VERSION } from '../engine/maps/TacticalTerrain.js';
+import { generateWardDistrictMap } from '../engine/maps/WardDistrict.js';
 import { getOrCreateRegionalInstance } from './regionalRouter.js';
 import { getFactionSpecialty, FACTION_SPECIALTIES, FactionSpecialty } from '../engine/economy/factionSpecialties.js';
 import { getOpenThreads, evaluateThreadState } from '../engine/threads/threadEngine.js';
@@ -766,10 +768,10 @@ router.post('/sector_load', async (req, res) => {
         ]);
 
         const cellIdx = Math.max(0, Math.min(9999, targetRy * 100 + targetRx));
-        const isBurgSettlement = burgRes.rows.length > 0 && (
-          (targetRx === 50 && targetRy === 50) ||
-          (regInstance?.mapData && regInstance.mapData[cellIdx] === 4)
-        );
+        // Same rules as GET /sector_layer: a town map only on settlement tiles.
+        const isBurgSettlement = burgRes.rows.length > 0 && (regInstance?.mapData
+          ? regInstance.mapData[cellIdx] === 4
+          : targetRx === 50 && targetRy === 50);
 
         if (isBurgSettlement) {
           const burg = burgRes.rows[0];
@@ -801,6 +803,14 @@ router.post('/sector_load', async (req, res) => {
               wardFocus
             }
           );
+          if (!(targetRx === 50 && targetRy === 50)) {
+            layers.layer0 = generateWardDistrictMap({
+              burg, factionName, cellId: targetCellId, rx: targetRx, ry: targetRy, ward: wardFocus,
+              biomeId: regInstance?.biomeMap?.[cellIdx] ?? (Number(cellRes.rows[0]?.biome) || 4),
+              hood: regionalNeighborhood(regInstance, targetRx, targetRy),
+              citizens: citRes.rows, paragons: paragonRes.rows
+            });
+          }
 
           await pool.query(
             `INSERT INTO sim_sector_layers (cell_id, rx, ry, z_layer, layer_name, compressed_terrain, props, npcs, features)
@@ -809,9 +819,11 @@ router.post('/sector_load', async (req, res) => {
            ($1, $2, $3, 0, $9, $10, $11, $12, $13),
            ($1, $2, $3, 1, $14, $15, $16, $17, $18)
            ON CONFLICT (cell_id, rx, ry, z_layer) DO UPDATE SET
+             layer_name = EXCLUDED.layer_name,
              compressed_terrain = EXCLUDED.compressed_terrain,
              props = EXCLUDED.props,
-             npcs = EXCLUDED.npcs;`,
+             npcs = EXCLUDED.npcs,
+             features = EXCLUDED.features;`,
             [
               targetCellId, targetRx, targetRy,
               layers.layerMinus1.name, layers.layerMinus1.compressed, JSON.stringify(layers.layerMinus1.props), JSON.stringify(layers.layerMinus1.npcs), JSON.stringify(layers.layerMinus1.features),
@@ -863,6 +875,7 @@ router.post('/sector_load', async (req, res) => {
             const nearbyAgents = regInstance?.agents?.filter((a: any) => Math.hypot(a.rx - targetRx, a.ry - targetRy) <= 5) || [];
 
             const tacticalMap = generateTacticalRegionalSectorMap({
+              hood: regionalNeighborhood(regInstance, targetRx, targetRy),
               cellId: targetCellId,
               rx: targetRx,
               ry: targetRy,
@@ -1090,7 +1103,17 @@ router.get('/sector_layer', async (req, res) => {
       [targetCellId, targetRx, targetRy, targetZ]
     );
 
-    if (layerRes.rows.length > 0) {
+    // A regional surface map (its features carry terrainType) built by an older surface generator is
+    // regenerated rather than served: TERRAIN_VERSION marks maps painted from the regional neighbourhood.
+    // A town tile other than the centre that still holds the whole-town picture (every tile of a town
+    // used to get the same map) is regenerated as its own district too.
+    const cached = layerRes.rows[0]?.features;
+    const isTownCentre = targetRx === 50 && targetRy === 50;
+    const staleRegional = layerRes.rows.length > 0 && targetZ === 0 && cached?.terrainVersion !== TERRAIN_VERSION && (
+      cached?.terrainType !== undefined || (cached?.burgId !== undefined && !isTownCentre)
+    );
+
+    if (layerRes.rows.length > 0 && !staleRegional) {
       const row = layerRes.rows[0];
       const unzipped = zlib.gunzipSync(row.compressed_terrain);
       const grid = new Uint8Array(unzipped.buffer, unzipped.byteOffset, unzipped.byteLength);
@@ -1122,10 +1145,11 @@ router.get('/sector_layer', async (req, res) => {
     ]);
 
     const cellIdx = Math.max(0, Math.min(9999, targetRy * 100 + targetRx));
-    const isBurgSettlement = burgRes.rows.length > 0 && (
-      (targetRx === 50 && targetRy === 50) ||
-      (regInstance?.mapData && regInstance.mapData[cellIdx] === 4)
-    );
+    // A town map only where the regional map has settlement tiles (code 4); the centre is just the
+    // fallback when no regional instance exists.
+    const isBurgSettlement = burgRes.rows.length > 0 && (regInstance?.mapData
+      ? regInstance.mapData[cellIdx] === 4
+      : targetRx === 50 && targetRy === 50);
 
     if (isBurgSettlement) {
       const burg = burgRes.rows[0];
@@ -1184,6 +1208,15 @@ router.get('/sector_layer', async (req, res) => {
           wardFocus
         }
       );
+      // The whole-town picture stays on the town's centre tile; every other town tile shows its own district.
+      if (!isTownCentre) {
+        layers.layer0 = generateWardDistrictMap({
+          burg, factionName, cellId: targetCellId, rx: targetRx, ry: targetRy, ward: wardFocus,
+          biomeId: regInstance?.biomeMap?.[cellIdx] ?? (Number(cellRes.rows[0]?.biome) || 4),
+          hood: regionalNeighborhood(regInstance, targetRx, targetRy),
+          citizens: citRes.rows, paragons: paragonRes.rows
+        });
+      }
 
       // Persist all 3 layers to sim_sector_layers
       await pool.query(
@@ -1193,9 +1226,11 @@ router.get('/sector_layer', async (req, res) => {
          ($1, $2, $3, 0, $9, $10, $11, $12, $13),
          ($1, $2, $3, 1, $14, $15, $16, $17, $18)
          ON CONFLICT (cell_id, rx, ry, z_layer) DO UPDATE SET
+           layer_name = EXCLUDED.layer_name,
            compressed_terrain = EXCLUDED.compressed_terrain,
            props = EXCLUDED.props,
-           npcs = EXCLUDED.npcs;`,
+           npcs = EXCLUDED.npcs,
+           features = EXCLUDED.features;`,
         [
           targetCellId, targetRx, targetRy,
           layers.layerMinus1.name, layers.layerMinus1.compressed, JSON.stringify(layers.layerMinus1.props), JSON.stringify(layers.layerMinus1.npcs), JSON.stringify(layers.layerMinus1.features),
@@ -1291,6 +1326,7 @@ router.get('/sector_layer', async (req, res) => {
     const nearbyAgents = regInstance?.agents?.filter((a: any) => Math.hypot(a.rx - targetRx, a.ry - targetRy) <= 5) || [];
 
     const tacticalMap = generateTacticalRegionalSectorMap({
+      hood: regionalNeighborhood(regInstance, targetRx, targetRy),
       cellId: targetCellId,
       rx: targetRx,
       ry: targetRy,

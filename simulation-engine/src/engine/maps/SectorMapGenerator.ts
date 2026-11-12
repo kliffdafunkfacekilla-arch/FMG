@@ -1,6 +1,8 @@
 import zlib from "zlib";
 import { getLairPropDetails, generateUniqueOutlawOperative } from "../agents/outlawSyndicates";
 import { SimplexNoise } from "../../regional/SimplexNoise";
+import { paintTacticalTerrain, RegionalNeighborhood, TERRAIN_VERSION, TILE } from "./TacticalTerrain.js";
+import { applySiteVariation } from "./SiteVariation.js";
 import { getFactionSpecialty } from "../economy/factionSpecialties.js";
 import { computeDonjonSettlementCensus, DonjonBusiness, DonjonSettlementCensus } from "../procgen/DonjonSettlementEngine.js";
 import {
@@ -1488,6 +1490,8 @@ export interface TacticalRegionalSectorConfig {
   lairs?: any[] | undefined;
   events?: any[] | undefined;
   stockpile?: any | undefined;
+  /** The 3x3 regional cells around (rx, ry): lets the surface follow the region (TacticalTerrain.ts). */
+  hood?: RegionalNeighborhood | undefined;
 }
 
 interface FarmlandSurfaceConfig {
@@ -2201,6 +2205,73 @@ function generateProceduralFarmlandUpper(
     : `${parentName} Farmstead: Hayloft (r[${rx}, ${ry}] Z=+1)`;
 }
 
+// ── Wilderness landmarks ────────────────────────────────────────────────────
+type LandmarkShape = "camp" | "hut" | "stone" | "ruin" | "pit" | "crater" | "blind";
+interface WildLandmark { key: string; name: string; shape: LandmarkShape; tags: string[]; description: string }
+
+const LANDMARKS: Record<"cold" | "arid" | "wet" | "temperate", WildLandmark[]> = {
+  cold: [
+    { key: "leanto", name: "Snowbound Trapper's Lean-to", shape: "hut", tags: ["type:structure", "material:wood", "shelter", "enterable"], description: "A hide-roofed lean-to banked with snow, snares hung from the ridge pole and a cold firepit." },
+    { key: "cairn", name: "Wind-Carved Ice Cairn", shape: "stone", tags: ["type:structure", "material:ice", "trail_marker"], description: "Stacked blocks of blue ice marking a route across the snowfield, half buried by drift." },
+    { key: "carcass", name: "Frozen Carcass & Scavenger Tracks", shape: "pit", tags: ["type:hazard", "material:bone", "food", "tracks"], description: "A frozen carcass picked half clean, the snow around it trampled by something heavy." },
+  ],
+  arid: [
+    { key: "bones", name: "Sun-Bleached Bone Field", shape: "pit", tags: ["type:hazard", "material:bone", "tracks"], description: "Bleached ribs and skulls scattered across hardpan where a herd died of thirst." },
+    { key: "wash", name: "Dry Wash Hollow & Old Well Pit", shape: "pit", tags: ["type:waterway", "material:stone", "water", "drinkable"], description: "A rock-lined well pit at the bottom of a dry wash; a rope and a dented bucket still hang there." },
+    { key: "arch", name: "Wind-Scoured Rock Arch", shape: "stone", tags: ["type:structure", "material:stone", "shade", "climbable"], description: "A sandstone arch carved by wind, its shade the only cool ground for a mile." },
+  ],
+  wet: [
+    { key: "fowler", name: "Reed-Thatched Fowler's Blind", shape: "blind", tags: ["type:structure", "material:reed", "hidden", "enterable"], description: "A low reed blind on stilts at the water's edge, decoys bobbing on the pool beside it." },
+    { key: "causeway", name: "Sunken Log Causeway", shape: "ruin", tags: ["type:structure", "material:wood", "path", "unstable"], description: "Rotting logs laid end to end across the mire, slick and half sunk." },
+    { key: "stumps", name: "Bog-Oak Stump Ring", shape: "stone", tags: ["type:structure", "material:wood", "sacred"], description: "A ring of blackened bog-oak stumps, older than any road, strung with faded offerings." },
+  ],
+  temperate: [
+    { key: "camp", name: "Drovers' Campfire Ring", shape: "camp", tags: ["type:hazard", "material:stone", "fire", "illuminating"], description: "A ring of soot-stained stones around warm ashes, a roasting spit and trampled bedding." },
+    { key: "blind", name: "Hunter's Blind & Game Trail", shape: "blind", tags: ["type:structure", "material:wood", "hidden", "tracks"], description: "A brush-covered hunting blind overlooking a well-worn game trail." },
+    { key: "menhir", name: "Lichen-Crusted Standing Stone", shape: "stone", tags: ["type:structure", "material:stone", "sacred", "ancient"], description: "A lone standing stone furred with lichen, its old carvings worn almost smooth." },
+    { key: "waystation", name: "Collapsed Waystation Ruin", shape: "ruin", tags: ["type:structure", "material:stone", "ruin", "searchable"], description: "Tumbled walls of a roadside waystation, roofless, with a cellar door rusted shut." },
+  ],
+};
+
+function pickWildLandmark(biomeId: number, chaos: number, roll: number): WildLandmark {
+  if (chaos > 0.7 && roll < 0.35) {
+    return { key: "crater", name: "Chaos-Scorched Crater", shape: "crater", tags: ["type:hazard", "material:crystal", "chaos", "illuminating"], description: "A glassy crater where raw chaos once burst through, its rim still humming." };
+  }
+  const group = [9, 10, 11].includes(biomeId) ? "cold" : [1, 2, 3].includes(biomeId) ? "arid" : [7, 12].includes(biomeId) ? "wet" : "temperate";
+  const list = LANDMARKS[group];
+  return list[Math.floor(roll * list.length) % list.length]!;
+}
+
+/** Paints a landmark's footprint onto the surface grid around (cx, cy). */
+function stampLandmark(grid: Uint8Array, shape: LandmarkShape, cx: number, cy: number) {
+  const set = (x: number, y: number, t: number) => {
+    if (x >= 0 && y >= 0 && x < SIZE && y < SIZE) grid[y * SIZE + x] = t;
+  };
+  const disc = (r: number, t: number, ring = false) => {
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      const d = Math.hypot(dx, dy);
+      if (ring ? d <= r && d > r - 1.5 : d <= r) set(cx + dx, cy + dy, t);
+    }
+  };
+  switch (shape) {
+    case "camp": disc(6, TILE.DIRT); disc(2, TILE.FIRE); disc(4, TILE.ROCK, true); break;
+    case "hut":
+      for (let dy = -3; dy <= 3; dy++) for (let dx = -5; dx <= 5; dx++) set(cx + dx, cy + dy, Math.abs(dx) === 5 || Math.abs(dy) === 3 ? TILE.ROCK : TILE.ROOF);
+      set(cx, cy + 3, TILE.DIRT); set(cx + 7, cy, TILE.FIRE); break;
+    case "stone": disc(5, TILE.BARE_EARTH); disc(2, TILE.MONOLITH); break;
+    case "ruin":
+      for (let dy = -7; dy <= 7; dy++) for (let dx = -9; dx <= 9; dx++) {
+        const edge = Math.abs(dx) === 9 || Math.abs(dy) === 7;
+        if (edge && (dx * 7 + dy * 13) % 5 !== 0) set(cx + dx, cy + dy, TILE.ROCK); // gaps in the walls
+        else if (!edge) set(cx + dx, cy + dy, TILE.SCREE);
+      }
+      break;
+    case "pit": disc(7, TILE.BARE_EARTH); disc(3, TILE.SCREE); break;
+    case "crater": disc(9, TILE.BASALT); disc(9, TILE.CHAOS, true); disc(3, TILE.CHAOS); break;
+    case "blind": disc(4, TILE.SHRUB); for (let dx = -2; dx <= 2; dx++) set(cx + dx, cy, TILE.ROOF); break;
+  }
+}
+
 export function generateTacticalRegionalSectorMap(config: TacticalRegionalSectorConfig): SectorMapResult {
   const {
     cellId,
@@ -2222,7 +2293,8 @@ export function generateTacticalRegionalSectorMap(config: TacticalRegionalSector
     paragons = [],
     lairs = [],
     events = [],
-    stockpile = {}
+    stockpile = {},
+    hood
   } = config;
 
   const rand = hashSeed(`tactical_${cellId}_${rx}_${ry}_${z}`);
@@ -2234,18 +2306,22 @@ export function generateTacticalRegionalSectorMap(config: TacticalRegionalSector
   const npcs: SectorMapResult["npcs"] = [];
 
   // 1. Determine authentic POI type matching RegionalInstance definitions
+  // infraMap holds plain codes (1 burg, 2 road, 4 trail, 6 watchtower, 8/16 shrine, 12 mine, 24 logging,
+  // 32 river, 48 farm, 64 bridge), not bit flags. Testing them with & turned every road cell into a
+  // watchtower (2 & 6), every trail into a mine (4 & 12) and every river into farmland (32 & 48).
   let poiType: "HAMLET" | "FARMLAND" | "LOGGING" | "MINE" | "SHRINE" | "WATCHTOWER" | "SMUGGLER_DEN" | "WILDERNESS" = "WILDERNESS";
   if (facility && (facility.type === "MINE" || String(facility.type).includes("MINE"))) poiType = "MINE";
   else if (facility && (facility.type === "LOGGING_CAMP" || String(facility.type).includes("LOGGING"))) poiType = "LOGGING";
   else if (facility && (facility.type === "FARM" || String(facility.type).includes("FARM"))) poiType = "FARMLAND";
   else if (facility && (facility.type === "WATCHTOWER" || String(facility.type).includes("WATCH"))) poiType = "WATCHTOWER";
-  else if (terrainType === 4 || (infraMask & 1)) poiType = "HAMLET";
-  else if (terrainType === 9 || (infraMask & 48)) poiType = "FARMLAND";
-  else if (terrainType === 10 || (infraMask & 24)) poiType = "LOGGING";
-  else if (terrainType === 11 || (infraMask & 12)) poiType = "MINE";
-  else if (terrainType === 12 || (infraMask & 6)) poiType = "WATCHTOWER";
-  else if (terrainType === 7 || (infraMask & 8) || (infraMask & 16)) poiType = "SHRINE";
-  else if (terrainType === 6 || (infraMask & 4)) poiType = "SMUGGLER_DEN";
+  else if (terrainType === 4 || infraMask === 1) poiType = "HAMLET";
+  else if (terrainType === 9 || infraMask === 48) poiType = "FARMLAND";
+  else if (terrainType === 10 || infraMask === 24) poiType = "LOGGING";
+  else if (terrainType === 11 || infraMask === 12) poiType = "MINE";
+  else if (terrainType === 12 || infraMask === 6) poiType = "WATCHTOWER";
+  else if (terrainType === 7 || infraMask === 8 || infraMask === 16) poiType = "SHRINE";
+  // Smuggler trails run for many cells: only some of them hide a den.
+  else if ((terrainType === 6 || infraMask === 4) && hashSeed(`den_${cellId}_${rx}_${ry}`)() < 0.2) poiType = "SMUGGLER_DEN";
 
   // 1b. Resolve authentic primary citizen master if facility is linked to a demographic worker unit
   const facilityMasterCitizen = facility?.citizenId
@@ -2334,8 +2410,8 @@ export function generateTacticalRegionalSectorMap(config: TacticalRegionalSector
     };
   };
 
-  const poiCX = 90 + Math.floor(rand() * 76);
-  const poiCY = 90 + Math.floor(rand() * 76);
+  let poiCX = 90 + Math.floor(rand() * 76);
+  let poiCY = 90 + Math.floor(rand() * 76);
 
   // =========================================================================
   // SUBTERRANEAN LAYER (Z = -1): Authentic Sub-Level Customized to Surface Facility
@@ -2744,87 +2820,20 @@ export function generateTacticalRegionalSectorMap(config: TacticalRegionalSector
   // =========================================================================
   // SURFACE GROUND LAYER (Z = 0): Authentic Biome & Terrain Synthesis
   // =========================================================================
-  // 1. Fill base ground
-  if (biomeId === 0 || terrainType === 3) {
-    grid.fill(2); // Water
-  } else if (biomeId === 1 || biomeId === 2) {
-    grid.fill(0); // Sand / arid
-  } else if (biomeId === 10 || biomeId === 11) {
-    grid.fill(0); // Tundra / snow
-  } else {
-    grid.fill(0); // Grassland / soil
-  }
-
-  // 2. SCATTER VEGETATION & TREES
-  if (biomeId !== 0 && terrainType !== 3) {
-    const vegFactor = Math.max(0.05, Math.min(0.85, vegetation));
-    const treeTile = (biomeId === 9 || biomeId === 10) ? 1 : 1; // Trees
-    for (let y = 0; y < SIZE; y += 2) {
-      for (let x = 0; x < SIZE; x += 2) {
-        if (hashSeed(`veg_${cellId}_${rx}_${ry}_${x}_${y}`)() < vegFactor * 0.45) {
-          grid[y * SIZE + x] = treeTile;
-          if (x + 1 < SIZE) grid[y * SIZE + (x + 1)] = treeTile;
-          if (y + 1 < SIZE) grid[(y + 1) * SIZE + x] = treeTile;
-        }
-      }
-    }
-  }
-
-  // 3. OVERLAND TRADE HIGHWAY / RUSTIC ROAD
-  const hasRoad = terrainType === 5 || terrainType === 6 || (infraMask & 6) !== 0 || facility;
-  if (hasRoad && biomeId !== 0 && terrainType !== 3) {
-    const roadAngle = ((rx * 7 + ry * 13) % 180) * (Math.PI / 180);
-    const roadTile = terrainType === 5 ? 4 : 3;
-    const rStartX = CENTER - Math.round(Math.cos(roadAngle) * 128);
-    const rStartY = CENTER - Math.round(Math.sin(roadAngle) * 128);
-    const rEndX = CENTER + Math.round(Math.cos(roadAngle) * 128);
-    const rEndY = CENTER + Math.round(Math.sin(roadAngle) * 128);
-
-    for (let t = 0; t <= 1; t += 0.005) {
-      const rxPos = Math.round(rStartX + (rEndX - rStartX) * t);
-      const ryPos = Math.round(rStartY + (rEndY - rStartY) * t);
-      const curve = Math.sin(t * Math.PI * 3 + rx) * 5;
-      const fx = Math.round(rxPos + Math.cos(roadAngle + Math.PI / 2) * curve);
-      const fy = Math.round(ryPos + Math.sin(roadAngle + Math.PI / 2) * curve);
-
-      for (let dy = -2; dy <= 2; dy++) {
-        for (let dx = -2; dx <= 2; dx++) {
-          const px = fx + dx, py = fy + dy;
-          if (px >= 0 && px < SIZE && py >= 0 && py < SIZE) {
-            grid[py * SIZE + px] = roadTile;
-          }
-        }
-      }
-    }
-  }
-
-  // 4. MOUNTAIN CRAGS & ROCKY RIDGES
-  if ((elevation > 65 || terrainType === 8 || terrainType === 11) && biomeId !== 0) {
-    const ridgeX = 70 + Math.floor(rand() * 110);
-    for (let y = 0; y < SIZE; y++) {
-      const cx = Math.floor(ridgeX + Math.sin(y * 0.03 + rx) * 25);
-      for (let w = -6; w <= 6; w++) {
-        const x = cx + w;
-        if (x >= 0 && x < SIZE && grid[y * SIZE + x] !== 2 && grid[y * SIZE + x] !== 4) {
-          grid[y * SIZE + x] = 5; // Stone Cliff Wall
-        }
-      }
-    }
-  }
-
-  // 5. CHAOS CORRUPTION FISSURE
-  if (chaos > 0.35 && biomeId !== 0) {
-    const riftX = 60 + Math.floor(rand() * 130);
-    for (let y = 20; y < SIZE - 20; y++) {
-      const cx = Math.floor(riftX + Math.sin(y * 0.05 + ry) * 18);
-      for (let w = -1; w <= 1; w++) {
-        const x = cx + w;
-        if (x >= 0 && x < SIZE) grid[y * SIZE + x] = 6; // Chaos Conduit
-      }
-    }
-  }
+  // 1-5. Ground, water, rock, groves, chaos veins and roads, painted from the 3x3 regional neighbourhood
+  // (TacticalTerrain.ts). Replaces one flat tile for every land biome, salt-and-pepper trees, a road at a
+  // formula angle, a straight vertical ridge and a straight vertical rift.
+  const terrainPaint = paintTacticalTerrain({
+    grid, cellId, rx, ry, biomeId, hood, terrainType, infraMask, elevation, vegetation, chaos
+  });
+  // Stand the point of interest on dry, open ground near where the roads meet.
+  [poiCX, poiCY] = terrainPaint.openSpot;
+  const mostlyWater = terrainPaint.waterShare > 0.85;
 
   // 6. PROCEDURAL POINT OF INTEREST (POI) PLACEMENT ON SURFACE
+  // Snapshot the terrain so SiteVariation can re-orient whatever the site generator draws.
+  const terrainOnly = new Uint8Array(grid);
+  const sitePropStart = props.length, siteNpcStart = npcs.length;
   let sectorName = facility?.name ? `${facility.name} (r[${rx}, ${ry}])` : "";
 
   if (poiType === "HAMLET") {
@@ -2857,14 +2866,31 @@ export function generateTacticalRegionalSectorMap(config: TacticalRegionalSector
       }
     }
 
-    // 3. 4 to 6 uniquely sized cottages lining the country highway
-    const hamletBuildings = [
-      { ox: -26, oy: -18, w: 11, h: 7, name: "Wayside Tavern & Drover Inn", type: "tavern" },
-      { ox: 22, oy: -16, w: 9, h: 6, name: "Village Blacksmith & Shoeing Forge", type: "forge" },
-      { ox: -20, oy: 20, w: 10, h: 7, name: "Reeve's Homestead Cottage", type: "dwelling" },
-      { ox: 24, oy: 18, w: 9, h: 6, name: "Weaver's Thatched Cottage", type: "dwelling" },
-      { ox: -4, oy: -32, w: 12, h: 7, name: "Communal Timber Granary", type: "granary" }
+    // 3. Buildings around the green: always a tavern and a granary, plus 1-4 others, at seeded angles,
+    //    distances and sizes (it used to be the same five buildings at the same offsets everywhere).
+    const hamRand = hashSeed(`hamlet_${cellId}_${rx}_${ry}`);
+    const extras = [
+      { name: "Village Blacksmith & Shoeing Forge", type: "forge" },
+      { name: "Reeve's Homestead Cottage", type: "dwelling" },
+      { name: "Weaver's Thatched Cottage", type: "dwelling" },
+      { name: "Wayside Chapel", type: "chapel" },
+      { name: "Cooper's Workshop", type: "dwelling" },
+      { name: "Drovers' Byre", type: "dwelling" },
+    ].sort(() => hamRand() - 0.5).slice(0, 1 + Math.floor(hamRand() * 4));
+    const roster = [
+      { name: "Wayside Tavern & Drover Inn", type: "tavern" },
+      { name: "Communal Timber Granary", type: "granary" },
+      ...extras
     ];
+    const startAngle = hamRand() * Math.PI * 2;
+    const hamletBuildings = roster.map((b, i) => {
+      const ang = startAngle + (i / roster.length) * Math.PI * 2 + (hamRand() - 0.5) * 0.5;
+      const dist = 21 + hamRand() * 13;
+      const w = (b.type === "tavern" || b.type === "granary" ? 10 : 7) + Math.floor(hamRand() * 4);
+      const h = 5 + Math.floor(hamRand() * 3);
+      return { ...b, w, h, ox: Math.round(Math.cos(ang) * dist - w / 2), oy: Math.round(Math.sin(ang) * dist - h / 2) };
+    });
+    const tavernB = hamletBuildings[0]!, granaryB = hamletBuildings[1]!;
 
     for (const b of hamletBuildings) {
       const cx = poiCX + b.ox, cy = poiCY + b.oy;
@@ -2919,7 +2945,7 @@ export function generateTacticalRegionalSectorMap(config: TacticalRegionalSector
     props.push({
       id: `prop_tavern_sign_${cellId}_${rx}_${ry}`,
       name: "The Weary Carter Drover Inn & Outdoor Benches",
-      pos: [poiCX - 26 + 5, poiCY - 18 + 4],
+      pos: [poiCX + tavernB.ox + Math.floor(tavernB.w / 2), poiCY + tavernB.oy + tavernB.h],
       tags: ["type:structure", "material:wood", "tavern", "rest", "enterable"],
       hp: 180,
       maxHp: 180,
@@ -2929,7 +2955,7 @@ export function generateTacticalRegionalSectorMap(config: TacticalRegionalSector
     props.push({
       id: `prop_granary_${cellId}_${rx}_${ry}`,
       name: "Communal Stone-Pillared Grain Storehouse",
-      pos: [poiCX - 4 + 6, poiCY - 32 + 3],
+      pos: [poiCX + granaryB.ox + Math.floor(granaryB.w / 2), poiCY + granaryB.oy + Math.floor(granaryB.h / 2)],
       tags: ["type:container", "material:stone", "material:wood", "food", "granary"],
       hp: 220,
       maxHp: 220,
@@ -2939,7 +2965,7 @@ export function generateTacticalRegionalSectorMap(config: TacticalRegionalSector
     props.push({
       id: `prop_cellar_poe_${cellId}_${rx}_${ry}`,
       name: "Granary Foundation Cellar Trapdoor (Subterranean Entry)",
-      pos: [poiCX - 4 + 2, poiCY - 32 - 1],
+      pos: [poiCX + granaryB.ox + 2, poiCY + granaryB.oy + 1],
       tags: ["type:portal", "material:iron", "material:wood", "affordances:openable", "stairs_down"],
       hp: 150,
       maxHp: 150,
@@ -2948,10 +2974,15 @@ export function generateTacticalRegionalSectorMap(config: TacticalRegionalSector
 
     // Spawn 2 authentic citizens
     const cit1 = pickCitizen(["Elder", "Reeve", "Mayor", "Leader", "Merchant"]);
-    if (cit1) npcs.push(makeDemographicNpc(cit1, [poiCX - 20 + 5, poiCY + 20 + 3], "Hamlet Reeve"));
+    // Stand them outside a building's door (bottom edge centre), on the green side
+    const doorOf = (b: { ox: number; oy: number; w: number; h: number }): [number, number] =>
+      [poiCX + b.ox + Math.floor(b.w / 2), poiCY + b.oy + b.h + 1];
+    const reeveHome = hamletBuildings.find(b => b.name.startsWith("Reeve")) || hamletBuildings[hamletBuildings.length - 1]!;
+    const forge = hamletBuildings.find(b => b.type === "forge") || tavernB;
+    if (cit1) npcs.push(makeDemographicNpc(cit1, doorOf(reeveHome), "Hamlet Reeve"));
 
     const cit2 = pickCitizen(["Guard", "Watch", "Sentry", "Militia", "Blacksmith"]);
-    if (cit2) npcs.push(makeDemographicNpc(cit2, [poiCX + 22 + 4, poiCY - 16 + 3], "Hamlet Blacksmith & Watchman", "Heavy Blacksmith Hammer"));
+    if (cit2) npcs.push(makeDemographicNpc(cit2, doorOf(forge), forge.type === "forge" ? "Hamlet Blacksmith & Watchman" : "Hamlet Watchman", forge.type === "forge" ? "Heavy Blacksmith Hammer" : "Spear"));
 
   } else if (poiType === "FARMLAND") {
     sectorName = generateProceduralFarmlandSurface({
@@ -3045,22 +3076,26 @@ export function generateTacticalRegionalSectorMap(config: TacticalRegionalSector
     if (cit) npcs.push(makeDemographicNpc(cit, [poiCX, poiCY + 4], "Covert Syndicate Courier", "Dagger & Crossbow"));
 
   } else {
-    // WILDERNESS / OPEN NATURAL LANDSCAPE
-    sectorName = `${biomeName} Frontier Wilds (Sector #${cellId} r[${rx}, ${ry}])`;
-    grid[poiCY * SIZE + poiCX] = 8;
-    grid[(poiCY - 2) * SIZE + poiCX] = 3;
+    // WILDERNESS / OPEN NATURAL LANDSCAPE: one landmark chosen per cell from what suits the biome
+    const landmark = mostlyWater ? null : pickWildLandmark(biomeId, chaos, hashSeed(`wild_${cellId}_${rx}_${ry}`)());
+    sectorName = mostlyWater
+      ? `${biomeName} Open Water (Sector #${cellId} r[${rx}, ${ry}])`
+      : `${biomeName} Wilds: ${landmark!.name} (r[${rx}, ${ry}])`;
 
-    props.push({
-      id: `prop_campfire_${cellId}_${rx}_${ry}`,
-      name: "Smoking Stone Campfire & Spit",
-      pos: [poiCX, poiCY],
-      tags: ["type:hazard", "material:stone", "fire", "illuminating"],
-      hp: 40,
-      maxHp: 40,
-      description: "A ring of soot-stained river stones around glowing hardwood embers with a roasting spit."
-    });
+    if (landmark) {
+      stampLandmark(grid, landmark.shape, poiCX, poiCY);
+      props.push({
+        id: `prop_wild_${landmark.key}_${cellId}_${rx}_${ry}`,
+        name: landmark.name,
+        pos: [poiCX, poiCY],
+        tags: landmark.tags,
+        hp: 120,
+        maxHp: 120,
+        description: landmark.description
+      });
+    }
 
-    props.push({
+    if (!mostlyWater) props.push({
       id: `prop_natural_fissure_poe_${cellId}_${rx}_${ry}`,
       name: "Natural Limestone Fissure (Subterranean Entry)",
       pos: [poiCX + 14, poiCY - 10],
@@ -3110,6 +3145,14 @@ export function generateTacticalRegionalSectorMap(config: TacticalRegionalSector
         statAffinity: "vitality"
       });
     }
+  }
+
+  // Make this site unlike every other of its kind: orientation, dressing details, a path to the road.
+  if (!mostlyWater) {
+    applySiteVariation({
+      grid, before: terrainOnly, props, npcs, propStart: sitePropStart, npcStart: siteNpcStart,
+      cx: poiCX, cy: poiCY, kind: poiType, rand: hashSeed(`site_${cellId}_${rx}_${ry}`), idBase: `${cellId}_${rx}_${ry}`
+    });
   }
 
   // Inject Past Event impacts onto regional tactical map
@@ -3182,7 +3225,8 @@ export function generateTacticalRegionalSectorMap(config: TacticalRegionalSector
       vegetation,
       chaos,
       parentBurgName: parentBurg?.name,
-      factionName
+      factionName,
+      terrainVersion: TERRAIN_VERSION
     }
   };
 }
@@ -3195,19 +3239,23 @@ export function generateOutlyingSectorMap(
   cellId: number,
   factionName: string
 ): SectorMapResult {
-  const terrainTypeMap = {
-    "HAMLET": 4,
-    "FARMLAND": 5,
-    "LOGGING": 6,
-    "WATCHTOWER": 0
+  // Regional codes (TacticalTerrain.ts header). The old values (farm 5/2, logging 6/4, watchtower 0/0)
+  // were road and trail codes, so new farms rendered as watchtowers and logging camps as mines.
+  const codes: Record<typeof sectorType, [number, number]> = {
+    HAMLET: [4, 1],
+    FARMLAND: [9, 48],
+    LOGGING: [10, 24],
+    WATCHTOWER: [12, 6]
   };
+  const [terrainType, infraMask] = codes[sectorType];
   return generateTacticalRegionalSectorMap({
     cellId,
     rx,
     ry,
     z: 0,
-    terrainType: terrainTypeMap[sectorType] ?? 0,
-    infraMask: sectorType === "HAMLET" ? 1 : sectorType === "FARMLAND" ? 2 : sectorType === "LOGGING" ? 4 : 0,
+    terrainType,
+    infraMask,
+    biomeId: Number(parentBurg?.biome) || undefined,
     parentBurg,
     factionName
   });
