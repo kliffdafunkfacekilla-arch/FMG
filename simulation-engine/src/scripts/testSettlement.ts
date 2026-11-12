@@ -8,6 +8,7 @@
 import pool from "../db/pool.js";
 import { isolateTest } from "./testIsolation.js";
 import { settleSatellite } from "../engine/agents/burgExpansionAgent.js";
+import { applySchemaPatches } from "../db/schemaPatches.js";
 
 function check(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
@@ -16,6 +17,7 @@ function check(cond: unknown, msg: string): asserts cond {
 const WATCH_TRADES = ["City Watchman", "Gate Sentry", "Armorer", "Bowyer", "Blacksmith"];
 
 async function main() {
+  await applySchemaPatches(pool); // settleSatellite writes record_unit
   // A parent with enough living people, and an empty cell to found on
   const parentRes = await pool.query(`
     SELECT b.burg_id, b.name FROM sim_burg_economy b

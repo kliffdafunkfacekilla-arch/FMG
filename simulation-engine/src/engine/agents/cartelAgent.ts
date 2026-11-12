@@ -1,7 +1,8 @@
 import { dateForTick } from "../canon/calendar.js";
 import { PoolClient } from "pg";
 import { getCartelLairType, ensureLairResidents } from "./outlawSyndicates";
-import { recruitInsideMan, tagBurgCitizens, tagSectorEnvironment } from "./citizenPersonaHelper";
+import { recruitInsideMan, tagBurgCitizens, tagSectorEnvironment } from "./citizenPersonaHelper";import { sqlShuffle } from "../rng.js";
+
 
 export { getCartelLairType };
 
@@ -81,7 +82,7 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
                b.food, b.raw_materials, b.refined_goods, c.faction_id
         FROM sim_burg_economy b
         JOIN sim_cells c ON c.id = b.cell_id
-        ORDER BY RANDOM() LIMIT 60
+        ORDER BY ${sqlShuffle("b.burg_id")} LIMIT 60
     `);
     const burgs = targetBurgsRes.rows;
 
@@ -344,7 +345,7 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
             // D. Pure Loyal Mercenary Muscle for Hire (Active Deployment with Frontline Casualties)
             if (tick % 4 === 0) {
                 const hireFactionRes = await client.query(`
-                    SELECT id, name, treasury FROM sim_factions WHERE id > 0 AND treasury >= 2000 ORDER BY RANDOM() LIMIT 1
+                    SELECT id, name, treasury FROM sim_factions WHERE id > 0 AND treasury >= 2000 ORDER BY ${sqlShuffle("id")} LIMIT 1
                 `);
                 if (hireFactionRes.rows.length > 0) {
                     const clientFaction = hireFactionRes.rows[0];
@@ -867,7 +868,7 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
                     FROM sim_factions f
                     JOIN sim_burg_economy b ON b.cell_id IN (SELECT id FROM sim_cells WHERE faction_id = f.id)
                     WHERE f.id > 0 AND b.wealth > 100
-                    ORDER BY RANDOM()
+                    ORDER BY ${sqlShuffle("f.id || '-' || b.burg_id")}
                     LIMIT 1
                 `);
 
@@ -1018,7 +1019,7 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
             const activeCanyonsRes = await client.query(`
                 SELECT id, name, cell_id, miner_crew_name, dragonstone_richness
                 FROM sim_grind_canyons
-                WHERE status IN ('OPEN', 'COLLAPSING')
+                WHERE status IN ('OPEN', 'COLLAPSING') ORDER BY id
             `);
 
             if (activeCanyonsRes.rows.length > 0) {
@@ -1163,7 +1164,7 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
                 FROM sim_burg_economy b
                 JOIN sim_cells c ON b.cell_id = c.id
                 WHERE c.elevation >= 55
-                ORDER BY RANDOM()
+                ORDER BY ${sqlShuffle("b.burg_id")}
                 LIMIT 2
             `);
             const mountainBurgs = mountainBurgsRes.rows;
@@ -1327,7 +1328,7 @@ async function runLairOperationsAndMilitiaBusts(client: PoolClient, tick: number
         SELECT l.*, b.name as burg_name, b.military_forces, b.crime_rate, b.unrest, f.name as cartel_name
         FROM sim_fringe_lairs l
         LEFT JOIN sim_burg_economy b ON l.burg_id = b.burg_id
-        LEFT JOIN sim_outlaw_factions f ON l.faction_id = f.id
+        LEFT JOIN sim_outlaw_factions f ON l.faction_id = f.id ORDER BY l.id
     `);
 
     for (const lair of lairsRes.rows) {
@@ -1410,7 +1411,7 @@ async function runLairOperationsAndMilitiaBusts(client: PoolClient, tick: number
 async function runSyndicateUpkeepAndSovereignCrackdown(client: PoolClient, tick: number, loreDate: string) {
     if (tick % 10 !== 0) return;
 
-    const cartelsRes = await client.query("SELECT id, name, type, manpower, wealth, heat FROM sim_outlaw_factions");
+    const cartelsRes = await client.query("SELECT id, name, type, manpower, wealth, heat FROM sim_outlaw_factions ORDER BY id");
 
     for (const cartel of cartelsRes.rows) {
         const mp = Number(cartel.manpower || 0);
@@ -1470,7 +1471,7 @@ async function runSyndicateUpkeepAndSovereignCrackdown(client: PoolClient, tick:
             const crownRes = await client.query(`
                 SELECT id, name, treasury FROM sim_factions 
                 WHERE id > 0 AND treasury >= 1000 
-                ORDER BY RANDOM() LIMIT 1
+                ORDER BY ${sqlShuffle("id")} LIMIT 1
             `);
             if (crownRes.rows.length > 0) {
                 const crown = crownRes.rows[0];

@@ -240,7 +240,7 @@ export function generateChaosSurge(
   }
 
   const selectedTemplate = weightedList[Math.floor(Math.random() * weightedList.length)] || SURGE_TEMPLATES[0]!;
-  const surgeId = `surge_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+  const surgeId = `surge_${Math.random().toString(36).slice(2, 10)}`;
 
   const activeSurge: ChaosSurgeEffect = {
     ...selectedTemplate,

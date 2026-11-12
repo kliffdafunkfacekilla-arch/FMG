@@ -85,7 +85,7 @@ export async function runBackgroundDirectorAgent(
     // 2. Fetch every cached surface sector layer
     const sectorsRes = await client.query(
         `SELECT cell_id, rx, ry, z_layer, props, npcs, features, layer_name
-         FROM sim_sector_layers`
+         FROM sim_sector_layers ORDER BY cell_id, rx, ry, z_layer`
     );
 
     // 3. Process each sector in its own savepoint: one failure no longer aborts the tick

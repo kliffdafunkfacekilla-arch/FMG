@@ -18,8 +18,9 @@ import { dateForTick } from "../canon/calendar.js";
  * extreme eco-blight blankets the world, and reality fractures.
  */
 
-import { stepTowardCell, getNearestSacredGrove } from "./agentMovementHelper.js";
+import { stepTowardCell, getNearestSacredGrove, persistAgentStates, AgentStateRow } from "./agentMovementHelper.js";
 import { recruitCultistPersona, tagSectorEnvironment } from "./citizenPersonaHelper.js";
+import { sqlChance, sqlShuffle } from "../rng.js";
 
 const TARGET_TOTAL_CULTISTS = 288;
 const TARGET_INFILTRATOR_COUNT = 144;
@@ -40,7 +41,7 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
           FROM sim_agents 
           WHERE role = 'Cultist' AND state = 'BESIEGING_SEAL' AND target_grove_id IS NOT NULL
         )
-        AND RANDOM() < 0.15
+        AND ${sqlChance('id', 0.15)}
     `);
   }
 
@@ -62,7 +63,7 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
       SELECT b.burg_id, b.cell_id, b.wealth, b.unrest, b.name
       FROM sim_burg_economy b
       WHERE b.unrest >= 15
-      ORDER BY b.unrest DESC, RANDOM()
+      ORDER BY b.unrest DESC, ${sqlShuffle('b.burg_id')}
       LIMIT $1
     `, [recruitBatch * 2]);
 
@@ -81,7 +82,7 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
         WHERE settlement_id = $1 AND allegiance_status = 'CIVILIAN'
         ORDER BY 
           CASE WHEN temper = 'FANATICAL' THEN 1 WHEN temper = 'DESPERATE' THEN 2 WHEN temper = 'GREEDY' THEN 3 ELSE 4 END,
-          RANDOM()
+          ${sqlShuffle('citizen_id')}
         LIMIT 1
       `, [burg.burg_id]);
 
@@ -150,8 +151,10 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
            spark_tier, sub_role, home_burg_id, location_cell_id, target_cell_id,
            target_grove_id, state, corruption, age_ticks
     FROM sim_agents
-    WHERE role = 'Cultist'
+    WHERE role = 'Cultist' ORDER BY id
   `);
+
+  const endOfDay: AgentStateRow[] = [];
 
   for (const c of cultistsRes.rows) {
     const age = (c.age_ticks || 0) + 1;
@@ -335,25 +338,16 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
       `, [isPriest ? 0.06 : 0.03, locCellId]);
     }
 
-    // Persist updated state
-    await client.query(`
-      UPDATE sim_agents
-      SET location_cell_id = $1,
-          target_cell_id = $2,
-          target_grove_id = $3,
-          state = $4,
-          sub_role = $5,
-          corruption = $6,
-          age_ticks = $7
-      WHERE id = $8
-    `, [locCellId, targetCellId, targetGroveId, state, subRole, corruption, age, c.id]);
+    // End-of-day state, written for all of them after the loop
+    endOfDay.push({ id: c.id, location_cell_id: locCellId, target_cell_id: targetCellId, target_grove_id: targetGroveId, state, sub_role: subRole, metric: corruption, age_ticks: age });
   }
+  await persistAgentStates(client, endOfDay, "corruption");
 
   // 4. WORLD-ENDING APOCALYPSE CHECK (Broken Seal = Total Cataclysm)
   const brokenGroves = await client.query(`
     SELECT id, dragon_name, power_domain, cell_id, seal_strength
     FROM sim_sacred_groves
-    WHERE seal_strength <= 0
+    WHERE seal_strength <= 0 ORDER BY id
   `);
 
   for (const bg of brokenGroves.rows) {

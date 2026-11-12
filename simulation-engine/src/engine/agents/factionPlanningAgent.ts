@@ -23,18 +23,19 @@ function getTraitsList(p: any): string[] {
 }
 
 export async function runFactionPlanningAgent(client: any, tick: number, loreDate: string) {
-    const factionRes = await client.query("SELECT * FROM sim_factions");
+    const factionRes = await client.query("SELECT * FROM sim_factions ORDER BY id");
     const burgRes = await client.query(`
         SELECT b.burg_id, b.pop_null, c.faction_id, b.unrest, b.crime_rate, b.food, b.health, 
                b.military_forces, b.wealth, c.id as cell_id 
         FROM sim_burg_economy b 
         JOIN sim_cells c ON b.cell_id = c.id 
         WHERE c.faction_id IS NOT NULL
+        ORDER BY b.burg_id
     `);
-    const unitRes = await client.query("SELECT * FROM sim_faction_units");
-    const paragonRes = await client.query("SELECT * FROM sim_paragons WHERE faction_id IS NOT NULL");
-    const diploRes = await client.query("SELECT * FROM sim_diplomacy");
-    const bordersRes = await client.query("SELECT * FROM sim_faction_borders");
+    const unitRes = await client.query("SELECT * FROM sim_faction_units ORDER BY id");
+    const paragonRes = await client.query("SELECT * FROM sim_paragons WHERE faction_id IS NOT NULL ORDER BY id");
+    const diploRes = await client.query("SELECT * FROM sim_diplomacy ORDER BY faction_a_id, faction_b_id");
+    const bordersRes = await client.query("SELECT * FROM sim_faction_borders ORDER BY id");
 
     // Fetch environmental / sector tags across cells
     const sectorTagsMap = await loadCellTagMap(client);

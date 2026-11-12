@@ -7,8 +7,9 @@
  * drain rogue sparkborn with elemental shackles, and then pilgrimage to the Dragon Prisons.
  */
 
-import { stepTowardCell, getNearestSacredGrove } from "./agentMovementHelper.js";
+import { stepTowardCell, getNearestSacredGrove, persistAgentStates, AgentStateRow } from "./agentMovementHelper.js";
 import { recruitMandatePersona } from "./citizenPersonaHelper.js";
+import { sqlShuffle } from "../rng.js";
 
 export async function runMandateAgent(client: any, tick: number, loreDate: string) {
   // 1. Warband Formation outside Unrestful Burgs
@@ -35,7 +36,7 @@ export async function runMandateAgent(client: any, tick: number, loreDate: strin
           AND allegiance_status = 'CIVILIAN'
         ORDER BY 
           CASE WHEN temper = 'VENGEFUL' THEN 1 WHEN temper = 'BITTER' THEN 2 WHEN temper = 'FANATICAL' THEN 3 ELSE 4 END,
-          RANDOM()
+          ${sqlShuffle('citizen_id')}
         LIMIT 1
       `, [burg.burg_id]);
 
@@ -98,8 +99,10 @@ export async function runMandateAgent(client: any, tick: number, loreDate: strin
            spark_tier, sub_role, home_burg_id, location_cell_id, target_cell_id,
            target_grove_id, state, drained_power, age_ticks
     FROM sim_agents
-    WHERE role = 'Chain_Zealot'
+    WHERE role = 'Chain_Zealot' ORDER BY id
   `);
+
+  const endOfDay: AgentStateRow[] = [];
 
   for (const wb of warbandsRes.rows) {
     const age = (wb.age_ticks || 0) + 1;
@@ -215,17 +218,8 @@ export async function runMandateAgent(client: any, tick: number, loreDate: strin
       }
     }
 
-    // Persist updated state
-    await client.query(`
-      UPDATE sim_agents
-      SET location_cell_id = $1,
-          target_cell_id = $2,
-          target_grove_id = $3,
-          state = $4,
-          sub_role = $5,
-          drained_power = $6,
-          age_ticks = $7
-      WHERE id = $8
-    `, [locCellId, targetCellId, targetGroveId, state, subRole, drainedPower, age, wb.id]);
+    // End-of-day state, written for all of them after the loop
+    endOfDay.push({ id: wb.id, location_cell_id: locCellId, target_cell_id: targetCellId, target_grove_id: targetGroveId, state, sub_role: subRole, metric: drainedPower, age_ticks: age });
   }
+  await persistAgentStates(client, endOfDay, "drained_power");
 }

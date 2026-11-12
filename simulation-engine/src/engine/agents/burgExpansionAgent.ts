@@ -7,6 +7,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { getWorkplaceForProfession } from "./burgOperationsAgent.js";
+import { sqlShuffle } from "../rng.js";
 
 type SatelliteType = "HAMLET" | "FARMLAND" | "LOGGING" | "WATCHTOWER";
 
@@ -44,7 +45,7 @@ export async function settleSatellite(
     SELECT citizen_id, profession, split_part(name, ' ', 2) AS family
     FROM population_demographics
     WHERE settlement_id = $1 AND allegiance_status = 'CIVILIAN' AND life_stage = 'ADULT'
-    ORDER BY (profession = ANY($2)) DESC, random()
+    ORDER BY (profession = ANY($2)) DESC, ${sqlShuffle('citizen_id')}
     LIMIT $3`, [parent.burg_id, FOUNDER_TRADES[satellite.type], adultsWanted]);
   if (adults.rows.length === 0) return 0;
 
@@ -52,7 +53,7 @@ export async function settleSatellite(
   const children = await client.query(`
     SELECT citizen_id FROM population_demographics
     WHERE settlement_id = $1 AND allegiance_status = 'CIVILIAN' AND life_stage = 'CHILD'
-    ORDER BY (split_part(name, ' ', 2) = ANY($2)) DESC, random()
+    ORDER BY (split_part(name, ' ', 2) = ANY($2)) DESC, ${sqlShuffle('citizen_id')}
     LIMIT $3`, [parent.burg_id, families, Math.max(0, total - adults.rows.length)]);
 
   const motivation = `Left ${parent.name} to help found ${satellite.name}.`;
@@ -72,6 +73,8 @@ export async function settleSatellite(
       WHERE citizen_id = ANY($4)`,
       [satellite.burg_id, satellite.cell_id, parent.name, children.rows.map((c: any) => c.citizen_id)]);
   }
+  // The satellite's records stand for as many people each as its parent's do
+  await client.query(`UPDATE sim_burg_economy SET record_unit = $1 WHERE burg_id = $2`, [Math.min(40, Math.max(3, Math.round(perRecord))), satellite.burg_id]);
   return adults.rows.length + children.rows.length;
 }
 
@@ -153,7 +156,7 @@ export async function runBurgExpansionAgent(client: any, tick: number, loreDate:
         AND (c.faction_id = $2 OR c.faction_id IS NULL)
         AND c.id NOT IN (SELECT cell_id FROM sim_burg_economy)
         AND c.elevation < 85
-        AND c.biome NOT IN ('11', '2')
+        AND c.biome NOT IN ('0', '11')
         AND ((c.center_x - $3)^2 + (c.center_y - $4)^2) < 40000
       ORDER BY ((c.center_x - $3)^2 + (c.center_y - $4)^2) ASC
       LIMIT 1
@@ -163,10 +166,13 @@ export async function runBurgExpansionAgent(client: any, tick: number, loreDate:
     const targetCell = neighborRes.rows[0];
 
     // Determine satellite settlement type based on biome & needs
+    // Map biome ids (RegionalInstance / TacticalTerrain): 1-2 deserts, 3 savanna, 4 grassland, 5-8 forests,
+    // 9 taiga, 10 tundra, 11 glacier, 12 wetland. The old rule had it backwards (farms on deserts, logging camps
+    // on grassland) and the cell search excluded cold desert, so no farmland was ever founded.
     const biome = Number(targetCell.biome) || 6;
     let satType: SatelliteType = "HAMLET";
-    if (biome === 3 || biome === 4) satType = "LOGGING";
-    else if (biome === 1 || biome === 2) satType = "FARMLAND";
+    if (biome === 3 || biome === 4) satType = "FARMLAND";
+    else if (biome >= 5 && biome <= 9) satType = Math.random() < 0.5 ? "LOGGING" : "HAMLET";
     else if (Math.random() < 0.25) satType = "WATCHTOWER";
 
     const hamletName = uniqueBurgName(genHamletName(parent.name, satType), takenNames);

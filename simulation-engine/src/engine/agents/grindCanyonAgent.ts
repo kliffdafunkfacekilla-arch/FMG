@@ -1,5 +1,6 @@
 import { PoolClient } from "pg";
-import { CANON_DRAGON_PRISONS } from "../canon/dragonPrisons.js";
+import { CANON_DRAGON_PRISONS } from "../canon/dragonPrisons.js";import { sqlShuffle } from "../rng.js";
+
 
 // Dragonstone by Power. Dragon names and Powers come from the canon table (engine/canon/dragonPrisons.ts).
 const DRAGONSTONE_BY_POWER: Record<string, string> = {
@@ -127,7 +128,7 @@ export async function runGrindCanyonAgent(client: PoolClient, tick: number, lore
       FROM sim_cells c
       LEFT JOIN sim_burg_economy b ON b.cell_id = c.id
       WHERE b.burg_id IS NULL AND c.biome NOT IN ('Marine') AND c.elevation >= 40
-      ORDER BY RANDOM()
+      ORDER BY ${sqlShuffle("c.id")}
       LIMIT 1
     `);
 

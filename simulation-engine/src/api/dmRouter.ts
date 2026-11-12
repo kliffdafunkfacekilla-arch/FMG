@@ -780,7 +780,7 @@ router.post('/sector_load', async (req, res) => {
           const factionName = burg.faction_name || "Provincial Sovereignty";
           const wardFocus = regInstance?.wardMap?.[cellIdx] || (targetRx === 50 && targetRy === 50 ? 'CITADEL' : 'RESIDENTIAL');
           const [citRes, lairRes, paragonRes, stockpileRes, eventsRes, cellRes] = await Promise.all([
-            pool.query(`SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation, workplace_type, workplace_name, childhood_background, allegiance_status FROM population_demographics WHERE (home_cell_id = $1 OR settlement_id = $2) AND life_stage = 'ADULT' AND allegiance_status <> 'DECEASED' ORDER BY citizen_id ASC LIMIT 60`, [targetCellId, burg.burg_id]),
+            pool.query(`SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation, workplace_type, workplace_name, childhood_background, allegiance_status FROM population_demographics WHERE (home_cell_id = $1 OR settlement_id = $2) AND life_stage = 'ADULT' AND allegiance_status NOT IN ('DECEASED', 'DEPARTED') ORDER BY citizen_id ASC LIMIT 60`, [targetCellId, burg.burg_id]),
             pool.query(`SELECT l.*, o.name AS cartel_name, o.type AS cartel_type, o.contraband_types FROM sim_fringe_lairs l JOIN sim_outlaw_factions o ON o.id = l.faction_id WHERE l.burg_id = $1 OR l.cell_id = $2`, [burg.burg_id, targetCellId]),
             pool.query(`SELECT * FROM sim_paragons WHERE burg_id = $1 OR outlaw_id IN (SELECT faction_id FROM sim_fringe_lairs WHERE burg_id = $1 OR cell_id = $2)`, [burg.burg_id, targetCellId]),
             pool.query(`SELECT * FROM sim_industrial_stockpiles WHERE burg_id = $1 LIMIT 1`, [burg.burg_id]),
@@ -858,7 +858,7 @@ router.post('/sector_load', async (req, res) => {
           // Outlying Regional Sector (Farmstead, Logging Camp, Mine, Watchtower, Hamlet, or Wilderness)
           const [cellRes, citRes, paragonRes, lairRes, eventsRes, stockpileRes] = await Promise.all([
             pool.query(`SELECT c.*, f.name AS faction_name FROM sim_cells c LEFT JOIN sim_factions f ON f.id = c.faction_id WHERE c.id = $1 LIMIT 1`, [targetCellId]),
-            pool.query(`SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation, workplace_type, workplace_name, childhood_background, allegiance_status FROM population_demographics WHERE (home_cell_id = $1 OR settlement_id = $2) AND life_stage = 'ADULT' AND allegiance_status <> 'DECEASED' ORDER BY citizen_id ASC LIMIT 60`, [targetCellId, burgRes.rows[0]?.burg_id || 0]),
+            pool.query(`SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation, workplace_type, workplace_name, childhood_background, allegiance_status FROM population_demographics WHERE (home_cell_id = $1 OR settlement_id = $2) AND life_stage = 'ADULT' AND allegiance_status NOT IN ('DECEASED', 'DEPARTED') ORDER BY citizen_id ASC LIMIT 60`, [targetCellId, burgRes.rows[0]?.burg_id || 0]),
             pool.query(`SELECT * FROM sim_paragons WHERE burg_id = $1 LIMIT 10`, [burgRes.rows[0]?.burg_id || 0]),
             pool.query(`SELECT l.*, o.name AS cartel_name, o.type AS cartel_type FROM sim_fringe_lairs l JOIN sim_outlaw_factions o ON o.id = l.faction_id WHERE l.burg_id = $1 OR l.cell_id = $2 LIMIT 10`, [burgRes.rows[0]?.burg_id || 0, targetCellId]),
             pool.query(`SELECT * FROM sim_events WHERE (burg_id = $1 OR cell_id = $2) ORDER BY id DESC LIMIT 25`, [burgRes.rows[0]?.burg_id || 0, targetCellId]),
@@ -1133,7 +1133,7 @@ router.get('/sector_layer', async (req, res) => {
     const cachedNpcs = layerRes.rows[0]?.npcs;
     if (!staleRegional && targetZ === 0 && cached?.burgId !== undefined && Array.isArray(cachedNpcs) && cachedNpcs.length === 0) {
       const residents = await pool.query(
-        `SELECT 1 FROM population_demographics WHERE settlement_id = $1 AND life_stage = 'ADULT' AND allegiance_status <> 'DECEASED' LIMIT 1`,
+        `SELECT 1 FROM population_demographics WHERE settlement_id = $1 AND life_stage = 'ADULT' AND allegiance_status NOT IN ('DECEASED', 'DEPARTED') LIMIT 1`,
         [cached.burgId]
       );
       staleRegional = residents.rows.length > 0;
@@ -1187,7 +1187,7 @@ router.get('/sector_layer', async (req, res) => {
         `SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation,
                 workplace_type, workplace_name, childhood_background, allegiance_status
          FROM population_demographics
-         WHERE (home_cell_id = $1 OR settlement_id = $2) AND life_stage = 'ADULT' AND allegiance_status <> 'DECEASED'
+         WHERE (home_cell_id = $1 OR settlement_id = $2) AND life_stage = 'ADULT' AND allegiance_status NOT IN ('DECEASED', 'DEPARTED')
          ORDER BY citizen_id ASC
          LIMIT 60`,
         [targetCellId, burg.burg_id]
@@ -1306,7 +1306,7 @@ router.get('/sector_layer', async (req, res) => {
         `SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation,
                 workplace_type, workplace_name, childhood_background, allegiance_status
          FROM population_demographics
-         WHERE (home_cell_id = $1 OR settlement_id = $2) AND life_stage = 'ADULT' AND allegiance_status <> 'DECEASED'
+         WHERE (home_cell_id = $1 OR settlement_id = $2) AND life_stage = 'ADULT' AND allegiance_status NOT IN ('DECEASED', 'DEPARTED')
          ORDER BY citizen_id ASC
          LIMIT 60`,
         [targetCellId, burgRes.rows[0]?.burg_id || 0]

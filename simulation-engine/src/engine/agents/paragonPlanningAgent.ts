@@ -34,8 +34,8 @@ function getParagonTraitNames(p: any): string[] {
  * - Active tags (#PlagueOutbreak, #TradeBlockaded, #CartelInfiltration) further alter choices.
  */
 export async function runLocalParagonAgent(client: any, tick: number, loreDate: string = "") {
-    const burgRes = await client.query("SELECT * FROM sim_burg_economy");
-    const paragonRes = await client.query("SELECT * FROM sim_paragons");
+    const burgRes = await client.query("SELECT * FROM sim_burg_economy ORDER BY burg_id");
+    const paragonRes = await client.query("SELECT * FROM sim_paragons ORDER BY id");
     
     // Fetch active environmental tags across sectors
     const sectorTagsMap = await loadCellTagMap(client);
@@ -274,7 +274,10 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
                 }
 
                 // Sort options by utility with minor jitter for dynamic variance
-                options.sort((a, b) => (b.utility + (Math.random() * 8)) - (a.utility + (Math.random() * 8)));
+                // One jitter roll per option, then sort: a comparator that re-rolls on every comparison is inconsistent
+                // and its result depends on how many comparisons the sort happens to make.
+                for (const o of options as any[]) o.jittered = o.utility + Math.random() * 8;
+                options.sort((a: any, b: any) => b.jittered - a.jittered);
                 const chosen = options[0] || { id: "MAYOR_TERRACED_FARMLAND", utility: 30, biasReason: "routine civic governance" };
 
                 // Execute the chosen civic action
@@ -571,7 +574,10 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
                     options.push({ id: "COMMANDER_ARREST_AGITATORS", utility: u, biasReason: "intolerant fury toward street dissent and strike organizers" });
                 }
 
-                options.sort((a, b) => (b.utility + (Math.random() * 8)) - (a.utility + (Math.random() * 8)));
+                // One jitter roll per option, then sort: a comparator that re-rolls on every comparison is inconsistent
+                // and its result depends on how many comparisons the sort happens to make.
+                for (const o of options as any[]) o.jittered = o.utility + Math.random() * 8;
+                options.sort((a: any, b: any) => b.jittered - a.jittered);
                 const chosen = options[0] || { id: "COMMANDER_GARRISON_DRILL", utility: 35, biasReason: "routine garrison vigilance" };
 
                 switch (chosen.id) {

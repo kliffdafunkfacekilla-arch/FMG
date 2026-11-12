@@ -38,7 +38,7 @@ export async function runMarketAgent(client: Db, tick: number): Promise<number> 
   add("grain", food.rows[0]?.grain);
   for (const r of items.rows) add(String(r.key), r.qty);
 
-  const prices = await client.query(`SELECT commodity, base_price, current_price, global_demand FROM sim_commodity_prices`);
+  const prices = await client.query(`SELECT commodity, base_price, current_price, global_demand FROM sim_commodity_prices ORDER BY commodity`);
   let updated = 0;
   for (const p of prices.rows) {
     const base = Number(p.base_price) || 1;

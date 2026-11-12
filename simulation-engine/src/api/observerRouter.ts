@@ -51,7 +51,10 @@ async function currentTick(): Promise<number | null> {
 async function runTrackedTick() {
   try {
     const result = await executeMasterTick();
-    lastTickError = null;
+    // A partial day committed, but some agents' work was rolled back: show which on the dashboard
+    lastTickError = result.failedAgents.length
+      ? { tick: result.currentTick, message: `Agents rolled back: ${result.failedAgents.map(f => `${f.agent} (${f.error})`).join("; ")}`, at: new Date().toISOString() }
+      : null;
     return result;
   } catch (e: any) {
     lastTickError = { tick: await currentTick().catch(() => null), message: e?.message || String(e), at: new Date().toISOString() };

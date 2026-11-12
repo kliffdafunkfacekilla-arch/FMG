@@ -26,8 +26,9 @@ import { isYearEnd } from "../canon/calendar.js";
  *    turning them into an insane wandering hermit in the wilderness.
  */
 
-import { stepTowardCell, getNearestCultistCell } from "./agentMovementHelper.js";
-import { recruitWardenPersona, tagSectorEnvironment } from "./citizenPersonaHelper.js";
+import { stepTowardCell, getNearestCultistCell, persistAgentStates, AgentStateRow } from "./agentMovementHelper.js";
+import { recruitWardenPersona, tagSectorEnvironment } from "./citizenPersonaHelper.js";import { sqlShuffle } from "../rng.js";
+
 
 const CONVERGENCE_SPIRE_CELL = 16166; // The Verge (Sacred Spire)
 const TARGET_WARDEN_COUNT = 72; // 12 Crypt Elders in alcoves + 60 active sentinels and flow seers
@@ -54,7 +55,7 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
       SELECT w.id, w.cell_id, w.flow_id, w.path_name
       FROM sim_ancient_path_wards w
       WHERE w.is_charged = true
-      ORDER BY RANDOM()
+      ORDER BY ${sqlShuffle("w.id")}
       LIMIT 1
     `);
 
@@ -72,7 +73,7 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
           )
         ORDER BY 
           CASE WHEN spark_tier = 'ADEPT' THEN 1 WHEN spark_tier = 'CHANNELER' THEN 2 ELSE 3 END,
-          RANDOM()
+          ${sqlShuffle('citizen_id')}
         LIMIT 1
       `, [ward.cell_id]);
 
@@ -83,7 +84,7 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
           FROM population_demographics
           WHERE spark_tier IN ('CHANNELER', 'ADEPT', 'SENSITIVE', 'DORMANT_SPARK')
             AND allegiance_status = 'CIVILIAN'
-          ORDER BY RANDOM()
+          ORDER BY ${sqlShuffle("citizen_id")}
           LIMIT 1
         `);
       }
@@ -222,7 +223,7 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
            spark_tier, sub_role, location_cell_id, target_cell_id,
            target_grove_id, state, corruption, age_ticks
     FROM sim_agents
-    WHERE role = 'Warden'
+    WHERE role = 'Warden' ORDER BY id
   `);
 
   const yearEnded = isYearEnd(tick);
@@ -251,6 +252,8 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
     if (to !== null) staffing.set(to, staffing.get(to)! + 1);
     return to;
   };
+
+  const endOfDay: AgentStateRow[] = [];
 
   for (const w of wardensRes.rows) {
     // Wardens age 1 year per in-game year (DAYS_PER_YEAR days), not 1 year per day!
@@ -304,7 +307,7 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
 
         // Find a starting waypoint along assigned flow
         const flowWards = await client.query(
-          "SELECT cell_id FROM sim_ancient_path_wards WHERE flow_id = $1 ORDER BY RANDOM() LIMIT 1",
+          `SELECT cell_id FROM sim_ancient_path_wards WHERE flow_id = $1 ORDER BY ${sqlShuffle("cell_id")} LIMIT 1`,
           [targetGroveId]
         );
         targetCellId = flowWards.rows[0]?.cell_id || CONVERGENCE_SPIRE_CELL;
@@ -414,7 +417,7 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
       if (state === 'PATROLLING_FLOW') {
         if (!targetCellId || Math.random() < 0.15) {
           const flowWards = await client.query(
-            "SELECT cell_id FROM sim_ancient_path_wards WHERE flow_id = $1 ORDER BY RANDOM() LIMIT 1",
+            `SELECT cell_id FROM sim_ancient_path_wards WHERE flow_id = $1 ORDER BY ${sqlShuffle("cell_id")} LIMIT 1`,
             [targetGroveId]
           );
           targetCellId = flowWards.rows[0]?.cell_id || CONVERGENCE_SPIRE_CELL;
@@ -584,32 +587,23 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
       }
     }
 
-    // Persist updated state
-    await client.query(`
-      UPDATE sim_agents
-      SET location_cell_id = $1,
-          target_cell_id = $2,
-          target_grove_id = $3,
-          state = $4,
-          sub_role = $5,
-          corruption = $6,
-          age_ticks = $7
-      WHERE id = $8
-    `, [locCellId, targetCellId, targetGroveId, state, subRole, corruption, age, w.id]);
+    // End-of-day state, written for all of them after the loop
+    endOfDay.push({ id: w.id, location_cell_id: locCellId, target_cell_id: targetCellId, target_grove_id: targetGroveId, state, sub_role: subRole, metric: corruption, age_ticks: age });
   }
+  await persistAgentStates(client, endOfDay, "corruption");
 
   // ── 3. PROCESS MAD HERMITS WANDERING THE WILDERNESS ────────────────────────
   const hermitsRes = await client.query(`
     SELECT id, name, location_cell_id, age_ticks
     FROM sim_agents
-    WHERE role = 'Mad_Hermit'
+    WHERE role = 'Mad_Hermit' ORDER BY id
   `);
 
   for (const h of hermitsRes.rows) {
     if (Math.random() < 0.20) {
       // Step randomly through adjacent wilderness cells
       const randAdj = await client.query(
-        "SELECT id FROM sim_cells WHERE (id % 50) = ($1 % 50) AND id != $1 ORDER BY RANDOM() LIMIT 1",
+        `SELECT id FROM sim_cells WHERE (id % 50) = ($1 % 50) AND id != $1 ORDER BY ${sqlShuffle("id")} LIMIT 1`,
         [h.location_cell_id]
       );
       const nextCell = randAdj.rows[0]?.id || h.location_cell_id;

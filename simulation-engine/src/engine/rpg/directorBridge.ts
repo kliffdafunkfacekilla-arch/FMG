@@ -480,7 +480,7 @@ export function synthesizeProceduralStoryArc(inputPayload: DirectorInputPayload)
         .filter(a => a.fits(econ, faction, npcs))
         .map(a => ({ a, npc: a.pickNpc(npcs) || npcs.find(isCivilian) || npcs[0] }))
         .filter(o => o.npc);
-    const roll = Math.abs((sim.cell_id * 31 + sim.sector_coords.rx * 7 + sim.sector_coords.ry * 13 + Math.floor(Date.now() / 60000)) % 997);
+    const roll = Math.abs((sim.cell_id * 31 + sim.sector_coords.rx * 7 + sim.sector_coords.ry * 13 + Math.floor(Math.random() * 997)) % 997);
     const chosen = options.length ? options[roll % options.length]! : null;
     const npc = chosen?.npc || { id: '', name: 'a local', tags: [] };
     const archetype = chosen?.a || ARC_ARCHETYPES[ARC_ARCHETYPES.length - 1]!;
@@ -490,7 +490,7 @@ export function synthesizeProceduralStoryArc(inputPayload: DirectorInputPayload)
     return {
         source: 'procedural',
         story_arc_framework: {
-            arc_id: `arc_${archetype.key}_${sim.cell_id}_${sim.sector_coords.rx}_${sim.sector_coords.ry}_${Date.now()}`,
+            arc_id: `arc_${archetype.key}_${sim.cell_id}_${sim.sector_coords.rx}_${sim.sector_coords.ry}_${Math.random().toString(36).slice(2, 8)}`,
             inciting_incident: archetype.incident(controller, npc as EligibleNPCAsset, party),
             active_phase: 1,
             beats
@@ -557,7 +557,7 @@ Reply with JSON of exactly this shape:
     return {
         source: 'ollama',
         story_arc_framework: {
-            arc_id: String(fw.arc_id || `arc_${inputPayload.simulation_state.cell_id}_${Date.now()}`).slice(0, 120),
+            arc_id: String(fw.arc_id || `arc_${inputPayload.simulation_state.cell_id}_${Math.random().toString(36).slice(2, 8)}`).slice(0, 120),
             inciting_incident: prose(fw.inciting_incident),
             active_phase: 1,
             beats: fw.beats.filter(b => b && b.objective).map((b, i) => ({ phase: i + 1, objective: prose(b.objective), discovery_method: prose(b.discovery_method) })),

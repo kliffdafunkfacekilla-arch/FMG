@@ -15,18 +15,20 @@
  */
 import pool from "../db/pool.js";
 import { settleSatellite } from "../engine/agents/burgExpansionAgent.js";
+import { applySchemaPatches } from "../db/schemaPatches.js";
 
 async function main() {
   const apply = process.argv.includes("--apply");
   const client = await pool.connect();
   try {
+    await applySchemaPatches(client); // settleSatellite writes record_unit
     await client.query("BEGIN");
     const res = await client.query(`
       SELECT s.burg_id, s.cell_id, s.name, s.settlement_type, s.pop_null + COALESCE(s.pop_attuned, 0) AS pop,
              p.burg_id AS parent_id, p.name AS parent_name
       FROM sim_burg_economy s
       JOIN sim_burg_economy p ON p.burg_id = s.parent_burg_id
-      WHERE NOT EXISTS (SELECT 1 FROM population_demographics d WHERE d.settlement_id = s.burg_id AND d.allegiance_status <> 'DECEASED')
+      WHERE NOT EXISTS (SELECT 1 FROM population_demographics d WHERE d.settlement_id = s.burg_id AND d.allegiance_status NOT IN ('DECEASED', 'DEPARTED'))
         AND s.pop_null + COALESCE(s.pop_attuned, 0) > 0
       ORDER BY s.burg_id`);
     let moved = 0, settled = 0;

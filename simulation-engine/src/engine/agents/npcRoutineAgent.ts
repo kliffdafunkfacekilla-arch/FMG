@@ -6,6 +6,7 @@ import {
   BurgEnvironmentalContext,
   ActionUtilityChoice
 } from "../ai/npcMindPure";
+import { sqlShuffle } from "../rng.js";
 
 /**
  * NPC Routine & Logistics Agent (Two-Speed Cognition Architecture):
@@ -22,7 +23,7 @@ export async function runNPCRoutineAgent(client: PoolClient, tick: number, loreD
     SELECT n.*, b.food as burg_food, b.wealth as burg_wealth, b.unrest as burg_unrest, b.crime_rate as burg_crime
     FROM sim_npc_instances n
     LEFT JOIN sim_burg_economy b ON n.cell_id = b.cell_id
-    WHERE n.alive = true
+    WHERE n.alive = true ORDER BY n.id
     LIMIT 200
   `);
 
@@ -100,7 +101,7 @@ export async function runNPCRoutineAgent(client: PoolClient, tick: number, loreD
     JOIN sim_burg_economy s ON r.source_burg_id = s.burg_id
     JOIN sim_burg_economy d ON r.dest_burg_id = d.burg_id
     WHERE r.status = 'ACTIVE'
-    ORDER BY RANDOM()
+    ORDER BY ${sqlShuffle("r.source_burg_id || '-' || r.dest_burg_id")}
     LIMIT 10
   `);
 
@@ -205,7 +206,7 @@ export async function updateSectorNPCRoutines(
     SELECT n.*, b.food as burg_food, b.wealth as burg_wealth, b.unrest as burg_unrest, b.crime_rate as burg_crime
     FROM sim_npc_instances n
     LEFT JOIN sim_burg_economy b ON n.cell_id = b.cell_id
-    WHERE n.cell_id = $1 AND n.current_rx = $2 AND n.current_ry = $3 AND n.alive = true
+    WHERE n.cell_id = $1 AND n.current_rx = $2 AND n.current_ry = $3 AND n.alive = true ORDER BY n.id
   `, [cellId, rx, ry]);
 
   if (npcsRes.rows.length === 0) return;

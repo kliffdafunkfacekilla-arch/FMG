@@ -1,6 +1,7 @@
 import { DAYS_PER_WEEK, isChaosPeak } from "../canon/calendar.js";
 import { PoolClient } from "pg";
-import { tagBurgCitizens, tagSectorEnvironment } from "./citizenPersonaHelper";
+import { tagBurgCitizens, tagSectorEnvironment } from "./citizenPersonaHelper";import { sqlShuffle } from "../rng.js";
+
 
 export interface TrophicCalendarContext {
     month?: number;
@@ -160,7 +161,7 @@ export async function runTrophicEcologyAgent(
             FROM sim_cells c
             JOIN sim_chaos_zones z ON c.id = z.cell_id
             WHERE z.intensity >= 30
-            ORDER BY RANDOM()
+            ORDER BY ${sqlShuffle("c.id")}
             LIMIT 3
         `);
 
@@ -208,7 +209,7 @@ export async function runTrophicEcologyAgent(
             FROM sim_cells c
             JOIN sim_burg_economy b ON c.id = b.cell_id
             WHERE c.eco_prey >= 75.0 AND COALESCE(c.eco_predators, 10.0) < 20.0
-            ORDER BY RANDOM()
+            ORDER BY ${sqlShuffle("c.id")}
             LIMIT 2
         `);
 
@@ -252,7 +253,7 @@ export async function runTrophicEcologyAgent(
         FROM sim_cells
         WHERE (eco_predators > (eco_prey * 1.25) OR eco_prey < 18.0)
           AND eco_predators >= 15.0
-        ORDER BY RANDOM()
+        ORDER BY ${sqlShuffle("id")}
         LIMIT 4
     `);
 
@@ -313,7 +314,7 @@ export async function runTrophicEcologyAgent(
             FROM sim_cells c
             JOIN sim_chaos_zones z ON c.id = z.cell_id
             WHERE z.intensity >= 45
-            ORDER BY RANDOM()
+            ORDER BY ${sqlShuffle("c.id")}
             LIMIT 2
         `);
 

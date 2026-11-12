@@ -1,5 +1,6 @@
 import { tagBurgCitizens, tagSectorEnvironment } from "./citizenPersonaHelper";
-import { MERCY_ALIGNMENT, NIGHTMARE_ALIGNMENT, SHADOWFALL, moonPhaseFor, seasonByName } from "../canon/calendar.js";
+import { MERCY_ALIGNMENT, NIGHTMARE_ALIGNMENT, SHADOWFALL, moonPhaseFor, seasonByName } from "../canon/calendar.js";import { sqlShuffle } from "../rng.js";
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Weather & Chaos Agent
@@ -75,13 +76,13 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
     }
 
     // ── 3. APPLY active fronts to cells & burgs they are over ─────────────────
-    const fronts = await client.query("SELECT * FROM sim_weather_fronts");
+    const fronts = await client.query("SELECT * FROM sim_weather_fronts ORDER BY id");
     for (const front of fronts.rows) {
         // Find burgs inside this front's radius using cell geometry approximation
         // We stored burg cell_id; we need the cell x/y. Use a simple bounding check on geometry centroid.
         // For now: apply to a random sample of burgs weighted by probability — real geo join is Phase 2.
         const affectedBurgs = await client.query(
-            `SELECT burg_id, name, cell_id, food, unrest, health, pop_null, architecture_type FROM sim_burg_economy ORDER BY RANDOM() LIMIT $1`,
+            `SELECT burg_id, name, cell_id, food, unrest, health, pop_null, architecture_type FROM sim_burg_economy ORDER BY ${sqlShuffle("burg_id")} LIMIT $1`,
             [Math.max(1, Math.floor(front.radius / 20))] // more burgs hit by bigger fronts
         );
 
@@ -225,7 +226,7 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
     } else if (phase === "BLEED") {
         // Peak chaos: spawn chaos zones, trigger chaos storms across Ostraka
         // Weakened seals may radiate void rifts
-        const groveRes = await client.query("SELECT id, cell_id, seal_strength FROM sim_sacred_groves WHERE seal_strength < 40");
+        const groveRes = await client.query("SELECT id, cell_id, seal_strength FROM sim_sacred_groves WHERE seal_strength < 40 ORDER BY id");
         for (const grove of groveRes.rows) {
             if (Math.random() < 0.3) {
                 await client.query(

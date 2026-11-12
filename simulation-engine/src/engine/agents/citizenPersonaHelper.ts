@@ -3,7 +3,8 @@
  * how their distinct human personalities influence their behavior as Cultists,
  * Wardens, or Mandate Zealots.
  */
-import { addCellTags } from "../cellTags.js";
+import { addCellTags } from "../cellTags.js";import { sqlShuffle } from "../rng.js";
+
 
 export interface CitizenPersona {
   citizenName: string;
@@ -250,7 +251,7 @@ export async function backfillBlankPersonas(client: any): Promise<number> {
   const blankRes = await client.query(`
     SELECT id, role, sub_role, home_burg_id, name
     FROM sim_agents
-    WHERE citizen_name IS NULL OR citizen_name = ''
+    WHERE citizen_name IS NULL OR citizen_name = '' ORDER BY id
   `);
 
   if (!blankRes.rows || blankRes.rows.length === 0) return 0;
@@ -324,15 +325,27 @@ export async function tagBurgCitizens(
       temper = COALESCE($2, temper),
       motivation = COALESCE($3, motivation)
       WHERE citizen_id IN (
-          SELECT citizen_id FROM population_demographics
-          WHERE settlement_id = $4
-          AND ($5::text IS NULL OR profession ILIKE $5)
-          AND allegiance_status = 'CIVILIAN'
-          ORDER BY RANDOM()
-          LIMIT $6
+          -- A seeded random point in the burg's citizen id range, then the next $6 matching civilians
+          -- (wrapping round). Two short index range scans: ranking every civilian by a hash to pick four
+          -- cost ~4 ms a call, and this runs ~90 times a day.
+          WITH bounds AS (
+              SELECT MIN(citizen_id) AS lo, MAX(citizen_id) AS hi FROM population_demographics
+              WHERE settlement_id = $4 AND allegiance_status = 'CIVILIAN'
+          ), start AS (SELECT lo + floor((hi - lo + 1) * $7::float)::int AS at FROM bounds)
+          SELECT citizen_id FROM (
+              (SELECT citizen_id, 0 AS lap FROM population_demographics
+               WHERE settlement_id = $4 AND allegiance_status = 'CIVILIAN' AND citizen_id >= (SELECT at FROM start)
+                 AND ($5::text IS NULL OR profession ILIKE $5)
+               ORDER BY citizen_id LIMIT $6)
+              UNION ALL
+              (SELECT citizen_id, 1 AS lap FROM population_demographics
+               WHERE settlement_id = $4 AND allegiance_status = 'CIVILIAN' AND citizen_id < (SELECT at FROM start)
+                 AND ($5::text IS NULL OR profession ILIKE $5)
+               ORDER BY citizen_id LIMIT $6)
+          ) picks ORDER BY lap, citizen_id LIMIT $6
       )
       RETURNING citizen_id
-    `, [tagsJson, newTemper || null, newMotivation || null, settlementId, professionFilter || null, limit]);
+    `, [tagsJson, newTemper || null, newMotivation || null, settlementId, professionFilter || null, limit, Math.random()]);
     return res.rowCount || 0;
   } catch (err) {
     return 0;
@@ -359,7 +372,7 @@ export async function recruitInsideMan(
           temper IN ('DESPERATE', 'BITTER', 'GREEDY', 'VENGEFUL')
           OR profession IN ('Disenfranchised Laborer', 'Gate Sentry', 'City Watchman', 'Merchant Trader', 'Blacksmith')
         )
-      ORDER BY (CASE WHEN temper = 'DESPERATE' THEN 1 WHEN temper = 'GREEDY' THEN 2 ELSE 3 END), RANDOM()
+      ORDER BY (CASE WHEN temper = 'DESPERATE' THEN 1 WHEN temper = 'GREEDY' THEN 2 ELSE 3 END), ${sqlShuffle('citizen_id')}
       LIMIT 1
     `, [settlementId]);
 

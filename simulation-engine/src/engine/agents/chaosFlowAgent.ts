@@ -111,7 +111,7 @@ async function pruneDriftedFlowMarks(client: PoolClient | Pool, flows: LiveChaos
     const marked = await client.query(
       `SELECT c.id, c.center_x, c.center_y FROM sim_cells c
        WHERE c.id IN (SELECT cell_id FROM sim_cell_tags WHERE z_layer = 0 AND tags ? $1)
-          OR c.id IN (SELECT cell_id FROM sim_chaos_zones WHERE type = $2)`,
+          OR c.id IN (SELECT cell_id FROM sim_chaos_zones WHERE type = $2) ORDER BY c.id`,
       [leyTag, `${flow.elementalPower.toUpperCase()}_CHAOS_LEYS`]
     );
     for (const cell of marked.rows) {
@@ -294,7 +294,7 @@ export async function runChaosFlowAgent(
           if (!pt) continue;
           const nearbyCellsRes = await client.query(
             `SELECT id, center_x, center_y, eco_blight FROM sim_cells
-             WHERE center_x BETWEEN $1 AND $2 AND center_y BETWEEN $3 AND $4
+             WHERE center_x BETWEEN $1 AND $2 AND center_y BETWEEN $3 AND $4 ORDER BY id
              LIMIT 4`,
             [pt.x - 70, pt.x + 70, pt.y - 70, pt.y + 70]
           );

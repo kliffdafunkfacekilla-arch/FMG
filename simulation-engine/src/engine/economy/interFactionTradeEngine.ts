@@ -55,7 +55,7 @@ export async function runInterFactionTradeEngine(
   // 1. Fetch diplomatic relations (Wars & Alliances)
   const diploRes = await client.query(`
     SELECT faction_a_id, faction_b_id, status, tension 
-    FROM sim_diplomacy
+    FROM sim_diplomacy ORDER BY faction_a_id, faction_b_id
   `);
   
   const warMap = new Set<string>();
@@ -76,7 +76,7 @@ export async function runInterFactionTradeEngine(
     JOIN sim_cells c ON b.cell_id = c.id
     LEFT JOIN sim_factions f ON COALESCE(b.occupier_faction_id, c.faction_id, 0) = f.id
     LEFT JOIN sim_industrial_stockpiles s ON b.burg_id = s.burg_id
-    WHERE b.pop_null > 0 OR b.pop_attuned > 0
+    WHERE b.pop_null > 0 OR b.pop_attuned > 0 ORDER BY b.burg_id
   `);
 
   const burgMap = new Map<number, any>();
@@ -101,7 +101,7 @@ export async function runInterFactionTradeEngine(
 
   // 3. Identify potential trade links (via sim_roads or ports)
   const roadsRes = await client.query(`
-    SELECT source_cell_id, dest_cell_id, length FROM sim_roads
+    SELECT source_cell_id, dest_cell_id, length FROM sim_roads ORDER BY source_cell_id, dest_cell_id
   `);
 
   // Map cell_id to burg_id for fast road routing

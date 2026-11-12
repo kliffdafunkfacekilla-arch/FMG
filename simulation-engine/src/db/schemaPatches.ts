@@ -18,4 +18,20 @@ export async function applySchemaPatches(db: Db): Promise<void> {
       SELECT (cb.center_x - ca.center_x) ^ 2 + (cb.center_y - ca.center_y) ^ 2
       FROM sim_cells ca, sim_cells cb WHERE ca.id = a AND cb.id = b LIMIT 1
     $$`);
+
+  // People who left a burg's counters outside births and deaths (executions, riots, bandits, refugees),
+  // not yet matched by citizen records retired: a record goes once a full unit has left.
+  await db.query(`ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS pop_departure_pool FLOAT DEFAULT 0`);
+  // People per citizen record in this burg, recounted weekly by the burg operations agent
+  await db.query(`ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS record_unit INT`);
+
+  // Lookups every tick makes (TICK_PROFILE=1 showed them as sequential scans): agents by role and cell or
+  // home burg (cultists, wardens, the Mandate), events by tick and by type (director, NPC routines, the
+  // apocalypse check, which scanned all ~190k events with LIKE)
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_sim_agents_role_cell ON sim_agents(role, location_cell_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_sim_agents_role_home ON sim_agents(role, home_burg_id)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_sim_events_tick ON sim_events(tick)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_sim_events_type ON sim_events(type)`);
+  // A burg's living civilians in id order: tagBurgCitizens picks from a seeded point in this range
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_pop_civilians_by_burg ON population_demographics(settlement_id, citizen_id) WHERE allegiance_status = 'CIVILIAN'`);
 }

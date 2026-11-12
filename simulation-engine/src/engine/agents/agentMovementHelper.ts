@@ -1,3 +1,4 @@
+import { sqlShuffle } from "../rng.js";
 /**
  * agentMovementHelper.ts - High-Performance Macro Spatial Navigation & In-Memory Collision System
  *
@@ -212,7 +213,7 @@ export async function getNearestSacredGrove(client: any, cellId: number): Promis
     const res = await client.query(`
       SELECT g.id, g.cell_id, g.dragon_name, g.power_domain, g.seal_strength, c.center_x, c.center_y
       FROM sim_sacred_groves g
-      JOIN sim_cells c ON g.cell_id = c.id
+      JOIN sim_cells c ON g.cell_id = c.id ORDER BY g.id
     `);
     sacredGrovesCache = res.rows.map((r: any) => ({
       id: r.id,
@@ -247,7 +248,7 @@ export async function getWeakestSacredGrove(client: any): Promise<SacredGroveTar
     SELECT g.id, g.cell_id, g.dragon_name, g.power_domain, g.seal_strength, c.center_x, c.center_y
     FROM sim_sacred_groves g
     JOIN sim_cells c ON g.cell_id = c.id
-    ORDER BY g.seal_strength ASC, RANDOM()
+    ORDER BY g.seal_strength ASC, ${sqlShuffle('g.id')}
     LIMIT 1
   `);
 
@@ -298,4 +299,30 @@ export async function getNearestCultistCell(
   }
 
   return cultistRes.rows[0];
+}
+
+/** One agent's end-of-day state, written by persistAgentStates. */
+export interface AgentStateRow {
+  id: number; location_cell_id: number | null; target_cell_id: number | null; target_grove_id: number | null;
+  state: string; sub_role: string | null; metric: number; age_ticks: number;
+}
+
+/**
+ * Writes the end-of-day state of many agents in one statement. The cultist, warden and Mandate loops used
+ * to write each agent with its own UPDATE (~860 round trips a day). Safe to defer to the end of a loop:
+ * no agent reads positions of its own role mid-loop (cultists look for wardens and wardens for cultists,
+ * each written in an earlier step). `metricColumn` is corruption or drained_power.
+ */
+export async function persistAgentStates(client: any, rows: AgentStateRow[], metricColumn: "corruption" | "drained_power"): Promise<void> {
+  if (rows.length === 0) return;
+  await client.query(`
+    UPDATE sim_agents a SET
+      location_cell_id = v.location_cell_id, target_cell_id = v.target_cell_id, target_grove_id = v.target_grove_id,
+      state = v.state, sub_role = v.sub_role, ${metricColumn} = v.metric, age_ticks = v.age_ticks
+    FROM (SELECT unnest($1::int[]) AS id, unnest($2::int[]) AS location_cell_id, unnest($3::int[]) AS target_cell_id,
+                 unnest($4::int[]) AS target_grove_id, unnest($5::text[]) AS state, unnest($6::text[]) AS sub_role,
+                 unnest($7::float[]) AS metric, unnest($8::int[]) AS age_ticks) v
+    WHERE a.id = v.id`,
+    [rows.map(r => r.id), rows.map(r => r.location_cell_id), rows.map(r => r.target_cell_id), rows.map(r => r.target_grove_id),
+     rows.map(r => r.state), rows.map(r => r.sub_role), rows.map(r => r.metric), rows.map(r => r.age_ticks)]);
 }

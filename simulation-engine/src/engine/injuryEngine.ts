@@ -102,7 +102,7 @@ export function applyBrutalInjury(
   }
 
   const wound = {
-    id: `wound_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    id: `wound_${Math.random().toString(36).slice(2, 10)}`,
     tier,
     targetPool,
     capacityLost,
