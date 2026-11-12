@@ -24,3 +24,6 @@ The source of truth is `C:\Users\krazy\Desktop\Shatterlands\Rules\BRUTAL_Ruleboo
 **Growth and names**
 12. **Stars** no track can take fill one segment of that stat's Growth Bar.
 13. **Renames:** First Read, Nail Down, Margin of Error.
+
+**Dying**
+14. **The dying countdown** (§5.9). At 0 Health a creature is down with **6 rounds** left. Stabilizing or healing stops the count. A hit on the downed: Graze or Minor −1 round, Major −2, Critical kills. The Adrenaline checks and getting back up are gone. Zero Composure counts down the same way.
