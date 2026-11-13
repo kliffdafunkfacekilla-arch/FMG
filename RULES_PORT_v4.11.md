@@ -27,3 +27,9 @@ The source of truth is `C:\Users\krazy\Desktop\Shatterlands\Rules\BRUTAL_Ruleboo
 
 **Dying**
 14. **The dying countdown** (§5.9). At 0 Health a creature is down with **6 rounds** left. Stabilizing or healing stops the count. A hit on the downed: Graze or Minor −1 round, Major −2, Critical kills. The Adrenaline checks and getting back up are gone. Zero Composure counts down the same way.
+
+**Sim 28 fixes**
+15. **Under the Bow:** each shooter pins at most one mover a round.
+16. **Doubling Fee curve:** +1/+1/+2/+2 (totals 1/2/4/6). This replaces item 1's +1/+2/+3/+4.
+17. **Heavy armor:** its first-attack Advantage doesn't apply if the wearer didn't Move this turn.
+18. **A React Effect that only helps an ally** doesn't use the Reaction (it still costs Focus and the next Mind beat). An unfired Ready leaves the Reaction free. "One attack a turn" excludes Technique free strikes, parting strikes and Flurry's second strike.
