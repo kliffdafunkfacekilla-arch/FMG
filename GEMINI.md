@@ -21,7 +21,7 @@ If you can't say which step of the loop a change serves, don't build it. Add it 
 2. **One task per session.** Keep changes small. Commit after each working step, with a message that names the loop step.
 3. **Canon and rules live in the Shatterlands folder and are read-only.** Never restate them here; point to them.
    - Lore: `C:\Users\krazy\Desktop\Shatterlands\Canon\`, starting at `00_Index_and_Precedence.md`.
-   - Rules: `C:\Users\krazy\Desktop\Shatterlands\Rules\BRUTAL_Rulebook_v3.md` (it holds Draft v4.9; the file name is historical). For the short version, read `Rules\Table_Test_Pack\players\Rules_Digest.md`.
+   - Rules: `C:\Users\krazy\Desktop\Shatterlands\Rules\BRUTAL_Rulebook_v3.md` (it holds **Draft v5.0**; the file name is historical; §5.0 is the whole combat loop). **The rules work to do is in `RULES_TARGET_v5.0.md` (the engine is still at v4.9).**. For the short version, read `Rules\Table_Test_Pack\players\Rules_Digest.md`.
    - If the code disagrees with them, the code is wrong.
 4. **The game system is B.R.U.T.A.L., not "Concordia".** It uses a d12 plus a stat against a Guard. Don't add Concordia mechanics, 1d20 rolls or invented stats. Port existing Concordia code to B.R.U.T.A.L. only as a planned task.
 5. **The world is Ostraka, in the Shatterlands.** "Aetheria" is a retired working name, so don't use it in new code or text.
