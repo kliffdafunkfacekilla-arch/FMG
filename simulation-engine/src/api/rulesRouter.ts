@@ -9,13 +9,12 @@ import {
   resolveContestedAttack,
   resolveClashTie,
   rollD12,
-  ClashStance,
-  CLASH_STANCE_STATS
+  evaluateRollPips,
+  ClashStance
 } from '../engine/combatResolutionEngine';
 import {
   applyBrutalInjury,
   applyMagicalHealing,
-  applyPunishment,
   EntityInjuryState
 } from '../engine/injuryEngine';
 import { equipGear, calculateTurnRegeneration } from '../engine/loadoutEngine';
@@ -30,7 +29,7 @@ export const rulesRouter = Router();
 // =========================================================================
 /**
  * POST /api/rules/roll
- * Standard B.R.U.T.A.L. roll: d12 + modifier with Advantage/Disadvantage and Star/Scar detection.
+ * Standard B.R.U.T.A.L. roll: d12 + modifier with Advantage/Disadvantage and Star/Painful Lesson detection.
  */
 rulesRouter.post('/roll', (req: Request, res: Response) => {
   try {
@@ -41,6 +40,9 @@ rulesRouter.post('/roll', (req: Request, res: Response) => {
       const total = d12Res.final + modifier;
       const passed = dc !== undefined ? total >= dc : undefined;
       const diff = dc !== undefined ? total - dc : undefined;
+      const pips = dc !== undefined
+        ? evaluateRollPips(d12Res.final, !!passed)
+        : { isStar: d12Res.isStar, isPainfulLesson: d12Res.isPainfulLesson };
 
       return res.json({
         success: true,
@@ -52,9 +54,9 @@ rulesRouter.post('/roll', (req: Request, res: Response) => {
         dc,
         passed,
         difference: diff,
-        isStar: d12Res.isStar, // Natural 12 (growth)
-        isScar: d12Res.isScar, // Natural 1 (learning)
-        log: `1d12 (${d12Res.rolls.join(', ')}) + ${modifier} = ${total}${dc !== undefined ? ` vs DC ${dc} -> ${passed ? 'PASSED' : 'FAILED'}` : ''}${d12Res.isStar ? ' ⭐ STAR (Growth)!' : ''}${d12Res.isScar ? ' ⚡ SCAR (Failure Learning)!' : ''}`
+        isStar: pips.isStar, // Natural 12 on success
+        isPainfulLesson: pips.isPainfulLesson, // Natural 1 on failure
+        log: `1d12 (${d12Res.rolls.join(', ')}) + ${modifier} = ${total}${dc !== undefined ? ` vs DC ${dc} -> ${passed ? 'PASSED' : 'FAILED'}` : ''}${pips.isStar ? ' ⭐ STAR (Growth)!' : ''}${pips.isPainfulLesson ? ' ⚡ PAINFUL LESSON (Failure Learning)!' : ''}`
       });
     }
 
@@ -210,7 +212,8 @@ rulesRouter.post('/contested_combat', (req: Request, res: Response) => {
         composure: postState.composure,
         maxComposure: postState.maxComposure,
         stamina: postState.stamina,
-        focus: postState.focus
+        focus: postState.focus,
+        owed: postState.owed || { stamina: 0, focus: 0 }
       }
     });
   } catch (err: any) {
@@ -223,7 +226,7 @@ rulesRouter.post('/contested_combat', (req: Request, res: Response) => {
 // =========================================================================
 /**
  * POST /api/rules/clash
- * Resolves a locked weapon Clash under B.R.U.T.A.L. v4.9 using the 6 canonical stances.
+ * Resolves a locked weapon Clash under B.R.U.T.A.L. v5.0 using the 6 canonical stances and best stat.
  */
 rulesRouter.post('/clash', (req: Request, res: Response) => {
   try {
@@ -231,9 +234,11 @@ rulesRouter.post('/clash', (req: Request, res: Response) => {
       attackerStance = 'PRESS',
       attackerStatKey = 'might',
       attackerStatVal = 7,
+      attackerStats,
       defenderStance = 'HOLD',
       defenderStatKey = 'endurance',
-      defenderStatVal = 5
+      defenderStatVal = 5,
+      defenderStats
     } = req.body;
 
     const validStances: ClashStance[] = ['PRESS', 'HOLD', 'MANEUVER', 'TRICK', 'FEINT', 'DISENGAGE'];
@@ -250,7 +255,8 @@ rulesRouter.post('/clash', (req: Request, res: Response) => {
       attackerStatVal,
       defenderStance as ClashStance,
       defenderStatKey,
-      defenderStatVal
+      defenderStatVal,
+      attackerStats || defenderStats ? { attackerStats, defenderStats } : undefined
     );
 
     return res.json({
@@ -277,12 +283,13 @@ rulesRouter.post('/check', (req: Request, res: Response) => {
     const total = rollRes.final + statVal + toolValue;
     const margin = total - dc;
     const passed = margin >= 0;
+    const pips = evaluateRollPips(rollRes.final, passed);
 
     let degree = 'NORMAL_SUCCESS';
     if (!passed) {
       degree = margin <= -4 ? 'CATASTROPHIC_FAILURE' : 'FAILURE';
     } else {
-      if (rollRes.isStar) degree = 'STAR_SUCCESS (Critical Growth!)';
+      if (pips.isStar) degree = 'STAR_SUCCESS (Critical Growth!)';
       else if (margin === 1 || margin === 2) degree = 'SUCCESS_AT_A_COST';
       else if (margin >= 6) degree = 'EFFORTLESS_SUCCESS';
     }
@@ -300,8 +307,8 @@ rulesRouter.post('/check', (req: Request, res: Response) => {
       margin,
       passed,
       degree,
-      isStar: rollRes.isStar,
-      isScar: rollRes.isScar,
+      isStar: pips.isStar,
+      isPainfulLesson: pips.isPainfulLesson,
       log: `${attributeName.toUpperCase()} CHECK: 1d12 (${rollRes.rolls.join(', ')}) + ${statVal} [stat] + ${toolValue} [tool] = ${total} vs DC ${dc} -> ${passed ? 'PASSED' : 'FAILED'} (${degree})`
     });
   } catch (err: any) {

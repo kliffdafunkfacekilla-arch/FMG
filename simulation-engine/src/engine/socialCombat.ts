@@ -1,15 +1,117 @@
 /**
- * SOCIAL & SANITY COMBAT RESOLUTION ENGINE (B.R.U.T.A.L. v4.9)
+ * SOCIAL & SANITY COMBAT RESOLUTION ENGINE (B.R.U.T.A.L. v5.0)
  * ============================================================
- * Parallels physical combat by resolving opposed 1d12 checks targeting Composure pools.
- * - Social Attacks: 1d12 + Stat + Social Weapon Mod vs 1d12 + Defender Stat + Social Armor Mod
- * - Cosmic Dread: 1d12 + Willpower/Fortitude + Social Armor Mod vs Environmental Horror DC
- * - Morale Breakdown: When Composure reaches 0, target surrenders, flees, or enters Panic.
+ * - Persuasion (§6.3): unopposed skill check (d12 + stat + Prop) vs target's current Composure.
+ *   Margins: 7+ yes and more, 3-6 yes, 0-2 yes for a price, <0 no.
+ *   An ask against the target's orders cannot be won by Persuasion.
+ *   One voice: one speaker per target per round; other speakers grant Advantage.
+ * - Talk in a fight is free and wounds nobody (§5.10 / §6).
+ * - Hostile social attacks out of a fight deal Composure injuries (§6.2).
  */
 
 import { getSocialWeapon, getSocialArmor, SocialWeaponDef, SocialArmorDef } from './rpg/SocialEquipmentRegistry.js';
 import { StatKey } from './rpg/EquipmentRegistry.js';
-import { rollD12 } from './combatResolutionEngine.js';
+import { rollD12, RollD12Result } from './combatResolutionEngine.js';
+
+export type PersuasionOutcome =
+  | 'YES_AND_MORE'
+  | 'YES'
+  | 'YES_FOR_A_PRICE'
+  | 'NO'
+  | 'REJECTED_AGAINST_ORDERS'
+  | 'REJECTED_ONE_VOICE';
+
+export interface PersuasionParams {
+  speakerStatVal: number;
+  propValue?: number | undefined;
+  targetComposure: number;
+  againstOrders?: boolean | undefined;
+  otherSpeakersCount?: number | undefined;
+  alreadySpokenToTargetThisRound?: boolean | undefined;
+  hasAdvantage?: boolean | undefined;
+  hasDisadvantage?: boolean | undefined;
+  fixedRoll?: number | undefined;
+  fixedRolls?: [number, number] | undefined;
+}
+
+export interface PersuasionResult {
+  outcome: PersuasionOutcome;
+  succeeded: boolean;
+  woundsDealt: 0;
+  focusCost: 0;
+  roll: RollD12Result | null;
+  total: number;
+  difficulty: number;
+  margin: number;
+  usedAdvantage: boolean;
+  log: string;
+}
+
+/**
+ * Resolves a non-hostile Persuasion check (v5.0 §6.3):
+ * - Difficulty is the target's current Composure.
+ * - Margins: 7+ YES_AND_MORE, 3-6 YES, 0-2 YES_FOR_A_PRICE, <0 NO.
+ * - Asks against orders cannot be won by Persuasion.
+ * - One speaker per target per round; other speakers grant Advantage.
+ * - Free and deals 0 wounds.
+ */
+export function resolvePersuasion(params: PersuasionParams): PersuasionResult {
+  if (params.againstOrders) {
+    return {
+      outcome: 'REJECTED_AGAINST_ORDERS',
+      succeeded: false,
+      woundsDealt: 0,
+      focusCost: 0,
+      roll: null,
+      total: 0,
+      difficulty: params.targetComposure,
+      margin: -99,
+      usedAdvantage: false,
+      log: 'Persuasion rejected: an ask against the target\'s orders cannot be won by Persuasion.'
+    };
+  }
+
+  if (params.alreadySpokenToTargetThisRound) {
+    return {
+      outcome: 'REJECTED_ONE_VOICE',
+      succeeded: false,
+      woundsDealt: 0,
+      focusCost: 0,
+      roll: null,
+      total: 0,
+      difficulty: params.targetComposure,
+      margin: -99,
+      usedAdvantage: false,
+      log: 'One voice rule: only one speaker per target per round; allies can assist to grant Advantage.'
+    };
+  }
+
+  const usedAdvantage = !!params.hasAdvantage || (params.otherSpeakersCount ?? 0) > 0;
+  const fixed = params.fixedRolls ?? params.fixedRoll;
+  const roll = rollD12(usedAdvantage, !!params.hasDisadvantage, fixed);
+  const propValue = params.propValue ?? 0;
+  const total = roll.final + params.speakerStatVal + propValue;
+  const difficulty = params.targetComposure;
+  const margin = total - difficulty;
+
+  let outcome: PersuasionOutcome = 'NO';
+  if (margin >= 7) outcome = 'YES_AND_MORE';
+  else if (margin >= 3) outcome = 'YES';
+  else if (margin >= 0) outcome = 'YES_FOR_A_PRICE';
+
+  return {
+    outcome,
+    succeeded: margin >= 0,
+    woundsDealt: 0,
+    focusCost: 0,
+    roll,
+    total,
+    difficulty,
+    margin,
+    usedAdvantage,
+    log: `[PERSUASION]: 1d12 (${roll.rolls.join(', ')}) + ${params.speakerStatVal} + ${propValue} = ${total} vs Composure ${difficulty} (Margin ${margin >= 0 ? `+${margin}` : margin}) -> ${outcome} (0 wounds).`
+  };
+}
 
 export interface SocialCombatant {
   id?: string | number;
@@ -48,8 +150,27 @@ export function resolveOpposedSocialContest(
     advantageMod?: number;
     useWeaponSpec?: boolean;
     useArmorSpec?: boolean;
+    inFight?: boolean;
   } = {}
 ): SocialContestResult {
+  if (options.inFight) {
+    return {
+      hit: false,
+      attackerRoll: 0,
+      attackerStatVal: Number(attacker.stats[attackStat]) || 5,
+      attackerMod: 0,
+      attackerTotal: 0,
+      defenderRoll: 0,
+      defenderStatVal: Number(defender.stats['willpower']) || 5,
+      defenderMod: 0,
+      defenderTotal: 0,
+      difference: 0,
+      composureDamage: 0,
+      defenderComposureRemaining: defender.composure,
+      isBroken: false,
+      log: '[IN-FIGHT TALK]: Talk during a fight is free and wounds nobody (0 Composure trauma dealt).'
+    };
+  }
   const socialWeapon: SocialWeaponDef = getSocialWeapon(attacker.equippedSocialWeapon || '');
   const socialArmor: SocialArmorDef = getSocialArmor(defender.equippedSocialArmor || '');
 

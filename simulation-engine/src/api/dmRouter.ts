@@ -2713,7 +2713,7 @@ router.post('/party_session/step', async (req, res) => {
     const declaredAction = action;
     const declaredDialogue = dialogue;
 
-    // 3. Resolve through BrutalGameMaster (B.R.U.T.A.L. v4.9 dice math & grounded narration)
+    // 3. Resolve through BrutalGameMaster (B.R.U.T.A.L. v5.0 dice math & grounded narration)
     const gmResult = await brutalGM.executeTurn({
       actionText: declaredAction,
       playerId: currentMember.id,

@@ -1,12 +1,33 @@
 /**
- * B.R.U.T.A.L. TTRPG Core Rules Engine (v4.9)
+ * B.R.U.T.A.L. TTRPG Core Rules Engine (v5.0)
  * ============================================
  * Canonical Opposed Combat Resolution Bridge.
  * Core Die: 1d12 (Net Margin = Attacker Total - Defender Total).
  * Defenses: Active (1d12 + stat + armor) vs Guard (static stat + armor, no die).
  */
 
-import { rollD12, BrutalInjuryTier } from "../combatResolutionEngine.js";
+import { rollD12, evaluateRollPips, BrutalInjuryTier } from "../combatResolutionEngine.js";
+export {
+    createFoeStack,
+    migrateFoeToStack,
+    shredFoeCards,
+    applyFoeResolveLoss,
+    applyHitToFoe,
+    resolveAimedAttackOnFoe,
+    getTotalFoeCards,
+    RESOLVE_BY_STAKE
+} from "./foeStack.js";
+export type {
+    FoeCard,
+    FoeCardInput,
+    FoeCardKind,
+    FoeStake,
+    FoeStatus,
+    FoeStackState,
+    FoeResolveLossReason,
+    ShredCardsResult,
+    ResolveLossResult
+} from "./foeStack.js";
 
 export interface CombatRollDetails {
     attackerRoll: number;
@@ -22,7 +43,7 @@ export interface CombatRollDetails {
     hit: boolean;
     tier?: BrutalInjuryTier;
     starGained?: boolean;
-    scarIncurred?: boolean;
+    painfulLessonIncurred?: boolean;
 }
 
 export interface CombatOptions {
@@ -67,7 +88,7 @@ export function resolveOpposedCombat(
         if (aSpec >= 2) defenderHasDisadv = false;
     }
 
-    // Roll canonical 1d12 with Star (12) and Scar (1)
+    // Roll canonical 1d12 with Star (12 on success) and Painful Lesson (1 on fail)
     const atkRollRes = rollD12(attackerHasAdv, attackerHasDisadv);
     const defRollRes = options?.useGuard ? null : rollD12(defenderHasAdv, defenderHasDisadv);
 
@@ -109,6 +130,9 @@ export function resolveOpposedCombat(
         tier = 'NONE';
     }
 
+    const hit = injuryPoints > 0;
+    const atkPips = evaluateRollPips(attackerRoll, hit);
+
     return {
         attackerRoll,
         attackerStatVal: attackerStat,
@@ -120,9 +144,9 @@ export function resolveOpposedCombat(
         defenderTotal,
         difference,
         injuryPoints,
-        hit: injuryPoints > 0,
+        hit,
         tier,
-        starGained: atkRollRes.isStar,
-        scarIncurred: atkRollRes.isScar
+        starGained: atkPips.isStar,
+        painfulLessonIncurred: atkPips.isPainfulLesson
     };
 }

@@ -1,3 +1,14 @@
+/**
+ * B.R.U.T.A.L. Combat Engine & Macro War Doctrine Bridge (v5.0)
+ * =============================================================
+ */
+    export {
+        resolveReadyReaction,
+        resolveContestedAttack,
+        resolveClashTie
+    } from './combatResolutionEngine.js';
+    export type { ReadyDeclaration, ReadyReactionResult } from './combatResolutionEngine.js';
+
     export interface CombatOptions {
         attackerName?: string;
         defenderName?: string;

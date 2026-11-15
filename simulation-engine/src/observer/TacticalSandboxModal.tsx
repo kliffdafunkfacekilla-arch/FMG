@@ -897,7 +897,7 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
                     🎲 Pillar 3: B.R.U.T.A.L. Game Master Console
                   </h3>
                   <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                    B.R.U.T.A.L. v4.9 (1d12 + Stat vs Guard) • Real Sector Simulation
+                    B.R.U.T.A.L. v5.0 (1d12 + Stat vs Guard) • Real Sector Simulation
                   </div>
                 </div>
 
@@ -1274,7 +1274,7 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
                             marginBottom: 10
                           }}>
                             <div style={{ fontWeight: 800, color: '#38bdf8', fontSize: 13, marginBottom: 4 }}>
-                              🎲 Opposed 1d12 Resolution (B.R.U.T.A.L. v4.9)
+                              🎲 Opposed 1d12 Resolution (B.R.U.T.A.L. v5.0)
                             </div>
                             {actionResult.rollResults.map((r: any, idx: number) => (
                               <div key={idx} style={{ fontSize: 11, color: '#94a3b8' }}>

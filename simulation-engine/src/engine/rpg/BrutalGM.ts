@@ -1,7 +1,7 @@
 import { SHADOWFALL_MONTH, isChaosPeak } from "../canon/calendar.js";
 /**
- * B.R.U.T.A.L. GAME MASTER (ENTITY-COMPONENT GM)
- * =====================================================
+ * B.R.U.T.A.L. v5.0 GAME MASTER (ENTITY-COMPONENT GM)
+ * ==========================================================
  * Architecture follows the Entity-Component Game Master pattern from Google DeepMind's
  * Concordia paper (arXiv:2507.08892). That is an LLM-agent design reference only; the
  * game rules are B.R.U.T.A.L. (see AGENT_RULES.md rule 4):
@@ -20,7 +20,26 @@ import { Pool } from "pg";
 import { TagMatrixEngine, TaggedObject, TagInteractionResult } from "./TagMatrixEngine.js";
 import { WhatElseStoryEngine, StoryBeat, SectorContext, InjectedNPC, InjectedWorldState } from "./WhatElseStoryEngine.js";
 import { resolveMeleeAttack, resolveOpposedCombat } from "./RulesEngine.js";
-import { rollD12, resolveContestedAttack, AttackRollParams, DefenseParams, ContestedCombatResult } from "../combatResolutionEngine.js";
+import {
+  rollD12,
+  resolveContestedAttack,
+  resolveReadyReaction,
+  AttackRollParams,
+  DefenseParams,
+  ContestedCombatResult,
+  ReadyDeclaration,
+  ReadyReactionResult
+} from "../combatResolutionEngine.js";
+import {
+  createFoeStack,
+  migrateFoeToStack,
+  applyHitToFoe,
+  applyFoeResolveLoss,
+  resolveAimedAttackOnFoe,
+  FoeStackState,
+  FoeResolveLossReason
+} from "./foeStack.js";
+import type { BrutalInjuryTier } from "../combatResolutionEngine.js";
 import { getWeapon, getArmor, StatKey, WeaponDef, ArmorDef } from "./EquipmentRegistry.js";
 import { getSocialWeapon, getSocialArmor, SocialWeaponDef, SocialArmorDef } from "./SocialEquipmentRegistry.js";
 import { resolveOpposedSocialContest, resolveCosmicDreadCheck, SocialCombatant } from "../socialCombat.js";
@@ -120,13 +139,55 @@ export class BrutalGameMaster {
   }
 
   /**
-   * Resolves an opposed attack roll or Guard contest under B.R.U.T.A.L. rules.
+   * Resolves an opposed attack roll or Guard contest under B.R.U.T.A.L. v5.0 rules.
    */
   public resolveContestedAttack(
     attacker: AttackRollParams,
     defender: DefenseParams
   ): ContestedCombatResult {
     return resolveContestedAttack(attacker, defender);
+  }
+
+  /**
+   * Resolves a Readied Body beat trigger, Intercept, or Shooter vs Charger reaction (v5.0 Step 10).
+   */
+  public resolveReadyReaction(
+    ready: ReadyDeclaration,
+    readiedAttack: AttackRollParams,
+    triggerTargetDefense: DefenseParams,
+    triggeringAttack?: { attackerParams: AttackRollParams; interceptorDefense: DefenseParams }
+  ): ReadyReactionResult {
+    return resolveReadyReaction(ready, readiedAttack, triggerTargetDefense, triggeringAttack);
+  }
+
+  /**
+   * Migrates a legacy v4.9 foe into a v5.0 card + resolve stack (bosses keep HP & Composure).
+   */
+  public buildFoeStack = createFoeStack;
+  public migrateFoeToStack = migrateFoeToStack;
+
+  /**
+   * Applies a hit or Resolve event to a v5.0 foe stack without rolling Shocks.
+   */
+  public applyHitToFoe(foe: FoeStackState, tier: BrutalInjuryTier, aimedCardName?: string) {
+    return applyHitToFoe(foe, tier, aimedCardName ? { aimedCardName } : {});
+  }
+
+  public resolveAimedAttackOnFoe(
+    attacker: AttackRollParams,
+    defender: DefenseParams,
+    foe: FoeStackState,
+    aimedCardName: string
+  ) {
+    return resolveAimedAttackOnFoe(attacker, defender, foe, aimedCardName);
+  }
+
+  public applyFoeResolveLoss(
+    foe: FoeStackState,
+    reason: FoeResolveLossReason,
+    options?: { composureTier?: BrutalInjuryTier | undefined; squad?: FoeStackState[] | undefined }
+  ) {
+    return applyFoeResolveLoss(foe, reason, options);
   }
 
   /**

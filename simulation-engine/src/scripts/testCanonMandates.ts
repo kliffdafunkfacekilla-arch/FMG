@@ -233,7 +233,7 @@ async function runCanonMandateTests() {
   // Calls BrutalGM's real resolution function.
   // -------------------------------------------------------------
   try {
-    process.stdout.write("Test 6: B.R.U.T.A.L. v4.9 Math & Guard Examples (BrutalGM resolution)... ");
+    process.stdout.write("Test 6: B.R.U.T.A.L. v5.0 Math & Guard Examples (BrutalGM resolution)... ");
     const brutalGM = new BrutalGameMaster(pool, "");
 
     // 1. Worked Example: Minor Injury vs Guard

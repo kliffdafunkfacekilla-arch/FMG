@@ -102,16 +102,18 @@ export const RulesLabTab: React.FC = () => {
   // Roll Clash
   const rollClash = async () => {
     try {
+      const bestEntry = Object.entries(attr).reduce((best, cur) => (cur[1] > best[1] ? cur : best));
       const res = await fetch('/api/rules/clash', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           attackerStance: atkTactic,
-          attackerStatKey: atkStanceStat,
-          attackerStatVal: (attr as any)[atkStanceStat] || 5,
+          attackerStatKey: bestEntry[0],
+          attackerStatVal: bestEntry[1],
+          attackerStats: attr,
           defenderStance: defTactic,
           defenderStatKey: defStanceStat,
-          defenderStatVal: (attr as any)[defStanceStat] || 4
+          defenderStatVal: (attr as any)[defStanceStat] || 5
         })
       });
       const data = await res.json();
@@ -128,7 +130,7 @@ export const RulesLabTab: React.FC = () => {
         <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8, padding: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <h3 style={{ margin: 0, fontSize: 16, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span>📜</span> B.R.U.T.A.L. (v4.9) Attributes & Pools
+              <span>📜</span> B.R.U.T.A.L. (v5.0) Attributes & Pools
             </h3>
             <span style={{ fontSize: 10, color: '#94a3b8', background: '#1e293b', padding: '3px 8px', borderRadius: 4 }}>
               Core Die: 1d12
@@ -343,7 +345,7 @@ export const RulesLabTab: React.FC = () => {
               </div>
               {combatResult.injuryApplied && (
                 <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid #334155', fontSize: 10, color: '#f87171' }}>
-                  Capacity Lost: -{combatResult.injuryApplied.capacityLost} | Energy Shredded: -{combatResult.injuryApplied.energyShredded} Stamina
+                  Capacity Lost: -{combatResult.injuryApplied.capacityLost} | Energy Owed (paid at Come-Down): {combatResult.injuryApplied.energyOwed ?? combatResult.injuryApplied.energyShredded} Stamina
                 </div>
               )}
             </div>
@@ -356,7 +358,7 @@ export const RulesLabTab: React.FC = () => {
             <span>🛡️</span> The Clash (6 Stances, Margin = 0)
           </h3>
           <p style={{ margin: '0 0 10px 0', fontSize: 10, color: '#94a3b8' }}>
-            Roll d12 + stance stat (no gear). Both pick secretly.
+            Roll d12 + best stat (no gear). Wheel (Press → Trick → Disengage → Hold → Feint → Maneuver) grants Advantage.
           </p>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -364,46 +366,30 @@ export const RulesLabTab: React.FC = () => {
               <div style={{ fontSize: 9, color: '#38bdf8', fontWeight: 700, marginBottom: 3 }}>ATTACKER STANCE</div>
               <select
                 value={atkTactic}
-                onChange={e => {
-                  setAtkTactic(e.target.value);
-                  if (e.target.value === 'PRESS') setAtkStanceStat('might');
-                  if (e.target.value === 'HOLD') setAtkStanceStat('endurance');
-                  if (e.target.value === 'MANEUVER') setAtkStanceStat('reflex');
-                  if (e.target.value === 'TRICK') setAtkStanceStat('finesse');
-                  if (e.target.value === 'FEINT') setAtkStanceStat('fortitude');
-                  if (e.target.value === 'DISENGAGE') setAtkStanceStat('vitality');
-                }}
+                onChange={e => setAtkTactic(e.target.value)}
                 style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid #334155', borderRadius: 4, padding: '4px', fontSize: 11 }}
               >
-                <option value="PRESS">Press (Might / Knowledge)</option>
-                <option value="HOLD">Hold (Endurance / Logic)</option>
-                <option value="MANEUVER">Maneuver (Reflex / Intuition)</option>
-                <option value="TRICK">Trick (Finesse / Awareness)</option>
-                <option value="FEINT">Feint (Fortitude / Willpower)</option>
-                <option value="DISENGAGE">Disengage (Vitality / Charm)</option>
+                <option value="PRESS">Press (beats Trick, Disengage)</option>
+                <option value="TRICK">Trick (beats Disengage, Hold)</option>
+                <option value="DISENGAGE">Disengage (beats Hold, Feint)</option>
+                <option value="HOLD">Hold (beats Feint, Maneuver)</option>
+                <option value="FEINT">Feint (beats Maneuver, Press)</option>
+                <option value="MANEUVER">Maneuver (beats Press, Trick)</option>
               </select>
             </div>
             <div>
               <div style={{ fontSize: 9, color: '#f43f5e', fontWeight: 700, marginBottom: 3 }}>DEFENDER STANCE</div>
               <select
                 value={defTactic}
-                onChange={e => {
-                  setDefTactic(e.target.value);
-                  if (e.target.value === 'PRESS') setDefStanceStat('might');
-                  if (e.target.value === 'HOLD') setDefStanceStat('endurance');
-                  if (e.target.value === 'MANEUVER') setDefStanceStat('reflex');
-                  if (e.target.value === 'TRICK') setDefStanceStat('finesse');
-                  if (e.target.value === 'FEINT') setDefStanceStat('fortitude');
-                  if (e.target.value === 'DISENGAGE') setDefStanceStat('vitality');
-                }}
+                onChange={e => setDefTactic(e.target.value)}
                 style={{ width: '100%', background: '#1e293b', color: '#fff', border: '1px solid #334155', borderRadius: 4, padding: '4px', fontSize: 11 }}
               >
-                <option value="PRESS">Press (Might / Knowledge)</option>
-                <option value="HOLD">Hold (Endurance / Logic)</option>
-                <option value="MANEUVER">Maneuver (Reflex / Intuition)</option>
-                <option value="TRICK">Trick (Finesse / Awareness)</option>
-                <option value="FEINT">Feint (Fortitude / Willpower)</option>
-                <option value="DISENGAGE">Disengage (Vitality / Charm)</option>
+                <option value="PRESS">Press (beats Trick, Disengage)</option>
+                <option value="TRICK">Trick (beats Disengage, Hold)</option>
+                <option value="DISENGAGE">Disengage (beats Hold, Feint)</option>
+                <option value="HOLD">Hold (beats Feint, Maneuver)</option>
+                <option value="FEINT">Feint (beats Maneuver, Press)</option>
+                <option value="MANEUVER">Maneuver (beats Press, Trick)</option>
               </select>
             </div>
           </div>
@@ -412,7 +398,7 @@ export const RulesLabTab: React.FC = () => {
             onClick={rollClash}
             style={{ width: '100%', padding: '6px', background: '#8b5cf6', color: '#fff', fontWeight: 700, border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 11, marginTop: 10 }}
           >
-            Resolve Clash Roll (d12 + Stat)
+            Resolve Clash Roll (d12 + Best Stat)
           </button>
 
           {clashResult && (

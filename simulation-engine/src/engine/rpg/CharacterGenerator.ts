@@ -1,4 +1,9 @@
+/**
+ * OSTRAKA CANONICAL CHARACTER GENERATOR (B.R.U.T.A.L. v5.0)
+ * =========================================================
+ */
 import { getRandomWeaponForStat, getRandomArmorForStat, StatKey } from "./EquipmentRegistry.js";
+import { calculateDoublingFee, DoublingFeeResult } from "../customRulesEngine.js";
 import {
   KINGDOMS,
   LINEAGES,
@@ -82,6 +87,7 @@ export interface CharacterStats {
   equippedArmor: string;
   armorStat: StatKey;
   armorMod: number;
+  doublingFee: DoublingFeeResult;
 }
 
 export interface OstrakaBuildParams {
@@ -190,6 +196,7 @@ export function buildOstrakaCustomCharacter(params: OstrakaBuildParams = {}): Ch
   let trackDescName = 'Mass Track';
   let primaryTrackId = 'track_might';
   const trackTraits: Array<{ name: string; desc: string }> = [];
+  const pathStats: StatKey[] = [];
 
   if (params.dualTrackMode) {
     const t1 = (params.trackId && POWER_NULL_TRACKS.find(t => t.id === params.trackId))
@@ -198,6 +205,7 @@ export function buildOstrakaCustomCharacter(params: OstrakaBuildParams = {}): Ch
       || POWER_NULL_TRACKS.find(t => t.id !== t1.id)!;
     baseMatrix[t1.stat] += 1;
     baseMatrix[t2.stat] += 1;
+    pathStats.push(t1.stat, t2.stat);
     trackDescName = `${t1.name} / ${t2.name}`;
     primaryTrackId = t1.id;
     trackTraits.push(
@@ -208,6 +216,7 @@ export function buildOstrakaCustomCharacter(params: OstrakaBuildParams = {}): Ch
     const track = (params.trackId && POWER_NULL_TRACKS.find(t => t.id === params.trackId))
       || POWER_NULL_TRACKS[Math.floor(Math.random() * POWER_NULL_TRACKS.length)]!;
     baseMatrix[track.stat] += track.bonus;
+    pathStats.push(track.stat);
     trackDescName = track.name;
     primaryTrackId = track.id;
     trackTraits.push(
@@ -300,6 +309,12 @@ export function buildOstrakaCustomCharacter(params: OstrakaBuildParams = {}): Ch
     ? { name: params.equippedArmor, stat: b4, mod: 2 }
     : getRandomArmorForStat(b4);
 
+  const doublingFee = calculateDoublingFee({
+    weapons: [weapon.stat],
+    armor: armor.stat,
+    paths: pathStats
+  });
+
   return {
     ...baseMatrix,
     kingdom,
@@ -331,8 +346,8 @@ export function buildOstrakaCustomCharacter(params: OstrakaBuildParams = {}): Ch
     masteryPerks: perks.map(p => ({ name: p.name, stat: p.stat, level: p.level, desc: p.desc })),
     maxHp: derived.maxHp,
     maxComposure: derived.maxComposure,
-    maxStamina: derived.maxStamina,
-    maxFocus: derived.maxFocus,
+    maxStamina: Math.max(4, derived.maxStamina - doublingFee.staminaFee),
+    maxFocus: Math.max(4, derived.maxFocus - doublingFee.focusFee),
     physDefense: derived.physDefense,
     speed: derived.speed,
     perception: derived.perception,
@@ -342,7 +357,8 @@ export function buildOstrakaCustomCharacter(params: OstrakaBuildParams = {}): Ch
     weaponMod: weapon.mod,
     equippedArmor: armor.name,
     armorStat: armor.stat,
-    armorMod: armor.mod
+    armorMod: armor.mod,
+    doublingFee
   };
 }
 
