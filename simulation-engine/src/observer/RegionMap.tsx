@@ -755,13 +755,13 @@ export function RegionMap({
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11 }}>
               <div style={{ display: "flex", gap: 12 }}>
                 <span style={{ color: "#ef4444", fontWeight: 700 }}>
-                  Predators: {predatorCount}
+                  Predator Packs: {predatorCount}
                 </span>
                 <span style={{ color: "#22c55e", fontWeight: 700 }}>
-                  Prey: {preyCount}
+                  Prey Herds: {preyCount}
                 </span>
                 <span style={{ color: "#38bdf8", fontWeight: 700 }}>
-                  Civil/Guards: {civilCount}
+                  Patrols & Workers: {civilCount}
                 </span>
               </div>
               <button
@@ -797,7 +797,7 @@ export function RegionMap({
               }}
             >
               <div>
-                <span>Selected Regional Cell: </span>
+                <span>Selected Overland Sector (100×100 Grid → opens 256×256 Tactical Map): </span>
                 <strong style={{ color: "#38bdf8" }}>
                   rx: {selectedLocalCell?.rx ?? 50}, ry: {selectedLocalCell?.ry ?? 50}
                 </strong>

@@ -844,6 +844,28 @@ export class RegionalInstance {
   }
 
   private spawnAgents() {
+    const centerEle = Number(this.globalData.terrain?.elevation) || 50;
+    const bIdNum = Number(this.globalData.terrain?.biome) || 4;
+    const isGlobalWater = centerEle < 20 || [0, 13, 14, 15, 16, 17, 19].includes(bIdNum);
+    if (isGlobalWater) return;
+
+    let rngState = ((this.cellId * 2654435761) ^ 0x9e3779b9) >>> 0;
+    const nextRand = () => {
+      rngState = (Math.imul(rngState, 1664525) + 1013904223) >>> 0;
+      return rngState / 4294967296;
+    };
+
+    const pickLandCoord = () => {
+      let rx = Math.floor(nextRand() * 88) + 6;
+      let ry = Math.floor(nextRand() * 88) + 6;
+      for (let tries = 0; tries < 30; tries++) {
+        if (this.mapData[ry * this.w + rx] !== 3) break;
+        rx = Math.floor(nextRand() * 88) + 6;
+        ry = Math.floor(nextRand() * 88) + 6;
+      }
+      return { rx, ry };
+    };
+
     const bId = String(this.globalData.terrain?.biome || 4);
     const ecologyTable: Record<string, { predators: string[]; prey: string[]; flora: string[] }> = {
       "1": { predators: ["Dune Scythe-Beetle", "Sun-Stalker Vulture"], prey: ["Sand Gazelle", "Spiny Horn-Lizard"], flora: ["Spire Cactus", "Sun-Root"] },
@@ -868,10 +890,8 @@ export class RegionalInstance {
 
     const spawn = (type: string, speciesName: string, category: string, color: string, speedCells: number, count: number, disposition: number) => {
       for (let i = 0; i < count; i++) {
-        const rx = Math.floor(Math.random() * 88) + 6;
-        const ry = Math.floor(Math.random() * 88) + 6;
-        const targetRx = Math.floor(Math.random() * 88) + 6;
-        const targetRy = Math.floor(Math.random() * 88) + 6;
+        const start = pickLandCoord();
+        const target = pickLandCoord();
 
         this.agents.push({
           id: ++this.agentIdCounter,
@@ -881,33 +901,40 @@ export class RegionalInstance {
           color,
           speed: speedCells, // Discrete cells per day/tick
           disposition,
-          rx,
-          ry,
-          targetRx,
-          targetRy,
-          x: rx,
-          y: ry,
-          tx: targetRx,
-          ty: targetRy
+          rx: start.rx,
+          ry: start.ry,
+          targetRx: target.rx,
+          targetRy: target.ry,
+          x: start.rx,
+          y: start.ry,
+          tx: target.rx,
+          ty: target.ry
         });
       }
     };
 
-    // Trophic Fauna: Biome-specific grazing wild game and predators
-    for (const preyName of eco.prey) {
-      spawn("Prey", preyName, "Wild Fauna", "#22c55e", 1, 3, 0);
+    // Trophic Fauna: Overland herds and packs scaled from sim_cells ecology
+    const dbPrey = Number(this.globalData.terrain?.eco_prey ?? 40);
+    const dbPred = Number(this.globalData.terrain?.eco_predators ?? 15);
+    const totalPreyHerds = Math.max(0, Math.min(8, Math.round(dbPrey / 15)));
+    const totalPredPacks = Math.max(0, Math.min(5, Math.round(dbPred / 12)));
+
+    for (let i = 0; i < totalPreyHerds; i++) {
+      const preyName = eco.prey[i % eco.prey.length] || "Wild Game";
+      spawn("Prey", `${preyName} Herd`, "Wild Fauna Herd", "#22c55e", 1, 1, 0);
     }
-    for (const predName of eco.predators) {
-      spawn("Predator", predName, "Apex Predator", "#ef4444", 2, 2, -2);
+    for (let i = 0; i < totalPredPacks; i++) {
+      const predName = eco.predators[i % eco.predators.length] || "Apex Predator";
+      spawn("Predator", `${predName} Pack`, "Apex Predator Pack", "#ef4444", 2, 1, -2);
     }
     
     const burg = this.globalData.burg;
     const faction = this.globalData.factionName || "Frontier Sovereignty";
 
     if (!burg || burg.pop_null === 0) {
-      if (Math.random() < 0.3) spawn("Refugees", "Displaced Wanderers", "Wayfarer", "#94a3b8", 1, 2, 1);
-      if (Math.random() < 0.2) spawn("Hermit", "Frontier Hermit", "Wayfarer", "#d97706", 1, 1, 0);
-      if (Math.random() < 0.3) spawn("Trapper", "Wilderness Trapper", "Hunter", "#854d0e", 1, 2, 0);
+      if (nextRand() < 0.3) spawn("Refugees", "Displaced Wanderers", "Wayfarer", "#94a3b8", 1, 2, 1);
+      if (nextRand() < 0.2) spawn("Hermit", "Frontier Hermit", "Wayfarer", "#d97706", 1, 1, 0);
+      if (nextRand() < 0.3) spawn("Trapper", "Wilderness Trapper", "Hunter", "#854d0e", 1, 2, 0);
     }
 
     const features = this.globalData.features || {};
@@ -924,10 +951,10 @@ export class RegionalInstance {
       spawn("Merchant", "Caravan Master", "Trader", "#f59e0b", 1, 1, 1);
       spawn("DraftBeast", "Caravan Pack-Beast", "Trader", "#d97706", 1, 1, 0);
       spawn("Patrol", `${faction} Vanguard`, "Sovereign Guard", "#3b82f6", 1, 2, 0);
-      if (Math.random() < 0.35) spawn("Pilgrim", "Monastic Wayfarer", "Devotee", "#38bdf8", 1, 2, 1);
-      if (Math.random() < 0.25) spawn("Scholar", "Wandering Naturalist", "Scholar", "#6366f1", 1, 1, 1);
+      if (nextRand() < 0.35) spawn("Pilgrim", "Monastic Wayfarer", "Devotee", "#38bdf8", 1, 2, 1);
+      if (nextRand() < 0.25) spawn("Scholar", "Wandering Naturalist", "Scholar", "#6366f1", 1, 1, 1);
     }
-    if (Math.random() < 0.15) spawn("Anomaly", "Eldritch Rift-Entity", "Anomaly", "#ec4899", 1, 1, -2);
+    if (nextRand() < 0.15) spawn("Anomaly", "Eldritch Rift-Entity", "Anomaly", "#ec4899", 1, 1, -2);
     
     // Cultists guard the POI temple
     if (features.poi) {
@@ -935,8 +962,8 @@ export class RegionalInstance {
       const cx = Math.floor(this.w / 2), cy = Math.floor(this.h / 2);
       this.agents.forEach(a => {
         if (a.type === 'Cultist') {
-          a.rx = Math.max(5, Math.min(95, cx + (Math.floor(Math.random() * 9) - 4)));
-          a.ry = Math.max(5, Math.min(95, cy + (Math.floor(Math.random() * 9) - 4)));
+          a.rx = Math.max(5, Math.min(95, cx + (Math.floor(nextRand() * 9) - 4)));
+          a.ry = Math.max(5, Math.min(95, cy + (Math.floor(nextRand() * 9) - 4)));
           a.x = a.rx; a.y = a.ry;
         }
       });
@@ -960,8 +987,8 @@ export class RegionalInstance {
           if (ag) {
             ag.rx = fac.rx; ag.ry = fac.ry;
             ag.x = fac.rx; ag.y = fac.ry;
-            ag.targetRx = fac.rx + (Math.random() < 0.5 ? 1 : -1);
-            ag.targetRy = fac.ry + (Math.random() < 0.5 ? 1 : -1);
+            ag.targetRx = fac.rx + (nextRand() < 0.5 ? 1 : -1);
+            ag.targetRy = fac.ry + (nextRand() < 0.5 ? 1 : -1);
           }
         } else if (fac.type === "LOGGING_CAMP") {
           spawn("Woodsman", fac.name, "Resource Worker", "#854d0e", 1, 1, 0);

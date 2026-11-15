@@ -2333,18 +2333,33 @@ export function Dashboard() {
               </div>
               {(state?.factions || []).map(f => {
                 const isSelected = f.id === selectedFactionId;
-                const factionBurgs = burgs.filter(b => b.faction_id === f.id);
+                const factionBurgs = burgs.filter(b => (b.occupier_faction_id ?? b.faction_id) === f.id);
+                const sortedFactionBurgs = [...factionBurgs].sort(
+                  (a, b) => (b.urban_tier || 1) - (a.urban_tier || 1) || (b.pop_null || 0) - (a.pop_null || 0)
+                );
                 return (
                   <div
                     key={f.id}
-                    onClick={() => setSelectedFactionId(isSelected ? null : f.id)}
+                    onClick={() => {
+                      if (isSelected) {
+                        setSelectedFactionId(null);
+                      } else {
+                        setSelectedFactionId(f.id);
+                        setViewMode("Political");
+                        const primaryBurg = sortedFactionBurgs[0];
+                        if (primaryBurg) {
+                          setSelectedBurg(primaryBurg);
+                          setFocusedCellId(primaryBurg.cell_id);
+                        }
+                      }
+                    }}
                     style={{
                       padding: "8px 10px",
                       borderRadius: 6,
                       marginBottom: 6,
                       background: isSelected ? "rgba(56, 189, 248, 0.15)" : "#0f172a",
-                      borderLeft: `4px solid ${f.color}`,
                       border: isSelected ? "1px solid #38bdf8" : "1px solid #1e293b",
+                      borderLeft: `4px solid ${f.color}`,
                       cursor: "pointer",
                       transition: "all 0.15s ease"
                     }}
@@ -2357,6 +2372,32 @@ export function Dashboard() {
                       <span>Treasury: <strong style={{ color: "#facc15" }}>{Number(f.treasury ?? 0).toLocaleString()}</strong></span>
                       <span>Aggression: <strong style={{ color: "#f87171" }}>{f.trait_aggression || 5}</strong></span>
                     </div>
+                    {isSelected && sortedFactionBurgs.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6, paddingTop: 6, borderTop: "1px solid #1e293b" }}>
+                        {sortedFactionBurgs.slice(0, 8).map(b => (
+                          <button
+                            key={b.burg_id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setFocusedCellId(b.cell_id);
+                              setSelectedBurg(b);
+                              setShowRegionalWindow(true);
+                            }}
+                            style={{
+                              background: focusedCellId === b.cell_id ? "#0284c7" : "#1e293b",
+                              color: focusedCellId === b.cell_id ? "#fff" : "#cbd5e1",
+                              border: "1px solid #334155",
+                              borderRadius: 4,
+                              padding: "2px 6px",
+                              fontSize: 10,
+                              cursor: "pointer"
+                            }}
+                          >
+                            {b.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}

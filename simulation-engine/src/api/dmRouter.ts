@@ -1110,6 +1110,9 @@ router.get('/sector_layer', async (req, res) => {
     const targetRy = req.query.ry !== undefined ? Number(req.query.ry) : 50;
     const targetZ = req.query.z !== undefined ? Number(req.query.z) : 0;
 
+    const openThreads = (await getOpenThreads(pool, targetCellId))
+      .sort((a, b) => Number(b.rx === targetRx && b.ry === targetRy) - Number(a.rx === targetRx && a.ry === targetRy));
+
     // 1. Try to load layer from sim_sector_layers
     const layerRes = await pool.query(
       `SELECT * FROM sim_sector_layers
@@ -1153,7 +1156,8 @@ router.get('/sector_layer', async (req, res) => {
         grid: Array.from(grid),
         props: row.props || [],
         npcs: row.npcs || [],
-        features: row.features || {}
+        features: row.features || {},
+        openThreads
       });
     }
 
@@ -1288,7 +1292,8 @@ router.get('/sector_layer', async (req, res) => {
         grid: Array.from(chosen.grid),
         props: chosen.props,
         npcs: chosen.npcs,
-        features: chosen.features
+        features: chosen.features,
+        openThreads
       });
     }
 
@@ -1416,7 +1421,8 @@ router.get('/sector_layer', async (req, res) => {
       grid: Array.from(tacticalMap.grid),
       props: tacticalMap.props,
       npcs: tacticalMap.npcs,
-      features: tacticalMap.features
+      features: tacticalMap.features,
+      openThreads
     });
   } catch (e: any) {
     console.error("Sector layer error:", e);

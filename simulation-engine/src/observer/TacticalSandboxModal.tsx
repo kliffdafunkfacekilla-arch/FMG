@@ -38,6 +38,7 @@ interface TacticalLayerData {
   props: PropItem[];
   npcs: NpcItem[];
   features: Record<string, any>;
+  openThreads?: any[];
 }
 
 interface TacticalSandboxModalProps {
@@ -66,11 +67,6 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
   const [actionInput, setActionInput] = useState<string>("Examine surroundings and search for clues");
   const [actionLoading, setActionLoading] = useState<boolean>(false);
   const [actionResult, setActionResult] = useState<any>(null);
-
-  // AI Story Arc & WhatELSE state
-  const [storyLoading, setStoryLoading] = useState<boolean>(false);
-  const [storyArc, setStoryArc] = useState<any>(null);
-  const [mutatedAssets, setMutatedAssets] = useState<any[]>([]);
 
   // Crisis state
   const [crisisLoading, setCrisisLoading] = useState<boolean>(false);
@@ -406,66 +402,6 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
       setActionResult({ error: err.message || "Action arbitration failed" });
     } finally {
       setActionLoading(false);
-    }
-  };
-
-  // AI Story Arc Generation
-  const generateStoryArc = async () => {
-    setStoryLoading(true);
-    setStoryArc(null);
-    try {
-      const res = await fetch('/api/dm/story/generate_arc', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cellId,
-          rx,
-          ry,
-          z: zLayer
-        })
-      });
-      const data = await res.json();
-      setStoryArc(data.arc || data);
-      setMutatedAssets(data.mutationsApplied || []);
-      // Reload layer to see injected tags / props
-      await loadLayer(zLayer);
-    } catch (err: any) {
-      setStoryArc({ error: err.message || "Story Arc generation failed" });
-    } finally {
-      setStoryLoading(false);
-    }
-  };
-
-  // Synthesize WhatELSE Relic Beat
-  const synthesizeWhatElse = async () => {
-    setStoryLoading(true);
-    try {
-      const res = await fetch('/api/dm/sector_load', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cellId,
-          rx,
-          ry,
-          diurnalPhase: "MORNING"
-        })
-      });
-      const data = await res.json();
-      setStoryArc({
-        title: data.whatElse?.title || "Emergent Relic Discovery",
-        synopsis: data.whatElse?.narrativeSummary || "A forgotten sign of ancient aether-tech whispers beneath the stones.",
-        phases: [
-          { phaseNumber: 1, objective: "Investigate local ruins for energy resonance" },
-          { phaseNumber: 2, objective: "Decipher the sigil lock without setting off a surge" },
-          { phaseNumber: 3, objective: "Recover relic before outlaws converge" }
-        ],
-        rewards: { xp: 45, gold: 80 }
-      });
-      await loadLayer(zLayer);
-    } catch (err: any) {
-      setStoryArc({ error: err.message || "WhatELSE generation failed" });
-    } finally {
-      setStoryLoading(false);
     }
   };
 
@@ -873,107 +809,74 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
             overflowY: 'auto',
             background: '#090e1a'
           }}>
-            {/* Section 1: AI Story Generator (Pillar 4) */}
+            {/* Section 1: Active Sector Trouble (sim_threads) */}
             <div style={{
               background: '#0f172a',
               border: '1px solid #1e293b',
               borderRadius: 8,
               padding: 14
             }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#a855f7' }}>
-                    ✨ Pillar 4: AI Story Generator & Emergent Quests
-                  </h3>
-                  <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                    Generates dynamic story arcs and anchors clues/dungeons into this sector's physical props
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button
-                    onClick={generateStoryArc}
-                    disabled={storyLoading}
-                    style={{
-                      background: '#7c3aed',
-                      color: '#fff',
-                      border: 'none',
-                      padding: '6px 12px',
-                      borderRadius: 4,
-                      fontSize: 11,
-                      fontWeight: 700,
-                      cursor: 'pointer'
-                    }}
-                  >
-                    {storyLoading ? '⏳ Generating...' : '⚡ Generate Story Arc'}
-                  </button>
-                  <button
-                    onClick={synthesizeWhatElse}
-                    disabled={storyLoading}
-                    style={{
-                      background: '#0284c7',
-                      color: '#fff',
-                      border: 'none',
-                      padding: '6px 12px',
-                      borderRadius: 4,
-                      fontSize: 11,
-                      fontWeight: 700,
-                      cursor: 'pointer'
-                    }}
-                  >
-                    ✨ Synthesize WhatELSE Beat
-                  </button>
+              <div style={{ marginBottom: 10 }}>
+                <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#a855f7' }}>
+                  📜 Active Sector Trouble (sim_threads)
+                </h3>
+                <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                  Live trouble threads grown from world ticks in Cell #{cellId}
                 </div>
               </div>
 
-              {storyArc && (
+              {(layerData?.openThreads || []).length === 0 ? (
                 <div style={{
                   background: '#030712',
-                  border: '1px solid #6b21a8',
+                  border: '1px solid #1e293b',
                   borderRadius: 6,
-                  padding: 12,
-                  fontSize: 12
+                  padding: 10,
+                  fontSize: 11,
+                  color: '#64748b'
                 }}>
-                  <div style={{ fontWeight: 800, color: '#c084fc', fontSize: 14 }}>
-                    {storyArc.title}
-                  </div>
-                  <div style={{ color: '#cbd5e1', marginTop: 4, lineHeight: 1.4 }}>
-                    {storyArc.synopsis}
-                  </div>
-
-                  {storyArc.phases && storyArc.phases.length > 0 && (
-                    <div style={{ marginTop: 8 }}>
-                      <span style={{ fontWeight: 700, color: '#93c5fd' }}>Quest Objectives:</span>
-                      <ol style={{ margin: '4px 0 0 16px', padding: 0, color: '#94a3b8' }}>
-                        {storyArc.phases.map((p: any, idx: number) => (
-                          <li key={idx} style={{ marginTop: 2 }}>
-                            {p.objective || p.name || `Phase ${idx + 1}`}
-                          </li>
-                        ))}
-                      </ol>
-                    </div>
-                  )}
-
-                  {mutatedAssets.length > 0 && (
-                    <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid #1e293b' }}>
-                      <span style={{ fontWeight: 700, color: '#38bdf8' }}>Anchored Physical Mutations:</span>
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
-                        {mutatedAssets.map((m: any, idx: number) => (
-                          <span
-                            key={idx}
-                            style={{
-                              background: '#1e293b',
-                              color: '#a5f3fc',
-                              fontSize: 10,
-                              padding: '2px 6px',
-                              borderRadius: 3
-                            }}
-                          >
-                            {m.type === 'PROP' ? '📦' : '👤'} {m.id} (Tags: {(m.addedTags || []).join(', ')})
+                  No open trouble threads in this cell right now. Advance world ticks to let trouble grow from local conditions.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {(layerData?.openThreads || []).map((thread: any) => (
+                    <div
+                      key={thread.id}
+                      style={{
+                        background: '#030712',
+                        border: thread.state === 'escalated' ? '1px solid #dc2626' : '1px solid #6b21a8',
+                        borderRadius: 6,
+                        padding: 10,
+                        fontSize: 12
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontWeight: 800, color: '#c084fc', fontSize: 13 }}>
+                          {thread.question}
+                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, fontSize: 10 }}>
+                          <span style={{
+                            background: thread.state === 'escalated' ? '#7f1d1d' : '#3b0764',
+                            color: thread.state === 'escalated' ? '#fecaca' : '#e9d5ff',
+                            padding: '2px 6px',
+                            borderRadius: 4,
+                            fontWeight: 700,
+                            textTransform: 'uppercase'
+                          }}>
+                            {thread.state}
                           </span>
-                        ))}
+                          <span style={{ color: '#94a3b8' }}>
+                            Clock: <strong style={{ color: '#facc15' }}>{thread.clock}/{thread.clock_max}</strong>
+                          </span>
+                          <span style={{ color: '#64748b' }}>
+                            (rx: {thread.rx}, ry: {thread.ry})
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ color: '#cbd5e1', marginTop: 4, fontSize: 11, lineHeight: 1.4 }}>
+                        {thread.stakes}
                       </div>
                     </div>
-                  )}
+                  ))}
                 </div>
               )}
             </div>
