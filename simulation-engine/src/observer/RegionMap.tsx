@@ -1,6 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { TacticalSandboxModal } from "./TacticalSandboxModal";
-import { RegionalTileSprite, PortraitSprite } from "./spriteAtlas";
+import {
+  RegionalTileSprite,
+  PortraitSprite,
+  useSpriteSheetImages,
+  renderRegionalTileMapOnCanvas,
+  drawRegionalPoiOnCanvas
+} from "./spriteAtlas";
 
 export interface BiomePalette {
   name: string;
@@ -166,6 +172,7 @@ export function RegionMap({
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const terrainCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const spriteReady = useSpriteSheetImages();
 
   // 1. Initial fetch of full 10,000-cell terrain + metadata
   const fetchFullRegion = useCallback(async (id: number) => {
@@ -176,49 +183,36 @@ export function RegionMap({
       const data: RegionLiveState = await res.json();
       setRegionData(data);
       setAgents(data.agents || []);
-
-      // Pre-render terrain layer into offscreen canvas using authentic biome colors
-      const offscreen = document.createElement("canvas");
-      offscreen.width = data.width || 100;
-      offscreen.height = data.height || 100;
-      const offCtx = offscreen.getContext("2d");
-      if (offCtx && data.mapData) {
-        const imgData = offCtx.createImageData(data.width, data.height);
-        const map = data.mapData;
-        const infra = data.infraMap || [];
-        const biomeMap = data.biomeMap || [];
-        const defaultBiomeId = data.biomeId ?? 4;
-
-        for (let i = 0; i < map.length; i++) {
-          const t = map[i] || 0;
-          const inf = infra[i] || 0;
-          const cellBiome = (biomeMap[i] !== undefined ? biomeMap[i] : defaultBiomeId) ?? 4;
-          let hex = getTerrainColor(t, cellBiome);
-
-          if (inf === 128) hex = "#334155"; // Battlefield
-          else if (inf === 64) hex = "#64748b"; // Refugee camp
-          else if (inf === 32) hex = "#0284c7"; // River waterway
-          else if (inf === 8) hex = "#7e22ce"; // Main Temple
-
-          const r = parseInt(hex.slice(1, 3), 16);
-          const g = parseInt(hex.slice(3, 5), 16);
-          const b = parseInt(hex.slice(5, 7), 16);
-
-          const pixelIdx = i * 4;
-          imgData.data[pixelIdx] = r;
-          imgData.data[pixelIdx + 1] = g;
-          imgData.data[pixelIdx + 2] = b;
-          imgData.data[pixelIdx + 3] = 255;
-        }
-        offCtx.putImageData(imgData, 0, 0);
-        terrainCanvasRef.current = offscreen;
-      }
     } catch (e) {
       console.error("Error fetching regional instance:", e);
     } finally {
       setLoading(false);
     }
   }, []);
+
+  // Pre-render 380x380 terrain layer using orthographic terrain map tiles when regionData or sprite sheets load
+  useEffect(() => {
+    if (!regionData || !regionData.mapData) return;
+    const offscreen = document.createElement("canvas");
+    offscreen.width = 380;
+    offscreen.height = 380;
+    const offCtx = offscreen.getContext("2d");
+    if (!offCtx) return;
+
+    renderRegionalTileMapOnCanvas(
+      offCtx,
+      380,
+      380,
+      regionData.width || 100,
+      regionData.height || 100,
+      regionData.mapData,
+      regionData.infraMap || [],
+      regionData.biomeMap || [],
+      regionData.biomeId ?? 4,
+      getTerrainColor
+    );
+    terrainCanvasRef.current = offscreen;
+  }, [regionData, spriteReady]);
 
   useEffect(() => {
     fetchFullRegion(cellId);
@@ -265,7 +259,19 @@ export function RegionMap({
     const cellW = canvas.width / 100;
     const cellH = canvas.height / 100;
 
-    // Render authentic demographic facilities (12:1 worker units)
+    // Render Burg tile & authentic demographic facilities using Regional Map POI tiles
+    if (regionData.burg) {
+      drawRegionalPoiOnCanvas(
+        ctx,
+        "BURG",
+        50.5 * cellW,
+        50.5 * cellH,
+        24,
+        "#38bdf8",
+        !!(selectedLocalCell && selectedLocalCell.rx === 50 && selectedLocalCell.ry === 50)
+      );
+    }
+
     if (regionData.facilities) {
       for (const fac of regionData.facilities) {
         const fcx = (fac.rx + 0.5) * cellW;
@@ -276,25 +282,11 @@ export function RegionMap({
         else if (fac.type === "MINE") badgeColor = "#94a3b8"; // Slate
         else if (fac.type === "WATCHTOWER") badgeColor = "#3b82f6"; // Blue
 
-        // Facility Marker
-        ctx.beginPath();
-        ctx.arc(fcx, fcy, 4.5, 0, Math.PI * 2);
-        ctx.fillStyle = badgeColor;
-        ctx.fill();
-        ctx.strokeStyle = "#000";
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        // Pulsing glow if hovered or selected
         const isHovered = hoveredPos && Math.abs(hoveredPos.rx - fac.rx) <= 1 && Math.abs(hoveredPos.ry - fac.ry) <= 1;
         const isSelected = selectedLocalCell && selectedLocalCell.rx === fac.rx && selectedLocalCell.ry === fac.ry;
-        if (isHovered || isSelected) {
-          ctx.strokeStyle = "#ffffff";
-          ctx.lineWidth = 1.5;
-          ctx.beginPath();
-          ctx.arc(fcx, fcy, 6.5, 0, Math.PI * 2);
-          ctx.stroke();
-        }
+        const isHighlighted = !!(isHovered || isSelected);
+
+        drawRegionalPoiOnCanvas(ctx, fac.type, fcx, fcy, isHighlighted ? 22 : 18, badgeColor, isHighlighted);
       }
     }
 
@@ -357,7 +349,7 @@ export function RegionMap({
         }
       }
     }
-  }, [regionData, agents, selectedLocalCell, hoveredPos, showAgents]);
+  }, [regionData, agents, selectedLocalCell, hoveredPos, showAgents, spriteReady]);
 
   const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;

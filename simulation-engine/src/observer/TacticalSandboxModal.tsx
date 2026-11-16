@@ -4,6 +4,7 @@ import {
   EquipmentSprite,
   PropSprite,
   useSpriteSheetImages,
+  renderTacticalTileMapOnCanvas,
   drawPropSpriteOnCanvas,
   drawPortraitTokenOnCanvas
 } from './spriteAtlas';
@@ -179,7 +180,7 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
     loadLayer(zLayer);
   }, [cellId, rx, ry, zLayer]);
 
-  // Render 256x256 tactical map onto canvas
+  // Render 256x256 tactical map onto 512x512 canvas using real terrain tile textures
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !layerData || !layerData.grid || layerData.grid.length === 0) return;
@@ -187,11 +188,10 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const SIZE = 256;
-    const imgData = ctx.createImageData(SIZE, SIZE);
-    const data = imgData.data;
+    const SCALE = 2;
+    const CANVAS_SIZE = 512;
 
-    // Palette mapping
+    // Palette mapping (used as fallback & z-layer tint over real tile textures)
     const getTileColor = (tile: number, z: number): [number, number, number] => {
       if (z === -1) {
         // Subterranean sewer / dungeon / cavern palette
@@ -255,41 +255,20 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
       }
     };
 
-    // Per-pixel texture: a fixed hash per pixel shades each tile a little lighter or darker, and canopy
-    // and water get a coarser mottle, so ground reads as ground instead of flat fills.
-    const isCanopy = (t: number) => t === 1 || t === 15 || t === 20 || t === 23;
-    const isWater = (t: number) => t === 2 || t === 21 || t === 17;
-    for (let i = 0; i < SIZE * SIZE; i++) {
-      const tile = layerData.grid[i] || 0;
-      const [r, g, b] = getTileColor(tile, layerData.z);
-      const x = i % SIZE, y = (i / SIZE) | 0;
-      let h = (x * 374761393 + y * 668265263) ^ 0x5bd1e995;
-      h = Math.imul(h ^ (h >>> 13), 1274126177);
-      const fine = (((h >>> 16) & 255) / 255 - 0.5) * 0.14;
-      const coarseSeed = Math.imul(((x >> 2) * 73856093) ^ ((y >> 2) * 19349663), 83492791);
-      const coarse = isCanopy(tile) || isWater(tile) ? ((((coarseSeed >>> 16) & 255) / 255) - 0.5) * 0.18 : 0;
-      const k = 1 + fine + coarse;
-      const idx = i * 4;
-      data[idx] = Math.max(0, Math.min(255, r * k));
-      data[idx + 1] = Math.max(0, Math.min(255, g * k));
-      data[idx + 2] = Math.max(0, Math.min(255, b * k));
-      data[idx + 3] = 255;
-    }
+    renderTacticalTileMapOnCanvas(ctx, CANVAS_SIZE, CANVAS_SIZE, layerData.grid, layerData.z, getTileColor);
 
-    ctx.putImageData(imgData, 0, 0);
-
-    // Draw Props as sprites from the top-down ground/icon atlas
+    // Draw Props as isolated object sprites
     for (const prop of layerData.props || []) {
-      const px = prop.pos ? prop.pos[0] : 128;
-      const py = prop.pos ? prop.pos[1] : 128;
+      const px = (prop.pos ? prop.pos[0] : 128) * SCALE;
+      const py = (prop.pos ? prop.pos[1] : 128) * SCALE;
       const isSelected = selectedProp?.id === prop.id;
-      drawPropSpriteOnCanvas(ctx, prop, px, py, isSelected ? 12 : 9, isSelected);
+      drawPropSpriteOnCanvas(ctx, prop, px, py, isSelected ? 22 : 16, isSelected);
     }
 
     // Draw NPCs as circular portrait tokens
     for (const npc of layerData.npcs || []) {
-      const nx = npc.pos ? npc.pos[0] : 128;
-      const ny = npc.pos ? npc.pos[1] : 128;
+      const nx = (npc.pos ? npc.pos[0] : 128) * SCALE;
+      const ny = (npc.pos ? npc.pos[1] : 128) * SCALE;
       const isSelected = selectedNpc?.id === npc.id;
       const fallbackFill =
         npc.role?.toLowerCase().includes("guard") || npc.role?.toLowerCase().includes("commander")
@@ -304,7 +283,7 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
         { id: npc.id, name: npc.name, species: npc.species, role: npc.role },
         nx,
         ny,
-        isSelected ? 7.5 : 5.5,
+        isSelected ? 13 : 10,
         fallbackFill,
         isSelected ? "#facc15" : "#ffffff",
         isSelected
@@ -315,14 +294,14 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
     if (partySession && partySession.members) {
       for (let i = 0; i < partySession.members.length; i++) {
         const m = partySession.members[i];
-        const mx = m.pos ? m.pos[0] : 128;
-        const my = m.pos ? m.pos[1] : 128;
+        const mx = (m.pos ? m.pos[0] : 128) * SCALE;
+        const my = (m.pos ? m.pos[1] : 128) * SCALE;
         const isCurrentTurn = partySession.turnIndex === i;
 
         // Outer glow on active turn
         if (isCurrentTurn) {
           ctx.beginPath();
-          ctx.arc(mx, my, 10, 0, Math.PI * 2);
+          ctx.arc(mx, my, 19, 0, Math.PI * 2);
           ctx.fillStyle = "rgba(250, 204, 21, 0.35)";
           ctx.fill();
         }
@@ -332,7 +311,7 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
           { id: m.id, name: m.name, species: m.species, role: m.role },
           mx,
           my,
-          isCurrentTurn ? 8 : 6,
+          isCurrentTurn ? 15 : 12,
           m.color || "#f59e0b",
           isCurrentTurn ? "#facc15" : "#ffffff",
           isCurrentTurn,
@@ -711,8 +690,8 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
               )}
               <canvas
                 ref={canvasRef}
-                width={256}
-                height={256}
+                width={512}
+                height={512}
                 onClick={handleCanvasClick}
                 style={{
                   width: 512,
