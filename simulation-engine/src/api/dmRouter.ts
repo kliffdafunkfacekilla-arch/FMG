@@ -2439,6 +2439,7 @@ export interface PartySessionState {
     action: string;
     rollOutcome: any;
     narrative: string;
+    npcDialogue?: string | null;
     success: boolean;
     threadResolution?: any;
   }>;
@@ -2554,54 +2555,65 @@ let livePartySessionState: PartySessionState = {
 // Helper: Query Ollama with fallback
 async function fetchOllamaPlayerIntent(
   member: PartySessionMember,
-  sceneProps: Array<{ id: string; name: string; hp: number; maxHp: number; tags: string[]; description?: string | undefined }>,
-  sceneNPCs: Array<{ id: string; name: string; role: string; disposition: number; weapon?: string | undefined; tags: string[] }>,
+  sceneProps: Array<{ id: string; name: string; hp: number; maxHp: number; tags: string[]; description?: string | undefined; pos?: [number, number] | undefined }>,
+  sceneNPCs: Array<{ id: string; name: string; role: string; disposition: number; weapon?: string | undefined; tags: string[]; pos?: [number, number] | undefined }>,
   tacticalSight: string,
   activeTrouble: string,
   currentObjective: string,
   recentChronicle: string[]
 ): Promise<{ dialogue: string; action: string }> {
-  const propsSummary = sceneProps.length > 0 
-    ? sceneProps.map(p => `- "${p.name}" (HP: ${p.hp}/${p.maxHp}, Tags: ${p.tags.join(', ')})`).join('\n')
+  const recentJoined = recentChronicle.join(" ").toLowerCase();
+  const distSq = (pos?: [number, number]) => pos ? (pos[0] - member.pos[0]) ** 2 + (pos[1] - member.pos[1]) ** 2 : 999999;
+
+  const prioritizedProps = [...sceneProps]
+    .sort((a, b) => {
+      const aMentioned = recentJoined.includes(a.name.toLowerCase()) ? 0 : 1;
+      const bMentioned = recentJoined.includes(b.name.toLowerCase()) ? 0 : 1;
+      return aMentioned !== bMentioned ? aMentioned - bMentioned : distSq(a.pos) - distSq(b.pos);
+    })
+    .slice(0, 6);
+
+  const prioritizedNPCs = [...sceneNPCs]
+    .sort((a, b) => {
+      const aMentioned = recentJoined.includes(a.name.toLowerCase()) ? 0 : 1;
+      const bMentioned = recentJoined.includes(b.name.toLowerCase()) ? 0 : 1;
+      return aMentioned !== bMentioned ? aMentioned - bMentioned : distSq(a.pos) - distSq(b.pos);
+    })
+    .slice(0, 6);
+
+  const propsSummary = prioritizedProps.length > 0 
+    ? prioritizedProps.map(p => `- "${p.name}" (HP: ${p.hp}/${p.maxHp}, Tags: ${p.tags.join(', ')})`).join('\n')
     : "- Open environment (no special props)";
 
-  const npcsSummary = sceneNPCs.length > 0
-    ? sceneNPCs.map(n => `- "${n.name}" (${n.role}, Armed with: ${n.weapon || 'unarmed'}, Disposition: ${n.disposition >= 0 ? 'Receptive' : 'Hostile/Guarded'})`).join('\n')
+  const npcsSummary = prioritizedNPCs.length > 0
+    ? prioritizedNPCs.map(n => `- "${n.name}" (${n.role}, Armed with: ${n.weapon || 'unarmed'}, Disposition: ${n.disposition >= 0 ? 'Receptive' : 'Hostile/Guarded'})`).join('\n')
     : "- No other persons present";
 
-  const prompt = `You are playing ${member.name}, a ${member.species} ${member.role} in a tabletop RPG called B.R.U.T.A.L. set in Ostraka (The Shatterlands).
+  const prompt = `You are playing ${member.name}, a ${member.species} ${member.role} in B.R.U.T.A.L. (Ostraka, The Shatterlands).
 Persona: ${member.persona}
 Tactical Focus: ${member.tacticalGoal}
 Equipped Weapon: ${member.weapon} (${member.weaponStat.toUpperCase()})
-Equipped Armor: ${member.armor}
 
-ACTIVE WORLD TROUBLE & SITUATION:
-${activeTrouble || "Civic tension and resource disputes in the district."}
-Current Party Lead / Clue: ${currentObjective || "Investigate the sector and secure an advantage."}
-
-TACTICAL SIGHT & SENSORY ENVIRONMENT:
-${tacticalSight}
-
-VISIBLE PROPS IN SECTOR:
-${propsSummary}
-
-VISIBLE CITIZENS & NPCS IN SECTOR:
-${npcsSummary}
-
-RECENT PARTY ACTIONS & CHRONICLE:
+RECENT PARTY ACTIONS, NPC REPLIES & GM OUTCOMES (CONTINUITY IS PRIORITY #1):
 ${recentChronicle.length > 0 ? recentChronicle.slice(-4).join('\n') : "The party just arrived at this sector."}
 
-STRICT PROACTIVE MANDATE, CONTINUITY & COHERENCE:
-1. REACT TO THE LATEST TURN: Read RECENT PARTY ACTIONS & GM NARRATIVE carefully. Your spoken Dialogue AND declared Action must directly follow up on what your allies just said/did and what the GM/NPC just replied!
-2. DIALOGUE AND ACTION MUST MATCH: Your Dialogue must express the exact intent of your Action (do NOT speak calmly/negotiate while swinging a weapon, and do NOT threaten violence while calmly picking a lock).
-3. DO NOT repeat or copy any dialogue or action from RECENT PARTY ACTIONS, and do NOT take passive observation turns ("I survey the area").
-4. Target an actual visible prop or citizen by name (e.g. ${sceneProps[0]?.name ? `"${sceneProps[0].name}"` : 'the sector features'} or ${sceneNPCs[0]?.name ? `"${sceneNPCs[0].name}"` : 'the local citizens'}) with an active physical, social, or mechanical verb matching your role.
-5. Speak in your authentic persona (${member.persona}).
+ACTIVE WORLD TROUBLE: ${activeTrouble || "Civic tension and resource disputes in the district."}
+CURRENT OBJECTIVE: ${currentObjective || "Investigate the sector and secure an advantage."}
 
-YOUR TURN:
-Give:
-1) One short spoken line of in-character dialogue.
-2) One clear declared action describing what you do in natural language (e.g. "I question ${sceneNPCs[0]?.name || 'the sentry'} about the contraband search", "I examine the mechanism of ${sceneProps[0]?.name || 'the lock'} using my finesse", "I overturn the table to block the garrison's line of sight").
+TACTICAL SIGHT:
+${tacticalSight}
+
+NEARBY NPCS (prioritized):
+${npcsSummary}
+
+NEARBY PROPS (prioritized):
+${propsSummary}
+
+STRICT RULES:
+1. CONTINUE THE ACTIVE SCENE: If an ally just spoke to or confronted an NPC (or inspected a prop) in RECENT PARTY ACTIONS, stay in that interaction—back up your ally, question/pressure that same NPC, or follow up on the clue they just uncovered instead of wandering off to an unrelated building.
+2. DIALOGUE AND ACTION MUST MATCH: Your spoken Dialogue must express the exact same intent as your Action.
+3. NO DUPLICATES OR PASSIVE TURNS: Do not repeat any line or action from RECENT PARTY ACTIONS, and never take passive turns ("I survey the area").
+4. NAME A REAL TARGET: Target one of the NEARBY NPCS or NEARBY PROPS above by exact name.
 
 Output format EXACTLY:
 Dialogue: "your spoken words"
@@ -2869,7 +2881,8 @@ router.post('/party_session/step', async (req, res) => {
       hp: p.hp,
       maxHp: p.maxHp,
       tags: Array.from(p.tags),
-      description: p.description
+      description: p.description,
+      pos: p.pos
     }));
 
     const activeNPCsList = Array.from(brutalGM.activeNPCs.values()).map(n => ({
@@ -2878,12 +2891,14 @@ router.post('/party_session/step', async (req, res) => {
       role: n.role,
       disposition: n.disposition,
       weapon: n.equippedWeapon,
-      tags: n.tags || []
+      tags: n.tags || [],
+      pos: n.pos
     }));
 
     const recentChronicle = livePartySessionState.history.slice(-4).map(h => {
       const gmSnippet = String(h.narrative || "").replace(/\s+/g, " ").trim().slice(0, 220);
-      return `[Round ${h.round}] ${h.characterName} said: "${h.dialogue}" | Action: ${h.action} (${h.success ? "Success" : "Failed"}) | GM Outcome: ${gmSnippet}`;
+      const npcReply = h.npcDialogue ? ` | NPC Reply: ${String(h.npcDialogue).replace(/\s+/g, " ").trim().slice(0, 160)}` : "";
+      return `[Round ${h.round}] ${h.characterName} said: "${h.dialogue}" | Action: ${h.action} (${h.success ? "Success" : "Failed"})${npcReply} | GM Outcome: ${gmSnippet}`;
     });
 
     // 2. Query Ollama for player dialogue and declared action
@@ -3045,15 +3060,18 @@ router.post('/party_session/step', async (req, res) => {
       }
     }
 
-    // Nudge character position closer to their target if moving/attacking
-    if (declaredAction.toLowerCase().includes("gate")) {
-      currentMember.pos = [126, 130];
-    } else if (declaredAction.toLowerCase().includes("crate")) {
-      currentMember.pos = [133, 134];
-    } else if (declaredAction.toLowerCase().includes("fletcher")) {
-      currentMember.pos = [128, 129];
-    } else if (declaredAction.toLowerCase().includes("winch")) {
-      currentMember.pos = [123, 127];
+    // Step character position toward their resolved target entity
+    const targetId = gmResult.intent?.targetId;
+    const targetEntity = targetId
+      ? (brutalGM.activeNPCs.get(targetId) || brutalGM.activeProps.get(targetId))
+      : undefined;
+    if (targetEntity?.pos) {
+      const dx = Math.sign(targetEntity.pos[0] - currentMember.pos[0]);
+      const dy = Math.sign(targetEntity.pos[1] - currentMember.pos[1]);
+      currentMember.pos = [
+        Math.max(0, Math.min(255, currentMember.pos[0] + dx * 2)),
+        Math.max(0, Math.min(255, currentMember.pos[1] + dy * 2))
+      ];
     }
 
     // Record turn in history
@@ -3064,6 +3082,7 @@ router.post('/party_session/step', async (req, res) => {
       dialogue: declaredDialogue,
       action: declaredAction,
       rollOutcome: gmResult.rollOutcome,
+      npcDialogue: gmResult.dialogue || null,
       narrative: gmResult.narrativeResponse,
       success: gmResult.success,
       threadResolution: threadResolutionResult

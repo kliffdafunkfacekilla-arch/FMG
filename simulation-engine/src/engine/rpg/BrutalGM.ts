@@ -1081,11 +1081,37 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
         const category: ActionCategory = parsed.category || "CREATIVE_CHECK";
         const isCombat = category === "COMBAT";
         const verb = (parsed.verb || "CUSTOM_CHECK").toUpperCase();
+
+        // Deterministically verify targetId against entities explicitly named in actionText
+        const lowerText = text.toLowerCase();
+        const textTokens = new Set(lowerText.split(/[^a-z0-9']+/).filter(w => w.length >= 3));
+        const allEntities: Array<{ id: string; name: string }> = [
+          ...Array.from(this.activeNPCs.values()).map(n => ({ id: n.id, name: n.name })),
+          ...Array.from(this.activeProps.values()).map(p => ({ id: p.id, name: p.name }))
+        ];
+        let bestMatch: { id: string; name: string; score: number } | null = null;
+        for (const ent of allEntities) {
+          const entLower = ent.name.toLowerCase();
+          if (lowerText.includes(entLower)) {
+            const score = entLower.length + 100;
+            if (!bestMatch || score > bestMatch.score) bestMatch = { ...ent, score };
+            continue;
+          }
+          const entTokens = entLower.split(/[^a-z0-9']+/).filter(w => w.length >= 3);
+          const overlap = entTokens.filter(t => textTokens.has(t)).length;
+          if (overlap >= 2) {
+            const score = overlap * 10 - Math.abs(entTokens.length - overlap);
+            if (!bestMatch || score > bestMatch.score) bestMatch = { ...ent, score };
+          }
+        }
+
+        const resolvedTargetId = bestMatch ? bestMatch.id : (parsed.targetId || "");
+        const resolvedTargetName = bestMatch ? bestMatch.name : (parsed.targetName || "Surroundings");
         return {
           category,
           verb,
-          targetId: parsed.targetId || "",
-          targetName: parsed.targetName || "Surroundings",
+          targetId: resolvedTargetId,
+          targetName: resolvedTargetName,
           statUsed: parsed.statUsed || "intuition",
           isCombat
         };
@@ -2805,16 +2831,28 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
       }
     } catch (err) {}
 
-        const scenePropsStr = Array.from(this.activeProps.values())
-      .map(p => `- ${p.name} (HP: ${p.hp}/${p.maxHp}${p.tags.has("locked") ? ", Locked" : ""}${p.tags.has("opened") ? ", Opened" : ""}): ${p.description || "Physical object"}`)
+    const pPos = input.playerPos || [128, 128];
+    const distSq = (pos?: [number, number]) => {
+      if (!pos) return 999999;
+      return (pos[0] - pPos[0]) ** 2 + (pos[1] - pPos[1]) ** 2;
+    };
+
+    const relevantProps = Array.from(this.activeProps.values())
+      .sort((a, b) => (a.id === intent.targetId ? -1 : b.id === intent.targetId ? 1 : distSq(a.pos) - distSq(b.pos)))
+      .slice(0, 5);
+    const scenePropsStr = relevantProps
+      .map(p => `- ${p.name} (HP: ${p.hp}/${p.maxHp}${p.tags.has("locked") ? ", Locked" : ""}${p.tags.has("opened") ? ", Opened" : ""})`)
       .join("\n");
 
-    const sceneNPCsStr = Array.from(this.activeNPCs.values())
-      .map(n => `- ${n.name} (${n.role}, ${n.faction}, Disposition: ${n.disposition >= 0 ? "Neutral/Friendly" : "Hostile/Suspicious"}, HP: ${n.hp}/${n.maxHp}): Armed with ${n.equippedWeapon || "weapon"}. Notes: ${(n.memoryNotes || []).join('; ')}`)
+    const relevantNPCs = Array.from(this.activeNPCs.values())
+      .sort((a, b) => (a.id === intent.targetId ? -1 : b.id === intent.targetId ? 1 : distSq(a.pos) - distSq(b.pos)))
+      .slice(0, 5);
+    const sceneNPCsStr = relevantNPCs
+      .map(n => `- ${n.name} (${n.role}, ${n.faction}, Disposition: ${n.disposition >= 0 ? "Neutral/Friendly" : "Hostile/Suspicious"}, HP: ${n.hp}/${n.maxHp})`)
       .join("\n");
 
     const tacticalVisualContext = this.generateTacticalVisualContext(
-      input.playerPos || [128, 128],
+      pPos,
       input.grid,
       input.zLayer || 0
     );
@@ -2824,47 +2862,49 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
     const recentSceneContext = input.recentContext && input.recentContext.length > 0
       ? `RECENT SCENE & CONVERSATION:\n${input.recentContext.slice(-4).join('\n')}\n\n`
       : '';
+    const shownRoll = detailedRollOutcome?.attackerRoll ?? playerRoll;
+    const shownStat = detailedRollOutcome?.attackerStatVal ?? playerStatVal;
+    const shownTotal = detailedRollOutcome?.attackerTotal ?? (shownRoll + shownStat);
+    const shownDefense = detailedRollOutcome?.defenderTotal ?? dcOrDefenderRoll;
     const narrativePrompt = `${recentMemoriesContext}${recentSceneContext}LOCATION: ${burgTitle} (Cell #${this.activeContext?.cellId || 'Unknown'})
-TACTICAL SIGHT & SENSORY ENVIRONMENT:
+TACTICAL SIGHT:
 ${tacticalVisualContext}
 
-SCENE PROPS:
+NEARBY PROPS:
 ${scenePropsStr || "None"}
-SCENE NPCS:
+NEARBY NPCS:
 ${sceneNPCsStr || "None"}
 
-PLAYER CHARACTER: ${player.name} (${player.species || 'Humanoid'})
-PLAYER SPOKEN WORDS: ${playerSpokenWords ? `"${playerSpokenWords}"` : "None"}
-DECLARED ACTION: "${actionText}"
-NPC SPOKEN REPLY: ${inCharacterDialogue ? `"${inCharacterDialogue}"` : "None"}
+ACTOR: ${player.name} (${player.species || 'Humanoid'})
+SPOKEN WORDS: ${playerSpokenWords ? `"${playerSpokenWords}"` : "None"}
+ACTION: "${actionText}"
+NPC REPLY: ${inCharacterDialogue ? `"${inCharacterDialogue}"` : "None"}
 
-MECHANICAL RESOLUTION (B.R.U.T.A.L. Deterministic Rules):
-Action Mode: ${intent.category} (${intent.verb}) targeting '${intent.targetName}'
-Roll Result: 1d12 (${playerRoll}) + Stat (${playerStatVal}) = Total ${playerRoll + playerStatVal} vs Guard/DC ${dcOrDefenderRoll}
-Outcome: ${hit ? "SUCCESS" : "FAILED / DEFLECTED"} (Net Margin: ${difference >= 0 ? '+' : ''}${difference})
-Damage / Structural Impact: ${injuryPoints > 0 ? `${injuryPoints} structural damage dealt` : "No structural damage"}
-Loot / Items Found: ${lootAwarded ? JSON.stringify(lootAwarded) : "None"}
-System Notes: ${systemLog || "None"}`;
+OUTCOME: ${intent.category} (${intent.verb}) on '${intent.targetName}' | Roll ${shownRoll} + Stat ${shownStat} = ${shownTotal} vs ${shownDefense} -> ${hit ? "SUCCESS" : "FAILED"} (Margin ${difference >= 0 ? '+' : ''}${difference})
+DAMAGE/LOOT: ${injuryPoints > 0 ? `${injuryPoints} damage` : "0 damage"}${lootAwarded ? `, Loot: ${JSON.stringify(lootAwarded)}` : ""}
+NOTES: ${systemLog || "None"}`;
 
-    const gmInstruction = `You are the Game Master running a live tabletop session of B.R.U.T.A.L. (gritty low-fantasy TTRPG set in Ostraka, The Shatterlands).
-You provide clear, concrete, actionable narration to the players that directly continues the ongoing conversation and scene.
+    const gmInstruction = `You are the narrator of a dark low-fantasy tabletop RPG (B.R.U.T.A.L., Ostraka).
+Write ONLY 2 to 4 crisp in-world sentences describing the immediate outcome of ${player.name}'s turn.
 
-MANDATORY RULES:
-1. CONCRETE PHYSICAL OUTCOME & CONTINUITY: Continue directly from RECENT SCENE & CONVERSATION, acknowledging PLAYER SPOKEN WORDS and telling the party what happens to '${intent.targetName}' based on the dice outcome.
-2. ACTIONABLE CLUES & TACTICAL INTEL: Always provide actionable information. If they searched, examined, or scouted, describe what they observe (guard positions, line of sight, keyholes, hidden symbols, escape routes). Never say "nothing is found" on a successful inspect! If loot or items were found, explicitly describe them.
-3. NPC VOICE & REACTION: If a named NPC is present in the scene, include 1 line of their spoken in-character dialogue reacting directly to PLAYER SPOKEN WORDS and the party's action (use NPC SPOKEN REPLY if provided).
-4. ABSOLUTELY NO PURPLE PROSE OR FLUFF: Do not use flowery metaphors ('morbid perfume', 'whispering stone', 'eerie silhouettes', 'cold grey stone'). Do not invent elements not present in the scene context (no random trees, curtains, corpses, or stumps). Keep the prose sharp, grounded, and functional.
-5. VISUAL SPATIAL AWARENESS: Ground your physical description in the visual environment (distance in meters, bearings, stone walls/cover, water canal).
-6. LENGTH: 2 to 4 crisp sentences max. Output only the GM narration.`;
+RULES:
+- Speak strictly in-world as the GM narrator. NEVER break character, NEVER say "It seems you've created", NEVER summarize the prompt, and NEVER offer numbered options or "What would you like to do next?" lists.
+- Continue directly from RECENT SCENE & CONVERSATION, acknowledge SPOKEN WORDS, and describe what happens to '${intent.targetName}' based on OUTCOME.
+- If NPC REPLY is present, weave that exact NPC response into the scene.
+- On a successful search/inspect, reveal a concrete tactical clue (lock condition, patrol gap, tracks, hidden latch).
+- No purple prose or invented props/NPCs.`;
 
-    const narrativeResponse = customNarrative || (await this.callModel(
+    const rawNarrative = customNarrative || (await this.callModel(
       [{ role: "user", parts: [{ text: narrativePrompt }] }],
       gmInstruction,
-      250,
-      0.6
-    )) || (hit
-      ? `${player.name} successfully executes their action on ${intent.targetName}. The physical impact is felt immediately across the scene.`
-      : `${player.name}'s attempt on ${intent.targetName} fails to bypass defense or uncover anything new.`);
+      220,
+      0.55
+    ));
+    const looksMeta = !rawNarrative || /\b(it seems (that )?you'?ve|to progress the story|choose one of the following|to proceed, i'?ll summarize|what would you like to do)\b/i.test(rawNarrative);
+    const npcReplyBit = inCharacterDialogue ? ` ${inCharacterDialogue}` : "";
+    const narrativeResponse = (!looksMeta && rawNarrative) ? rawNarrative : (hit
+      ? `${player.name} acts on ${intent.targetName} (${intent.verb.toLowerCase().replace(/_/g, " ")}) and succeeds.${npcReplyBit}`
+      : `${player.name} presses ${intent.targetName}, but the attempt falls short (${shownTotal} vs ${shownDefense}).${npcReplyBit}`);
 
 // 8. Record Associative Memory Trace (In-Memory + Persistent PostgreSQL Table)
     const memSummary = `${intent.verb} on ${intent.targetName}: ${hit ? "Success" : "Failed"}`;
