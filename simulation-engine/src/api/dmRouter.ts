@@ -2209,6 +2209,8 @@ export interface PartySessionMember {
   maxStamina: number;
   focus: number;
   maxFocus: number;
+  owed?: { stamina: number; focus: number };
+  spent?: { stamina: boolean; focus: boolean };
   persona: string;
   tacticalGoal: string;
   gold: number;
@@ -2550,6 +2552,7 @@ router.post('/party_session/init', async (req, res) => {
       });
     }
 
+    brutalGM.clearPlayerInjuryStates();
     brutalGM.activeNPCs.clear();
     const rawNPCs = realLayer?.npcs || [];
     for (const n of rawNPCs) {
@@ -2566,7 +2569,12 @@ router.post('/party_session/init', async (req, res) => {
         alive: n.alive ?? true,
         equippedWeapon: n.equippedWeapon || "Unarmed",
         equippedArmor: n.equippedArmor || "Clothing",
-        memoryNotes: n.memoryNotes || []
+        memoryNotes: n.memoryNotes || [],
+        composure: n.composure,
+        maxComposure: n.maxComposure,
+        stake: n.stake,
+        isBoss: n.isBoss,
+        foeStack: n.foeStack
       });
     }
 
@@ -2718,6 +2726,12 @@ router.post('/party_session/step', async (req, res) => {
       actionText: declaredAction,
       playerId: currentMember.id,
       playerPos: currentMember.pos,
+      playerStats: {
+        stamina: currentMember.stamina,
+        focus: currentMember.focus,
+        composure: currentMember.composure,
+        owed: currentMember.owed
+      },
       zLayer: livePartySessionState.z
     });
 
@@ -2725,9 +2739,20 @@ router.post('/party_session/step', async (req, res) => {
       gmResult.success = true;
     }
 
-    // 4. Update member state based on outcome
+    // 4. Update member state based on outcome & v5.0 injury/owed tracking
     if (gmResult.lootAwarded && gmResult.lootAwarded.gold) {
       currentMember.gold += gmResult.lootAwarded.gold;
+    }
+    if (gmResult.playerInjuryState) {
+      const inj = gmResult.playerInjuryState;
+      currentMember.hp = inj.health;
+      currentMember.maxHp = inj.maxHealth;
+      currentMember.composure = inj.composure;
+      currentMember.maxComposure = inj.maxComposure;
+      currentMember.stamina = inj.stamina;
+      currentMember.focus = inj.focus;
+      if (inj.owed) currentMember.owed = { ...inj.owed };
+      if (inj.spent) currentMember.spent = { ...inj.spent };
     }
 
     // Systemic thread resolution via real physical entity state mutation
@@ -2753,13 +2778,15 @@ router.post('/party_session/step', async (req, res) => {
 
         // Persist NPC updates to sim_sector_layers
         const npcsArray = Array.from(brutalGM.activeNPCs.values()).map(n => ({
+          ...n,
           id: n.id,
           name: n.name,
           role: n.role,
           disposition: n.disposition,
           alive: n.alive,
           hp: n.hp,
-          tags: n.tags
+          tags: n.tags,
+          foeStack: n.foeStack
         }));
         await pool.query(
           `UPDATE sim_sector_layers SET npcs = $1 WHERE cell_id = $2 AND rx = $3 AND ry = $4 AND z_layer = $5`,
@@ -2799,6 +2826,18 @@ router.post('/party_session/step', async (req, res) => {
           });
           livePartySessionState.activeStoryArc.resolved = true;
           livePartySessionState.activeStoryArc.resolution = threadResolutionResult.resolution;
+
+          // v5.0 Come-Down: settle owed energy bills & shakes across party members
+          for (const m of livePartySessionState.members) {
+            const settled = brutalGM.settlePlayerComeDown(m.id);
+            if (settled) {
+              m.stamina = settled.stamina;
+              m.focus = settled.focus;
+              m.composure = settled.composure;
+              if (settled.owed) m.owed = { ...settled.owed };
+              if (settled.spent) m.spent = { ...settled.spent };
+            }
+          }
         }
       }
     }

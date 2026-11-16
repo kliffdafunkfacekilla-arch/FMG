@@ -17,6 +17,7 @@ import {
 } from "./EquipmentRegistry.js";
 import { ProceduralNPCGenerator } from "./ProceduralNPCGenerator.js";
 import { CANON_DRAGON_PRISONS } from "../canon/dragonPrisons.js";
+import type { FoeStackState, FoeStake } from "./foeStack.js";
 
 export interface QuestObjective {
   id: string;
@@ -82,6 +83,11 @@ export interface InjectedNPC {
   currentTask?: string | undefined;
   targetDestination?: [number, number] | undefined;
   scheduleState?: "SLEEP" | "WORK" | "LEISURE" | "TRANSIT" | "AMBUSH" | undefined;
+  composure?: number | undefined;
+  maxComposure?: number | undefined;
+  stake?: FoeStake | undefined;
+  isBoss?: boolean | undefined;
+  foeStack?: FoeStackState | undefined;
 }
 
 export interface InjectedWorldState {

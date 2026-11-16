@@ -19,30 +19,38 @@ import { ollamaGenerate } from "../llm.js";
 import { Pool } from "pg";
 import { TagMatrixEngine, TaggedObject, TagInteractionResult } from "./TagMatrixEngine.js";
 import { WhatElseStoryEngine, StoryBeat, SectorContext, InjectedNPC, InjectedWorldState } from "./WhatElseStoryEngine.js";
-import { resolveMeleeAttack, resolveOpposedCombat } from "./RulesEngine.js";
 import {
   rollD12,
   resolveContestedAttack,
+  resolveClashTie,
   resolveReadyReaction,
   AttackRollParams,
   DefenseParams,
   ContestedCombatResult,
   ReadyDeclaration,
-  ReadyReactionResult
+  ReadyReactionResult,
+  ClashStance,
+  BrutalInjuryTier
 } from "../combatResolutionEngine.js";
+import {
+  applyBrutalInjury,
+  payAtComeDown,
+  EntityInjuryState
+} from "../injuryEngine.js";
 import {
   createFoeStack,
   migrateFoeToStack,
   applyHitToFoe,
   applyFoeResolveLoss,
   resolveAimedAttackOnFoe,
+  getTotalFoeCards,
   FoeStackState,
+  FoeStake,
   FoeResolveLossReason
 } from "./foeStack.js";
-import type { BrutalInjuryTier } from "../combatResolutionEngine.js";
 import { getWeapon, getArmor, StatKey, WeaponDef, ArmorDef } from "./EquipmentRegistry.js";
 import { getSocialWeapon, getSocialArmor, SocialWeaponDef, SocialArmorDef } from "./SocialEquipmentRegistry.js";
-import { resolveOpposedSocialContest, resolveCosmicDreadCheck, SocialCombatant } from "../socialCombat.js";
+import { resolvePersuasion, resolveOpposedSocialContest, resolveCosmicDreadCheck, SocialCombatant } from "../socialCombat.js";
 import { computeActionDC, ATOMIC_TAG_ACTIONS } from "./TagRegistry.js";
 import { ProceduralNPCGenerator, SeededPRNG } from "./ProceduralNPCGenerator.js";
 import { getActiveChaosFlows, evaluatePointChaosFlowProximity, applyPlayerChaosMutation } from "../agents/chaosFlowAgent.js";
@@ -58,6 +66,15 @@ export interface ActionInput {
   combatType?: ("melee" | "ranged") | undefined;
   isStealthed?: boolean | undefined;
   sneakAttack?: boolean | undefined;
+  stance?: ClashStance | undefined;
+  otherSpeakersCount?: number | undefined;
+  alreadySpokenToTargetThisRound?: boolean | undefined;
+  playerStats?: {
+    stamina?: number | undefined;
+    focus?: number | undefined;
+    composure?: number | undefined;
+    owed?: { stamina: number; focus: number } | undefined;
+  } | undefined;
   grid?: number[] | Uint8Array | undefined;
   zLayer?: number | undefined;
 }
@@ -110,6 +127,8 @@ export interface GMResolutionOutput {
     beatCompleted: boolean;
     description?: string | undefined;
   };
+  playerInjuryState?: EntityInjuryState | undefined;
+  foeStackState?: FoeStackState | undefined;
   campaignState: any;
   worldDelta: {
     propsDestroyed: string[];
@@ -117,10 +136,66 @@ export interface GMResolutionOutput {
   };
 }
 
+const STAT_KEYS: readonly StatKey[] = [
+  "might", "endurance", "finesse", "reflex", "vitality", "fortitude",
+  "knowledge", "logic", "awareness", "intuition", "charm", "willpower"
+];
+
+function extractStatsMap(entity: any): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const k of STAT_KEYS) {
+    out[k] = Number(entity?.[k]) || 5;
+  }
+  return out;
+}
+
+function inferFoeStake(npc: InjectedNPC): FoeStake {
+  if (npc.stake) return npc.stake;
+  const hay = `${npc.role || ""} ${npc.name || ""} ${(npc.tags || []).join(" ")}`.toLowerCase();
+  if (npc.isBoss || /#boss|\b(dragon|colossus|leviathan|archon)\b/.test(hay)) return "boss";
+  if (/\b(captain|commander|leader|chief|burgomaster|reeve|marshal|warlord|paragon|boss)\b/.test(hay)) return "leader";
+  if (/\b(zealot|fanatic|cultist|inquisitor|mandate)\b/.test(hay)) return "fanatic";
+  if (/\b(guard|warden|sentinel|knight|veteran|soldier|watch|outlaw|raider)\b/.test(hay)) return "veteran";
+  if (/\b(thug|bandit|smuggler|cutthroat|brigand|pickpocket)\b/.test(hay)) return "hireling";
+  return "rank-and-file";
+}
+
+function ensureNpcFoeStack(npc: InjectedNPC): FoeStackState {
+  if (npc.foeStack) return npc.foeStack;
+  const stake = inferFoeStake(npc);
+  const maxHp = Math.max(4, npc.maxHp || npc.hp || 10);
+  const stackSize = Math.max(1, Math.ceil(maxHp / 2));
+  const traits: Array<{ name: string; kind: "core" | "trait" | "ability"; copies: number; grants?: string[] }> = [];
+  if (stake !== "boss" && stackSize >= 3) {
+    if (stake === "leader") {
+      traits.push({ name: "Command", kind: "ability", copies: 1, grants: ["Rally Allies"] });
+    } else if (stake === "fanatic") {
+      traits.push({ name: "Zealotry", kind: "trait", copies: 1 });
+    } else if (stake === "veteran") {
+      traits.push({ name: "Shield Wall", kind: "trait", copies: 1 });
+    } else {
+      traits.push({ name: "Skirmish", kind: "trait", copies: 1 });
+    }
+  }
+  npc.stake = stake;
+  npc.isBoss = stake === "boss";
+  npc.foeStack = migrateFoeToStack({
+    id: npc.id,
+    name: npc.name,
+    health: maxHp,
+    composure: npc.composure ?? 12,
+    stake,
+    isBoss: npc.isBoss,
+    traits
+  });
+  return npc.foeStack;
+}
+
 export class BrutalGameMaster {
   private pool: Pool;
   private storyEngine: WhatElseStoryEngine;
   private memoryStream: Array<{ timestamp: number; summary: string; tags: string[] }> = [];
+  private playerInjuryStates: Map<number, EntityInjuryState> = new Map();
 
   // Grounded World Entities currently active in sector
   public activeProps: Map<string, TaggedObject> = new Map();
@@ -188,6 +263,57 @@ export class BrutalGameMaster {
     options?: { composureTier?: BrutalInjuryTier | undefined; squad?: FoeStackState[] | undefined }
   ) {
     return applyFoeResolveLoss(foe, reason, options);
+  }
+
+  /** Returns or initializes a player's v5.0 injury, capacity, and owed-energy state. */
+  public getPlayerInjuryState(
+    playerId: number,
+    playerRow?: any,
+    overrides?: ActionInput["playerStats"]
+  ): EntityInjuryState {
+    const existing = this.playerInjuryStates.get(playerId);
+    if (existing) {
+      if (overrides?.stamina !== undefined) existing.stamina = overrides.stamina;
+      if (overrides?.focus !== undefined) existing.focus = overrides.focus;
+      if (overrides?.composure !== undefined) existing.composure = overrides.composure;
+      if (overrides?.owed) existing.owed = { ...overrides.owed };
+      return existing;
+    }
+
+    const maxHealth = Number(playerRow?.max_hp) || 14;
+    const health = playerRow?.current_hp !== undefined ? Number(playerRow.current_hp) : maxHealth;
+    const maxComposure = Number(playerRow?.max_composure) || 14;
+    const composure = overrides?.composure ?? (playerRow?.composure !== undefined ? Number(playerRow.composure) : maxComposure);
+    const stamina = overrides?.stamina ?? (Number(playerRow?.stamina_max) || 10);
+    const focus = overrides?.focus ?? (Number(playerRow?.focus_max) || 10);
+
+    const created: EntityInjuryState = {
+      name: playerRow?.name || "Hero",
+      health,
+      maxHealth,
+      composure,
+      maxComposure,
+      stamina,
+      focus,
+      owed: overrides?.owed ? { ...overrides.owed } : { stamina: 0, focus: 0 },
+      spent: { stamina: stamina <= 0, focus: focus <= 0 },
+      activeWounds: []
+    };
+    this.playerInjuryStates.set(playerId, created);
+    return created;
+  }
+
+  /** Settles a player's Come-Down energy bill and shakes at the end of a fight/scene (v5.0 §10.1). */
+  public settlePlayerComeDown(playerId: number): EntityInjuryState | null {
+    const existing = this.playerInjuryStates.get(playerId);
+    if (!existing) return null;
+    const settled = payAtComeDown(existing);
+    this.playerInjuryStates.set(playerId, settled);
+    return settled;
+  }
+
+  public clearPlayerInjuryStates(): void {
+    this.playerInjuryStates.clear();
   }
 
   /**
@@ -1327,7 +1453,7 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
         };
       }
 
-      // --- SOCIAL RESOLUTION (Composure & Mental Contest) ---
+      // --- SOCIAL RESOLUTION (v5.0 Persuasion vs Composure Combat) ---
       const npcName = targetNPC?.name || intent.targetName || "The Guard";
       const npcRole = targetNPC?.role || (npcName.toLowerCase().includes("guard") ? "Guard" : "Wayfarer");
       const npcFaction = targetNPC?.faction || "Local Province";
@@ -1349,58 +1475,147 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
         if (targetNPC?.tags?.includes("unyielding") || targetNPC?.tags?.includes("fanatical")) advantageMod -= 3;
       }
 
-      const playerSocialCombatant: SocialCombatant = {
-        id: player.id,
-        name: player.name || "Hero",
-        stats: player,
-        equippedSocialWeapon: player.equipped_social_weapon || "Iron Warmaster Baton",
-        equippedSocialArmor: player.equipped_social_armor || "Keepsake Locket of the Hearth",
-        composure: playerComposure,
-        maxComposure: playerMaxComposure,
-        skillRanks: player.skill_ranks || {},
-        difficulty: player.difficulty
-      };
-
-      const npcSocialCombatant: SocialCombatant = {
-        id: targetNPC?.id || 999,
-        name: npcName,
-        stats: targetNPC?.stats || { might: 5, endurance: 5, finesse: 5, reflex: 5, vitality: 5, fortitude: 5, knowledge: 5, logic: 5, awareness: 5, intuition: 5, charm: 5, willpower: 5 },
-        equippedSocialWeapon: npcRole.includes("Guard") ? "Iron Warmaster Baton" : "Gilded Courtier's Fan",
-        equippedSocialArmor: npcRole.includes("Guard") ? "Champion's Lion Pauldrons" : "Keepsake Locket of the Hearth",
-        composure: targetNPC ? ((targetNPC as any).composure ?? 12) : 12,
-        maxComposure: targetNPC ? ((targetNPC as any).maxComposure ?? 12) : 12
-      };
-
-      const contestRes = resolveOpposedSocialContest(
-        playerSocialCombatant,
-        npcSocialCombatant,
-        intent.statUsed as StatKey,
-        { advantageMod }
+      const verbUpper = (intent.verb || "TALK").toUpperCase();
+      const nonHostileSocialVerbs = new Set([
+        "TALK", "ASK", "QUESTION", "CONVINCE", "BARGAIN", "BRIBE", "NEGOTIATE", "PERSUADE", "GREET", "PLEAD"
+      ]);
+      const isNonHostilePersuasion = nonHostileSocialVerbs.has(verbUpper);
+      const inFight = Boolean(
+        targetNPC &&
+        targetNPC.alive !== false &&
+        targetNPC.hp > 0 &&
+        (targetNPC.disposition <= -2 || targetNPC.tags?.includes("#Hostile") || targetNPC.tags?.includes("hostile_combat"))
       );
+      const currentTargetComposure = targetNPC?.composure ?? 12;
+      const maxTargetComposure = targetNPC?.maxComposure ?? 12;
 
-      hit = contestRes.hit;
-      difference = contestRes.difference;
-      dcOrDefenderRoll = contestRes.defenderTotal;
-      injuryPoints = contestRes.composureDamage;
-      if (targetNPC) {
-        (targetNPC as any).composure = contestRes.defenderComposureRemaining;
+      let remainingTargetComposure = currentTargetComposure;
+      let isMoraleBroken = false;
+      let socialOutcomeNote = "";
 
-        // Adjust disposition on success or failure
-        if (hit) {
-          targetNPC.disposition = Math.min(2, targetNPC.disposition + 1);
-          xpGained += 25;
-        } else if (intent.verb === "INTIMIDATE") {
-          targetNPC.disposition = Math.max(-2, targetNPC.disposition - 1);
+      if (isNonHostilePersuasion) {
+        const lowerAct = actionText.toLowerCase();
+        const isDutyGuard = /\b(guard|warden|watch|sentinel|commander|captain)\b/i.test(npcRole);
+        const againstOrders = Boolean(
+          verbUpper !== "BRIBE" &&
+          isDutyGuard &&
+          /\b(abandon post|desert|betray|treason|unlock the prison|open the vault)\b/.test(lowerAct)
+        );
+        const propBonus = (intent.verb === "BRIBE" && player.gold >= 0 ? 2 : 0) + (targetFactionRep >= 25 ? 2 : 0);
+        const persRes = resolvePersuasion({
+          speakerStatVal: playerStatVal,
+          propValue: propBonus,
+          targetComposure: currentTargetComposure,
+          againstOrders,
+          otherSpeakersCount: input.otherSpeakersCount,
+          alreadySpokenToTargetThisRound: input.alreadySpokenToTargetThisRound,
+          hasAdvantage: advantageMod >= 2,
+          hasDisadvantage: advantageMod <= -2
+        });
+
+        hit = persRes.succeeded;
+        difference = persRes.margin;
+        dcOrDefenderRoll = persRes.difficulty;
+        injuryPoints = 0; // v5.0 Persuasion deals 0 wounds and costs 0 Focus
+
+        if (targetNPC && hit) {
+          targetNPC.disposition = Math.min(2, (targetNPC.disposition || 0) + 1);
+          xpGained += persRes.outcome === "YES_AND_MORE" ? 30 : 20;
+        } else if (hit) {
+          xpGained += 20;
         }
 
-        // If Composure reaches 0: Morale Breakdown!
-        if (contestRes.isBroken) {
-          targetNPC.disposition = Math.max(1, targetNPC.disposition);
-          xpGained += 50;
+        detailedRollOutcome = {
+          attackerRoll: persRes.roll?.final ?? 0,
+          attackerStatKey: intent.statUsed,
+          attackerStatVal: playerStatVal,
+          attackerMod: propBonus,
+          attackerTotal: persRes.total,
+          defenderRoll: 0,
+          defenderStatKey: "composure",
+          defenderStatVal: currentTargetComposure,
+          defenderMod: 0,
+          defenderTotal: persRes.difficulty
+        };
+
+        socialOutcomeNote = `v5.0 Persuasion (${persRes.outcome}, 0 wounds)`;
+        systemLog = `[Social Check (v5.0 Persuasion): Roll ${persRes.roll?.final ?? 0} + ${playerStatVal}${propBonus ? ` + ${propBonus}` : ""} = ${persRes.total} vs Composure ${persRes.difficulty} -> Margin ${persRes.margin >= 0 ? "+" : ""}${persRes.margin} (${persRes.outcome}) | 0 wounds]`;
+        if (inFight) {
+          systemLog += " | [In-Fight Talk (v5.0): Free speech, 0 Composure wounds]";
         }
       } else {
-        if (hit) xpGained += 25;
-        if (contestRes.isBroken) xpGained += 50;
+        const playerSocialCombatant: SocialCombatant = {
+          id: player.id,
+          name: player.name || "Hero",
+          stats: player,
+          equippedSocialWeapon: player.equipped_social_weapon || "Iron Warmaster Baton",
+          equippedSocialArmor: player.equipped_social_armor || "Keepsake Locket of the Hearth",
+          composure: playerComposure,
+          maxComposure: playerMaxComposure,
+          skillRanks: player.skill_ranks || {},
+          difficulty: player.difficulty
+        };
+
+        const npcSocialCombatant: SocialCombatant = {
+          id: targetNPC?.id || 999,
+          name: npcName,
+          stats: targetNPC?.stats || { might: 5, endurance: 5, finesse: 5, reflex: 5, vitality: 5, fortitude: 5, knowledge: 5, logic: 5, awareness: 5, intuition: 5, charm: 5, willpower: 5 },
+          equippedSocialWeapon: npcRole.includes("Guard") ? "Iron Warmaster Baton" : "Gilded Courtier's Fan",
+          equippedSocialArmor: npcRole.includes("Guard") ? "Champion's Lion Pauldrons" : "Keepsake Locket of the Hearth",
+          composure: currentTargetComposure,
+          maxComposure: maxTargetComposure
+        };
+
+        const contestRes = resolveOpposedSocialContest(
+          playerSocialCombatant,
+          npcSocialCombatant,
+          intent.statUsed as StatKey,
+          { advantageMod, inFight }
+        );
+
+        hit = contestRes.hit;
+        difference = contestRes.difference;
+        dcOrDefenderRoll = contestRes.defenderTotal;
+        injuryPoints = contestRes.composureDamage;
+        remainingTargetComposure = contestRes.defenderComposureRemaining;
+        isMoraleBroken = contestRes.isBroken;
+
+        if (targetNPC) {
+          targetNPC.composure = remainingTargetComposure;
+
+          if (!inFight && contestRes.composureDamage > 0) {
+            const npcStack = ensureNpcFoeStack(targetNPC);
+            if (!npcStack.isBoss) {
+              const tier: BrutalInjuryTier = contestRes.composureDamage >= 6 ? "CRITICAL" : contestRes.composureDamage >= 4 ? "MAJOR" : "MINOR";
+              const rLoss = this.applyFoeResolveLoss(npcStack, "COMPOSURE_ATTACK", { composureTier: tier });
+              targetNPC.foeStack = rLoss.foe;
+              if (rLoss.foe.status === "seeking_exit" || rLoss.foe.status === "broken") {
+                targetNPC.disposition = Math.max(1, targetNPC.disposition || 0);
+                if (!targetNPC.tags.includes("#Yielded")) targetNPC.tags.push("#Yielded");
+              }
+            }
+          }
+
+          // Adjust disposition on success or failure
+          if (hit) {
+            targetNPC.disposition = Math.min(2, targetNPC.disposition + 1);
+            xpGained += 25;
+          } else if (intent.verb === "INTIMIDATE") {
+            targetNPC.disposition = Math.max(-2, targetNPC.disposition - 1);
+          }
+
+          // If Composure reaches 0: Morale Breakdown!
+          if (contestRes.isBroken) {
+            targetNPC.disposition = Math.max(1, targetNPC.disposition);
+            xpGained += 50;
+          }
+        } else {
+          if (hit) xpGained += 25;
+          if (contestRes.isBroken) xpGained += 50;
+        }
+
+        socialOutcomeNote = `${contestRes.composureDamage} Composure trauma dealt. Remaining Composure: ${remainingTargetComposure}/${maxTargetComposure}`;
+        systemLog = contestRes.log;
       }
 
       // Query geographically bounded & role-appropriate simulation rumors from PostgreSQL
@@ -1456,14 +1671,14 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
       const repNote = targetFactionRep !== 0
         ? `The player has an underlying reputation of ${targetFactionRep} with your faction ('${npcFaction}'). Reflect this subtly in your tone, respect, suspicion, or hostility without mentioning numbers.`
         : "";
-      const breakdownNote = contestRes.isBroken
+      const breakdownNote = isMoraleBroken
         ? `Your Composure has been completely shattered! You are demoralized, conceding, surrendering, or breaking into a nervous confession.`
         : "";
 
       const npcTagsStr = targetNPC ? targetNPC.tags.join(", ") : "disciplined, armed, watchful";
       const dialoguePrompt = `You are ${npcName}, a ${npcRole} aligned with '${npcFaction}'. Your traits are: [${npcTagsStr}].
 The player spoke: "${actionText}".
-Social contest result: ${hit ? "SUCCESS" : "FAILURE"} (${contestRes.composureDamage} Composure trauma dealt. Remaining Composure: ${contestRes.defenderComposureRemaining}/${npcSocialCombatant.maxComposure}). Current disposition: ${targetNPC ? targetNPC.disposition : (hit ? 1 : -1)}.
+Social result: ${hit ? "SUCCESS" : "FAILURE"} (${socialOutcomeNote}). Current disposition: ${targetNPC ? targetNPC.disposition : (hit ? 1 : -1)}.
 ${breakdownNote}
 ${repNote}
 ${recentRumors ? `Recent genuine rumors & occurrences across the realm:\n${recentRumors}\nIf appropriate to the player's query or disposition, weave one of these rumors into your dialogue.` : ""}
@@ -1480,8 +1695,6 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
         ? `"${npcName} relaxes their guard. 'Very well, traveler. If you seek what was taken, look to the old ruins.'"`
         : `"${npcName} sneers with contempt. 'Your hollow words carry no weight here. Begone or draw steel!'"`
       );
-
-      systemLog = contestRes.log;
 
     } else if (intent.category === "SUBTERFUGE") {
       // --- SUBTERFUGE & THIEVERY ---
@@ -1825,6 +2038,9 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
       const playerAttackStatVal: number = Number(player[attackStatKey]) || 5;
 
       if (targetNPC) {
+        const npcFoeStack = ensureNpcFoeStack(targetNPC);
+        let playerInjury = this.getPlayerInjuryState(playerId, player, input.playerStats);
+
         const defArmor = getArmor(targetNPC.equippedArmor || "Glacial Iron Hauberk");
         const defWeapon = getWeapon(targetNPC.equippedWeapon || "Titanium Bastion Spear");
 
@@ -1832,75 +2048,168 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
         const defStatVal: number = targetNPC.stats?.[defStatKey] ?? 5;
         const defMod: number = defArmor.mod;
 
-        let advantageMod = 0;
-        if (player.difficulty === "casual") advantageMod += 3;
-        if (targetNPC.tags?.includes("vulnerable") || targetNPC.tags?.includes("burning")) advantageMod += 2;
-        if (targetNPC.tags?.includes("cover_heavy") || targetNPC.tags?.includes("unyielding")) advantageMod -= 2;
-        if (input.isStealthed || input.sneakAttack) advantageMod += 4; // Surprise Advantage / Sneak Attack Rating
-
         const playerSkillRanks: Record<string, number> = (typeof player.skill_ranks === 'object' && player.skill_ranks)
           ? player.skill_ranks
           : (typeof player.skill_ranks === 'string' ? JSON.parse(player.skill_ranks || '{}') : {});
 
         const playerWeaponSpecRank = playerSkillRanks[`spec_weapon_${attackStatKey}`] || 0;
         const playerArmorSpecRank = playerSkillRanks[`spec_armor_${playerArmor.stat}`] || 0;
-        const passiveDmgBonus = (playerSkillRanks[`pow_off_${attackStatKey}`] || playerSkillRanks[`pass_${attackStatKey}`] || 0) >= 2
-          ? ((playerSkillRanks[`pow_off_${attackStatKey}`] || playerSkillRanks[`pass_${attackStatKey}`] || 0) >= 4 ? 2 : 1)
-          : 0;
-        const activePierce = (playerSkillRanks[`act_off_${attackStatKey}`] || 0) >= 2
-          ? ((playerSkillRanks[`act_off_${attackStatKey}`] || 0) >= 4 ? 3 : 1)
-          : 0;
-        const effectiveDefDR = Math.max(0, defArmor.damageReduction - activePierce);
-
         const targetCoverBonus = input.coverBonus || 0;
-        const combatRes = resolveOpposedCombat(
-          playerAttackStatVal + advantageMod,
-          attackMod,
-          defStatVal,
-          defMod + targetCoverBonus,
+
+        const playerSpentStamina = playerInjury.stamina <= 0 || Boolean(playerInjury.spent?.stamina);
+        const hasAdvantage = Boolean(
+          input.isStealthed ||
+          input.sneakAttack ||
+          player.difficulty === "casual" ||
+          targetNPC.tags?.some(t => /vulnerable|off-balance|off_balance|prone|staggered|burning/i.test(t))
+        );
+        const hasDisadvantage = Boolean(
+          targetCoverBonus >= 2 ||
+          targetNPC.tags?.some(t => /cover_heavy|unyielding/i.test(t)) ||
+          playerSpentStamina ||
+          playerInjury.disadvantageNextRoll
+        );
+        // Consume one-roll Disadvantage from prior Minor injury
+        playerInjury.disadvantageNextRoll = false;
+
+        const combatRes = this.resolveContestedAttack(
           {
-            attackerWeaponSpecRank: playerWeaponSpecRank,
-            defenderArmorSpecRank: 0
+            attackerStat: playerAttackStatVal,
+            weaponValue: attackMod + (playerWeaponSpecRank >= 2 ? 1 : 0),
+            hasAdvantage,
+            hasDisadvantage,
+            attackerSpent: playerSpentStamina,
+            withinReach: input.combatType !== "ranged"
+          },
+          {
+            defenseStat: defStatVal,
+            armorValue: defMod + targetCoverBonus,
+            useGuard: true
           }
         );
 
-        hit = combatRes.hit;
-        difference = combatRes.difference;
+        let effectiveTier: BrutalInjuryTier = combatRes.tier;
+        let clashNote = "";
+
+        if (combatRes.outcome === "CLASH_TIED") {
+          const pStance: ClashStance = input.stance || "PRESS";
+          const npcStance: ClashStance = "HOLD";
+          const clashRes = resolveClashTie(
+            pStance,
+            attackStatKey,
+            playerAttackStatVal,
+            npcStance,
+            defStatKey,
+            defStatVal,
+            { attackerStats: extractStatsMap(player), defenderStats: targetNPC.stats }
+          );
+          if (clashRes.result === "ATTACKER_WINS_CLASH") {
+            hit = true;
+            effectiveTier = "MINOR";
+            clashNote = ` | [CLASH WON: ${clashRes.narrative}]`;
+          } else if (clashRes.result === "DEFENDER_WINS_CLASH") {
+            hit = false;
+            effectiveTier = "NONE";
+            const clashInj = applyBrutalInjury(playerInjury, "GRAZE", "HEALTH", `${targetNPC.name} Clash counter`);
+            playerInjury = clashInj.updatedState;
+            this.playerInjuryStates.set(playerId, playerInjury);
+            player.current_hp = playerInjury.health;
+            playerComposure = playerInjury.composure;
+            clashNote = ` | [CLASH LOST: ${clashRes.narrative}]`;
+          } else {
+            hit = false;
+            effectiveTier = "NONE";
+            playerInjury.stamina = Math.max(0, playerInjury.stamina - clashRes.staminaCostEach);
+            playerInjury.focus = Math.max(0, playerInjury.focus - clashRes.focusCostEach);
+            this.playerInjuryStates.set(playerId, playerInjury);
+            clashNote = ` | [CLASH STALEMATE: ${clashRes.narrative}]`;
+          }
+          detailedRollOutcome = {
+            attackerRoll: combatRes.attackerRoll.final,
+            attackerStatKey: attackStatKey,
+            attackerStatVal: playerAttackStatVal,
+            attackerMod: attackMod,
+            attackerTotal: combatRes.attackerTotal,
+            defenderRoll: combatRes.defenderRoll?.final ?? 0,
+            defenderStatKey: defStatKey,
+            defenderStatVal: defStatVal,
+            defenderMod: defMod + targetCoverBonus,
+            defenderTotal: combatRes.defenderTotal,
+            coverBonus: targetCoverBonus,
+            coverLevel: input.coverLevel || (targetCoverBonus >= 4 ? "FULL" : targetCoverBonus > 0 ? "HALF" : "NONE"),
+            weaponName: playerWeapon.name,
+            armorName: defArmor.name,
+            clashResult: clashRes
+          };
+        } else {
+          hit = combatRes.outcome === "ATTACKER_SUCCESS";
+          detailedRollOutcome = {
+            attackerRoll: combatRes.attackerRoll.final,
+            attackerStatKey: attackStatKey,
+            attackerStatVal: playerAttackStatVal,
+            attackerMod: attackMod,
+            attackerTotal: combatRes.attackerTotal,
+            defenderRoll: combatRes.defenderRoll?.final ?? 0,
+            defenderStatKey: defStatKey,
+            defenderStatVal: defStatVal,
+            defenderMod: defMod + targetCoverBonus,
+            defenderTotal: combatRes.defenderTotal,
+            coverBonus: targetCoverBonus,
+            coverLevel: input.coverLevel || (targetCoverBonus >= 4 ? "FULL" : targetCoverBonus > 0 ? "HALF" : "NONE"),
+            weaponName: playerWeapon.name,
+            armorName: defArmor.name
+          };
+        }
+
+        difference = combatRes.margin;
         dcOrDefenderRoll = combatRes.defenderTotal;
 
-        const sneakBonus = (input.isStealthed || input.sneakAttack) ? 4 : 0;
-        const netInjury = hit ? Math.max(1, combatRes.injuryPoints + playerWeapon.damageBonus + passiveDmgBonus + sneakBonus - effectiveDefDR) : 0;
-        injuryPoints = netInjury;
+        let foeStatusNote = "";
+        if (hit && effectiveTier !== "NONE") {
+          if (!npcFoeStack.isBoss) {
+            const hitOut = this.applyHitToFoe(npcFoeStack, effectiveTier);
+            targetNPC.foeStack = hitOut.foe;
+            const remainingCards = getTotalFoeCards(hitOut.foe);
+            targetNPC.hp = hitOut.foe.status === "down" ? 0 : Math.max(1, remainingCards * 2);
+            injuryPoints = hitOut.shred.shreddedCount || (effectiveTier === "GRAZE" ? 1 : 0);
 
-        detailedRollOutcome = {
-          attackerRoll: combatRes.attackerRoll,
-          attackerStatKey: attackStatKey,
-          attackerStatVal: playerAttackStatVal + advantageMod,
-          attackerMod: attackMod,
-          attackerTotal: combatRes.attackerTotal,
-          defenderRoll: combatRes.defenderRoll,
-          defenderStatKey: defStatKey,
-          defenderStatVal: defStatVal,
-          defenderMod: defMod + targetCoverBonus,
-          defenderTotal: combatRes.defenderTotal,
-          coverBonus: targetCoverBonus,
-          coverLevel: input.coverLevel || (targetCoverBonus >= 4 ? "FULL" : targetCoverBonus > 0 ? "HALF" : "NONE"),
-          weaponName: playerWeapon.name,
-          armorName: defArmor.name
-        };
+            if (hitOut.foe.status === "down") {
+              targetNPC.alive = false;
+              targetNPC.hp = 0;
+              if (!targetNPC.tags.includes("#Dead")) targetNPC.tags.push("#Dead");
+              const lootGold = Math.floor(Math.random() * 25) + 15;
+              player.gold = (player.gold || 0) + lootGold;
+              const droppedItem = Math.random() < 0.5 ? defWeapon.name : defArmor.name;
+              lootAwarded = { gold: lootGold, item: droppedItem };
+              const isApex = (targetNPC.role && targetNPC.role.includes("Apex")) || (targetNPC.tags && targetNPC.tags.includes("predator"));
+              const isPrey = targetNPC.tags && (targetNPC.tags.includes("prey") || targetNPC.tags.includes("game"));
+              xpGained += isApex ? 120 : (isPrey ? 35 : 60);
+            } else if (hitOut.foe.status === "seeking_exit" || hitOut.foe.status === "broken") {
+              targetNPC.disposition = Math.max(1, targetNPC.disposition || 0);
+              if (!targetNPC.tags.includes("#Yielded")) targetNPC.tags.push("#Yielded");
+              const statusTag = hitOut.foe.status === "broken" ? "#Broken" : "#SeekingExit";
+              if (!targetNPC.tags.includes(statusTag)) targetNPC.tags.push(statusTag);
+              xpGained += 50;
+            }
 
-        if (hit) {
-          targetNPC.hp = Math.max(0, targetNPC.hp - (netInjury * 4));
-          if (targetNPC.hp === 0) {
-            targetNPC.alive = false;
-            const lootGold = Math.floor(Math.random() * 25) + 15;
-            player.gold = (player.gold || 0) + lootGold;
-            const droppedItem = Math.random() < 0.5 ? defWeapon.name : defArmor.name;
-            lootAwarded = { gold: lootGold, item: droppedItem };
-            const isApex = (targetNPC.role && targetNPC.role.includes("Apex")) || (targetNPC.tags && targetNPC.tags.includes("predator"));
-            const isPrey = targetNPC.tags && (targetNPC.tags.includes("prey") || targetNPC.tags.includes("game"));
-            xpGained += isApex ? 120 : (isPrey ? 35 : 60);
+            foeStatusNote = `${effectiveTier} | Shredded ${hitOut.shred.shreddedCount} cards (${remainingCards} left) | Resolve ${hitOut.foe.resolve}/${hitOut.foe.maxResolve} (${hitOut.foe.status})`;
+          } else {
+            const bossDmg = Math.max(1, combatRes.capacityLost || 2);
+            injuryPoints = bossDmg;
+            targetNPC.hp = Math.max(0, targetNPC.hp - bossDmg);
+            targetNPC.foeStack = { ...npcFoeStack, health: targetNPC.hp };
+            if (targetNPC.hp === 0) {
+              targetNPC.alive = false;
+              if (!targetNPC.tags.includes("#Dead")) targetNPC.tags.push("#Dead");
+              const lootGold = Math.floor(Math.random() * 40) + 30;
+              player.gold = (player.gold || 0) + lootGold;
+              lootAwarded = { gold: lootGold, item: defWeapon.name };
+              xpGained += 150;
+            }
+            foeStatusNote = `${effectiveTier} | Boss Health ${targetNPC.hp}/${targetNPC.maxHp}`;
           }
+        } else {
+          injuryPoints = 0;
         }
 
         tagResult = TagMatrixEngine.resolveInteraction(
@@ -1911,32 +2220,36 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
           Array.from(this.activeProps.values())
         );
 
-        systemLog = `[ATTACK (${attackStatKey.toUpperCase()} - ${playerWeapon.name}${playerWeaponSpecRank > 0 ? ` [Spec R${playerWeaponSpecRank}]` : ''}): ${combatRes.attackerTotal} vs DEFENSE (${defStatKey.toUpperCase()} - ${defArmor.name}): ${combatRes.defenderTotal} | ${hit ? "HIT" : "DEFLECTED"} | ${netInjury} Injury Points dealt] ${tagResult?.logs?.slice(1).join(" ") || ""}`.trim();
+        systemLog = `[ATTACK (v5.0 ${attackStatKey.toUpperCase()} - ${playerWeapon.name}${playerWeaponSpecRank > 0 ? ` [Spec R${playerWeaponSpecRank}]` : ""}): ${combatRes.attackerTotal} vs GUARD (${defStatKey.toUpperCase()} - ${defArmor.name}): ${combatRes.defenderTotal} | ${hit ? `HIT: ${foeStatusNote}` : "DEFLECTED"}]${clashNote} ${tagResult?.logs?.slice(1).join(" ") || ""}`.trim();
 
-        // NPC retaliation if still alive and hostile
-        if (targetNPC.alive && targetNPC.disposition <= -1) {
+        // NPC retaliation if still active in fight (not down, not seeking_exit, not broken)
+        const foeStillFighting = targetNPC.foeStack
+          ? (targetNPC.foeStack.isBoss ? targetNPC.hp > 0 : targetNPC.foeStack.status === "active" || targetNPC.foeStack.status === "wavering")
+          : true;
+        if (targetNPC.alive && targetNPC.hp > 0 && targetNPC.disposition <= -1 && foeStillFighting) {
           const npcAtkStatVal = targetNPC.stats?.[defWeapon.stat] ?? 5;
           const playerDefStatVal = Number(player[playerArmor.stat]) || 5;
-          const retaliationRes = resolveOpposedCombat(
-            npcAtkStatVal,
-            defWeapon.mod,
-            playerDefStatVal,
-            playerArmor.mod,
-            {
-              attackerWeaponSpecRank: 0,
-              defenderArmorSpecRank: playerArmorSpecRank
-            }
+          const retaliationRes = this.resolveContestedAttack(
+            { attackerStat: npcAtkStatVal, weaponValue: defWeapon.mod, withinReach: true },
+            { defenseStat: playerDefStatVal, armorValue: playerArmor.mod + (playerArmorSpecRank >= 2 ? 1 : 0), useGuard: true }
           );
 
-          const passiveDefDR = (playerSkillRanks[`pow_off_${playerArmor.stat}`] || playerSkillRanks[`pass_${playerArmor.stat}`] || 0) >= 2 ? 1 : 0;
-          const effectivePlayerDR = playerArmor.damageReduction + passiveDefDR;
-          if (retaliationRes.hit) {
-            let retaliationDmg = Math.max(1, retaliationRes.injuryPoints + defWeapon.damageBonus - effectivePlayerDR);
-            if (player.difficulty === "casual") {
-              retaliationDmg = Math.max(1, Math.floor(retaliationDmg / 2));
-            }
-            player.current_hp = Math.max(0, (player.current_hp || 14) - retaliationDmg);
-            systemLog += ` | [RETALIATION (${defWeapon.stat.toUpperCase()} - ${defWeapon.name}): ${retaliationRes.attackerTotal} vs ${playerArmor.name} (${playerArmor.stat.toUpperCase()} [DR ${effectivePlayerDR}]): ${retaliationRes.defenderTotal} -> -${retaliationDmg} HP (${player.current_hp}/${player.max_hp})]`;
+          if (retaliationRes.outcome === "ATTACKER_SUCCESS") {
+            const retInj = applyBrutalInjury(
+              playerInjury,
+              retaliationRes.tier,
+              "HEALTH",
+              `${targetNPC.name}'s ${defWeapon.name}`,
+              player.difficulty === "casual" ? { reductions: { ownReductions: 1 } } : {}
+            );
+            playerInjury = retInj.updatedState;
+            this.playerInjuryStates.set(playerId, playerInjury);
+            player.current_hp = playerInjury.health;
+            player.max_hp = playerInjury.maxHealth;
+            playerComposure = playerInjury.composure;
+            systemLog += ` | [RETALIATION (v5.0 ${defWeapon.stat.toUpperCase()} - ${defWeapon.name}): ${retaliationRes.attackerTotal} vs Guard ${retaliationRes.defenderTotal} -> ${retInj.finalTier} (-${retInj.capacityLost} Cap, +${retInj.energyOwed} Owed; HP ${playerInjury.health}/${playerInjury.maxHealth}, Owed ${playerInjury.owed?.stamina ?? 0} Sta/${playerInjury.owed?.focus ?? 0} Foc)]`;
+          } else if (retaliationRes.outcome === "CLASH_TIED") {
+            systemLog += ` | [RETALIATION: ${targetNPC.name} and ${player.name} lock blades in a standstill!]`;
           } else {
             systemLog += ` | [RETALIATION: ${targetNPC.name}'s strike deflected by ${playerArmor.name}!]`;
           }
@@ -2568,6 +2881,8 @@ MANDATORY RULES:
         beatCompleted: objectiveUpdate.beatCompleted,
         description: objectiveUpdate.updatedObjective?.description
       },
+      playerInjuryState: this.playerInjuryStates.get(playerId),
+      foeStackState: targetNPC?.foeStack,
       campaignState: this.storyEngine.getCampaignState(),
       worldDelta: {
         propsDestroyed,
