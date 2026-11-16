@@ -19,12 +19,25 @@
  * npc_cartel_agent_<lair_id>, and lair resident_npc_ids.
  */
 
+import { deriveParagonMotives } from "./paragonMotives.js";
+
 type Db = { query: (text: string, params?: any[]) => Promise<any> };
+
+export interface ParagonNarrativeFact {
+  corruption: number;
+  outlaw: boolean;
+  want?: string;
+  flaw?: string;
+  lineWontCross?: string;
+  wantTag?: string;
+  flawTag?: string;
+  lineTag?: string;
+}
 
 export interface NarrativeFacts {
   burgId: number | null;
   unrest: number;
-  paragons: Map<number, { corruption: number; outlaw: boolean }>;
+  paragons: Map<number, ParagonNarrativeFact>;
   cultistCitizens: Set<number>;
   lairs: Array<{ id: number; heat: number; type: string; name: string; residents: string[] }>;
   recentEventTypes: Set<string>;
@@ -45,7 +58,7 @@ export async function loadNarrativeFacts(db: Db, cellId: number): Promise<Narrat
   };
   const [paragons, cultists, lairs, events, chaos] = await Promise.all([
     burgId != null
-      ? db.query(`SELECT id, corruption_score, outlaw_id FROM sim_paragons WHERE burg_id = $1`, [burgId])
+      ? db.query(`SELECT * FROM sim_paragons WHERE burg_id = $1`, [burgId])
       : Promise.resolve({ rows: [] }),
     db.query(
       `SELECT citizen_id FROM population_demographics
@@ -66,7 +79,19 @@ export async function loadNarrativeFacts(db: Db, cellId: number): Promise<Narrat
       : Promise.resolve({ rows: [] }),
     db.query(`SELECT COALESCE(MAX(intensity), 0) AS i FROM sim_chaos_zones WHERE cell_id = $1`, [cellId]),
   ]);
-  for (const p of paragons.rows) facts.paragons.set(Number(p.id), { corruption: Number(p.corruption_score) || 0, outlaw: p.outlaw_id != null });
+  for (const p of paragons.rows) {
+    const profile = deriveParagonMotives(p);
+    facts.paragons.set(Number(p.id), {
+      corruption: Number(p.corruption_score) || 0,
+      outlaw: p.outlaw_id != null,
+      want: p.want || profile.want,
+      flaw: p.flaw || profile.flaw,
+      lineWontCross: p.line_wont_cross || profile.lineWontCross,
+      wantTag: profile.wantTag,
+      flawTag: profile.flawTag,
+      lineTag: profile.lineTag,
+    });
+  }
   for (const c of cultists.rows) facts.cultistCitizens.add(Number(c.citizen_id));
   for (const l of lairs.rows) {
     facts.lairs.push({ id: Number(l.id), heat: Number(l.heat) || 0, type: String(l.type), name: String(l.name), residents: Array.isArray(l.resident_npc_ids) ? l.resident_npc_ids.map(String) : [] });
@@ -99,6 +124,12 @@ export function seedNarrativeTags(npcs: any[], facts: NarrativeFacts): number {
       const p = facts.paragons.get(Number(paragon[1]));
       if (p && p.corruption >= 40 && addTag(npc, "#CorruptOfficial")) added++;
       if (p?.outlaw && addTag(npc, "#BountyTarget")) added++;
+      if (p?.wantTag && addTag(npc, p.wantTag)) added++;
+      if (p?.flawTag && addTag(npc, p.flawTag)) added++;
+      if (p?.lineTag && addTag(npc, p.lineTag)) added++;
+      if (p?.want) npc.want = p.want;
+      if (p?.flaw) npc.flaw = p.flaw;
+      if (p?.lineWontCross) npc.lineWontCross = p.lineWontCross;
     }
     const citizen = id.match(/^npc_(?:ward|demographic|citizen)_(\d+)$/);
     if (citizen && facts.cultistCitizens.has(Number(citizen[1])) && addTag(npc, "#CultistInfiltrator")) added++;

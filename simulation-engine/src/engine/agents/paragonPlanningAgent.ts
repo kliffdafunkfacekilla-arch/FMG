@@ -1,5 +1,6 @@
 import { tagBurgCitizens, tagSectorEnvironment } from "./citizenPersonaHelper";
 import { loadCellTagMap, removeCellTags } from "../cellTags.js";
+import { deriveParagonMotives } from "../rpg/paragonMotives.js";
 
 /**
  * Helper to extract uppercase trait names from a paragon's traits column
@@ -96,6 +97,7 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
 
             const traits = getParagonTraitNames(p);
             const corruption = Number(p.corruption_score || 0);
+            const motive = deriveParagonMotives(p);
 
             // Trait Booleans
             const isGreedy = traits.some(t => t.includes("GREEDY") || t.includes("USURIOUS") || t.includes("CORRUPT") || t.includes("AVARICE"));
@@ -141,17 +143,18 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
                 // Option: Expand Granaries & Subsidies (Natural food remedy)
                 if (isFoodShortage || isFamine) {
                     let u = isFamine ? 80 : 50;
-                    if (isCompassionate) u += 40;
+                    if (isCompassionate || motive.wantTag === "#Want_PublicRelief") u += 40;
                     if (isStoic) u += 20;
-                    if (isGreedy) u -= 50; // Greedy mayors hate buying grain for peasants
+                    if (isGreedy || motive.wantTag === "#Want_HoardWealth") u -= 50; // Greedy mayors hate buying grain for peasants
                     if (isParanoid) u -= 20;
-                    options.push({ id: "MAYOR_EXPAND_GRANARY", utility: Math.max(5, u), biasReason: isCompassionate ? "deep empathy for starving laborers" : "civic food reserves" });
+                    options.push({ id: "MAYOR_EXPAND_GRANARY", utility: Math.max(5, u), biasReason: motive.wantTag === "#Want_PublicRelief" ? motive.want.toLowerCase() : (isCompassionate ? "deep empathy for starving laborers" : "civic food reserves") });
                 }
 
-                // Option: Hoard Grain & Price Gouge (Selfish response to food crisis)
-                if ((isFoodShortage || isFamine) && (isGreedy || corruption > 30)) {
+                // Option: Hoard Grain & Price Gouge (Selfish response to food crisis; blocked by #Line_NeverTaxTheStarving)
+                if ((isFoodShortage || isFamine) && (isGreedy || corruption > 30 || motive.wantTag === "#Want_HoardWealth") && motive.lineTag !== "#Line_NeverTaxTheStarving") {
                     let u = 40;
                     if (isGreedy) u += 50;
+                    if (motive.wantTag === "#Want_HoardWealth") u += 25;
                     if (corruption > 50) u += 30;
                     if (isVengeful) u += 20;
                     options.push({ id: "MAYOR_HOARD_GRAIN_SPECULATION", utility: u, biasReason: "avaricious desire to exploit food scarcity for profit" });
@@ -194,12 +197,12 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
                     options.push({ id: "MAYOR_TAX_HOLIDAY", utility: Math.max(5, u), biasReason: "granting tax relief to ease the crushing burden on citizens" });
                 }
 
-                // Option: Harsh Tax Audit & Shakedown (Greedy/extortive wealth measure)
-                if (isBankrupt || isGreedy || corruption > 40) {
+                // Option: Harsh Tax Audit & Shakedown (blocked by #Line_NeverTaxTheStarving during shortages)
+                if ((isBankrupt || isGreedy || corruption > 40 || motive.wantTag === "#Want_HoardWealth") && !(motive.lineTag === "#Line_NeverTaxTheStarving" && (isFamine || isFoodShortage))) {
                     let u = isBankrupt ? 50 : 25;
-                    if (isGreedy) u += 55;
+                    if (isGreedy || motive.wantTag === "#Want_HoardWealth") u += 55;
                     if (isVengeful) u += 25;
-                    if (isCompassionate) u -= 50;
+                    if (isCompassionate || motive.wantTag === "#Want_PublicRelief") u -= 50;
                     options.push({ id: "MAYOR_TAX_LEVY_AUDIT", utility: Math.max(5, u), biasReason: isGreedy ? "insatiable greed to squeeze coin from local merchants" : "empty treasury coffers" });
                 }
 
@@ -219,10 +222,10 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
                     options.push({ id: "MAYOR_TEMPLE_SACRIFICE_PURGE", utility: u, biasReason: "fanatical zeal to appease celestial patrons and ward against cosmic doom" });
                 }
 
-                // Option: Tolerate Underworld Shadow Warehouse (Corrupt collusion)
-                if (isCartelInfiltrated && (isGreedy || corruption > 35)) {
+                // Option: Tolerate Underworld Shadow Warehouse (Corrupt collusion; blocked by #Line_NeverForgeCharters)
+                if (isCartelInfiltrated && (isGreedy || corruption > 35) && motive.lineTag !== "#Line_NeverForgeCharters") {
                     let u = 35;
-                    if (isGreedy) u += 45;
+                    if (isGreedy || motive.wantTag === "#Want_HoardWealth") u += 45;
                     if (corruption > 50) u += 30;
                     options.push({ id: "MAYOR_TOLERATE_SHADOW_WAREHOUSE", utility: u, biasReason: "under-the-table kickbacks from cartel factors in exchange for warehouse permits" });
                 }
@@ -522,10 +525,10 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
                 const isCurfewActive = sectorTags.includes("#NightfallCurfewActive");
                 if (isHighUnrest && !isCurfewActive) {
                     let u = isCriticalUnrest ? 80 : 50;
-                    if (isParanoid) u += 35;
+                    if (isParanoid || motive.wantTag === "#Want_IronOrder") u += 35;
                     if (isVengeful) u += 30;
                     if (isCompassionate) u -= 40;
-                    options.push({ id: "COMMANDER_IRON_CURFEW", utility: Math.max(5, u), biasReason: isParanoid ? "paranoia of nocturnal rebellion and street barricades" : "suppressing civil riots" });
+                    options.push({ id: "COMMANDER_IRON_CURFEW", utility: Math.max(5, u), biasReason: motive.wantTag === "#Want_IronOrder" ? motive.want.toLowerCase() : (isParanoid ? "paranoia of nocturnal rebellion and street barricades" : "suppressing civil riots") });
                 }
 
                 // Option: Lift Iron Curfew (When unrest subsides)
@@ -554,14 +557,15 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
                 }
 
                 // Option: Garrison Drills & Shield Conditioning (Military readiness)
-                if (!isCriticalUnrest && (isStoic || (tick + p.id) % 4 === 0)) {
+                if (!isCriticalUnrest && (isStoic || motive.wantTag === "#Want_IronOrder" || (tick + p.id) % 4 === 0)) {
                     let u = 45;
                     if (isStoic) u += 25;
+                    if (motive.wantTag === "#Want_IronOrder") u += 18;
                     options.push({ id: "COMMANDER_GARRISON_DRILL", utility: u, biasReason: "iron discipline and wall archer readiness" });
                 }
 
-                // Option: Wilderness Bandit Sweep (Road security)
-                if (sectorTags.some(t => t.includes("Bandit") || t.includes("Wilderness")) || (tick + p.id) % 5 === 0) {
+                // Option: Wilderness Bandit Sweep (blocked by #Line_NeverAbandonWalls during high unrest)
+                if ((sectorTags.some(t => t.includes("Bandit") || t.includes("Wilderness")) || (tick + p.id) % 5 === 0) && !(motive.lineTag === "#Line_NeverAbandonWalls" && (isHighUnrest || isCriticalUnrest))) {
                     let u = 40;
                     if (isVengeful) u += 25;
                     options.push({ id: "COMMANDER_BANDIT_SWEEP", utility: u, biasReason: "aggressive determination to scour highway bandits from trade corridors" });

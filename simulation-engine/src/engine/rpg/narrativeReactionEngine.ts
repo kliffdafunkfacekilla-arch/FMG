@@ -129,6 +129,115 @@ export interface SectorReactionResult {
 // -------------------------------------------------------------
 export const NarrativeReactionTable: ReactionRule[] = [
 
+    // 0A. PARAGON MOTIVE COLLISION: Hoard Wealth + Resource Scarcity = Extortionate Grain Tariff Crisis
+    {
+        id: 'paragon_hoard_grain_collision',
+        name: 'Paragon Grain Hoarding Tariff Squeeze',
+        description: 'An avaricious paragon seeking to hoard wealth locks down grain and hikes tariffs during scarcity, pushing citizens toward bread riots.',
+        priority: 11,
+        entityConditions: {
+            type: 'NPC',
+            requiredTags: ['#Want_HoardWealth'],
+            forbiddenTags: ['#ExtortionateTariff', '#Dead', '#Deposed', '#Imprisoned']
+        },
+        environmentConditions: {
+            requiredGlobalTags: ['#ResourceScarcity']
+        },
+        resultantMutations: {
+            addTags: ['#ExtortionateTariff', '#PriceGouging'],
+            stateOverrides: {
+                disposition: -1
+            },
+            nearbyCascades: [
+                {
+                    targetType: 'NPC',
+                    radius: 40,
+                    filter: n => !n.tags.includes('#ExtortionateTariff') && !n.tags.includes('military'),
+                    addTags: ['#GougedCitizen', '#HungryGrumbling']
+                }
+            ],
+            sectorTagsToAdd: ['#HoardedGrainCrisis'],
+            logEvent: {
+                type: 'PARAGON_MOTIVE_COLLISION',
+                tier: 'MAJOR',
+                title: 'Paragon Locks Granaries Behind Extortionate Tariffs',
+                summaryTemplate: (actor, ctx) =>
+                    `${actor.name || 'The civic magistrate'} locked municipal grain behind punishing tariffs in ${ctx.burgName || 'the settlement'} despite spreading scarcity.`
+            }
+        },
+        threadTemplate: {
+            questionTemplate: (actor, ctx) =>
+                `Will ${actor.name || 'the magistrate'}'s grain hoarding and extortionate tariffs spark bread riots in ${ctx.burgName || 'the settlement'}?`,
+            stakesTemplate: (_actor, ctx) =>
+                `Households across ${ctx.burgName || 'the settlement'} starve while sealed granaries overflow and unrest climbs.`,
+            clockMax: 5,
+            on_expire: (actor, ctx) => ({
+                foodDelta: -150,
+                unrestDelta: 15,
+                wealthDelta: 120,
+                actorTagsAdd: ['#TariffEnforcer'],
+                sectorTagsAdd: ['#BreadRiotAftermath'],
+                narrativeSummary: `${actor.name || 'The magistrate'} sold the hoarded grain at famine markups; ${ctx.burgName || 'the settlement'} paid in hunger and broken stalls.`
+            }),
+            on_resolved_by_party: (actor, ctx) => ({
+                foodDelta: 220,
+                unrestDelta: -12,
+                actorTagsRemove: ['#ExtortionateTariff', '#PriceGouging'],
+                actorTagsAdd: ['#TariffsRepealed'],
+                sectorTagsRemove: ['#HoardedGrainCrisis'],
+                narrativeSummary: `The party broke ${actor.name || 'the magistrate'}'s tariff lock on the granaries, releasing relief stores into ${ctx.burgName || 'the settlement'}.`
+            })
+        }
+    },
+
+    // 0B. PARAGON MOTIVE COLLISION: Iron Order + Martial Law = Sweeping Ward Curfew Crackdown
+    {
+        id: 'paragon_iron_order_crackdown',
+        name: 'Paragon Iron Curfew Crackdown',
+        description: 'A security paragon obsessed with iron order seals gates and detains suspects under martial law.',
+        priority: 9,
+        entityConditions: {
+            type: 'NPC',
+            requiredTags: ['#Want_IronOrder'],
+            forbiddenTags: ['#CurfewDeclared', '#Dead', '#Deposed', '#Imprisoned']
+        },
+        environmentConditions: {
+            requiredGlobalTags: ['#MartialLaw']
+        },
+        resultantMutations: {
+            addTags: ['#CurfewDeclared', '#IronCurfewWatch'],
+            sectorTagsToAdd: ['#NightfallCurfewActive', '#GatehousesLocked'],
+            logEvent: {
+                type: 'PARAGON_MOTIVE_COLLISION',
+                tier: 'MAJOR',
+                title: 'Watch Enforces Sweeping Iron Curfew',
+                summaryTemplate: (actor, ctx) =>
+                    `Driven by suspicion of internal sedition, ${actor.name || 'the watch commander'} ordered the gatehouses of ${ctx.burgName || 'the settlement'} bolted from dusk till dawn.`
+            }
+        },
+        threadTemplate: {
+            questionTemplate: (actor, ctx) =>
+                `Will ${actor.name || 'the watch commander'}'s iron curfew strangle trade and trigger gatehouse clashes in ${ctx.burgName || 'the settlement'}?`,
+            stakesTemplate: (_actor, ctx) =>
+                `Merchants are barred at the gates and innocent ward residents face warrantless seizure unless order is balanced.`,
+            clockMax: 5,
+            on_expire: (actor, ctx) => ({
+                unrestDelta: 16,
+                wealthDelta: -180,
+                crimeRateDelta: 8,
+                narrativeSummary: `${actor.name || 'The watch commander'} kept ${ctx.burgName || 'the settlement'} sealed under martial curfew until smugglers took over night trade.`
+            }),
+            on_resolved_by_party: (actor, ctx) => ({
+                unrestDelta: -10,
+                crimeRateDelta: -6,
+                wealthDelta: 90,
+                actorTagsRemove: ['#CurfewDeclared'],
+                sectorTagsRemove: ['#NightfallCurfewActive', '#GatehousesLocked'],
+                narrativeSummary: `The party resolved the standoff with ${actor.name || 'the watch commander'}, reopening the gates of ${ctx.burgName || 'the settlement'} while rooting out real infiltrators.`
+            })
+        }
+    },
+
     // 1. REBELLION SEDITION: Blacksmith Infiltration + Martial Law = Midnight Garrison Crackdown
     {
         id: 'sedition_garrison_raid',
@@ -1035,10 +1144,17 @@ export function evaluateSectorReactions(
                             narrativeSummary: `The party intervened in the fallout of ${rule.name}, restoring stability to ${context.burgName || 'the sector'}.`
                         };
 
+                    const rawId = String(entity.id);
+                    const paragonMatch = rawId.match(/^npc_paragon_(\d+)$/);
+                    const citizenMatch = rawId.match(/^npc_(?:ward|demographic|citizen)_(\d+)$/);
+                    const canonicalActorId = paragonMatch
+                        ? `paragon:${paragonMatch[1]}`
+                        : (citizenMatch ? `citizen:${citizenMatch[1]}` : rawId);
+
                     threadsToOpen.push({
                         question,
                         stakes,
-                        actor_ids: [String(entity.id)],
+                        actor_ids: [canonicalActorId],
                         cell_id: context.cellId,
                         rx: context.rx ?? 50,
                         ry: context.ry ?? 50,
