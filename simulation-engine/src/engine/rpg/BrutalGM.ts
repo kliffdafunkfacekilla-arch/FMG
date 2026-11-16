@@ -77,6 +77,10 @@ export interface ActionInput {
   } | undefined;
   grid?: number[] | Uint8Array | undefined;
   zLayer?: number | undefined;
+  spokenDialogue?: string | undefined;
+  recentContext?: string[] | undefined;
+  playerName?: string | undefined;
+  playerSpecies?: string | undefined;
 }
 
 export type ActionCategory = "COMBAT" | "MAGIC" | "SOCIAL" | "SUBTERFUGE" | "EXPLORATION" | "SURVIVAL" | "CREATIVE_CHECK";
@@ -1313,7 +1317,8 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
     const playerRes = await this.pool.query("SELECT * FROM sim_player_character WHERE id = $1", [playerId]);
     const player = playerRes.rows[0] || {
       id: playerId,
-      name: "Hero",
+      name: input.playerName || "Hero",
+      species: input.playerSpecies || "Humanoid",
       might: 7,
       endurance: 6,
       finesse: 8,
@@ -2815,7 +2820,11 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
     );
 
     const burgTitle = (this.activeContext as any)?.burgName ? `Burg of ${(this.activeContext as any).burgName}` : 'Urban Sector';
-    const narrativePrompt = `${recentMemoriesContext}LOCATION: ${burgTitle} (Cell #${this.activeContext?.cellId || 'Unknown'})
+    const playerSpokenWords = input.spokenDialogue?.trim();
+    const recentSceneContext = input.recentContext && input.recentContext.length > 0
+      ? `RECENT SCENE & CONVERSATION:\n${input.recentContext.slice(-4).join('\n')}\n\n`
+      : '';
+    const narrativePrompt = `${recentMemoriesContext}${recentSceneContext}LOCATION: ${burgTitle} (Cell #${this.activeContext?.cellId || 'Unknown'})
 TACTICAL SIGHT & SENSORY ENVIRONMENT:
 ${tacticalVisualContext}
 
@@ -2825,8 +2834,9 @@ SCENE NPCS:
 ${sceneNPCsStr || "None"}
 
 PLAYER CHARACTER: ${player.name} (${player.species || 'Humanoid'})
+PLAYER SPOKEN WORDS: ${playerSpokenWords ? `"${playerSpokenWords}"` : "None"}
 DECLARED ACTION: "${actionText}"
-PLAYER SPOKEN WORDS: ${inCharacterDialogue ? `"${inCharacterDialogue}"` : "None"}
+NPC SPOKEN REPLY: ${inCharacterDialogue ? `"${inCharacterDialogue}"` : "None"}
 
 MECHANICAL RESOLUTION (B.R.U.T.A.L. Deterministic Rules):
 Action Mode: ${intent.category} (${intent.verb}) targeting '${intent.targetName}'
@@ -2837,12 +2847,12 @@ Loot / Items Found: ${lootAwarded ? JSON.stringify(lootAwarded) : "None"}
 System Notes: ${systemLog || "None"}`;
 
     const gmInstruction = `You are the Game Master running a live tabletop session of B.R.U.T.A.L. (gritty low-fantasy TTRPG set in Ostraka, The Shatterlands).
-You provide clear, concrete, actionable narration to the players.
+You provide clear, concrete, actionable narration to the players that directly continues the ongoing conversation and scene.
 
 MANDATORY RULES:
-1. CONCRETE PHYSICAL OUTCOME: Tell the player exactly what happens to the target based on the dice outcome. If an attack succeeded, describe the strike impacting the target and the structural damage. If it failed, describe how the guard parried or armor deflected it.
+1. CONCRETE PHYSICAL OUTCOME & CONTINUITY: Continue directly from RECENT SCENE & CONVERSATION, acknowledging PLAYER SPOKEN WORDS and telling the party what happens to '${intent.targetName}' based on the dice outcome.
 2. ACTIONABLE CLUES & TACTICAL INTEL: Always provide actionable information. If they searched, examined, or scouted, describe what they observe (guard positions, line of sight, keyholes, hidden symbols, escape routes). Never say "nothing is found" on a successful inspect! If loot or items were found, explicitly describe them.
-3. NPC VOICE & REACTION: If a named NPC is present in the scene (e.g. Watch Captain Fletcher), include 1 line of their spoken in-character dialogue reacting directly to the party's action or words.
+3. NPC VOICE & REACTION: If a named NPC is present in the scene, include 1 line of their spoken in-character dialogue reacting directly to PLAYER SPOKEN WORDS and the party's action (use NPC SPOKEN REPLY if provided).
 4. ABSOLUTELY NO PURPLE PROSE OR FLUFF: Do not use flowery metaphors ('morbid perfume', 'whispering stone', 'eerie silhouettes', 'cold grey stone'). Do not invent elements not present in the scene context (no random trees, curtains, corpses, or stumps). Keep the prose sharp, grounded, and functional.
 5. VISUAL SPATIAL AWARENESS: Ground your physical description in the visual environment (distance in meters, bearings, stone walls/cover, water canal).
 6. LENGTH: 2 to 4 crisp sentences max. Output only the GM narration.`;

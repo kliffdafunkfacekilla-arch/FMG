@@ -2591,13 +2591,12 @@ ${npcsSummary}
 RECENT PARTY ACTIONS & CHRONICLE:
 ${recentChronicle.length > 0 ? recentChronicle.slice(-4).join('\n') : "The party just arrived at this sector."}
 
-STRICT PROACTIVE MANDATE & ANTI-REPETITION:
-1. DO NOT repeat or copy any dialogue or action from the RECENT PARTY ACTIONS list above. That has already happened!
-2. DO NOT say "Keep your eyes open." or do "I survey the area." or take passive observation turns.
-3. You MUST take a PROACTIVE, DECISIVE ACTION that addresses the situation:
-   - Target an actual visible prop or citizen by name (e.g. ${sceneProps[0]?.name ? `"${sceneProps[0].name}"` : 'the sector features'} or ${sceneNPCs[0]?.name ? `"${sceneNPCs[0].name}"` : 'the local citizens'}).
-   - Use an active physical, social, or mechanical verb matching your role: inspect for hidden compartments, interrogate, bribe, pick lock, heave cover, cast spell, barricade, or disarm.
-4. Speak in your authentic persona (${member.persona}).
+STRICT PROACTIVE MANDATE, CONTINUITY & COHERENCE:
+1. REACT TO THE LATEST TURN: Read RECENT PARTY ACTIONS & GM NARRATIVE carefully. Your spoken Dialogue AND declared Action must directly follow up on what your allies just said/did and what the GM/NPC just replied!
+2. DIALOGUE AND ACTION MUST MATCH: Your Dialogue must express the exact intent of your Action (do NOT speak calmly/negotiate while swinging a weapon, and do NOT threaten violence while calmly picking a lock).
+3. DO NOT repeat or copy any dialogue or action from RECENT PARTY ACTIONS, and do NOT take passive observation turns ("I survey the area").
+4. Target an actual visible prop or citizen by name (e.g. ${sceneProps[0]?.name ? `"${sceneProps[0].name}"` : 'the sector features'} or ${sceneNPCs[0]?.name ? `"${sceneNPCs[0].name}"` : 'the local citizens'}) with an active physical, social, or mechanical verb matching your role.
+5. Speak in your authentic persona (${member.persona}).
 
 YOUR TURN:
 Give:
@@ -2882,9 +2881,10 @@ router.post('/party_session/step', async (req, res) => {
       tags: n.tags || []
     }));
 
-    const recentChronicle = livePartySessionState.history.slice(-4).map(
-      h => `[Round ${h.round}] ${h.characterName}: "${h.dialogue}" -> ${h.action} (${h.success ? "Success" : "Failed"})`
-    );
+    const recentChronicle = livePartySessionState.history.slice(-4).map(h => {
+      const gmSnippet = String(h.narrative || "").replace(/\s+/g, " ").trim().slice(0, 220);
+      return `[Round ${h.round}] ${h.characterName} said: "${h.dialogue}" | Action: ${h.action} (${h.success ? "Success" : "Failed"}) | GM Outcome: ${gmSnippet}`;
+    });
 
     // 2. Query Ollama for player dialogue and declared action
     // Gather tactical sight
@@ -2924,6 +2924,10 @@ router.post('/party_session/step', async (req, res) => {
     const gmResult = await brutalGM.executeTurn({
       actionText: declaredAction,
       playerId: currentMember.id,
+      playerName: currentMember.name,
+      playerSpecies: currentMember.species,
+      spokenDialogue: declaredDialogue,
+      recentContext: recentChronicle,
       playerPos: currentMember.pos,
       playerStats: {
         stamina: currentMember.stamina,
