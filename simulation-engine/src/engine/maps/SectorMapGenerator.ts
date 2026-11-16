@@ -5,6 +5,7 @@ import { paintTacticalTerrain, RegionalNeighborhood, TERRAIN_VERSION, TILE } fro
 import { applySiteVariation } from "./SiteVariation.js";
 import { getFactionSpecialty } from "../economy/factionSpecialties.js";
 import { computeDonjonSettlementCensus, DonjonBusiness, DonjonSettlementCensus } from "../procgen/DonjonSettlementEngine.js";
+import { deriveCitizenMotives } from "../rpg/paragonMotives.js";
 import {
   generateProceduralLoggingSurface,
   generateProceduralLoggingSubterranean,
@@ -45,6 +46,9 @@ export interface SectorMapResult {
     statAffinity?: string;
     memoryNotes?: string[];
     stats?: Record<string, number>;
+    want?: string;
+    flaw?: string;
+    lineWontCross?: string;
   }>;
   poiType: string;
   name: string;
@@ -1010,6 +1014,7 @@ export function generateBurgSectorLayers(
       const isSpecialtyMaster = b.biz?.type === "SPECIALTY_GUILD";
       const fSpec = isSpecialtyMaster ? getFactionSpecialty(burg.faction_id || (contextConfig as any)?.factionId || (contextConfig as any)?.factionOwner || 0) : null;
 
+      const cm = deriveCitizenMotives(c);
       const citizenTags = [
         c.species ? c.species.toLowerCase() : "human",
         "civilian",
@@ -1021,7 +1026,10 @@ export function generateBurgSectorLayers(
         c.spark_tier && c.spark_tier !== 'NONE' ? `spark:${c.spark_tier.toLowerCase()}` : "spark:null",
         ...(b.biz ? [`ward:${b.biz.ward.toLowerCase()}`, "proprietor"] : []),
         ...(fSpec ? ["specialty_master", fSpec.artisanPersonaTag.replace('#', ''), fSpec.category.toLowerCase()] : []),
-        ...statusTags
+        ...statusTags,
+        cm.wantTag,
+        cm.flawTag,
+        cm.lineTag
       ];
 
       npcs0.push({
@@ -1030,6 +1038,9 @@ export function generateBurgSectorLayers(
         role: c.profession,
         pos: [b.cx + (ci === 0 ? 0 : 1), b.cy + (ci === 0 ? 0 : -1)],
         tags: citizenTags,
+        want: cm.want,
+        flaw: cm.flaw,
+        lineWontCross: cm.lineWontCross,
         faction: factionName,
         hp: 25,
         maxHp: 25,
@@ -2370,13 +2381,17 @@ export function generateTacticalRegionalSectorMap(config: TacticalRegionalSector
     const instinct = citizen?.instinct || "wary";
     const motivation = citizen?.motivation || "duty";
     const unitSize = citizen?.unit_size || 12;
+    const cm = deriveCitizenMotives({ ...citizen, profession: role });
     const tags = [
       `species:${species.toLowerCase()}`,
       `profession:${role.toLowerCase().replace(/[\s-]+/g, '_')}`,
       `temper:${temper.toLowerCase()}`,
       `instinct:${instinct.toLowerCase()}`,
       `motivation:${motivation.toLowerCase()}`,
-      citizen?.spark_tier ? `spark:${citizen.spark_tier.toLowerCase()}` : "spark:null"
+      citizen?.spark_tier ? `spark:${citizen.spark_tier.toLowerCase()}` : "spark:null",
+      cm.wantTag,
+      cm.flawTag,
+      cm.lineTag
     ];
 
     const isGuard = role.includes("Guard") || role.includes("Watch") || role.includes("Sentry") || role.includes("Warder");
@@ -2390,6 +2405,9 @@ export function generateTacticalRegionalSectorMap(config: TacticalRegionalSector
       role,
       pos,
       tags,
+      want: cm.want,
+      flaw: cm.flaw,
+      lineWontCross: cm.lineWontCross,
       faction: factionName,
       hp: citizen?.spark_tier === "PARAGON" ? 45 : isGuard ? 30 : 24,
       maxHp: citizen?.spark_tier === "PARAGON" ? 45 : isGuard ? 30 : 24,

@@ -17,6 +17,7 @@ import zlib from "zlib";
 import { paintTacticalTerrain, RegionalNeighborhood, TERRAIN_VERSION, TILE } from "./TacticalTerrain.js";
 import type { SectorMapResult } from "./SectorMapGenerator";
 import { dressSite, TownKind } from "./SiteVariation.js";
+import { deriveCitizenMotives } from "../rpg/paragonMotives.js";
 
 const SIZE = 256;
 type Ward = "RESIDENTIAL" | "MARKET" | "ARTISAN" | "CITADEL";
@@ -341,6 +342,7 @@ export function generateWardDistrictMap(input: WardDistrictInput): SectorMapResu
     const c = citizens[(offset + i) % citizens.length];
     const pos = doors.length ? doors[Math.floor(rand() * doors.length)]! : [hub[0] + i * 3, hub[1]] as [number, number];
     const guard = ward === "CITADEL" && i < 3;
+    const cm = deriveCitizenMotives({ ...c, profession: guard ? "Citadel Guard" : c.profession });
     npcs.push({
       id: `npc_ward_${c.citizen_id ?? `${cellId}_${rx}_${ry}_${i}`}`,
       name: c.name || `${burgName} resident`,
@@ -349,8 +351,12 @@ export function generateWardDistrictMap(input: WardDistrictInput): SectorMapResu
       tags: [
         `species:${String(c.species || "human").toLowerCase()}`, `temper:${String(c.temper || "steady").toLowerCase()}`,
         `spark:${String(c.spark_tier || "null").toLowerCase()}`, `profession:${String(c.profession || "townsfolk").toLowerCase().replace(/[\s-]+/g, "_")}`,
-        `ward:${ward.toLowerCase()}`
+        `ward:${ward.toLowerCase()}`,
+        cm.wantTag, cm.flawTag, cm.lineTag
       ],
+      want: cm.want,
+      flaw: cm.flaw,
+      lineWontCross: cm.lineWontCross,
       faction: factionName,
       hp: guard ? 30 : 22,
       maxHp: guard ? 30 : 22,

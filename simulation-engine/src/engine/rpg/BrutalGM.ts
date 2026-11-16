@@ -1496,10 +1496,16 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
       if (isNonHostilePersuasion) {
         const lowerAct = actionText.toLowerCase();
         const isDutyGuard = /\b(guard|warden|watch|sentinel|commander|captain)\b/i.test(npcRole);
+        const targetTags = targetNPC?.tags || [];
+        const crossesHardLine =
+          (targetTags.includes("#Line_NeverInformOnNeighbors") && /\b(inform on|rat out|turn in|snitch|betray)\b.*\b(neighbor|worker|guildmate|friend|ally)\b/.test(lowerAct)) ||
+          (targetTags.includes("#Line_NeverBetrayTheCabal") && /\b(betray|reveal|name|expose)\b.*\b(cabal|cult|cultist|altar)\b/.test(lowerAct)) ||
+          (targetTags.includes("#Line_NeverForgeCharters") && /\b(forge|falsify|alter)\b.*\b(charter|ledger|tally|tallies)\b/.test(lowerAct)) ||
+          (targetTags.includes("#Line_NeverEndangerFamily") && /\b(endanger|sacrifice|hand over)\b.*\b(family|child|children|household)\b/.test(lowerAct));
         const againstOrders = Boolean(
           verbUpper !== "BRIBE" &&
-          isDutyGuard &&
-          /\b(abandon post|desert|betray|treason|unlock the prison|open the vault)\b/.test(lowerAct)
+          (crossesHardLine ||
+            (isDutyGuard && /\b(abandon post|desert|betray|treason|unlock the prison|open the vault)\b/.test(lowerAct)))
         );
         const propBonus = (intent.verb === "BRIBE" && player.gold >= 0 ? 2 : 0) + (targetFactionRep >= 25 ? 2 : 0);
         const persRes = resolvePersuasion({
@@ -1676,7 +1682,10 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
         : "";
 
       const npcTagsStr = targetNPC ? targetNPC.tags.join(", ") : "disciplined, armed, watchful";
-      const dialoguePrompt = `You are ${npcName}, a ${npcRole} aligned with '${npcFaction}'. Your traits are: [${npcTagsStr}].
+      const motiveStr = targetNPC?.want || targetNPC?.flaw || targetNPC?.lineWontCross
+        ? `\nPersonal Want: ${targetNPC.want || "N/A"}\nPersonal Flaw: ${targetNPC.flaw || "N/A"}\nLine You Will Never Cross: ${targetNPC.lineWontCross || "N/A"}`
+        : "";
+      const dialoguePrompt = `You are ${npcName}, a ${npcRole} aligned with '${npcFaction}'. Your traits are: [${npcTagsStr}].${motiveStr}
 The player spoke: "${actionText}".
 Social result: ${hit ? "SUCCESS" : "FAILURE"} (${socialOutcomeNote}). Current disposition: ${targetNPC ? targetNPC.disposition : (hit ? 1 : -1)}.
 ${breakdownNote}

@@ -88,6 +88,9 @@ export interface InjectedNPC {
   stake?: FoeStake | undefined;
   isBoss?: boolean | undefined;
   foeStack?: FoeStackState | undefined;
+  want?: string | undefined;
+  flaw?: string | undefined;
+  lineWontCross?: string | undefined;
 }
 
 export interface InjectedWorldState {

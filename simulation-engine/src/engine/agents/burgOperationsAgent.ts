@@ -1,6 +1,7 @@
 import { DAYS_PER_WEEK, DAYS_PER_YEAR, SHADOWFALL, isYearEnd, seasonKind } from "../canon/calendar.js";
 import { tagBurgCitizens } from "./citizenPersonaHelper";
 import { loadCellTagMap } from "../cellTags.js";
+import { deriveCitizenMotives } from "../rpg/paragonMotives.js";
 import { 
     getFactionSpecialty, 
     getGoodsByCategory, 
@@ -173,6 +174,7 @@ async function spawnImmigrant(client: any, burg: any, ledger: RecordLedger) {
     const instinct = pickRandom(["WARY", "CURIOUS", "AGGRESSIVE", "FEARFUL", "DEVOUT"], "WARY");
     const motiv = `Relocated to ${burg.name || 'town'} seeking new trade opportunities and stability.`;
     const wp = getWorkplaceForProfession(profession, burg.name || "Town");
+    const motives = deriveCitizenMotives({ profession, temper, instinct, allegiance_status: "CIVILIAN" });
 
     await client.query(`
         INSERT INTO population_demographics (
@@ -180,19 +182,20 @@ async function spawnImmigrant(client: any, burg: any, ledger: RecordLedger) {
             is_null, spark_tier, attunement_level, chaos_attraction_index,
             temper, instinct, motivation, traits, social_links, allegiance_status,
             unit_size, life_stage, age, childhood_background, is_immigrant,
-            workplace_type, workplace_name
+            workplace_type, workplace_name, want, flaw, line_wont_cross
         ) VALUES (
             $1, $2, $3, $4, $5,
             $6, $7, $8, $9,
             $10, $11, $12, $13::jsonb, '[]'::jsonb, 'CIVILIAN',
             $18, 'ADULT', $14, $15, TRUE,
-            $16, $17
+            $16, $17, $19, $20, $21
         )
     `, [
         burg.burg_id, burg.cell_id, name, profession, species,
         isNull, sparkTier, isNull ? 0 : 0.3, isNull ? 0 : 2.0,
         temper, instinct, motiv, JSON.stringify([temper, instinct]),
-        age, childhood, wp.type, wp.name, ledger.unit
+        age, childhood, wp.type, wp.name, ledger.unit,
+        motives.want, motives.flaw, motives.lineWontCross
     ]);
 }
 
@@ -1320,12 +1323,14 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
 
                         // Promote child to adult with assigned workplace
                         const wp = getWorkplaceForProfession(adultTrade, burg.name || "Town");
+                        const adultMotives = deriveCitizenMotives({ profession: adultTrade, temper: "CURIOUS", instinct: "WARY", allegiance_status: "CIVILIAN" });
                         await client.query(`
                         UPDATE population_demographics
                         SET life_stage = 'ADULT', age = 16, profession = $1, motivation = $2,
-                            workplace_type = $3, workplace_name = $4
+                            workplace_type = $3, workplace_name = $4,
+                            want = COALESCE(want, $6), flaw = COALESCE(flaw, $7), line_wont_cross = COALESCE(line_wont_cross, $8)
                         WHERE citizen_id = $5
-                    `, [adultTrade, newAdultMotiv, wp.type, wp.name, child.citizen_id]);
+                    `, [adultTrade, newAdultMotiv, wp.type, wp.name, child.citizen_id, adultMotives.want, adultMotives.flaw, adultMotives.lineWontCross]);
 
                         // Spawn replacement infant/child in the cradle to replace them
                         const replacementFirst = pickRandom(FIRST_NAMES[child.species] || FIRST_NAMES["Human"] || ["Val"], "Val");
@@ -1334,25 +1339,26 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
                         const replacementRole = pickRandom(["Forge Apprentice", "Weaver Youth", "Temple Ward", "Farm Hand", "Herbalist Gatherer", "Scribe Runner", "Potter Apprentice"], "Apprentice");
                         const childBg = pickRandom(CHILDHOOD_BACKGROUNDS, "Learning the traditions of their elders.");
                         const isChildNull = Math.random() >= ledger.attunedShare;
+                        const childMotives = deriveCitizenMotives({ profession: replacementRole, temper: "CURIOUS", instinct: "WARY", allegiance_status: "CIVILIAN" });
 
                         await client.query(`
                         INSERT INTO population_demographics (
                             settlement_id, home_cell_id, name, profession, species,
                             is_null, spark_tier, attunement_level, chaos_attraction_index,
                             temper, instinct, motivation, traits, social_links, allegiance_status,
-                            unit_size, life_stage, age, childhood_background
+                            unit_size, life_stage, age, childhood_background, want, flaw, line_wont_cross
                         ) VALUES (
                             $1, $2, $3, $4, $5,
                             $6, $7, $8, $9,
                             'CURIOUS', 'WARY', $10, '["CURIOUS","WARY","YOUTH"]'::jsonb, '[]'::jsonb, 'CIVILIAN',
-                            $12, 'CHILD', 1, $11
+                            $12, 'CHILD', 1, $11, $13, $14, $15
                         )
                     `, [
                             burg.burg_id, burg.cell_id, replacementName, replacementRole, child.species,
                             isChildNull, isChildNull ? 'NULL' : (Math.random() < 0.5 ? 'DORMANT_SPARK' : 'SENSITIVE'),
                             isChildNull ? 0 : 0.2, isChildNull ? 0 : 1.0,
                             `Growing up in ${burg.name || 'town'} under the guidance of elder craftsmen.`,
-                            childBg, ledger.unit
+                            childBg, ledger.unit, childMotives.want, childMotives.flaw, childMotives.lineWontCross
                         ]);
                     } else {
                         await spawnImmigrant(client, burg, ledger);

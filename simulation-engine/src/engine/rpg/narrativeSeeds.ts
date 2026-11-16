@@ -19,7 +19,7 @@
  * npc_cartel_agent_<lair_id>, and lair resident_npc_ids.
  */
 
-import { deriveParagonMotives } from "./paragonMotives.js";
+import { deriveParagonMotives, deriveCitizenMotives } from "./paragonMotives.js";
 
 type Db = { query: (text: string, params?: any[]) => Promise<any> };
 
@@ -137,6 +137,22 @@ export function seedNarrativeTags(npcs: any[], facts: NarrativeFacts): number {
       if (addTag(npc, "#SyndicatePresence")) added++;
       if (lair.heat >= 50 && addTag(npc, "#BountyTarget")) added++;
       if (lair.name === "The Hedge Wizards" && addTag(npc, "#HedgeWizard")) added++;
+    }
+
+    if (!paragon) {
+      const cm = deriveCitizenMotives({
+        profession: npc.role,
+        tags: npc.tags,
+        want: npc.want,
+        flaw: npc.flaw,
+        lineWontCross: npc.lineWontCross
+      });
+      if (addTag(npc, cm.wantTag)) added++;
+      if (addTag(npc, cm.flawTag)) added++;
+      if (addTag(npc, cm.lineTag)) added++;
+      if (!npc.want) npc.want = cm.want;
+      if (!npc.flaw) npc.flaw = cm.flaw;
+      if (!npc.lineWontCross) npc.lineWontCross = cm.lineWontCross;
     }
   }
 

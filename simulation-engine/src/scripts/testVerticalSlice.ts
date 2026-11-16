@@ -12,7 +12,7 @@ import pool from "../db/pool.js";
 import { isolateTest, ensureFixtureLayer } from "./testIsolation.js";
 import { BrutalGameMaster } from "../engine/rpg/BrutalGM.js";
 import { applyBrutalInjury } from "../engine/injuryEngine.js";
-import { ensureParagonMotivesPopulated, deriveParagonMotives } from "../engine/rpg/paragonMotives.js";
+import { ensureParagonMotivesPopulated, deriveParagonMotives, ensureCitizenMotivesPopulated, deriveCitizenMotives } from "../engine/rpg/paragonMotives.js";
 import { loadNarrativeFacts, seedNarrativeTags } from "../engine/rpg/narrativeSeeds.js";
 import { evaluateSectorReactions } from "../engine/rpg/narrativeReactionEngine.js";
 import {
@@ -85,6 +85,53 @@ async function runVerticalSliceTest() {
   assert(captainNpc.tags.includes(captainMotive.wantTag), "Paragon NPC missing #Want tag after seeding");
   assert(captainNpc.tags.includes(captainMotive.flawTag), "Paragon NPC missing #Flaw tag after seeding");
   assert(captainNpc.tags.includes(captainMotive.lineTag), "Paragon NPC missing #Line tag after seeding");
+
+  // Also verify every citizen in population_demographics has want, flaw, line_wont_cross
+  await ensureCitizenMotivesPopulated(pool);
+  const nullCitizenRes = await pool.query(
+    `SELECT COUNT(*)::int AS c FROM population_demographics WHERE want IS NULL OR flaw IS NULL OR line_wont_cross IS NULL`
+  );
+  assert(
+    Number(nullCitizenRes.rows[0]?.c) === 0,
+    `Expected all population_demographics rows to have motives, found ${nullCitizenRes.rows[0]?.c} NULL`
+  );
+
+  const citizenRowRes = await pool.query(
+    `SELECT citizen_id, name, profession, temper, instinct, allegiance_status, want, flaw, line_wont_cross
+     FROM population_demographics
+     WHERE settlement_id = $1 AND life_stage = 'ADULT' AND allegiance_status = 'CIVILIAN'
+     ORDER BY citizen_id LIMIT 1`,
+    [burgId]
+  );
+  assert(citizenRowRes.rows.length > 0, "Expected at least one adult civilian in Burg 81");
+  const citRow = citizenRowRes.rows[0];
+  assert(Boolean(citRow.want && citRow.flaw && citRow.line_wont_cross), "Burg 81 citizen missing DB motives");
+  const citNpc: any = {
+    id: `npc_ward_${citRow.citizen_id}`,
+    name: citRow.name,
+    role: citRow.profession || "Blacksmith",
+    pos: [126, 128] as [number, number],
+    tags: ["civilian", "temper:bitter", "#Line_NeverInformOnNeighbors", "#Want_OverturnLevy", "#Flaw_Vindictive"],
+    faction: "Roromijima",
+    hp: 12,
+    maxHp: 12,
+    composure: 10,
+    maxComposure: 10,
+    disposition: 0,
+    alive: true,
+    want: citRow.want,
+    flaw: citRow.flaw,
+    lineWontCross: citRow.line_wont_cross
+  };
+  const seededCit: any = {
+    id: `npc_ward_${citRow.citizen_id}`,
+    name: citRow.name,
+    role: citRow.profession || "Citizen",
+    tags: [`temper:${String(citRow.temper || "curious").toLowerCase()}`]
+  };
+  seedNarrativeTags([seededCit], facts);
+  const derivedCit = deriveCitizenMotives(citRow);
+  assert(seededCit.tags.includes(derivedCit.wantTag) && seededCit.want && seededCit.flaw && seededCit.lineWontCross, "Seeded citizen NPC missing motive tags/fields");
   console.log("✅ PASSED");
 
   // ------------------------------------------------------------------
@@ -135,6 +182,7 @@ async function runVerticalSliceTest() {
   assert(campState.currentAct === undefined && campState.totalActs === undefined, "Legacy 5-act ACTS still exposed in getCampaignState()");
 
   gm.activeNPCs.set(captainNpc.id, captainNpc);
+  gm.activeNPCs.set(citNpc.id, citNpc);
   const enforcerId = "npc_curfew_enforcer_81";
   gm.activeNPCs.set(enforcerId, {
     id: enforcerId,
@@ -173,6 +221,13 @@ async function runVerticalSliceTest() {
     playerPos: [128, 128]
   });
   assert(!ordersRes.success && ordersRes.systemLog.includes("REJECTED_AGAINST_ORDERS"), `Expected REJECTED_AGAINST_ORDERS, got: ${ordersRes.systemLog}`);
+
+  const citizenLineRes = await gm.executeTurn({
+    actionText: `I talk with ${citNpc.name} to convince them to inform on your neighbor`,
+    playerId: 104,
+    playerPos: [126, 128]
+  });
+  assert(!citizenLineRes.success && citizenLineRes.systemLog.includes("REJECTED_AGAINST_ORDERS"), `Expected citizen hard line REJECTED_AGAINST_ORDERS, got: ${citizenLineRes.systemLog}`);
 
   const inFightTalk = await gm.executeTurn({
     actionText: "I talk to Corrupt Gate Enforcer and yell at him mid-duel to drop his weapon",
