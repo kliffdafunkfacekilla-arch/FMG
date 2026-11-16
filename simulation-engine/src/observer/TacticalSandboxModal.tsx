@@ -787,9 +787,21 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
                   <div style={{ color: '#94a3b8', marginTop: 2 }}>
                     Faction: {selectedNpc.faction || 'Neutral'} • HP: {selectedNpc.hp}/{selectedNpc.maxHp || 20} • Pos: ({selectedNpc.pos?.[0]}, {selectedNpc.pos?.[1]})
                   </div>
+                  {selectedNpc.foeStack && !selectedNpc.foeStack.isBoss && (
+                    <div style={{ color: '#fbbf24', marginTop: 3, fontSize: 10, fontWeight: 600 }}>
+                      🃏 Cards: {(selectedNpc.foeStack.cards || []).reduce((s: number, c: any) => s + (c.copies || 0), 0)} • Resolve: {selectedNpc.foeStack.resolve}/{selectedNpc.foeStack.maxResolve} ({selectedNpc.foeStack.status})
+                    </div>
+                  )}
                   <div style={{ color: '#a78bfa', marginTop: 2 }}>
                     Tags: {(selectedNpc.tags || []).join(', ') || 'none'}
                   </div>
+                  {(selectedNpc.want || selectedNpc.flaw || selectedNpc.lineWontCross) && (
+                    <div style={{ marginTop: 4, paddingTop: 4, borderTop: '1px solid #1e293b', fontSize: 10, color: '#cbd5e1', lineHeight: 1.35 }}>
+                      {selectedNpc.want && <div><strong style={{ color: '#38bdf8' }}>Want:</strong> {selectedNpc.want}</div>}
+                      {selectedNpc.flaw && <div><strong style={{ color: '#f59e0b' }}>Flaw:</strong> {selectedNpc.flaw}</div>}
+                      {selectedNpc.lineWontCross && <div><strong style={{ color: '#f87171' }}>Line:</strong> {selectedNpc.lineWontCross}</div>}
+                    </div>
+                  )}
                   {selectedNpc.dialogue && (
                     <div style={{ color: '#fef08a', marginTop: 4, fontStyle: 'italic' }}>
                       "{selectedNpc.dialogue}"
@@ -1062,7 +1074,17 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
                             <span>HP: {m.hp}/{m.maxHp}</span>
                             <span>Gold: {m.gold ?? 50}g</span>
                           </div>
-                          <div style={{ color: '#94a3b8', fontSize: 9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <div style={{ color: '#cbd5e1', fontSize: 9, display: 'flex', justifyContent: 'space-between', marginTop: 1 }}>
+                            <span>CMP: {m.composure ?? m.maxComposure ?? 12}</span>
+                            <span>STA: {m.stamina ?? m.maxStamina ?? 6} • FOC: {m.focus ?? m.maxFocus ?? 8}</span>
+                          </div>
+                          {((m.owed?.stamina || 0) > 0 || (m.owed?.focus || 0) > 0 || m.spent?.stamina || m.spent?.focus) && (
+                            <div style={{ marginTop: 2, fontSize: 8, fontWeight: 700, color: '#fbbf24' }}>
+                              {(m.owed?.stamina || 0) > 0 || (m.owed?.focus || 0) > 0 ? `⏳ Owed: ${m.owed?.stamina || 0}S / ${m.owed?.focus || 0}F` : ''}
+                              {(m.spent?.stamina || m.spent?.focus) ? ' ⚠ SPENT' : ''}
+                            </div>
+                          )}
+                          <div style={{ color: '#94a3b8', fontSize: 9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>
                             🗡️ {m.weapon}
                           </div>
                         </div>

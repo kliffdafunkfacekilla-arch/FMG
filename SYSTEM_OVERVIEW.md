@@ -9,7 +9,7 @@ Welcome to the **Ostraka Living Simulation & B.R.U.T.A.L. TTRPG** system. This d
 Per **Rule 3** of `GEMINI.md`:
 - **Canon and rules live in the Shatterlands folder and are read-only:**
   - **Lore**: `C:\Users\krazy\Desktop\Shatterlands\Canon\`, starting at `00_Index_and_Precedence.md`.
-  - **Rules**: `C:\Users\krazy\Desktop\Shatterlands\Rules\BRUTAL_Rulebook_v3.md` (Draft v4.9). For the digest, read `Rules\Table_Test_Pack\players\Rules_Digest.md`.
+  - **Rules**: `C:\Users\krazy\Desktop\Shatterlands\Rules\BRUTAL_Rulebook_v3.md` (Draft v5.0; see `RULES_TARGET_v5.0.md`). For the digest, read `Rules\Table_Test_Pack\players\Rules_Digest.md`.
   - If the code disagrees with them, the code is wrong.
 - **The World is Ostraka, in the Shatterlands** ("Aetheria" is a retired working name).
 - **The Game System is B.R.U.T.A.L.** (opposed 1d12 + Stat against Guard/DC).

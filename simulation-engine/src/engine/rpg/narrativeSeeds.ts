@@ -56,29 +56,27 @@ export async function loadNarrativeFacts(db: Db, cellId: number): Promise<Narrat
     recentEventTypes: new Set(),
     chaosIntensity: 0,
   };
-  const [paragons, cultists, lairs, events, chaos] = await Promise.all([
-    burgId != null
-      ? db.query(`SELECT * FROM sim_paragons WHERE burg_id = $1`, [burgId])
-      : Promise.resolve({ rows: [] }),
-    db.query(
-      `SELECT citizen_id FROM population_demographics
-       WHERE (home_cell_id = $1 OR settlement_id = $2) AND allegiance_status = 'CULTIST_INFILTRATOR'`,
-      [cellId, burgId ?? -1]
-    ),
-    db.query(
-      `SELECT l.id, l.heat, l.resident_npc_ids, o.type, o.name FROM sim_fringe_lairs l
-       JOIN sim_outlaw_factions o ON o.id = l.faction_id WHERE l.burg_id = $1 OR l.cell_id = $2`,
-      [burgId ?? -1, cellId]
-    ),
-    burgId != null
-      ? db.query(
-          `SELECT DISTINCT type FROM sim_events
-           WHERE burg_id = $1 AND tick > (SELECT COALESCE(MAX(tick), 0) - 48 FROM sim_calendar)`,
-          [burgId]
-        )
-      : Promise.resolve({ rows: [] }),
-    db.query(`SELECT COALESCE(MAX(intensity), 0) AS i FROM sim_chaos_zones WHERE cell_id = $1`, [cellId]),
-  ]);
+  const paragons = burgId != null
+    ? await db.query(`SELECT * FROM sim_paragons WHERE burg_id = $1`, [burgId])
+    : { rows: [] };
+  const cultists = await db.query(
+    `SELECT citizen_id FROM population_demographics
+     WHERE (home_cell_id = $1 OR settlement_id = $2) AND allegiance_status = 'CULTIST_INFILTRATOR'`,
+    [cellId, burgId ?? -1]
+  );
+  const lairs = await db.query(
+    `SELECT l.id, l.heat, l.resident_npc_ids, o.type, o.name FROM sim_fringe_lairs l
+     JOIN sim_outlaw_factions o ON o.id = l.faction_id WHERE l.burg_id = $1 OR l.cell_id = $2`,
+    [burgId ?? -1, cellId]
+  );
+  const events = burgId != null
+    ? await db.query(
+        `SELECT DISTINCT type FROM sim_events
+         WHERE burg_id = $1 AND tick > (SELECT COALESCE(MAX(tick), 0) - 48 FROM sim_calendar)`,
+        [burgId]
+      )
+    : { rows: [] };
+  const chaos = await db.query(`SELECT COALESCE(MAX(intensity), 0) AS i FROM sim_chaos_zones WHERE cell_id = $1`, [cellId]);
   for (const p of paragons.rows) {
     const profile = deriveParagonMotives(p);
     facts.paragons.set(Number(p.id), {
