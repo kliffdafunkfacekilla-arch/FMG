@@ -596,17 +596,7 @@ export function synthesizeEmergentRelic(
 }
 
 export class WhatElseStoryEngine {
-  private currentActIndex = 0;
-  private readonly ACTS = [
-    { act: 1, title: "The Gathering Storm", theme: "Frontier Exploration & Ecological Equilibrium" },
-    { act: 2, title: "Shadows of the Fulcrum", theme: "Underworld Enclaves & Cartel Web" },
-    { act: 3, title: "The Midpoint Cataclysm", theme: "Continental Clashes & Ruin Awakenings" },
-    { act: 4, title: "The Darkest Hour", theme: "Besieged Citadels & Shifting Empires" },
-    { act: 5, title: "The Final Reckoning", theme: "Planetary Fate & Cosmological Convergence" }
-  ];
-
   private activeBeat: StoryBeat | null = null;
-  private completedBeats: StoryBeat[] = [];
 
   private readonly HUMAN_NAMES = [
     "Valeria", "Garrick", "Morwen", "Kaelen", "Bran", "Lysandra", "Doran",
@@ -619,25 +609,16 @@ export class WhatElseStoryEngine {
     "the Vigilant", "the Swift", "Leaf-Catcher", "the Stern", "Wind-Walker"
   ];
 
+  /** Legacy compatibility stub; story progression is governed exclusively by `sim_threads`. */
   public getCampaignState() {
     return {
-      currentAct: this.ACTS[this.currentActIndex] || this.ACTS[0],
-      actIndex: this.currentActIndex + 1,
-      totalActs: this.ACTS.length,
-      activeBeat: this.activeBeat,
-      completedBeatsCount: this.completedBeats.length
+      activeBeat: this.activeBeat
     };
   }
 
   public restoreCampaignState(state: any) {
-    if (state?.actIndex !== undefined) {
-      this.currentActIndex = Math.max(0, Math.min(this.ACTS.length - 1, (state.actIndex || 1) - 1));
-    }
     if (state?.activeBeat) {
       this.activeBeat = state.activeBeat;
-    }
-    if (Array.isArray(state?.completedBeats)) {
-      this.completedBeats = state.completedBeats;
     }
   }
 
@@ -1226,36 +1207,8 @@ export class WhatElseStoryEngine {
     return { props, npcs, activeBeat: beat };
   }
 
-  /**
-   * Tracks objective completions without artificial railroading.
-   */
-  public updateObjective(targetId: string, amount: number = 1): { beatCompleted: boolean; updatedObjective?: QuestObjective | undefined } {
-    if (!this.activeBeat) return { beatCompleted: false };
-
-    let updatedObjective: QuestObjective | undefined;
-
-    for (const obj of this.activeBeat.objectives) {
-      if (!obj.completed && (obj.targetId === targetId || targetId.includes(obj.type.toLowerCase()))) {
-        obj.currentCount += amount;
-        if (obj.currentCount >= obj.requiredCount) {
-          obj.completed = true;
-        }
-        updatedObjective = obj;
-        break;
-      }
-    }
-
-    const allDone = this.activeBeat.objectives.every(o => o.completed);
-    if (allDone) {
-      this.completedBeats.push(this.activeBeat);
-      if (this.completedBeats.length % 3 === 0 && this.currentActIndex < this.ACTS.length - 1) {
-        this.currentActIndex++;
-      }
-    }
-
-    return {
-      beatCompleted: allDone,
-      updatedObjective
-    };
+  /** Legacy compatibility stub; quest resolution runs through `sim_threads` (`questChainEngine`). */
+  public updateObjective(_targetId: string, _amount: number = 1): { beatCompleted: boolean; updatedObjective?: QuestObjective | undefined } {
+    return { beatCompleted: false };
   }
 }
