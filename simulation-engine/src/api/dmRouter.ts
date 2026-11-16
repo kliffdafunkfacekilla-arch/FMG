@@ -13,8 +13,11 @@ import { seedLayerNarrative } from '../engine/rpg/narrativeSeeds.js';
 import { ollamaGenerate } from '../engine/llm.js';
 import { getOrCreateRegionalInstance } from './regionalRouter.js';
 import { getFactionSpecialty, FACTION_SPECIALTIES, FactionSpecialty } from '../engine/economy/factionSpecialties.js';
-import { getOpenThreads, evaluateThreadState } from '../engine/threads/threadEngine.js';
+import { getOpenThreads, evaluateThreadState, createThread } from '../engine/threads/threadEngine.js';
 import { resolveThreadByParty, ResolveThreadByPartyResult } from '../engine/questChainEngine.js';
+import { evaluateSectorReactions } from '../engine/rpg/narrativeReactionEngine.js';
+import { BLEED_TAG } from '../engine/agents/backgroundDirector.js';
+import { isChaosPeak } from '../engine/canon/calendar.js';
 
 dotenv.config({ override: true });
 
@@ -1101,6 +1104,165 @@ router.post('/sector_load', async (req, res) => {
   });
 
 /**
+ * Ensures an inhabited sector with 0 open threads evaluates data collisions (and, if needed,
+ * opens one grounded local trouble thread from real paragons, citizens, or agents in the DB).
+ */
+async function ensureLocalSectorTrouble(
+  cellId: number,
+  rx: number,
+  ry: number,
+  zLayer: number,
+  npcs: any[],
+  props: any[],
+  features: any
+) {
+  let threads = (await getOpenThreads(pool, cellId))
+    .sort((a, b) => Number(b.rx === rx && b.ry === ry) - Number(a.rx === rx && a.ry === ry));
+  if (threads.length > 0) return threads;
+
+  try {
+    const [calRes, burgRes] = await Promise.all([
+      pool.query(`SELECT tick, moon_phase, is_shadow_week FROM sim_calendar ORDER BY tick DESC LIMIT 1`),
+      pool.query(`SELECT burg_id, name, unrest, food, wealth, crime_rate FROM sim_burg_economy WHERE cell_id = $1 LIMIT 1`, [cellId])
+    ]);
+    const cal = calRes.rows[0] || { tick: 1, moon_phase: 'The Halo', is_shadow_week: false };
+    const currentTick = Number(cal.tick) || 1;
+    const moonPhase = cal.moon_phase || 'The Halo';
+    const isShadowWeek = Boolean(cal.is_shadow_week);
+    const burg = burgRes.rows[0] || null;
+
+    if (zLayer === 0 && (npcs.length > 0 || props.length > 0)) {
+      const globalTags: string[] = [];
+      if (burg) {
+        if (Number(burg.food || 0) < 1000) globalTags.push('#Famine', '#ResourceScarcity');
+        if (Number(burg.unrest || 0) >= 40) globalTags.push('#MartialLaw', '#HighUnrest');
+        if (Number(burg.crime_rate || 0) > 30) globalTags.push('#UndergroundUnrest', '#SyndicatePresence');
+      }
+      if (isChaosPeak(moonPhase)) globalTags.push(BLEED_TAG);
+      if (isShadowWeek) globalTags.push('#ShadowWeek');
+
+      const sectorEntities = [...npcs, ...props];
+      const reaction = evaluateSectorReactions(sectorEntities, globalTags, {
+        burgId: burg ? Number(burg.burg_id) : null,
+        burgName: burg ? burg.name : undefined,
+        cellId,
+        unrest: burg ? Number(burg.unrest) : 0,
+        food: burg ? Number(burg.food) : 0,
+        wealth: burg ? Number(burg.wealth) : 0,
+        tick: currentTick,
+        cruorbusPhase: moonPhase,
+        isShadowWeek,
+        rx,
+        ry
+      });
+
+      if (reaction.mutated && (reaction.threadsToOpen || []).length > 0) {
+        const updatedNpcs = sectorEntities.filter(e => e.type === 'NPC');
+        const updatedProps = sectorEntities.filter(e => e.type === 'PROP');
+        const updatedFeatures = { ...(features || {}), environmental_tags: reaction.newSectorTags };
+        await pool.query(
+          `UPDATE sim_sector_layers SET npcs = $1, props = $2, features = $3 WHERE cell_id = $4 AND rx = $5 AND ry = $6 AND z_layer = 0`,
+          [JSON.stringify(updatedNpcs), JSON.stringify(updatedProps), JSON.stringify(updatedFeatures), cellId, rx, ry]
+        );
+        for (const th of reaction.threadsToOpen) {
+          await createThread(pool, { ...th, created_tick: currentTick }).catch(() => {});
+        }
+        threads = (await getOpenThreads(pool, cellId))
+          .sort((a, b) => Number(b.rx === rx && b.ry === ry) - Number(a.rx === rx && a.ry === ry));
+        if (threads.length > 0) return threads;
+      }
+    }
+
+    // Fallback: ground a single local trouble thread in a real DB paragon, citizen, or agent
+    if (burg) {
+      const pRes = await pool.query(
+        `SELECT id, name, title, want, flaw, corruption_score
+         FROM sim_paragons WHERE burg_id = $1 AND outlaw_id IS NULL
+         ORDER BY corruption_score DESC, id ASC LIMIT 1`,
+        [burg.burg_id]
+      );
+      const p = pRes.rows[0];
+      if (p) {
+        const wantTxt = p.want ? String(p.want).replace(/\.$/, '') : 'consolidate local control';
+        const flawTxt = p.flaw ? String(p.flaw).replace(/\.$/, '') : 'factional rivalry';
+        const isHot = Number(burg.crime_rate || 0) >= 20 || Number(p.corruption_score || 0) >= 35;
+        await createThread(pool, {
+          question: isHot
+            ? `Will ${p.name}'s ${flawTxt.toLowerCase()} fracture order in ${burg.name}?`
+            : `Will ${p.name} (${p.title}) push through ${wantTxt.toLowerCase()} in ${burg.name}?`,
+          stakes: `Driven by ${wantTxt.toLowerCase()} while hindered by ${flawTxt.toLowerCase()}, ${p.name} is reshaping ${burg.name} (Unrest ${burg.unrest || 0}, Crime ${Math.round(Number(burg.crime_rate || 0))}%).`,
+          actor_ids: [`paragon:${p.id}`],
+          cell_id: cellId,
+          rx,
+          ry,
+          clock_max: 6,
+          origin: 'reaction',
+          rule_id: 'LOCAL_PARAGON_FRICTION',
+          created_tick: currentTick,
+          on_expire: { unrestDelta: 8, crimeRateDelta: 4, narrativeSummary: `${p.name}'s unchecked maneuvering deepened tension across ${burg.name}.` },
+          on_resolved_by_party: { unrestDelta: -6, crimeRateDelta: -4, narrativeSummary: `The party mediated the dispute around ${p.name}, steadying ${burg.name}.` }
+        }).catch(() => {});
+      }
+    } else {
+      const citRes = await pool.query(
+        `SELECT citizen_id, name, profession, want, flaw, workplace_name
+         FROM population_demographics
+         WHERE home_cell_id = $1 AND life_stage = 'ADULT' AND allegiance_status = 'CIVILIAN'
+         ORDER BY citizen_id ASC LIMIT 1`,
+        [cellId]
+      );
+      const c = citRes.rows[0];
+      if (c) {
+        const wantTxt = c.want ? String(c.want).replace(/\.$/, '') : 'protect their livelihood';
+        const flawTxt = c.flaw ? String(c.flaw).replace(/\.$/, '') : 'local distrust';
+        await createThread(pool, {
+          question: `What threatens ${c.name} (${c.profession}) at ${c.workplace_name || 'this frontier post'}?`,
+          stakes: `${c.name} seeks to ${wantTxt.toLowerCase()}, but ${flawTxt.toLowerCase()} complicates matters in the outlying sector.`,
+          actor_ids: [`citizen:${c.citizen_id}`],
+          cell_id: cellId,
+          rx,
+          ry,
+          clock_max: 6,
+          origin: 'reaction',
+          rule_id: 'LOCAL_CITIZEN_TROUBLE',
+          created_tick: currentTick,
+          on_expire: { unrestDelta: 5, narrativeSummary: `${c.name}'s trouble at ${c.workplace_name || 'the frontier'} went unanswered.` },
+          on_resolved_by_party: { unrestDelta: -4, narrativeSummary: `The party aided ${c.name} at ${c.workplace_name || 'the frontier'}.` }
+        }).catch(() => {});
+      } else {
+        const agRes = await pool.query(
+          `SELECT id, name, role, state, active_plot FROM sim_agents WHERE location_cell_id = $1 ORDER BY id ASC LIMIT 1`,
+          [cellId]
+        );
+        const a = agRes.rows[0];
+        if (a) {
+          await createThread(pool, {
+            question: `What is ${a.name} (${a.role}) doing in Cell #${cellId}?`,
+            stakes: a.active_plot || `${a.name} is operating here (${a.state}).`,
+            actor_ids: [`agent:${a.id}`],
+            cell_id: cellId,
+            rx,
+            ry,
+            clock_max: 6,
+            origin: 'reaction',
+            rule_id: 'LOCAL_AGENT_ACTIVITY',
+            created_tick: currentTick,
+            on_expire: { unrestDelta: 4, narrativeSummary: `${a.name}'s activity in Cell #${cellId} concluded undisturbed.` },
+            on_resolved_by_party: { unrestDelta: -3, narrativeSummary: `The party intercepted ${a.name} in Cell #${cellId}.` }
+          }).catch(() => {});
+        }
+      }
+    }
+
+    threads = (await getOpenThreads(pool, cellId))
+      .sort((a, b) => Number(b.rx === rx && b.ry === ry) - Number(a.rx === rx && a.ry === ry));
+  } catch (err) {
+    console.warn('[sector_layer] ensureLocalSectorTrouble failed:', err);
+  }
+  return threads;
+}
+
+/**
  * GET /sector_layer - Loads or generates a specific vertical layer (z = -1, 0, 1) for a sector
  */
 router.get('/sector_layer', async (req, res) => {
@@ -1110,7 +1272,7 @@ router.get('/sector_layer', async (req, res) => {
     const targetRy = req.query.ry !== undefined ? Number(req.query.ry) : 50;
     const targetZ = req.query.z !== undefined ? Number(req.query.z) : 0;
 
-    const openThreads = (await getOpenThreads(pool, targetCellId))
+    let openThreads = (await getOpenThreads(pool, targetCellId))
       .sort((a, b) => Number(b.rx === targetRx && b.ry === targetRy) - Number(a.rx === targetRx && a.ry === targetRy));
 
     // 1. Try to load layer from sim_sector_layers
@@ -1146,6 +1308,17 @@ router.get('/sector_layer', async (req, res) => {
       const row = layerRes.rows[0];
       const unzipped = zlib.gunzipSync(row.compressed_terrain);
       const grid = new Uint8Array(unzipped.buffer, unzipped.byteOffset, unzipped.byteLength);
+      if (openThreads.length === 0) {
+        openThreads = await ensureLocalSectorTrouble(
+          targetCellId,
+          targetRx,
+          targetRy,
+          targetZ,
+          row.npcs || [],
+          row.props || [],
+          row.features || {}
+        );
+      }
       return res.json({
         success: true,
         cellId: targetCellId,
@@ -1282,6 +1455,17 @@ router.get('/sector_layer', async (req, res) => {
       );
 
       const chosen = targetZ === -1 ? layers.layerMinus1 : targetZ === 1 ? layers.layerPlus1 : layers.layer0;
+      if (openThreads.length === 0) {
+        openThreads = await ensureLocalSectorTrouble(
+          targetCellId,
+          targetRx,
+          targetRy,
+          targetZ,
+          layers.layer0.npcs,
+          layers.layer0.props,
+          layers.layer0.features
+        );
+      }
       return res.json({
         success: true,
         cellId: targetCellId,
@@ -1410,6 +1594,18 @@ router.get('/sector_layer', async (req, res) => {
         JSON.stringify(tacticalMap.features)
       ]
     );
+
+    if (openThreads.length === 0) {
+      openThreads = await ensureLocalSectorTrouble(
+        targetCellId,
+        targetRx,
+        targetRy,
+        targetZ,
+        tacticalMap.npcs,
+        tacticalMap.props,
+        tacticalMap.features
+      );
+    }
 
     return res.json({
       success: true,

@@ -195,14 +195,22 @@ async function runTick(): Promise<TickResult> {
                 await client.query("UPDATE sim_burg_economy SET occupier_faction_id = NULL WHERE burg_id = ANY($1) AND occupier_faction_id IS NOT NULL", [ids]);
             });
 
-            // 12. Once a month keep a rolling buffer of ~25,000 MINOR events; CRITICAL and MAJOR lore stay forever
+            // 12. Once a month keep a rolling buffer of ~25,000 MINOR and ~25,000 MAJOR events; CRITICAL lore stays forever
             if (tick % DAYS_PER_MONTH === 0) {
-                await step('eventRetention', () => client.query(`
-                    DELETE FROM sim_events
-                    WHERE tier = 'MINOR' AND id < COALESCE((
-                        SELECT id FROM sim_events WHERE tier = 'MINOR' ORDER BY id DESC OFFSET 25000 LIMIT 1
-                    ), 0)
-                `));
+                await step('eventRetention', async () => {
+                    await client.query(`
+                        DELETE FROM sim_events
+                        WHERE tier = 'MINOR' AND id < COALESCE((
+                            SELECT id FROM sim_events WHERE tier = 'MINOR' ORDER BY id DESC OFFSET 25000 LIMIT 1
+                        ), 0)
+                    `);
+                    await client.query(`
+                        DELETE FROM sim_events
+                        WHERE tier = 'MAJOR' AND id < COALESCE((
+                            SELECT id FROM sim_events WHERE tier = 'MAJOR' ORDER BY id DESC OFFSET 25000 LIMIT 1
+                        ), 0)
+                    `);
+                });
             }
 
             const commit = await client.query('COMMIT');

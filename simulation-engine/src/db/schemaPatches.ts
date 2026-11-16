@@ -34,4 +34,18 @@ export async function applySchemaPatches(db: Db): Promise<void> {
   await db.query(`CREATE INDEX IF NOT EXISTS idx_sim_events_type ON sim_events(type)`);
   // A burg's living civilians in id order: tagBurgCitizens picks from a seeded point in this range
   await db.query(`CREATE INDEX IF NOT EXISTS idx_pop_civilians_by_burg ON population_demographics(settlement_id, citizen_id) WHERE allegiance_status = 'CIVILIAN'`);
+
+  // Weather fronts table was missing in live databases where schemaPatches ran instead of resetWorld
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS sim_weather_fronts (
+      id       SERIAL PRIMARY KEY,
+      type     TEXT,
+      x        REAL,
+      y        REAL,
+      dx       REAL,
+      dy       REAL,
+      radius   REAL,
+      lifetime INT
+    )
+  `);
 }

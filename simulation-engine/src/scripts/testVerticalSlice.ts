@@ -34,10 +34,23 @@ async function runVerticalSliceTest() {
   console.log("  tick -> thread -> hook -> v5.0 resolution -> writeback -> tick  ");
   console.log("==================================================================\n");
 
-  const cellId = 13408;
   const burgId = 81; // Roromijima
   const rx = 50;
   const ry = 50;
+
+  const burgMetaRes = await pool.query(`SELECT cell_id FROM sim_burg_economy WHERE burg_id = $1 LIMIT 1`, [burgId]);
+  assert(burgMetaRes.rows.length > 0, `Expected Burg ${burgId} in sim_burg_economy`);
+  const cellId = Number(burgMetaRes.rows[0].cell_id);
+
+  const secParagonRes = await pool.query(
+    `SELECT id, name, title, traits, corruption_score FROM sim_paragons
+     WHERE burg_id = $1 AND outlaw_id IS NULL
+     ORDER BY (title ~* 'captain|commander|marshal|warden') DESC, id ASC LIMIT 1`,
+    [burgId]
+  );
+  assert(secParagonRes.rows.length > 0, `Expected a paragon in Burg ${burgId}`);
+  const secParagon = secParagonRes.rows[0];
+  const captainId = Number(secParagon.id);
 
   await ensureThreadTable(pool);
 
@@ -57,18 +70,18 @@ async function runVerticalSliceTest() {
 
   const facts = await loadNarrativeFacts(pool, cellId);
   assert(facts.burgId === burgId, `Expected Burg 81 for cell ${cellId}, got ${facts.burgId}`);
-  const captainFact = facts.paragons.get(162); // Watch Captain Kenneth Fletcher
-  assert(Boolean(captainFact?.want && captainFact?.flaw && captainFact?.lineWontCross), "Watch Captain #162 missing loaded motives");
+  const captainFact = facts.paragons.get(captainId);
+  assert(Boolean(captainFact?.want && captainFact?.flaw && captainFact?.lineWontCross), `Paragon #${captainId} missing loaded motives`);
 
-  const captainMotive = deriveParagonMotives({ id: 162, title: "Watch Captain", traits: [{ name: "STOIC" }, { name: "FEARFUL" }], corruption_score: 10 });
-  assert(captainMotive.wantTag === "#Want_IronOrder", `Expected #Want_IronOrder, got ${captainMotive.wantTag}`);
+  const captainMotive = deriveParagonMotives(secParagon);
+  assert(Boolean(captainMotive.wantTag && captainMotive.flawTag && captainMotive.lineTag), `Expected derived motives for paragon #${captainId}`);
 
   const captainNpc: any = {
-    id: "npc_paragon_162",
-    name: "Watch Captain Kenneth Fletcher",
-    role: "Watch Captain",
+    id: `npc_paragon_${captainId}`,
+    name: secParagon.name,
+    role: secParagon.title || "Watch Captain",
     pos: [128, 126] as [number, number],
-    tags: ["Paragon", "military"],
+    tags: ["Paragon", "military", "#Want_IronOrder", "#Line_NeverAbandonWalls"],
     faction: "Roromijima Municipal Guard",
     hp: 14,
     maxHp: 14,
@@ -150,7 +163,7 @@ async function runVerticalSliceTest() {
   assert(reactionRes.rulesTriggered.includes("paragon_iron_order_crackdown"), `Expected paragon_iron_order_crackdown rule to fire, got: ${reactionRes.rulesTriggered.join(", ")}`);
   const cand = reactionRes.threadsToOpen.find(t => t.rule_id === "paragon_iron_order_crackdown");
   assert(cand, "Missing ThreadCandidate for paragon_iron_order_crackdown");
-  assert(cand.actor_ids.includes("paragon:162"), `Expected canonical actor paragon:162, got ${cand.actor_ids.join(", ")}`);
+  assert(cand.actor_ids.includes(`paragon:${captainId}`), `Expected canonical actor paragon:${captainId}, got ${cand.actor_ids.join(", ")}`);
 
   const actorCheck = await validateActorIds(pool, cand.actor_ids);
   assert(actorCheck.valid, `Thread actor validation failed: ${actorCheck.invalidIds.join(", ")}`);
@@ -168,7 +181,7 @@ async function runVerticalSliceTest() {
 
   const thread = await createThread(pool, { ...cand, created_tick: 1200 });
   assert(thread.id > 0 && thread.state === "open", "Thread did not persist as open in sim_threads");
-  console.log(`✅ PASSED (Thread #${thread.id} for paragon:162)`);
+  console.log(`✅ PASSED (Thread #${thread.id} for paragon:${captainId})`);
 
   // ------------------------------------------------------------------
   // 3. HOOK REACHES THE PARTY & LEGACY ACTS RETIRED
@@ -208,7 +221,7 @@ async function runVerticalSliceTest() {
   // ------------------------------------------------------------------
   process.stdout.write("4. Players act: v5.0 Persuasion deals 0 wounds & enforces orders block... ");
   const talkRes = await gm.executeTurn({
-    actionText: "I talk with Watch Captain Kenneth Fletcher to negotiate keeping grain carts moving smoothly",
+    actionText: `I talk with ${secParagon.name} to negotiate keeping grain carts moving smoothly`,
     playerId: 104,
     playerPos: [128, 128]
   });
@@ -216,7 +229,7 @@ async function runVerticalSliceTest() {
   assert(talkRes.rollOutcome.injuryPoints === 0, `Expected 0 Composure wounds on Persuasion, got ${talkRes.rollOutcome.injuryPoints}`);
 
   const ordersRes = await gm.executeTurn({
-    actionText: "I talk with Watch Captain Kenneth Fletcher and ask him to abandon post and unlock the prison",
+    actionText: `I talk with ${secParagon.name} and ask him to abandon post and unlock the prison`,
     playerId: 104,
     playerPos: [128, 128]
   });

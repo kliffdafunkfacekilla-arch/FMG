@@ -1,5 +1,12 @@
 import pool from "../db/pool";
 import { ingestHolgalandMap } from "../db/ingestHolgalandMap";
+import { buildSupplyChainHierarchy } from "../db/buildSupplyChainHierarchy";
+import { ensureParagonMotivesPopulated, ensureCitizenMotivesPopulated } from "./rpg/paragonMotives";
+import { recordLedger } from "./agents/burgOperationsAgent";
+import { executeMasterTick } from "./masterOrchestrator";
+import { generateBurgSectorLayers } from "./maps/SectorMapGenerator";
+import { seedLayerNarrative } from "./rpg/narrativeSeeds";
+import zlib from "zlib";
 
 const DDL = `
 -- Drop only simulation tables, strictly preserving player character sheets, game saves, and memorials
@@ -148,7 +155,9 @@ CREATE TABLE IF NOT EXISTS sim_burg_economy (
   parent_burg_id   INT DEFAULT NULL,
   upstream_burg_id INT DEFAULT NULL,
   dedicated_civic_ratio REAL DEFAULT NULL,
-  current_inventory JSONB DEFAULT '{}'::jsonb
+  current_inventory JSONB DEFAULT '{}'::jsonb,
+  pop_departure_pool FLOAT DEFAULT 0,
+  record_unit      INT DEFAULT NULL
 );
 
 CREATE TABLE sim_industrial_stockpiles (
@@ -305,9 +314,12 @@ CREATE TABLE sim_paragons (
   name             TEXT,
   traits           TEXT DEFAULT '[]',
   corruption_score INT DEFAULT 0,
-    faction_id INT,
-    is_counselor BOOLEAN DEFAULT false
-  );
+  faction_id       INT,
+  is_counselor     BOOLEAN DEFAULT false,
+  want             TEXT,
+  flaw             TEXT,
+  line_wont_cross  TEXT
+);
 
 CREATE TABLE sim_diplomacy (
   id           SERIAL PRIMARY KEY,
@@ -658,7 +670,10 @@ CREATE TABLE IF NOT EXISTS population_demographics (
     cause_of_death TEXT,
     workplace_type TEXT,
     workplace_name TEXT,
-    birthplace TEXT
+    birthplace TEXT,
+    want TEXT,
+    flaw TEXT,
+    line_wont_cross TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_pop_settlement ON population_demographics(settlement_id);
 CREATE INDEX IF NOT EXISTS idx_pop_spark ON population_demographics(spark_tier);
@@ -702,21 +717,158 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
     console.log("[resetWorld] Ingesting authentic Holgaland atlas & world geography...");
     await ingestHolgalandMap();
 
-    const [factionsRes, cellsRes, burgsRes, paragonsRes, citizensRes] = await Promise.all([
+    console.log("[resetWorld] Building hierarchical supply chain & trade routes...");
+    await buildSupplyChainHierarchy();
+
+    console.log("[resetWorld] Populating deterministic paragon & citizen motives (want / flaw / line_wont_cross)...");
+    await ensureParagonMotivesPopulated(pool);
+    await ensureCitizenMotivesPopulated(pool);
+
+    console.log("[resetWorld] Aligning citizen unit_size with burg record density...");
+    const unitBurgs = await pool.query(`
+      SELECT b.burg_id, b.pop_null, COALESCE(b.pop_attuned, 0) AS pop_attuned, COUNT(d.citizen_id)::int AS records
+      FROM sim_burg_economy b
+      JOIN population_demographics d ON d.settlement_id = b.burg_id AND d.allegiance_status NOT IN ('DECEASED', 'DEPARTED')
+      GROUP BY b.burg_id
+    `);
+    if (unitBurgs.rows.length > 0) {
+      const uIds: number[] = [];
+      const uSizes: number[] = [];
+      for (const b of unitBurgs.rows) {
+        uIds.push(Number(b.burg_id));
+        uSizes.push(recordLedger(Number(b.pop_null), Number(b.pop_attuned), Number(b.records)).unit);
+      }
+      await pool.query(`
+        UPDATE population_demographics d SET unit_size = v.unit
+        FROM (SELECT unnest($1::int[]) AS burg_id, unnest($2::int[]) AS unit) v
+        WHERE d.settlement_id = v.burg_id AND d.allegiance_status NOT IN ('DECEASED', 'DEPARTED') AND d.unit_size IS DISTINCT FROM v.unit
+      `, [uIds, uSizes]);
+    }
+
+    console.log("[resetWorld] Seeding 24 founding Grey Wardens (12 Crypt Elders + 12 Prison Sentinels) from demographics...");
+    const grovesRes = await pool.query(`SELECT id, cell_id, dragon_name, power_domain FROM sim_sacred_groves ORDER BY id ASC`);
+    const sparkRes = await pool.query(`
+      SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation, settlement_id
+      FROM population_demographics
+      WHERE life_stage = 'ADULT' AND allegiance_status = 'CIVILIAN' AND is_null = false
+      ORDER BY CASE WHEN spark_tier = 'ADEPT' THEN 1 WHEN spark_tier = 'CHANNELER' THEN 2 ELSE 3 END, citizen_id ASC
+      LIMIT 24
+    `);
+    const wardenCitizens = sparkRes.rows;
+    if (wardenCitizens.length > 0) {
+      const usedIds: number[] = [];
+      for (let i = 0; i < wardenCitizens.length; i++) {
+        const c = wardenCitizens[i];
+        usedIds.push(Number(c.citizen_id));
+        const isElder = i < 12;
+        const grove = grovesRes.rows[i % Math.max(1, grovesRes.rows.length)];
+        await pool.query(`
+          INSERT INTO sim_agents (
+            name, citizen_name, profession, species, spark_tier,
+            personality_temper, personality_instinct, motivation,
+            role, sub_role, home_burg_id, location_cell_id, target_cell_id, target_grove_id,
+            state, corruption, age_ticks, active_plot
+          ) VALUES (
+            $1, $2, $3, $4, $5,
+            $6, $7, $8,
+            'Warden', $9, $10, $11, $12, $13,
+            $14, 0, $15, $16
+          )
+        `, [
+          `${isElder ? 'Elder' : 'Warden'} ${c.name}`,
+          c.name,
+          c.profession,
+          c.species,
+          c.spark_tier,
+          c.temper || 'STOIC',
+          c.instinct || 'VIGILANT',
+          c.motivation || 'Guard the 12 Dragon Seals against Shlaar',
+          isElder ? 'Crypt_Elder' : 'Warden_Sentinel',
+          c.settlement_id,
+          isElder ? 16166 : (grove?.cell_id || 16166),
+          grove?.cell_id || 16166,
+          grove?.id || 1,
+          isElder ? 'SPIRE_CRYPT_VIGIL' : 'PATROLLING_FLOW',
+          isElder ? 65 : 28,
+          isElder
+            ? `Maintaining eternal vigil over the ${grove?.power_domain || 'Primordial'} flow beneath The Verge`
+            : `Patrolling the ${grove?.dragon_name || 'Dragon'} Prison perimeter (${grove?.power_domain || 'Seal'})`
+        ]);
+      }
+      await pool.query(
+        `UPDATE population_demographics SET allegiance_status = 'WARDEN' WHERE citizen_id = ANY($1::int[])`,
+        [usedIds]
+      );
+    }
+
+    console.log("[resetWorld] Seeding initial Roromijima (burg_id 81) tactical sector layers...");
+    const roroRes = await pool.query(`
+      SELECT b.*, c.faction_id, f.name AS faction_name
+      FROM sim_burg_economy b
+      LEFT JOIN sim_cells c ON c.id = b.cell_id
+      LEFT JOIN sim_factions f ON f.id = c.faction_id
+      ORDER BY (b.burg_id = 81) DESC, b.burg_id ASC LIMIT 1
+    `);
+    if (roroRes.rows.length > 0) {
+      const burg = roroRes.rows[0];
+      const seedCellId = Number(burg.cell_id);
+      const [citRes, lairRes, paragonRes] = await Promise.all([
+        pool.query(`SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation, want, flaw, line_wont_cross, workplace_type, workplace_name, childhood_background, allegiance_status FROM population_demographics WHERE (home_cell_id = $1 OR settlement_id = $2) AND life_stage = 'ADULT' AND allegiance_status NOT IN ('DECEASED', 'DEPARTED') ORDER BY citizen_id ASC LIMIT 60`, [seedCellId, burg.burg_id]),
+        pool.query(`SELECT l.*, o.name AS cartel_name, o.type AS cartel_type, o.contraband_types FROM sim_fringe_lairs l JOIN sim_outlaw_factions o ON o.id = l.faction_id WHERE l.burg_id = $1 OR l.cell_id = $2`, [burg.burg_id, seedCellId]),
+        pool.query(`SELECT * FROM sim_paragons WHERE burg_id = $1`, [burg.burg_id])
+      ]);
+      const layers = generateBurgSectorLayers(
+        burg,
+        burg.faction_name || 'Provincial Sovereignty',
+        seedCellId,
+        citRes.rows,
+        lairRes.rows,
+        paragonRes.rows
+      );
+      await seedLayerNarrative(pool, seedCellId, layers.layer0.npcs);
+      await pool.query(
+        `INSERT INTO sim_sector_layers (cell_id, rx, ry, z_layer, layer_name, compressed_terrain, props, npcs, features)
+         VALUES
+         ($1, 50, 50, -1, $2, $3, $4, $5, $6),
+         ($1, 50, 50, 0, $7, $8, $9, $10, $11),
+         ($1, 50, 50, 1, $12, $13, $14, $15, $16)
+         ON CONFLICT (cell_id, rx, ry, z_layer) DO UPDATE SET
+           compressed_terrain = EXCLUDED.compressed_terrain,
+           props = EXCLUDED.props,
+           npcs = EXCLUDED.npcs,
+           features = EXCLUDED.features`,
+        [
+          seedCellId,
+          layers.layerMinus1.name, zlib.gzipSync(layers.layerMinus1.grid), JSON.stringify(layers.layerMinus1.props), JSON.stringify(layers.layerMinus1.npcs), JSON.stringify(layers.layerMinus1.features),
+          layers.layer0.name, zlib.gzipSync(layers.layer0.grid), JSON.stringify(layers.layer0.props), JSON.stringify(layers.layer0.npcs), JSON.stringify(layers.layer0.features),
+          layers.layerPlus1.name, zlib.gzipSync(layers.layerPlus1.grid), JSON.stringify(layers.layerPlus1.props), JSON.stringify(layers.layerPlus1.npcs), JSON.stringify(layers.layerPlus1.features)
+        ]
+      );
+    }
+
+    console.log("[resetWorld] Running initial Tick 1...");
+    const tick1 = await executeMasterTick();
+    console.log(`[resetWorld] Tick ${tick1.currentTick} complete (${tick1.status}, ${tick1.totalMs}ms).`);
+
+    const [factionsRes, cellsRes, burgsRes, paragonsRes, citizensRes, agentsRes, threadsRes] = await Promise.all([
       pool.query("SELECT COUNT(*) as c FROM sim_factions"),
       pool.query("SELECT COUNT(*) as c FROM sim_cells"),
       pool.query("SELECT COUNT(*) as c FROM sim_burg_economy"),
       pool.query("SELECT COUNT(*) as c FROM sim_paragons"),
-      pool.query("SELECT COUNT(*) as c FROM population_demographics")
+      pool.query("SELECT COUNT(*) as c FROM population_demographics"),
+      pool.query("SELECT COUNT(*) as c FROM sim_agents"),
+      pool.query("SELECT COUNT(*) as c FROM sim_threads WHERE state IN ('open', 'escalated')")
     ]);
 
     const stats = {
+      tick: tick1.currentTick,
       factions: parseInt(factionsRes.rows[0].c, 10),
       cells: parseInt(cellsRes.rows[0].c, 10),
       burgs: parseInt(burgsRes.rows[0].c, 10),
       paragons: parseInt(paragonsRes.rows[0].c, 10),
       citizens: parseInt(citizensRes.rows[0].c, 10),
-      agents: 24,
+      openThreads: parseInt(threadsRes.rows[0].c, 10),
+      agents: parseInt(agentsRes.rows[0].c, 10),
     };
 
     console.log("[resetWorld] Done:", stats);

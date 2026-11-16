@@ -21,6 +21,7 @@ async function main() {
   // Before the first savepoint: a patch applied inside a run would be rolled back with it
   await applySchemaPatches(pool);
   const baseCitizenId = Number((await pool.query(`SELECT COALESCE(MAX(citizen_id), 0) m FROM population_demographics`)).rows[0].m);
+  const baseAgentId = Number((await pool.query(`SELECT COALESCE(MAX(id), 0) m FROM sim_agents`)).rows[0].m);
   const prints: Record<string, string>[] = [];
   let tick = 0;
   // Run 1 warms per-process caches; runs 2 and 3 are compared
@@ -33,7 +34,7 @@ async function main() {
       check(["calendar", "burgOperations", "cartels", "reaper"].every(k => typeof r.timings[k] === "number"), "a step has no timing");
       console.log(`1. Day ${tick} committed in ${r.totalMs} ms with a timing for every step... PASSED`);
     }
-    prints.push(await worldFingerprint(tick, baseCitizenId));
+    prints.push(await worldFingerprint(tick, baseCitizenId, baseAgentId));
     await pool.query("ROLLBACK TO SAVEPOINT replay_run");
   }
   const differing = Object.keys(prints[1]!).filter(k => prints[1]![k] !== prints[2]![k]);
