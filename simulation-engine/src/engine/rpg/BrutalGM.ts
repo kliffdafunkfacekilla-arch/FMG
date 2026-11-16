@@ -2850,14 +2850,15 @@ MANDATORY RULES:
 // 8. Record Associative Memory Trace (In-Memory + Persistent PostgreSQL Table)
     const memSummary = `${intent.verb} on ${intent.targetName}: ${hit ? "Success" : "Failed"}`;
     const memTags = [intent.verb, intent.targetName, hit ? "success" : "failed"];
+    const memNow = Date.now();
     this.memoryStream.push({
-      timestamp: Date.now(),
+      timestamp: memNow,
       summary: memSummary,
       tags: memTags
     });
     await this.pool.query(
-      `INSERT INTO sim_gm_memories (player_id, summary, tags) VALUES ($1, $2, $3)`,
-      [playerId, memSummary, memTags]
+      `INSERT INTO sim_gm_memories (player_id, timestamp, summary, tags) VALUES ($1, $2, $3, $4)`,
+      [playerId, memNow, memSummary, JSON.stringify(memTags)]
     ).catch(() => {});
 
     return {
