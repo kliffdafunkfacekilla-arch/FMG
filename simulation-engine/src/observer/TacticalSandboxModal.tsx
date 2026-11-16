@@ -94,11 +94,16 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
       const res = await fetch('/api/dm/party_session/state');
       if (res.ok) {
         const data = await res.json();
-        if (data.sessionState) {
-          setPartySession(data.sessionState);
+        const s = data.sessionState;
+        if (s && s.active && s.cellId === cellId && s.rx === rx && s.ry === ry) {
+          setPartySession(s);
+          return;
         }
       }
-    } catch {}
+      await initPartySession();
+    } catch {
+      await initPartySession();
+    }
   };
 
   const initPartySession = async () => {
@@ -109,11 +114,14 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cellId, rx, ry, z: zLayer })
       });
-      if (res.ok) {
-        const data = await res.json();
-        setPartySession(data.sessionState);
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data?.error || `Party session init failed (HTTP ${res.status})`);
+        return;
       }
+      setPartySession(data.sessionState);
     } catch (err: any) {
+      setError(err.message || 'Failed to init party session');
       console.error('Failed to init party session:', err);
     } finally {
       setPartyStepLoading(false);
@@ -128,15 +136,20 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
-      if (res.ok) {
-        const data = await res.json();
-        setPartySession(data.sessionState);
-        if (data.sessionState?.activeStoryArc?.resolved) {
-          setAutoPlay(false);
-        }
-        await loadLayer(zLayer);
+      const data = await res.json();
+      if (!res.ok) {
+        setAutoPlay(false);
+        setError(data?.error || `Party step failed (HTTP ${res.status})`);
+        return;
       }
+      setPartySession(data.sessionState);
+      if (data.sessionState?.activeStoryArc?.resolved) {
+        setAutoPlay(false);
+      }
+      await loadLayer(zLayer);
     } catch (err: any) {
+      setAutoPlay(false);
+      setError(err.message || 'Failed to step party session');
       console.error('Failed to step party session:', err);
     } finally {
       setPartyStepLoading(false);
@@ -145,7 +158,7 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
 
   useEffect(() => {
     loadPartySession();
-  }, []);
+  }, [cellId, rx, ry]);
 
   useEffect(() => {
     if (!autoPlay) return;
