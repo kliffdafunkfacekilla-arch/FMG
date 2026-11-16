@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { TacticalSandboxModal } from "./TacticalSandboxModal";
+import { RegionalTileSprite, PortraitSprite } from "./spriteAtlas";
 
 export interface BiomePalette {
   name: string;
@@ -608,29 +609,44 @@ export function RegionMap({
                   fontSize: 11,
                   color: "#f1f5f9",
                   pointerEvents: "none",
-                  boxShadow: "0 4px 12px rgba(0,0,0,0.6)"
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.6)",
+                  display: "flex",
+                  gap: 10,
+                  alignItems: "center"
                 }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
-                  <span style={{ fontWeight: 800, color: hoveredFacility.type === "FARM" ? "#facc15" : hoveredFacility.type === "LOGGING_CAMP" ? "#34d399" : hoveredFacility.type === "MINE" ? "#cbd5e1" : "#60a5fa" }}>
-                    {hoveredFacility.type === "FARM" ? "🌾" : hoveredFacility.type === "LOGGING_CAMP" ? "🪓" : hoveredFacility.type === "MINE" ? "⛏️" : "🛡️"} {hoveredFacility.name}
-                  </span>
-                  <span style={{ fontSize: 9, color: "#94a3b8" }}>
-                    Cell ({hoveredFacility.rx}, {hoveredFacility.ry})
-                  </span>
-                </div>
-                {hoveredFacility.citizenName ? (
-                  <div style={{ fontSize: 10, color: "#cbd5e1" }}>
-                    Master: <strong style={{ color: "#38bdf8" }}>{hoveredFacility.citizenName}</strong> ({hoveredFacility.citizenProfession})
+                <RegionalTileSprite tileType={hoveredFacility.type} size={36} borderColor="#38bdf8" />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
+                    <span style={{ fontWeight: 800, color: hoveredFacility.type === "FARM" ? "#facc15" : hoveredFacility.type === "LOGGING_CAMP" ? "#34d399" : hoveredFacility.type === "MINE" ? "#cbd5e1" : "#60a5fa" }}>
+                      {hoveredFacility.name}
+                    </span>
+                    <span style={{ fontSize: 9, color: "#94a3b8" }}>
+                      Cell ({hoveredFacility.rx}, {hoveredFacility.ry})
+                    </span>
                   </div>
-                ) : null}
-                {hoveredFacility.typology ? (
-                  <div style={{ fontSize: 9, color: "#e2e8f0" }}>
-                    Typology: <span style={{ color: "#f59e0b", fontWeight: 700 }}>{hoveredFacility.typology}</span>
+                  {hoveredFacility.citizenName ? (
+                    <div style={{ fontSize: 10, color: "#cbd5e1", display: "flex", alignItems: "center", gap: 5 }}>
+                      <PortraitSprite
+                        id={hoveredFacility.citizenId}
+                        name={hoveredFacility.citizenName}
+                        role={hoveredFacility.citizenProfession}
+                        size={18}
+                        borderColor="#38bdf8"
+                      />
+                      <span>
+                        Master: <strong style={{ color: "#38bdf8" }}>{hoveredFacility.citizenName}</strong> ({hoveredFacility.citizenProfession})
+                      </span>
+                    </div>
+                  ) : null}
+                  {hoveredFacility.typology ? (
+                    <div style={{ fontSize: 9, color: "#e2e8f0", marginTop: 1 }}>
+                      Typology: <span style={{ color: "#f59e0b", fontWeight: 700 }}>{hoveredFacility.typology}</span>
+                    </div>
+                  ) : null}
+                  <div style={{ fontSize: 9, color: "#94a3b8", marginTop: 2 }}>
+                    Demographic Baseline: <span style={{ color: "#22c55e", fontWeight: 700 }}>{hoveredFacility.workerCount || 12} Workers</span> (1 Unit)
                   </div>
-                ) : null}
-                <div style={{ fontSize: 9, color: "#94a3b8", marginTop: 2 }}>
-                  Demographic Baseline: <span style={{ color: "#22c55e", fontWeight: 700 }}>{hoveredFacility.workerCount || 12} Workers</span> (1 Unit)
                 </div>
               </div>
             ) : hoveredAgent ? (
@@ -707,7 +723,6 @@ export function RegionMap({
             >
               {regionData.facilities.map((fac, idx) => {
                 const isSelected = selectedLocalCell?.rx === fac.rx && selectedLocalCell?.ry === fac.ry;
-                const icon = fac.type === "FARM" ? "🌾" : fac.type === "LOGGING_CAMP" ? "🪓" : fac.type === "MINE" ? "⛏️" : "🛡️";
                 const badgeColor = isSelected ? "#38bdf8" : fac.type === "FARM" ? "#ca8a04" : fac.type === "LOGGING_CAMP" ? "#059669" : fac.type === "MINE" ? "#475569" : "#2563eb";
 
                 return (
@@ -730,7 +745,7 @@ export function RegionMap({
                       transition: "all 0.15s ease"
                     }}
                   >
-                    <span>{icon}</span>
+                    <RegionalTileSprite tileType={fac.type} size={18} borderColor={badgeColor} />
                     <span style={{ maxWidth: 100, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {fac.citizenName ? fac.citizenName.split(" ")[0] : fac.name}
                     </span>
@@ -787,6 +802,7 @@ export function RegionMap({
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
+                gap: 8,
                 padding: "8px 10px",
                 background: "#0f172a",
                 borderRadius: 6,
@@ -796,11 +812,27 @@ export function RegionMap({
                 marginTop: 4
               }}
             >
-              <div>
-                <span>Selected Overland Sector (100×100 Grid → opens 256×256 Tactical Map): </span>
-                <strong style={{ color: "#38bdf8" }}>
-                  rx: {selectedLocalCell?.rx ?? 50}, ry: {selectedLocalCell?.ry ?? 50}
-                </strong>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <RegionalTileSprite
+                  tileType={
+                    regionData?.facilities?.find(
+                      (f) => f.rx === (selectedLocalCell?.rx ?? 50) && f.ry === (selectedLocalCell?.ry ?? 50)
+                    )?.type ||
+                    (regionData?.isWarzone
+                      ? "WARZONE"
+                      : regionData?.burg
+                      ? "BURG"
+                      : regionData?.biome || "FIELD")
+                  }
+                  size={28}
+                  borderColor="#38bdf8"
+                />
+                <div>
+                  <span>Selected Overland Sector (100×100 Grid → opens 256×256 Tactical Map): </span>
+                  <strong style={{ color: "#38bdf8" }}>
+                    rx: {selectedLocalCell?.rx ?? 50}, ry: {selectedLocalCell?.ry ?? 50}
+                  </strong>
+                </div>
               </div>
               <button
                 onClick={() => setShowTacticalModal(true)}

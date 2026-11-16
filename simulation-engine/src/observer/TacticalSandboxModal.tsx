@@ -1,4 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
+import {
+  PortraitSprite,
+  EquipmentSprite,
+  PropSprite,
+  useSpriteSheetImages,
+  drawPropSpriteOnCanvas,
+  drawPortraitTokenOnCanvas
+} from './spriteAtlas';
 
 interface PropItem {
   id: string;
@@ -149,6 +157,7 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
   }, [autoPlay, partyStepLoading]);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const spriteReady = useSpriteSheetImages();
 
   // Load tactical layer
   const loadLayer = async (targetZ: number = zLayer) => {
@@ -269,38 +278,37 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
 
     ctx.putImageData(imgData, 0, 0);
 
-    // Draw Props as distinct icons
+    // Draw Props as sprites from the top-down ground/icon atlas
     for (const prop of layerData.props || []) {
       const px = prop.pos ? prop.pos[0] : 128;
       const py = prop.pos ? prop.pos[1] : 128;
       const isSelected = selectedProp?.id === prop.id;
-
-      ctx.beginPath();
-      ctx.arc(px, py, isSelected ? 5 : 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = prop.id.includes("fountain") ? "#38bdf8" :
-                      prop.id.includes("vault") || prop.id.includes("stair") ? "#ec4899" :
-                      prop.id.includes("chest") ? "#f59e0b" : "#a855f7";
-      ctx.fill();
-      ctx.lineWidth = isSelected ? 2 : 1;
-      ctx.strokeStyle = "#ffffff";
-      ctx.stroke();
+      drawPropSpriteOnCanvas(ctx, prop, px, py, isSelected ? 12 : 9, isSelected);
     }
 
-       // Draw NPCs as distinct tokens
+    // Draw NPCs as circular portrait tokens
     for (const npc of layerData.npcs || []) {
       const nx = npc.pos ? npc.pos[0] : 128;
       const ny = npc.pos ? npc.pos[1] : 128;
       const isSelected = selectedNpc?.id === npc.id;
-
-      ctx.beginPath();
-      ctx.arc(nx, ny, isSelected ? 6 : 4.5, 0, Math.PI * 2);
-      ctx.fillStyle = npc.role?.toLowerCase().includes("guard") || npc.role?.toLowerCase().includes("commander") ? "#3b82f6" :
-                      npc.role?.toLowerCase().includes("bandit") || npc.role?.toLowerCase().includes("rogue") ? "#ef4444" :
-                      npc.tags?.some(t => t.includes("Predator")) ? "#f97316" : "#10b981";
-      ctx.fill();
-      ctx.lineWidth = isSelected ? 2 : 1;
-      ctx.strokeStyle = isSelected ? "#facc15" : "#ffffff";
-      ctx.stroke();
+      const fallbackFill =
+        npc.role?.toLowerCase().includes("guard") || npc.role?.toLowerCase().includes("commander")
+          ? "#3b82f6"
+          : npc.role?.toLowerCase().includes("bandit") || npc.role?.toLowerCase().includes("rogue")
+          ? "#ef4444"
+          : npc.tags?.some(t => t.includes("Predator"))
+          ? "#f97316"
+          : "#10b981";
+      drawPortraitTokenOnCanvas(
+        ctx,
+        { id: npc.id, name: npc.name, species: npc.species, role: npc.role },
+        nx,
+        ny,
+        isSelected ? 7.5 : 5.5,
+        fallbackFill,
+        isSelected ? "#facc15" : "#ffffff",
+        isSelected
+      );
     }
 
     // Draw 4 Party Character Tokens
@@ -314,28 +322,25 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
         // Outer glow on active turn
         if (isCurrentTurn) {
           ctx.beginPath();
-          ctx.arc(mx, my, 9, 0, Math.PI * 2);
+          ctx.arc(mx, my, 10, 0, Math.PI * 2);
           ctx.fillStyle = "rgba(250, 204, 21, 0.35)";
           ctx.fill();
         }
 
-        ctx.beginPath();
-        ctx.arc(mx, my, isCurrentTurn ? 6.5 : 4.5, 0, Math.PI * 2);
-        ctx.fillStyle = m.color || "#f59e0b";
-        ctx.fill();
-        ctx.lineWidth = isCurrentTurn ? 2.5 : 1.5;
-        ctx.strokeStyle = isCurrentTurn ? "#facc15" : "#ffffff";
-        ctx.stroke();
-
-        // Badge letter
-        ctx.fillStyle = "#ffffff";
-        ctx.font = isCurrentTurn ? "bold 8px monospace" : "bold 6px monospace";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(m.badge || m.name[0], mx, my);
+        drawPortraitTokenOnCanvas(
+          ctx,
+          { id: m.id, name: m.name, species: m.species, role: m.role },
+          mx,
+          my,
+          isCurrentTurn ? 8 : 6,
+          m.color || "#f59e0b",
+          isCurrentTurn ? "#facc15" : "#ffffff",
+          isCurrentTurn,
+          m.badge || m.name?.[0]
+        );
       }
     }
-  }, [layerData, selectedProp, selectedNpc, partySession]);
+  }, [layerData, selectedProp, selectedNpc, partySession, spriteReady]);
 
   // Handle canvas clicks to inspect props / NPCs
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -747,29 +752,35 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
                   padding: 8,
                   background: '#111827',
                   border: '1px solid #f59e0b',
-                  borderRadius: 4
+                  borderRadius: 4,
+                  display: 'flex',
+                  gap: 10,
+                  alignItems: 'flex-start'
                 }}>
-                  <div style={{ fontWeight: 700, color: '#fbbf24' }}>
-                    📦 Prop: {selectedProp.name || selectedProp.id}
+                  <PropSprite prop={selectedProp} size={42} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, color: '#fbbf24' }}>
+                      {selectedProp.name || selectedProp.id}
+                    </div>
+                    <div style={{ color: '#94a3b8', marginTop: 2 }}>
+                      Pos: ({selectedProp.pos?.[0]}, {selectedProp.pos?.[1]}) • Tags: {(selectedProp.tags || []).join(', ') || 'none'}
+                    </div>
+                    {selectedProp.description && (
+                      <div style={{ color: '#cbd5e1', marginTop: 4, fontStyle: 'italic' }}>
+                        "{selectedProp.description}"
+                      </div>
+                    )}
+                    {selectedProp.injected_item && (
+                      <div style={{ color: '#38bdf8', marginTop: 4, fontWeight: 600 }}>
+                        🔑 Plot Item: {selectedProp.injected_item}
+                      </div>
+                    )}
+                    {selectedProp.sub_map_target && (
+                      <div style={{ color: '#ec4899', marginTop: 4, fontWeight: 600 }}>
+                        🚪 Dungeon Sub-Map POE: {selectedProp.sub_map_target}
+                      </div>
+                    )}
                   </div>
-                  <div style={{ color: '#94a3b8', marginTop: 2 }}>
-                    Pos: ({selectedProp.pos?.[0]}, {selectedProp.pos?.[1]}) • Tags: {(selectedProp.tags || []).join(', ') || 'none'}
-                  </div>
-                  {selectedProp.description && (
-                    <div style={{ color: '#cbd5e1', marginTop: 4, fontStyle: 'italic' }}>
-                      "{selectedProp.description}"
-                    </div>
-                  )}
-                  {selectedProp.injected_item && (
-                    <div style={{ color: '#38bdf8', marginTop: 4, fontWeight: 600 }}>
-                      🔑 Plot Item: {selectedProp.injected_item}
-                    </div>
-                  )}
-                  {selectedProp.sub_map_target && (
-                    <div style={{ color: '#ec4899', marginTop: 4, fontWeight: 600 }}>
-                      🚪 Dungeon Sub-Map POE: {selectedProp.sub_map_target}
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -779,34 +790,63 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
                   padding: 8,
                   background: '#111827',
                   border: '1px solid #38bdf8',
-                  borderRadius: 4
+                  borderRadius: 4,
+                  display: 'flex',
+                  gap: 10,
+                  alignItems: 'flex-start'
                 }}>
-                  <div style={{ fontWeight: 700, color: '#38bdf8' }}>
-                    👤 NPC: {selectedNpc.name} ({selectedNpc.role || 'Citizen'})
-                  </div>
-                  <div style={{ color: '#94a3b8', marginTop: 2 }}>
-                    Faction: {selectedNpc.faction || 'Neutral'} • HP: {selectedNpc.hp}/{selectedNpc.maxHp || 20} • Pos: ({selectedNpc.pos?.[0]}, {selectedNpc.pos?.[1]})
-                  </div>
-                  {selectedNpc.foeStack && !selectedNpc.foeStack.isBoss && (
-                    <div style={{ color: '#fbbf24', marginTop: 3, fontSize: 10, fontWeight: 600 }}>
-                      🃏 Cards: {(selectedNpc.foeStack.cards || []).reduce((s: number, c: any) => s + (c.copies || 0), 0)} • Resolve: {selectedNpc.foeStack.resolve}/{selectedNpc.foeStack.maxResolve} ({selectedNpc.foeStack.status})
+                  <PortraitSprite
+                    id={selectedNpc.id}
+                    name={selectedNpc.name}
+                    species={selectedNpc.species}
+                    role={selectedNpc.role}
+                    size={48}
+                    borderColor="#38bdf8"
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, color: '#38bdf8' }}>
+                      {selectedNpc.name} ({selectedNpc.role || 'Citizen'})
                     </div>
-                  )}
-                  <div style={{ color: '#a78bfa', marginTop: 2 }}>
-                    Tags: {(selectedNpc.tags || []).join(', ') || 'none'}
+                    <div style={{ color: '#94a3b8', marginTop: 2 }}>
+                      Faction: {selectedNpc.faction || 'Neutral'} • HP: {selectedNpc.hp}/{selectedNpc.maxHp || 20} • Pos: ({selectedNpc.pos?.[0]}, {selectedNpc.pos?.[1]})
+                    </div>
+                    {(selectedNpc.equippedWeapon || selectedNpc.equippedArmor) && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4, fontSize: 10, color: '#cbd5e1' }}>
+                        {selectedNpc.equippedWeapon && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <EquipmentSprite itemName={selectedNpc.equippedWeapon} kind="weapon" size={16} />
+                            <span>{selectedNpc.equippedWeapon}</span>
+                          </span>
+                        )}
+                        {selectedNpc.equippedArmor && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <EquipmentSprite itemName={selectedNpc.equippedArmor} kind="armor" size={16} />
+                            <span>{selectedNpc.equippedArmor}</span>
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {selectedNpc.foeStack && !selectedNpc.foeStack.isBoss && (
+                      <div style={{ color: '#fbbf24', marginTop: 3, fontSize: 10, fontWeight: 600 }}>
+                        🃏 Cards: {(selectedNpc.foeStack.cards || []).reduce((s: number, c: any) => s + (c.copies || 0), 0)} • Resolve: {selectedNpc.foeStack.resolve}/{selectedNpc.foeStack.maxResolve} ({selectedNpc.foeStack.status})
+                      </div>
+                    )}
+                    <div style={{ color: '#a78bfa', marginTop: 2 }}>
+                      Tags: {(selectedNpc.tags || []).join(', ') || 'none'}
+                    </div>
+                    {(selectedNpc.want || selectedNpc.flaw || selectedNpc.lineWontCross) && (
+                      <div style={{ marginTop: 4, paddingTop: 4, borderTop: '1px solid #1e293b', fontSize: 10, color: '#cbd5e1', lineHeight: 1.35 }}>
+                        {selectedNpc.want && <div><strong style={{ color: '#38bdf8' }}>Want:</strong> {selectedNpc.want}</div>}
+                        {selectedNpc.flaw && <div><strong style={{ color: '#f59e0b' }}>Flaw:</strong> {selectedNpc.flaw}</div>}
+                        {selectedNpc.lineWontCross && <div><strong style={{ color: '#f87171' }}>Line:</strong> {selectedNpc.lineWontCross}</div>}
+                      </div>
+                    )}
+                    {selectedNpc.dialogue && (
+                      <div style={{ color: '#fef08a', marginTop: 4, fontStyle: 'italic' }}>
+                        "{selectedNpc.dialogue}"
+                      </div>
+                    )}
                   </div>
-                  {(selectedNpc.want || selectedNpc.flaw || selectedNpc.lineWontCross) && (
-                    <div style={{ marginTop: 4, paddingTop: 4, borderTop: '1px solid #1e293b', fontSize: 10, color: '#cbd5e1', lineHeight: 1.35 }}>
-                      {selectedNpc.want && <div><strong style={{ color: '#38bdf8' }}>Want:</strong> {selectedNpc.want}</div>}
-                      {selectedNpc.flaw && <div><strong style={{ color: '#f59e0b' }}>Flaw:</strong> {selectedNpc.flaw}</div>}
-                      {selectedNpc.lineWontCross && <div><strong style={{ color: '#f87171' }}>Line:</strong> {selectedNpc.lineWontCross}</div>}
-                    </div>
-                  )}
-                  {selectedNpc.dialogue && (
-                    <div style={{ color: '#fef08a', marginTop: 4, fontStyle: 'italic' }}>
-                      "{selectedNpc.dialogue}"
-                    </div>
-                  )}
                 </div>
               )}
             </div>
@@ -1068,8 +1108,20 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
                               ACTIVE
                             </span>
                           )}
-                          <div style={{ fontWeight: 700, color: m.color }}>{m.name}</div>
-                          <div style={{ color: '#64748b', fontSize: 9 }}>{m.species} • {m.role}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <PortraitSprite
+                              id={m.id}
+                              name={m.name}
+                              species={m.species}
+                              role={m.role}
+                              size={38}
+                              borderColor={isCurrent ? m.color : '#334155'}
+                            />
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontWeight: 700, color: m.color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</div>
+                              <div style={{ color: '#64748b', fontSize: 9 }}>{m.species} • {m.role}</div>
+                            </div>
+                          </div>
                           <div style={{ marginTop: 4, color: '#e2e8f0', display: 'flex', justifyContent: 'space-between' }}>
                             <span>HP: {m.hp}/{m.maxHp}</span>
                             <span>Gold: {m.gold ?? 50}g</span>
@@ -1084,9 +1136,16 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
                               {(m.spent?.stamina || m.spent?.focus) ? ' ⚠ SPENT' : ''}
                             </div>
                           )}
-                          <div style={{ color: '#94a3b8', fontSize: 9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>
-                            🗡️ {m.weapon}
+                          <div style={{ color: '#94a3b8', fontSize: 9, display: 'flex', alignItems: 'center', gap: 4, marginTop: 3 }}>
+                            <EquipmentSprite itemName={m.weapon} kind="weapon" size={16} />
+                            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{m.weapon}</span>
                           </div>
+                          {m.armor && (
+                            <div style={{ color: '#94a3b8', fontSize: 9, display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                              <EquipmentSprite itemName={m.armor} kind="armor" size={16} />
+                              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{m.armor}</span>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -1135,10 +1194,18 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
                             padding: 8
                           }}
                         >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-                            <span style={{ fontWeight: 700, color: '#f8fafc' }}>
-                              [R{h.round}:T{h.turn}] {h.characterName}
-                            </span>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <PortraitSprite
+                                name={h.characterName}
+                                species={partySession?.members?.find((m: any) => m.name === h.characterName)?.species}
+                                size={24}
+                                borderColor={h.success ? '#10b981' : '#ef4444'}
+                              />
+                              <span style={{ fontWeight: 700, color: '#f8fafc' }}>
+                                [R{h.round}:T{h.turn}] {h.characterName}
+                              </span>
+                            </div>
                             <span style={{
                               fontWeight: 800,
                               fontSize: 9,
