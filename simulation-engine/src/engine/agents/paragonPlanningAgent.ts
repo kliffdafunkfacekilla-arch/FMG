@@ -215,7 +215,7 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
                 }
 
                 // Option: Temple Sacrifice & Holy Tithes (Fanatical crisis response)
-                if (isChaosCrisis || isFanatical || sectorTags.some(t => t.includes("Cult") || t.includes("Dragon"))) {
+                if (isChaosCrisis || sectorTags.some(t => t.includes("Cult") || t.includes("Dragon") || t.includes("Chaos"))) {
                     let u = 35;
                     if (isFanatical) u += 60;
                     if (isScholarly) u -= 30;
@@ -239,49 +239,52 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
                 }
 
                 // Option: Harbor Expansion & Quays (Prosperity maritime expansion)
-                if (burg.port && (isWealthySurplus || isStoic || isScholarly)) {
+                if (burg.port && isWealthySurplus && !isHighUnrest && !isCriticalUnrest) {
                     let u = 45;
                     if (isStoic) u += 25;
-                    if (isWealthySurplus) u += 25;
+                    if (isScholarly) u += 15;
                     options.push({ id: "MAYOR_HARBOR_EXPANSION", utility: u, biasReason: "expanding deepwater berths to welcome foreign trade galleons" });
                 }
 
-                // Option: Artisan Master Guildhall (Industrial development)
-                if (!isFamine && !isPlagueOrSqualor && (isScholarly || isStoic || isWealthySurplus)) {
+                // Option: Artisan Master Guildhall (Industrial development on surplus)
+                if (isWealthySurplus && !isFamine && !isPlagueOrSqualor) {
                     let u = 40;
                     if (isScholarly) u += 30;
                     if (isStoic) u += 25;
                     options.push({ id: "MAYOR_ARTISAN_GUILDHALL", utility: u, biasReason: "chartering guild workshops to boost refined craftsmanship" });
                 }
 
-                // Option: Scribe Academy & Legal Archive (Scholarly governance)
-                if (isScholarly || (!isFamine && (tick + p.id) % 8 === 0)) {
+                // Option: Scribe Academy & Legal Archive (Response to crime/unrest)
+                if ((isScholarly && (burg.crime_rate || 0) > 5) || isHighUnrest) {
                     let u = 35;
                     if (isScholarly) u += 50;
                     options.push({ id: "MAYOR_ACADEMY_SCRIBES", utility: u, biasReason: "philosophical devotion to orderly cadastral archives and legal scholarship" });
                 }
 
-                // Option: Foothill Terraced Farmland (Long-term agricultural foresight)
-                if (isCompassionate || isStoic || isFoodShortage) {
+                // Option: Foothill Terraced Farmland (Response to food shortage/famine)
+                if (isFoodShortage || isFamine) {
                     let u = 45;
                     if (isCompassionate) u += 30;
                     if (isStoic) u += 25;
                     options.push({ id: "MAYOR_TERRACED_FARMLAND", utility: u, biasReason: "industrious expansion of hillside agricultural terraces" });
                 }
 
-                // Option: Municipal Mint & Currency Stamping (Greedy/Ambitious economic centralization)
-                if (isWealthySurplus || isGreedy) {
+                // Option: Municipal Mint & Currency Stamping (Greedy response to treasury deficit)
+                if (isBankrupt && (isGreedy || corruption > 35)) {
                     let u = 40;
                     if (isGreedy) u += 40;
                     options.push({ id: "MAYOR_MUNICIPAL_MINT", utility: u, biasReason: "standardizing civic currency while levying lucrative seigniorage profits" });
                 }
+
+                // If no surrounding condition warrants a civic intervention, do not invent one
+                if (options.length === 0) continue;
 
                 // Sort options by utility with minor jitter for dynamic variance
                 // One jitter roll per option, then sort: a comparator that re-rolls on every comparison is inconsistent
                 // and its result depends on how many comparisons the sort happens to make.
                 for (const o of options as any[]) o.jittered = o.utility + Math.random() * 8;
                 options.sort((a: any, b: any) => b.jittered - a.jittered);
-                const chosen = options[0] || { id: "MAYOR_TERRACED_FARMLAND", utility: 30, biasReason: "routine civic governance" };
+                const chosen = options[0]!;
 
                 // Execute the chosen civic action
                 switch (chosen.id) {
@@ -556,8 +559,8 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
                     options.push({ id: "COMMANDER_TAKE_UNDERWORLD_BRIBE", utility: u, biasReason: "greed for syndicate hush money in exchange for routing patrols away from the harbor" });
                 }
 
-                // Option: Garrison Drills & Shield Conditioning (Military readiness)
-                if (!isCriticalUnrest && (isStoic || motive.wantTag === "#Want_IronOrder" || (tick + p.id) % 4 === 0)) {
+                // Option: Garrison Drills & Shield Conditioning (Military readiness under pressure)
+                if (!isCriticalUnrest && (isHighUnrest || isCartelInfiltrated || isTradeBlockaded || (burg.crime_rate || 0) > 15)) {
                     let u = 45;
                     if (isStoic) u += 25;
                     if (motive.wantTag === "#Want_IronOrder") u += 18;
@@ -565,7 +568,7 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
                 }
 
                 // Option: Wilderness Bandit Sweep (blocked by #Line_NeverAbandonWalls during high unrest)
-                if ((sectorTags.some(t => t.includes("Bandit") || t.includes("Wilderness")) || (tick + p.id) % 5 === 0) && !(motive.lineTag === "#Line_NeverAbandonWalls" && (isHighUnrest || isCriticalUnrest))) {
+                if ((sectorTags.some(t => t.includes("Bandit") || t.includes("Wilderness")) || (burg.crime_rate || 0) > 20) && !(motive.lineTag === "#Line_NeverAbandonWalls" && (isHighUnrest || isCriticalUnrest))) {
                     let u = 40;
                     if (isVengeful) u += 25;
                     options.push({ id: "COMMANDER_BANDIT_SWEEP", utility: u, biasReason: "aggressive determination to scour highway bandits from trade corridors" });
@@ -578,11 +581,14 @@ export async function runLocalParagonAgent(client: any, tick: number, loreDate: 
                     options.push({ id: "COMMANDER_ARREST_AGITATORS", utility: u, biasReason: "intolerant fury toward street dissent and strike organizers" });
                 }
 
+                // If no surrounding security condition warrants intervention, do not invent one
+                if (options.length === 0) continue;
+
                 // One jitter roll per option, then sort: a comparator that re-rolls on every comparison is inconsistent
                 // and its result depends on how many comparisons the sort happens to make.
                 for (const o of options as any[]) o.jittered = o.utility + Math.random() * 8;
                 options.sort((a: any, b: any) => b.jittered - a.jittered);
-                const chosen = options[0] || { id: "COMMANDER_GARRISON_DRILL", utility: 35, biasReason: "routine garrison vigilance" };
+                const chosen = options[0]!;
 
                 switch (chosen.id) {
                     case "COMMANDER_IRON_CURFEW": {
