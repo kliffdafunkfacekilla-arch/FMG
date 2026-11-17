@@ -29,7 +29,7 @@ export async function runMarketAgent(client: Db, tick: number): Promise<number> 
   const food = await client.query(`SELECT COALESCE(SUM(food), 0) AS grain FROM sim_burg_economy`);
   const items = await client.query(`
     SELECT key, SUM(CASE WHEN value ~ '^-?[0-9.]+$' THEN value::numeric ELSE 0 END) AS qty
-    FROM sim_industrial_stockpiles, jsonb_each_text(COALESCE(complex_inventory, '{}'::jsonb))
+    FROM sim_industrial_stockpiles, jsonb_each_text(COALESCE(NULLIF(BTRIM(complex_inventory), ''), '{}')::jsonb)
     GROUP BY key`);
 
   const stock = new Map<string, number>();
