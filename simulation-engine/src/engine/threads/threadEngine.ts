@@ -572,6 +572,68 @@ export async function applyThreadWorldDelta(
   return { burgId, unrestDelta, wealthDelta, resolution: resolutionText };
 }
 
+/** Appends a cross-tick relationship/grudge tag onto a paragon or citizen row without duplicates. */
+async function appendActorMemoryTag(client: Pool | PoolClient, typedId: string, tag: string): Promise<void> {
+  const m = String(typedId || "").match(/^(paragon|citizen):(\d+)$/);
+  if (!m) return;
+  const kind = m[1];
+  const id = Number(m[2]);
+  if (kind === "paragon") {
+    const r = await client.query(`SELECT traits FROM sim_paragons WHERE id = $1 LIMIT 1`, [id]);
+    if (!r.rows[0]) return;
+    let traits: string[] = [];
+    try {
+      const parsed = typeof r.rows[0].traits === "string" ? JSON.parse(r.rows[0].traits) : r.rows[0].traits;
+      if (Array.isArray(parsed)) traits = parsed.map(String);
+    } catch {}
+    if (!traits.includes(tag)) {
+      traits.push(tag);
+      await client.query(`UPDATE sim_paragons SET traits = $1 WHERE id = $2`, [JSON.stringify(traits.slice(-12)), id]);
+    }
+  } else {
+    const r = await client.query(`SELECT traits FROM population_demographics WHERE citizen_id = $1 LIMIT 1`, [id]);
+    if (!r.rows[0]) return;
+    const traits: string[] = Array.isArray(r.rows[0].traits) ? r.rows[0].traits.map(String) : [];
+    if (!traits.includes(tag)) {
+      traits.push(tag);
+      await client.query(`UPDATE population_demographics SET traits = $1::jsonb WHERE citizen_id = $2`, [JSON.stringify(traits.slice(-12)), id]);
+    }
+  }
+}
+
+/** Promotes an escalating clash into an active sim_story_arcs entry if none exists at that sector. */
+async function promoteThreadToArcIfNeeded(client: Pool | PoolClient, thread: any, currentTick: number): Promise<void> {
+  try {
+    const existing = await client.query(
+      `SELECT 1 FROM sim_story_arcs WHERE cell_id = $1 AND rx = $2 AND ry = $3 AND state = 'active' LIMIT 1`,
+      [thread.cell_id, thread.rx ?? 50, thread.ry ?? 50]
+    );
+    if ((existing.rowCount || 0) > 0) return;
+
+    const beats = [
+      { phase: 1, objective: thread.question, discovery_method: "Witnesses and local aftermath" },
+      { phase: 2, objective: `Contain the fallout between ${Array.isArray(thread.actor_ids) ? thread.actor_ids.join(" and ") : "rival factions"}`, discovery_method: "Direct confrontation or mediation" }
+    ];
+    await client.query(
+      `INSERT INTO sim_story_arcs (arc_key, cell_id, rx, ry, z, inciting_incident, beats, active_phase, state, thread_ids, actor_id, source, created_tick)
+       VALUES ($1, $2, $3, $4, 0, $5, $6::jsonb, 1, 'active', $7::int[], $8, 'escalation', $9)`,
+      [
+        `clash_${thread.cell_id}_${thread.created_tick}`.slice(0, 160),
+        thread.cell_id,
+        thread.rx ?? 50,
+        thread.ry ?? 50,
+        thread.stakes,
+        JSON.stringify(beats),
+        [Number(thread.id)],
+        Array.isArray(thread.actor_ids) && thread.actor_ids[0] ? String(thread.actor_ids[0]) : null,
+        currentTick
+      ]
+    );
+  } catch {
+    // sim_story_arcs may not exist in isolated unit tests
+  }
+}
+
 /**
  * Advances all active thread clocks by 1 tick (STORY_AUDIT Step 3).
  * When clock reaches clock_max, the thread resolves automatically,
@@ -619,6 +681,8 @@ export async function advanceThreadClocks(
             `UPDATE sim_threads SET clock = 0, state = 'resolved', resolved_tick = $1, resolution = $2 WHERE id = $3`,
             [currentTick, deltaResult.resolution, thread.id]
           );
+          await appendActorMemoryTag(client, String(thread.actor_ids[0]), `#ThwartedBy:${thread.actor_ids[1]}`);
+          await appendActorMemoryTag(client, String(thread.actor_ids[1]), `#Resisted:${thread.actor_ids[0]}`);
           summary.worldDeltasApplied.push({
             threadId: thread.id,
             cellId: thread.cell_id,
@@ -646,6 +710,9 @@ export async function advanceThreadClocks(
         `UPDATE sim_threads SET clock = $1, state = $2 WHERE id = $3`,
         [nextClock, nextState, thread.id]
       );
+      if (shouldEscalate && thread.rule_id === "AUTONOMOUS_CLASH") {
+        await promoteThreadToArcIfNeeded(client, thread, currentTick);
+      }
     } else {
       // Reached clock_max: RESOLVE ON ITS OWN!
       summary.threadsResolved++;
@@ -675,6 +742,10 @@ export async function advanceThreadClocks(
          WHERE id = $4`,
         [nextClock, currentTick, deltaResult.resolution, thread.id]
       );
+      if (thread.rule_id === "AUTONOMOUS_CLASH" && Array.isArray(thread.actor_ids) && thread.actor_ids.length >= 2) {
+        await appendActorMemoryTag(client, String(thread.actor_ids[0]), `#PrevailedOver:${thread.actor_ids[1]}`);
+        await appendActorMemoryTag(client, String(thread.actor_ids[1]), `#Grudge:${thread.actor_ids[0]}`);
+      }
 
       summary.worldDeltasApplied.push({
         threadId: thread.id,
