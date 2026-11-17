@@ -2615,89 +2615,44 @@ STRICT RULES:
 3. NO DUPLICATES OR PASSIVE TURNS: Do not repeat any line or action from RECENT PARTY ACTIONS, and never take passive turns ("I survey the area").
 4. NAME A REAL TARGET: Target one of the NEARBY NPCS or NEARBY PROPS above by exact name.
 
-Output format EXACTLY:
-Dialogue: "your spoken words"
-Action: I [what you do]`;
+Output ONLY valid JSON with two string fields:
+{
+  "dialogue": "your short in-character spoken line",
+  "action": "I [what you do]"
+}`;
+
+  const text = await ollamaGenerate(prompt, { json: true, temperature: 0.75, maxTokens: 160, timeoutMs: 60000 });
+  if (text === null) {
+    throw new Error(`Ollama unavailable or timed out generating turn for ${member.name}`);
+  }
+  const raw = String(text || "").trim();
+
+  let dialogue = "";
+  let action = "";
 
   try {
-    // Local model via engine/llm.ts (configured URL/model, 60 s: a CPU model needs more than the old 15 s)
-    const text = await ollamaGenerate(prompt, { temperature: 0.75, maxTokens: 120, timeoutMs: 60000 });
-    if (text === null) throw new Error("local model unavailable");
-    const data: any = { response: text };
-    const raw = String(data.response || "").trim();
-
-    let dialogue = "";
-    let action = "";
-
-    const dMatch = raw.match(/Dialogue:\s*["“]?([^"”\n]+)["”]?/i);
-    if (dMatch && dMatch[1]) dialogue = dMatch[1].trim();
-
-    const aMatch = raw.match(/Action:\s*([^\n]+)/i);
-    if (aMatch && aMatch[1]) {
-      action = aMatch[1].trim();
-      if (!action.toLowerCase().startsWith("i ")) action = "I " + action;
-    }
-
-    // Check if the LLM emitted a generic passive response or mimicked recent turns
-    const isPassiveOrDuplicate =
-      !action ||
-      action.toLowerCase().includes("survey the area") ||
-      action.toLowerCase().includes("look around") ||
-      action.toLowerCase().includes("scan the area") ||
-      action.toLowerCase().includes("keep my gaze fixed") ||
-      recentChronicle.some(c => c.toLowerCase().includes(action.toLowerCase().slice(0, 35)));
-
-    if (isPassiveOrDuplicate) {
-      const firstProp = sceneProps[0];
-      const firstNpc = sceneNPCs[0];
-
-      if (member.name === "Harrow Grist") {
-        dialogue = firstNpc ? `Listen closely, ${firstNpc.name}. We're resolving this garrison mess right now.` : "Out of my way. I'm securing this checkpoint.";
-        action = firstProp ? `I heave and inspect ${firstProp.name} using brute might to uncover what's hidden` : (firstNpc ? `I confront ${firstNpc.name} and demand answers about the garrison's search` : "I take up position at the entrance to block pursuit");
-      } else if (member.name === "Lyra Swift-Feather") {
-        dialogue = "I see structural marks here. Let me check the perimeter compartments.";
-        action = firstProp ? `I search ${firstProp.name} for concealed compartments or hidden ledgers` : (firstNpc ? `I question ${firstNpc.name} about patrol shift schedules` : "I secure high ground to watch the garrison approaches");
-      } else if (member.name === "Orlo Mind-Weaver") {
-        dialogue = "The resonance conduits in this sector carry subtle traces. Allow me to examine this.";
-        action = firstProp ? `I examine the locking mechanism of ${firstProp.name} using my knowledge` : (firstNpc ? `I assess ${firstNpc.name}'s aura for signs of deception or fear` : "I trace the arcane wards along the doorframe");
-      } else {
-        dialogue = firstNpc ? `A moment of your time, ${firstNpc.name}. A few coins might loosen your tongue.` : "Quietly now. Keep your voices low while I handle the mechanism.";
-        action = firstProp ? `I use my lockpicks on ${firstProp.name} with finesse to bypass the security` : (firstNpc ? `I slide 10 gold to ${firstNpc.name} to learn the garrison's inspection route` : "I slip into the alleyway to create a noise distraction");
-      }
-    }
-
-    if (!dialogue) {
-      dialogue = `I'll handle this. Watch my back.`;
-    }
-
-    return { dialogue, action };
-  } catch (err) {
-    // Dynamic sandbox fallback reflecting character role and sector assets
-    const firstNpc = sceneNPCs[0];
-    const firstProp = sceneProps[0];
-
-    if (member.name === "Harrow Grist") {
-      return {
-        dialogue: firstNpc ? `Stand aside, ${firstNpc.name}. We're clearing this chokepoint.` : "Stand back. If it's in our way, I'll clear it.",
-        action: firstProp ? `I smash the locking hasp of ${firstProp.name} with my ${member.weapon}` : "I take a defensive stance and guard the entrance"
-      };
-    } else if (member.name === "Lyra Swift-Feather") {
-      return {
-        dialogue: "Scanning elevated perimeters and inspecting storage bins.",
-        action: firstProp ? `I search ${firstProp.name} for concealed compartments or contraband` : "I climb to high vantage to scout garrison patrols"
-      };
-    } else if (member.name === "Orlo Mind-Weaver") {
-      return {
-        dialogue: "Notice the resonance patterns here. The locking mechanism can be solved.",
-        action: firstProp ? `I solve the keystone sequence of ${firstProp.name} using my knowledge` : "I channel my conduit staff to detect hidden arcane seals"
-      };
-    } else {
-      return {
-        dialogue: firstNpc ? `Let me speak with ${firstNpc.name}. A smile and coin open more doors than iron.` : "Let me do the talking. Coin and a smile open more doors than iron.",
-        action: firstNpc ? `I talk to ${firstNpc.name} to negotiate safe passage and gather intelligence` : (firstProp ? `I pick the lock of ${firstProp.name} using my thieves' tools` : "I blend into the shadows to stage a distraction")
-      };
-    }
+    const clean = raw.replace(/```json|```/gi, "").trim();
+    const parsed = JSON.parse(clean);
+    if (typeof parsed.dialogue === "string") dialogue = parsed.dialogue.trim();
+    if (typeof parsed.action === "string") action = parsed.action.trim();
+  } catch {
+    const dMatch = raw.match(/\*{0,2}Dialogue\*{0,2}:\s*["“]?([^"”\n]+)["”]?/i);
+    if (dMatch?.[1]) dialogue = dMatch[1].trim();
+    const aMatch = raw.match(/\*{0,2}Action\*{0,2}:\s*([^\n]+)/i);
+    if (aMatch?.[1]) action = aMatch[1].trim();
   }
+
+  if (!action) {
+    throw new Error(`Ollama returned no usable action for ${member.name}: ${raw.slice(0, 180)}`);
+  }
+  if (!action.toLowerCase().startsWith("i ")) {
+    action = "I " + action;
+  }
+  if (!dialogue) {
+    throw new Error(`Ollama returned no usable dialogue for ${member.name}: ${raw.slice(0, 180)}`);
+  }
+
+  return { dialogue, action };
 }
 
 /**
