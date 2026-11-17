@@ -344,7 +344,13 @@ export function evaluateThreadState(
     };
   }
 
-  if (isFree) {
+  const isNonCustodyThread =
+    thread.rule_id === 'LOCAL_PARAGON_FRICTION' ||
+    thread.rule_id === 'LOCAL_CITIZEN_TROUBLE' ||
+    thread.rule_id === 'LOCAL_AGENT_TROUBLE' ||
+    thread.rule_id === 'AUTONOMOUS_CLASH';
+
+  if (isFree && !isNonCustodyThread) {
     const actorName = primaryActor.name || 'The artisan';
     const isSmith = primaryActor.role?.toLowerCase().includes('smith') || primaryActor.tags?.some((t: string) => t.toLowerCase().includes('smith') || t.toLowerCase().includes('artisan'));
 
@@ -438,7 +444,7 @@ export async function applyThreadWorldDelta(
   delta: ThreadWorldDelta,
   currentTick: number,
   loreDate?: string,
-  eventType: "THREAD_EXPIRED" | "THREAD_RESOLVED_BY_PARTY" = "THREAD_EXPIRED"
+  eventType: "THREAD_EXPIRED" | "THREAD_RESOLVED_BY_PARTY" | "THREAD_THWARTED_BY_LOCALS" = "THREAD_EXPIRED"
 ): Promise<{ burgId?: number | undefined; unrestDelta: number; wealthDelta: number; resolution: string }> {
   const unrestDelta = delta.unrestDelta ?? 0;
   const wealthDelta = delta.wealthDelta ?? 0;
@@ -591,6 +597,43 @@ export async function advanceThreadClocks(
 
   for (const thread of openRes.rows) {
     summary.threadsTicked++;
+
+    // Autonomous multi-actor clashes resolve via opposed instigator-vs-target rolls each tick
+    if (thread.rule_id === "AUTONOMOUS_CLASH" && Array.isArray(thread.actor_ids) && thread.actor_ids.length >= 2) {
+      const seedKey = Number(thread.cell_id || 0) * 13 + Number(thread.created_tick || 0) * 7 + Number(thread.clock || 0) * 5;
+      const instRoll = ((currentTick * 37 + seedKey) % 12) + 1;
+      const targRoll = ((currentTick * 29 + seedKey * 3) % 12) + 1;
+
+      if (targRoll > instRoll) {
+        if (thread.clock <= 0) {
+          summary.threadsResolved++;
+          const thwartedOutcome: ThreadWorldDelta =
+            thread.on_resolved_by_party && typeof thread.on_resolved_by_party === "object" && Object.keys(thread.on_resolved_by_party).length > 0
+              ? (typeof thread.on_resolved_by_party === "string" ? JSON.parse(thread.on_resolved_by_party) : thread.on_resolved_by_party)
+              : {
+                  unrestDelta: -3,
+                  narrativeSummary: `Local resistance thwarted the clash before it boiled over: ${thread.stakes}`
+                };
+          const deltaResult = await applyThreadWorldDelta(client, thread, thwartedOutcome, currentTick, loreDate, "THREAD_THWARTED_BY_LOCALS");
+          await client.query(
+            `UPDATE sim_threads SET clock = 0, state = 'resolved', resolved_tick = $1, resolution = $2 WHERE id = $3`,
+            [currentTick, deltaResult.resolution, thread.id]
+          );
+          summary.worldDeltasApplied.push({
+            threadId: thread.id,
+            cellId: thread.cell_id,
+            burgId: deltaResult.burgId,
+            unrestDelta: deltaResult.unrestDelta,
+            resolution: deltaResult.resolution
+          });
+          continue;
+        }
+        const pushedBack = Math.max(0, thread.clock - 1);
+        await client.query(`UPDATE sim_threads SET clock = $1 WHERE id = $2`, [pushedBack, thread.id]);
+        continue;
+      }
+    }
+
     const nextClock = thread.clock + 1;
 
     if (nextClock < thread.clock_max) {

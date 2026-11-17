@@ -25,6 +25,8 @@ import { runMarketAgent } from "./economy/marketAgent.js";
 import { runFactionCollapse } from "./agents/factionCollapse.js";
 import { applySchemaPatches } from "../db/schemaPatches.js";
 import { runSeeded, seedSql, tickSeed } from "./rng.js";
+import { runAutonomousDramaAgent } from "./agents/autonomousDramaAgent.js";
+import { advanceThreadClocks } from "./threads/threadEngine.js";
 
 let schemaPatched = false;
 
@@ -175,10 +177,12 @@ async function runTick(): Promise<TickResult> {
             });
             await step('grindCanyon', () => runGrindCanyonAgent(client, tick, loreDate));
 
-            // 9. Encounters, NPC routines, the background story director
+            // 9. Encounters, NPC routines, the background story director & autonomous clashes
             await step('encounters', () => runEncounterAgent(client, tick));
             await step('npcRoutines', () => runNPCRoutineAgent(client, tick, loreDate));
             await step('backgroundDirector', () => runBackgroundDirectorAgent(client, tick, loreDate));
+            await step('autonomousDrama', () => runAutonomousDramaAgent(client, tick, loreDate));
+            await step('threadClocks', () => advanceThreadClocks(client, tick, loreDate));
 
             // 10. Chronicler
             await step('chronicler', () => runChroniclerAgent(client, tick, loreDate));
