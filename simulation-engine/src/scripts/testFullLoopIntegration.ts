@@ -37,12 +37,12 @@ async function testFullLoop() {
   const cal = calRes.rows[0];
   console.log(`   Canonical Date: Year ${cal?.year}, Month ${cal?.month} (${cal?.month_name}), Day ${cal?.day_of_month}, Season "${cal?.season}"`);
 
-  // STEP 2: CHECK FOR EMERGENT TROUBLE IN BURG 81 (ROROMIJIMA)
-  console.log("\n2. Checking Sector & Economy State at Burg 81 (Roromijima, cell 13408)...");
+  // STEP 2: CHECK FOR EMERGENT TROUBLE IN BURG 1 (EXCELSIS CITADEL)
+  console.log("\n2. Checking Sector & Economy State at Burg 1 (Excelsis Citadel, cell 30627)...");
   const ecoRes = await pool.query(`
     SELECT burg_id, name, wealth, food, raw_materials, unrest, tier 
     FROM sim_burg_economy 
-    WHERE burg_id = 81
+    WHERE burg_id = 1
   `);
   const b = ecoRes.rows[0];
   console.log(`   Burg: ${b?.name} (ID ${b?.burg_id}) | Tier: ${b?.tier} | Wealth: ${b?.wealth} | Unrest: ${b?.unrest}`);
@@ -53,9 +53,9 @@ async function testFullLoop() {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      cell_id: 13408,
+      cell_id: 30627,
       sector_coords: { rx: 50, ry: 50 },
-      burg_id: 81
+      burg_id: 1
     })
   });
   if (!initRes.ok) {

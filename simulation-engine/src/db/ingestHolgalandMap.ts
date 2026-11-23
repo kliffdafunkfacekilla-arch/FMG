@@ -1,37 +1,25 @@
 /**
  * ingestHolgalandMap.ts
  * ─────────────────────────────────────────────────────────────────────────
- * Full-fidelity ingestion of Azgaar's Fantasy Map Generator Holgaland export:
- *  - 27 Factions (Avian Empire, Grey Wardens, Gilded Compass, etc.)
- *  - 34,387 Cells (Height/Elevation, Biomes, Neighbors, Coordinates, Temperature)
- *  - 345 Burgs (Population, Wealth, Infrastructure, Urban Tiers, Dominant Domains)
- *  - 12 Dragon Prisons & Sacred Seals (Eldra, Vecelo, Lophex, Sevrath, Grolak,
- *    Gavusrix, Stagus, Carulkem, Virantor, Ulex, Vahn, Tiraton)
- *  - The Convergence: The Verge (Sacred Spire) & Coral Crown (The Eye)
- *  - 231 World Landmarks & Markers (Volcanoes, Megaliths, Shrines)
- *  - 372 Infrastructure Routes (Highways, Trails, Mountain Passes)
- *  - 12 Primordial Chaos Flows converging from the Prisons to The Verge
+ * Full-fidelity ingestion of Azgaar's Fantasy Map Generator `Ostraka_full.map`:
+ *  - 27 Factions (states 0 & 29..54, with fiscal economy, diplomacy & 144 regiments)
+ *  - 58,091 Pack Cells (reconstructed Voronoi polygons, height, biomes, culture,
+ *    religion, market, river, suitability, flux, base temperature)
+ *  - 189 Burgs (population, treasury, production, civic flags, coat of arms)
+ *  - 75 Cultures, 42 Religions (incl. 13 canon cults), 71 Trade Goods
+ *  - 31 Regional Markets, 3,837 Trade Deals, 1,625 Rivers, 1,685 Routes + 14,984 Route Graph nodes
+ *  - 12 Dragon Prisons & Sacred Seals (incl. pinned polar anchors for Tiraton & Gavusrix)
+ *  - 15 Pruned Canon Markers (prisons, The Verge, Seven Falls, Nomad's Notch, Icehouse, Tempering)
  */
 
-import fs from "fs";
-import path from "path";
 import pool from "./pool";
+import { parseAzgaarMap } from "./parseAzgaarMap";
 import { prerenderWorldPopulation } from "./prerenderWorldPopulation";
 import { provisionAllBurgParagons } from "./provisionAllBurgParagons";
 import { CANON_DRAGON_PRISONS, VERGE_COORD, canonFlowName } from "../engine/canon/dragonPrisons";
 import { enhanceAllCriminalSyndicates } from "./enhanceAllCriminalSyndicates";
 
-const candidatePaths = [
-  path.resolve(__dirname, "../../data/Holgaland.json"),
-  path.resolve(__dirname, "../../../data/Holgaland.json"),
-  path.resolve(process.cwd(), "simulation-engine/data/Holgaland.json"),
-  path.resolve(process.cwd(), "data/Holgaland.json"),
-  "C:/Users/krazy/Desktop/FMG/simulation-engine/data/Holgaland.json",
-  "C:/Users/krazy/Downloads/Holgaland Full 2026-10-21-20-16.json"
-];
-const MAP_PATH: string = candidatePaths.find(p => fs.existsSync(p)) || candidatePaths[0] || "";
-
-// Lore Profiles for Factions (Aggression, Magic, Economy)
+// Lore Profiles for Factions (Aggression, Magic, Economy, Species)
 const FACTION_LORE_PROFILES: Record<string, { aggression: number; magic: number; economy: number; species: Record<string, number> }> = {
   "Avian Empire": { aggression: 3, magic: 8, economy: 9, species: { "Avian": 0.7, "Human": 0.2, "Wolf-Kin": 0.1 } },
   "Grey Wardens": { aggression: 2, magic: 10, economy: 5, species: { "Human": 0.4, "Avian": 0.2, "Bear-Folk": 0.2, "Felid": 0.2 } },
@@ -50,6 +38,7 @@ const FACTION_LORE_PROFILES: Record<string, { aggression: number; magic: number;
   "Dust-Husk Riders": { aggression: 8, magic: 3, economy: 4, species: { "Dune Dog": 0.5, "Dust-Skipper": 0.3, "Fur-Wyrm": 0.2 } },
   "Hive Commonwealth": { aggression: 4, magic: 5, economy: 9, species: { "Bee": 0.6, "Ant": 0.4 } },
   "Prism-Scale Collective": { aggression: 3, magic: 7, economy: 7, species: { "Peacock": 0.8, "Scarred-Guard": 0.2 } },
+  "Opal-Wallow": { aggression: 2, magic: 5, economy: 7, species: { "Frog": 0.5, "Human": 0.3, "Red Panda": 0.2 } },
   "Port Sunder": { aggression: 5, magic: 4, economy: 8, species: { "Human": 0.5, "Felid": 0.3, "Wolf-Kin": 0.2 } },
   "Meridian Chain": { aggression: 3, magic: 4, economy: 8, species: { "Penguin": 0.4, "Walrus": 0.3, "Seal": 0.2, "Otter": 0.1 } },
   "Scute Confederacy": { aggression: 4, magic: 3, economy: 7, species: { "Armadillo": 0.5, "Pangolin": 0.5 } },
@@ -57,27 +46,44 @@ const FACTION_LORE_PROFILES: Record<string, { aggression: number; magic: number;
   "Coastal Theocracy": { aggression: 6, magic: 9, economy: 7, species: { "Avian": 0.5, "Reptile": 0.5 } },
   "Devil's Island": { aggression: 8, magic: 8, economy: 3, species: { "Demon-Kin": 0.6, "Outcast": 0.4 } },
   "Skyroost Academy": { aggression: 1, magic: 10, economy: 7, species: { "Avian": 0.8, "Human": 0.2 } },
+  "Free Sky-Baronies": { aggression: 6, magic: 5, economy: 6, species: { "Avian": 0.6, "Human": 0.4 } },
   "Free Sky Baronies": { aggression: 6, magic: 5, economy: 6, species: { "Avian": 0.6, "Human": 0.4 } },
   "Fuvuiku Legions": { aggression: 9, magic: 4, economy: 5, species: { "Saurian": 0.8, "Human": 0.2 } },
   "Neutrals": { aggression: 1, magic: 1, economy: 3, species: { "Human": 0.6, "Wolf-Kin": 0.2, "Felid": 0.2 } }
 };
 
-export async function ingestHolgalandMap() {
-  console.log(`[Ingest] Reading Holgaland map from: ${MAP_PATH}`);
-  if (!MAP_PATH || !fs.existsSync(MAP_PATH)) {
-    throw new Error(`Holgaland map JSON not found at: ${MAP_PATH}`);
+function diplomacyTension(status: string): number {
+  switch (String(status || "").toLowerCase()) {
+    case "ally": return 0;
+    case "friendly": return 10;
+    case "neutral": return 25;
+    case "suspicion": return 55;
+    case "rival": return 75;
+    case "enemy": return 95;
+    default: return 35; // Unknown / Suzerain / Vassal
   }
+}
 
-  const raw: string = fs.readFileSync(MAP_PATH, "utf-8");
-  const data = JSON.parse(raw);
-  const pack = data.pack;
+function polylineLength(pts: any[]): number {
+  if (!Array.isArray(pts) || pts.length < 2) return 0;
+  let total = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const [x1, y1] = pts[i - 1] || [0, 0];
+    const [x2, y2] = pts[i] || [0, 0];
+    total += Math.hypot((Number(x2) || 0) - (Number(x1) || 0), (Number(y2) || 0) - (Number(y1) || 0));
+  }
+  return Math.round(total * 100) / 100;
+}
+
+export async function ingestHolgalandMap() {
+  const parsed = parseAzgaarMap();
+  console.log(`[Ingest] Parsed Ostraka_full.map (${parsed.width}x${parsed.height}, ${parsed.cells.length} cells, ${parsed.burgs.length} burgs, ${parsed.states.length} states) from: ${parsed.mapPath}`);
 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     console.log("[Ingest] Connected to PostgreSQL. Preparing tables...");
 
-    // Ensure tables have needed columns
     await client.query(`
       ALTER TABLE sim_roads ADD COLUMN IF NOT EXISTS name TEXT;
       ALTER TABLE sim_roads ADD COLUMN IF NOT EXISTS road_group TEXT;
@@ -91,6 +97,16 @@ export async function ingestHolgalandMap() {
       ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS dominant_domain VARCHAR(50) DEFAULT 'MATERIAL';
       ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS hierarchy_tier INT DEFAULT 1;
       ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS pop_growth_pool FLOAT DEFAULT 0.0;
+      ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS x REAL DEFAULT 0;
+      ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS y REAL DEFAULT 0;
+      ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS citadel BOOLEAN DEFAULT FALSE;
+      ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS walls BOOLEAN DEFAULT FALSE;
+      ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS shanty BOOLEAN DEFAULT FALSE;
+      ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS temple BOOLEAN DEFAULT FALSE;
+      ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS plaza BOOLEAN DEFAULT FALSE;
+      ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS product_value REAL DEFAULT 0;
+      ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS production JSONB DEFAULT '[]'::jsonb;
+      ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS coa JSONB DEFAULT '{}'::jsonb;
 
       ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS geometry TEXT;
       ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS z_layer INT DEFAULT 0;
@@ -100,13 +116,32 @@ export async function ingestHolgalandMap() {
       ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS eco_resources REAL DEFAULT 100.0;
       ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS eco_health REAL DEFAULT 100.0;
       ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS eco_max REAL DEFAULT 100.0;
+      ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS culture_id INT DEFAULT 0;
+      ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS religion_id INT DEFAULT 0;
+      ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS market_id INT DEFAULT 0;
+      ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS river_id INT DEFAULT 0;
+      ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS suitability INT DEFAULT 0;
+      ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS flux INT DEFAULT 0;
+      ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS feature_id INT DEFAULT 0;
+      ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS cell_type SMALLINT DEFAULT 0;
+
+      ALTER TABLE sim_factions ADD COLUMN IF NOT EXISTS culture_id INT DEFAULT 0;
+      ALTER TABLE sim_factions ADD COLUMN IF NOT EXISTS capital_burg_id INT DEFAULT NULL;
+      ALTER TABLE sim_factions ADD COLUMN IF NOT EXISTS expansionism REAL DEFAULT 1.0;
+      ALTER TABLE sim_factions ADD COLUMN IF NOT EXISTS state_type TEXT DEFAULT 'Generic';
+      ALTER TABLE sim_factions ADD COLUMN IF NOT EXISTS fiscal_economy JSONB DEFAULT '{}'::jsonb;
     `);
 
     // Clean dependent simulation tables in foreign-key safe order
     console.log("[Ingest] Clearing previous world geography and simulation history...");
+    await client.query("DELETE FROM sim_story_arcs");
+    await client.query("DELETE FROM sim_threads");
+    await client.query("DELETE FROM sim_cell_tags");
     await client.query("DELETE FROM sim_events");
     await client.query("DELETE FROM sim_calendar");
     await client.query("DELETE FROM sim_diplomacy");
+    await client.query("DELETE FROM sim_faction_units");
+    await client.query("DELETE FROM sim_faction_borders");
     await client.query("DELETE FROM sim_agents");
     await client.query("DELETE FROM sim_npc_instances");
     await client.query("DELETE FROM sim_industrial_stockpiles");
@@ -114,6 +149,13 @@ export async function ingestHolgalandMap() {
     await client.query("DELETE FROM sim_grind_canyons");
     await client.query("DELETE FROM sim_sacred_groves");
     await client.query("DELETE FROM sim_chaos_flows");
+    await client.query("DELETE FROM sim_route_graph");
+    await client.query("DELETE FROM sim_trade_deals");
+    await client.query("DELETE FROM sim_markets");
+    await client.query("DELETE FROM sim_goods");
+    await client.query("DELETE FROM sim_rivers");
+    await client.query("DELETE FROM sim_religions");
+    await client.query("DELETE FROM sim_cultures");
     await client.query("DELETE FROM sim_roads");
     await client.query("DELETE FROM sim_world_landmarks");
     await client.query("DELETE FROM sim_paragons");
@@ -125,21 +167,31 @@ export async function ingestHolgalandMap() {
     await client.query("DELETE FROM sim_factions");
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 1. INGEST FACTIONS
+    // 1. INGEST FACTIONS, BORDERS, DIPLOMACY & STANDING MILITARY REGIMENTS
     // ─────────────────────────────────────────────────────────────────────────
-    console.log(`[Ingest] Ingesting ${pack.states.length} factions/states...`);
-    for (const s of pack.states) {
-      if (!s || s.name === undefined) continue;
+    console.log(`[Ingest] Ingesting ${parsed.states.length} factions/states...`);
+    const activeStateIds = new Set<number>(parsed.states.map((s) => Number(s.i)));
+
+    for (const s of parsed.states) {
       const lore = FACTION_LORE_PROFILES[s.name] || { aggression: 3, magic: 3, economy: 5, species: { "Human": 1.0 } };
+      const treasuryVal = Math.max(1000, Math.round(Number(s.economy?.treasury) || 10000));
       await client.query(`
-        INSERT INTO sim_factions (id, name, color, lore_text, trait_aggression, trait_magic, trait_economy, wealth, treasury)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 10000, 10000)
+        INSERT INTO sim_factions (
+          id, name, color, lore_text, trait_aggression, trait_magic, trait_economy,
+          wealth, treasury, culture_id, capital_burg_id, expansionism, state_type, fiscal_economy
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb)
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
           color = EXCLUDED.color,
           trait_aggression = EXCLUDED.trait_aggression,
           trait_magic = EXCLUDED.trait_magic,
-          trait_economy = EXCLUDED.trait_economy
+          trait_economy = EXCLUDED.trait_economy,
+          culture_id = EXCLUDED.culture_id,
+          capital_burg_id = EXCLUDED.capital_burg_id,
+          expansionism = EXCLUDED.expansionism,
+          state_type = EXCLUDED.state_type,
+          fiscal_economy = EXCLUDED.fiscal_economy
       `, [
         s.i,
         s.name,
@@ -147,33 +199,102 @@ export async function ingestHolgalandMap() {
         `Sovereign realm of ${s.name}`,
         lore.aggression,
         lore.magic,
-        lore.economy
+        lore.economy,
+        treasuryVal,
+        treasuryVal,
+        Number(s.culture) || 0,
+        s.capital ? Number(s.capital) : null,
+        Number(s.expansionism) || 1.0,
+        String(s.type || "Generic"),
+        JSON.stringify(s.economy || {})
       ]);
     }
+    await client.query(`SELECT setval('sim_factions_id_seq', (SELECT COALESCE(MAX(id), 1) FROM sim_factions))`);
 
-    // Ingest Faction Adjacency Borders
-    await client.query("DELETE FROM sim_faction_borders");
-    for (const s of pack.states) {
-      if (!s || !s.neighbors) continue;
-      for (const n of s.neighbors) {
-        if (n > 0 && n !== s.i) {
-          await client.query(
-            "INSERT INTO sim_faction_borders (faction_id, faction_a, faction_b, is_border) VALUES ($1, $2, $3, true)",
-            [s.i, s.i, n]
-          );
+    // Faction Adjacency Borders & Diplomatic Relations
+    let diplomacyRows = 0;
+    let regimentRows = 0;
+    for (const s of parsed.states) {
+      if (Array.isArray(s.neighbors)) {
+        for (const n of s.neighbors) {
+          if (n > 0 && n !== s.i && activeStateIds.has(n)) {
+            await client.query(
+              "INSERT INTO sim_faction_borders (faction_id, faction_a, faction_b, is_border) VALUES ($1, $2, $3, true)",
+              [s.i, s.i, n]
+            );
+          }
+        }
+      }
+
+      if (s.i > 0 && Array.isArray(s.diplomacy)) {
+        for (let otherId = 1; otherId < s.diplomacy.length; otherId++) {
+          if (otherId <= s.i || !activeStateIds.has(otherId)) continue;
+          const rel = s.diplomacy[otherId];
+          if (!rel || rel === "x") continue;
+          const status = String(rel).toUpperCase();
+          await client.query(`
+            INSERT INTO sim_diplomacy (faction_a_id, faction_b_id, status, tension)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (faction_a_id, faction_b_id) DO UPDATE SET status = EXCLUDED.status, tension = EXCLUDED.tension
+          `, [s.i, otherId, status, diplomacyTension(status)]);
+          diplomacyRows++;
+        }
+      }
+
+      if (s.i > 0 && Array.isArray(s.military)) {
+        for (const reg of s.military) {
+          if (!reg) continue;
+          const troopCount = Math.max(10, Math.round((Number(reg.a) || 0.2) * 1000));
+          const locCell = Number(reg.cell);
+          await client.query(`
+            INSERT INTO sim_faction_units (faction_id, unit_type, count, status, location_cell_id, experience)
+            VALUES ($1, $2, $3, 'ACTIVE', $4, 1)
+          `, [s.i, String(reg.name || "Regiment").slice(0, 50), troopCount, Number.isFinite(locCell) ? locCell : null]);
+          regimentRows++;
         }
       }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 2. INGEST CELLS (Batch unnest with Voronoi geometry)
+    // 2. INGEST CULTURES (75), RELIGIONS (42), GOODS (71), MARKETS (31)
     // ─────────────────────────────────────────────────────────────────────────
-    console.log(`[Ingest] Ingesting ${pack.cells.length} cells in batches with Voronoi geometry...`);
-    const BATCH_SIZE = 1000;
-    const vertices = pack.vertices || [];
+    for (const c of parsed.cultures) {
+      await client.query(`
+        INSERT INTO sim_cultures (id, name, type, base, origins, urban, rural, area, cells, tags)
+        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10::jsonb)
+      `, [c.i, c.name, c.type || "Generic", Number(c.base) || 0, JSON.stringify(c.origins || []), Number(c.urban) || 0, Number(c.rural) || 0, Number(c.area) || 0, Number(c.cells) || 0, JSON.stringify(c.tags || [])]);
+    }
 
-    for (let i = 0; i < pack.cells.length; i += BATCH_SIZE) {
-      const chunk = pack.cells.slice(i, i + BATCH_SIZE);
+    for (const r of parsed.religions) {
+      await client.query(`
+        INSERT INTO sim_religions (id, name, type, origins, urban, rural, area, cells, tags)
+        VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9::jsonb)
+      `, [r.i, r.name, r.type || "Folk", JSON.stringify(r.origins || []), Number(r.urban) || 0, Number(r.rural) || 0, Number(r.area) || 0, Number(r.cells) || 0, JSON.stringify(r.tags || [])]);
+    }
+
+    for (const g of parsed.goods) {
+      await client.query(`
+        INSERT INTO sim_goods (id, name, unit, value, carriage, color, tags, distribution, demand_coverage, biome_output, multipliers)
+        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10::jsonb, $11::jsonb)
+      `, [g.i, g.name, g.unit || "unit", Number(g.value) || 1, Number(g.carriage) || 1, g.color || "#888888", JSON.stringify(g.tags || []), String(g.distribution || ""), JSON.stringify(g.demandCoverage || {}), JSON.stringify(g.biomeOutput || {}), JSON.stringify(g.multipliers || {})]);
+    }
+
+    for (const m of parsed.markets) {
+      await client.query(`
+        INSERT INTO sim_markets (id, center_burg_id, color, fee_paid, rural, goods)
+        VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb)
+      `, [m.i, Number(m.centerBurgId) || null, m.color || "#888888", Number(m.feePaid) || 0, JSON.stringify(m.rural || {}), JSON.stringify(m.goods || {})]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 3. INGEST CELLS (58,091 reconstructed pack cells in UNNEST batches)
+    // ─────────────────────────────────────────────────────────────────────────
+    console.log(`[Ingest] Ingesting ${parsed.cells.length} cells with reconstructed Voronoi geometry & map metadata...`);
+    const BATCH_SIZE = 2000;
+    const maxY = parsed.height || 2496;
+
+    for (let i = 0; i < parsed.cells.length; i += BATCH_SIZE) {
+      const chunk = parsed.cells.slice(i, i + BATCH_SIZE);
       const ids: number[] = [];
       const factionIds: (number | null)[] = [];
       const biomes: string[] = [];
@@ -183,71 +304,78 @@ export async function ingestHolgalandMap() {
       const elevations: number[] = [];
       const temps: number[] = [];
       const geoms: (string | null)[] = [];
+      const cultureIds: number[] = [];
+      const religionIds: number[] = [];
+      const marketIds: number[] = [];
+      const riverIds: number[] = [];
+      const suitabilities: number[] = [];
+      const fluxes: number[] = [];
+      const featureIds: number[] = [];
+      const cellTypes: number[] = [];
 
       for (const c of chunk) {
-        if (!c || c.i === undefined) continue;
         ids.push(c.i);
-        factionIds.push(c.state > 0 ? c.state : null);
+        factionIds.push(c.state > 0 && activeStateIds.has(c.state) ? c.state : null);
         biomes.push(String(c.biome ?? 0));
         pops.push(Math.floor(c.pop || 0));
-        centerXs.push(c.p ? c.p[0] : 0);
-        centerYs.push(c.p ? c.p[1] : 0);
-        elevations.push(c.h || 0);
-
-        // Approximate temperature based on latitude (center_y)
-        const latRatio = (c.p ? c.p[1] : 1200) / 2496;
-        const baseT = Math.round(30 - Math.abs(latRatio - 0.5) * 35 - ((c.h || 0) > 50 ? ((c.h - 50) * 0.3) : 0));
-        temps.push(baseT);
-
-        // Voronoi cell polygon geometry
-        let geomStr: string | null = null;
-        if (Array.isArray(c.v) && c.v.length >= 3 && vertices.length > 0) {
-          const ring = c.v
-            .map((vIdx: number) => vertices[vIdx]?.p)
-            .filter((p: any) => Array.isArray(p) && p.length === 2)
-            .map(([x, y]: [number, number]) => [Math.round(x * 10) / 10, Math.round(y * 10) / 10]);
-
-          if (ring.length >= 3) {
-            if (ring[0][0] !== ring[ring.length - 1][0] || ring[0][1] !== ring[ring.length - 1][1]) {
-              ring.push([ring[0][0], ring[0][1]]);
-            }
-            geomStr = JSON.stringify({ type: "Polygon", coordinates: [ring] });
-          }
-        }
-        geoms.push(geomStr);
+        centerXs.push(c.p[0]);
+        centerYs.push(c.p[1]);
+        elevations.push(c.elevation || 0);
+        const fallbackTemp = Math.round(30 - Math.abs(c.p[1] / maxY - 0.5) * 35 - (c.elevation > 50 ? (c.elevation - 50) * 0.3 : 0));
+        temps.push(Number.isFinite(c.baseTemp) ? c.baseTemp : fallbackTemp);
+        geoms.push(c.geometry);
+        cultureIds.push(c.culture || 0);
+        religionIds.push(c.religion || 0);
+        marketIds.push(c.market || 0);
+        riverIds.push(c.river || 0);
+        suitabilities.push(c.suitability || 0);
+        fluxes.push(c.flux || 0);
+        featureIds.push(c.featureId || 0);
+        cellTypes.push(c.cellType || 0);
       }
 
       await client.query(`
         INSERT INTO sim_cells (
           id, faction_id, biome, population, center_x, center_y,
           elevation, base_temp, current_temp, geometry,
-          eco_plants, eco_prey, eco_predators, eco_resources, eco_health, eco_max
+          eco_plants, eco_prey, eco_predators, eco_resources, eco_health, eco_max,
+          culture_id, religion_id, market_id, river_id, suitability, flux, feature_id, cell_type
         )
         SELECT
           u.id, u.faction_id, u.biome, u.population, u.center_x, u.center_y,
           u.elevation, u.base_temp, u.base_temp, u.geometry,
-          100.0, 50.0, 10.0, 100.0, 100.0, 100.0
+          100.0, 50.0, 10.0, 100.0, 100.0, 100.0,
+          u.culture_id, u.religion_id, u.market_id, u.river_id, u.suitability, u.flux, u.feature_id, u.cell_type
         FROM UNNEST(
           $1::int[], $2::int[], $3::text[], $4::int[], $5::real[], $6::real[],
-          $7::int[], $8::real[], $9::text[]
-        ) AS u(id, faction_id, biome, population, center_x, center_y, elevation, base_temp, geometry)
-      `, [ids, factionIds, biomes, pops, centerXs, centerYs, elevations, temps, geoms]);
+          $7::int[], $8::real[], $9::text[],
+          $10::int[], $11::int[], $12::int[], $13::int[], $14::int[], $15::int[], $16::int[], $17::smallint[]
+        ) AS u(
+          id, faction_id, biome, population, center_x, center_y,
+          elevation, base_temp, geometry,
+          culture_id, religion_id, market_id, river_id, suitability, flux, feature_id, cell_type
+        )
+      `, [
+        ids, factionIds, biomes, pops, centerXs, centerYs,
+        elevations, temps, geoms,
+        cultureIds, religionIds, marketIds, riverIds, suitabilities, fluxes, featureIds, cellTypes
+      ]);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 3. INGEST BURGS & ECONOMY
+    // 4. INGEST BURGS & ECONOMY (189 active burgs with civic & production data)
     // ─────────────────────────────────────────────────────────────────────────
-    const validBurgs = pack.burgs.filter((b: any) => b && b.name);
-    console.log(`[Ingest] Ingesting ${validBurgs.length} burgs...`);
+    const stateNameById = new Map<number, string>(parsed.states.map((s) => [Number(s.i), s.name]));
+    console.log(`[Ingest] Ingesting ${parsed.burgs.length} burgs...`);
 
-    for (const b of validBurgs) {
-      const stateName = pack.states[b.state]?.name || "Neutrals";
+    for (const b of parsed.burgs) {
+      const stateName = stateNameById.get(Number(b.state)) || "Neutrals";
       const lore = FACTION_LORE_PROFILES[stateName] || { species: { "Human": 1.0 } };
-      const rawPop = Math.floor((b.population || 10) * 1000);
-      const popNull = Math.floor(rawPop * 0.5);
-      const popAttuned = Math.floor(rawPop * 0.5);
-      const urbanTier = b.capital ? 3 : (b.population > 12 ? 3 : (b.population > 2 ? 2 : 1));
-      const wealth = Math.floor(b.treasury || 500);
+      const rawPop = Math.max(100, Math.floor((Number(b.population) || 0.2) * 1000));
+      const popNull = Math.max(50, Math.floor(rawPop * 0.5));
+      const popAttuned = Math.max(50, Math.floor(rawPop * 0.5));
+      const urbanTier = b.capital ? 3 : (Number(b.population) > 12 ? 3 : (Number(b.population) > 2 ? 2 : 1));
+      const wealth = Math.max(250, Math.floor(Number(b.treasury) || 500));
 
       const startingFood = Math.max(2000, Math.floor(popNull * 5));
       const startingMats = Math.max(1500, Math.floor(popNull * 3));
@@ -258,12 +386,14 @@ export async function ingestHolgalandMap() {
           burg_id, name, cell_id, food, raw_materials, refined_goods,
           wealth, unrest, pop_null, pop_attuned, urban_tier,
           dominant_domain, species_demographics, health, crime_rate,
-          is_capital, port, culture_id
+          is_capital, port, culture_id,
+          x, y, citadel, walls, shanty, temple, plaza, product_value, production, coa
         ) VALUES (
           $1, $2, $3, $4, $5, $6,
           $7, 0, $8, $9, $10,
           'MATERIAL', $11, 100, 0,
-          $12, $13, $14
+          $12, $13, $14,
+          $15, $16, $17, $18, $19, $20, $21, $22, $23::jsonb, $24::jsonb
         )
       `, [
         b.i,
@@ -279,35 +409,136 @@ export async function ingestHolgalandMap() {
         JSON.stringify(lore.species),
         Boolean(b.capital),
         Boolean(b.port),
-        b.culture || 0
+        Number(b.culture) || 0,
+        Number(b.x) || 0,
+        Number(b.y) || 0,
+        Boolean(b.citadel),
+        Boolean(b.walls),
+        Boolean(b.shanty),
+        Boolean(b.temple),
+        Boolean(b.plaza),
+        Number(b.product) || 0,
+        JSON.stringify(b.production || []),
+        JSON.stringify(b.coa || {})
       ]);
 
-      if (b.state !== undefined && b.state !== null && b.cell) {
+      if (b.state > 0 && activeStateIds.has(Number(b.state)) && b.cell) {
         await client.query("UPDATE sim_cells SET faction_id = $1 WHERE id = $2", [b.state, b.cell]);
       }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 4. INGEST MARKERS & WORLD LANDMARKS (Dragon Prisons, Spire, Coral Crown)
+    // 5. INGEST TRADE DEALS (3,837), RIVERS (1,625), ROADS (1,685) & ROUTE GRAPH
     // ─────────────────────────────────────────────────────────────────────────
-    console.log(`[Ingest] Ingesting ${pack.markers.length} world landmarks and dragon prisons...`);
-    const markers = pack.markers || [];
-    
-    // Explicit 12 Dragon Prisons registry
-    const DRAGON_PRISONS = CANON_DRAGON_PRISONS;
+    if (parsed.deals.length > 0) {
+      for (let i = 0; i < parsed.deals.length; i += BATCH_SIZE) {
+        const chunk = parsed.deals.slice(i, i + BATCH_SIZE);
+        const fromB: number[] = [], toB: number[] = [], goodId: number[] = [], dType: number[] = [];
+        const qty: number[] = [], price: number[] = [], tCost: number[] = [], tariff: number[] = [], margin: number[] = [];
+        for (const d of chunk) {
+          if (!Array.isArray(d)) continue;
+          fromB.push(Number(d[0]) || 0);
+          toB.push(Number(d[1]) || 0);
+          goodId.push(Number(d[2]) || 0);
+          dType.push(Number(d[3]) || 0);
+          qty.push(Number(d[4]) || 0);
+          price.push(Number(d[5]) || 0);
+          tCost.push(Number(d[6]) || 0);
+          tariff.push(Number(d[7]) || 0);
+          margin.push(Number(d[8]) || 0);
+        }
+        await client.query(`
+          INSERT INTO sim_trade_deals (from_burg_id, to_burg_id, good_id, deal_type, quantity, price, transport_cost, tariff, margin)
+          SELECT * FROM UNNEST($1::int[], $2::int[], $3::int[], $4::int[], $5::real[], $6::real[], $7::real[], $8::real[], $9::real[])
+        `, [fromB, toB, goodId, dType, qty, price, tCost, tariff, margin]);
+      }
+    }
 
-    // Seed the 12 Dragon Sacred Groves / Seals
-    for (const p of DRAGON_PRISONS) {
+    if (parsed.rivers.length > 0) {
+      for (let i = 0; i < parsed.rivers.length; i += BATCH_SIZE) {
+        const chunk = parsed.rivers.slice(i, i + BATCH_SIZE);
+        const rId: number[] = [], rName: string[] = [], rType: string[] = [], srcC: number[] = [], mthC: number[] = [];
+        const basin: number[] = [], parent: number[] = [], disch: number[] = [], len: number[] = [], wid: number[] = [], rCells: string[] = [];
+        for (const r of chunk) {
+          rId.push(Number(r.i));
+          rName.push(String(r.name || `River #${r.i}`));
+          rType.push(String(r.type || "River"));
+          srcC.push(Number(r.source) || 0);
+          mthC.push(Number(r.mouth) || 0);
+          basin.push(Number(r.basin) || 0);
+          parent.push(Number(r.parent) || 0);
+          disch.push(Number(r.discharge) || 0);
+          len.push(Number(r.length) || 0);
+          wid.push(Number(r.width) || 0);
+          rCells.push(JSON.stringify(r.cells || []));
+        }
+        await client.query(`
+          INSERT INTO sim_rivers (id, name, type, source_cell, mouth_cell, basin, parent, discharge, length, width, cells)
+          SELECT u.id, u.name, u.type, u.src, u.mth, u.basin, u.parent, u.disch, u.len, u.wid, u.cells::jsonb
+          FROM UNNEST($1::int[], $2::text[], $3::text[], $4::int[], $5::int[], $6::int[], $7::int[], $8::real[], $9::real[], $10::real[], $11::text[])
+            AS u(id, name, type, src, mth, basin, parent, disch, len, wid, cells)
+        `, [rId, rName, rType, srcC, mthC, basin, parent, disch, len, wid, rCells]);
+      }
+    }
+
+    console.log(`[Ingest] Ingesting ${parsed.routes.length} roads/trails/searoutes...`);
+    if (parsed.routes.length > 0) {
+      for (let i = 0; i < parsed.routes.length; i += BATCH_SIZE) {
+        const chunk = parsed.routes.slice(i, i + BATCH_SIZE);
+        const rNames: string[] = [], rGroups: string[] = [], rLens: number[] = [], rPts: string[] = [], srcCs: (number | null)[] = [], dstCs: (number | null)[] = [];
+        for (const r of chunk) {
+          const pts = Array.isArray(r.points) ? r.points : [];
+          const firstCell = Array.isArray(pts[0]) && pts[0][2] !== undefined ? Number(pts[0][2]) : null;
+          const lastPt = pts[pts.length - 1];
+          const lastCell = Array.isArray(lastPt) && lastPt[2] !== undefined ? Number(lastPt[2]) : null;
+          rNames.push(String(r.name || `Route #${r.i}`));
+          rGroups.push(String(r.group || "roads"));
+          rLens.push(Number(r.length) || polylineLength(pts));
+          rPts.push(JSON.stringify(pts));
+          srcCs.push(firstCell);
+          dstCs.push(lastCell);
+        }
+        await client.query(`
+          INSERT INTO sim_roads (name, road_group, length, points, source_cell_id, dest_cell_id)
+          SELECT u.name, u.grp, u.len, u.pts::jsonb, u.src, u.dst
+          FROM UNNEST($1::text[], $2::text[], $3::real[], $4::text[], $5::int[], $6::int[])
+            AS u(name, grp, len, pts, src, dst)
+        `, [rNames, rGroups, rLens, rPts, srcCs, dstCs]);
+      }
+    }
+
+    const rgEntries = Object.entries(parsed.routeGraph || {});
+    if (rgEntries.length > 0) {
+      for (let i = 0; i < rgEntries.length; i += BATCH_SIZE) {
+        const chunk = rgEntries.slice(i, i + BATCH_SIZE);
+        const cIds: number[] = [];
+        const linksJson: string[] = [];
+        for (const [k, v] of chunk) {
+          cIds.push(Number(k));
+          linksJson.push(JSON.stringify(v || {}));
+        }
+        await client.query(`
+          INSERT INTO sim_route_graph (cell_id, links)
+          SELECT u.id, u.links::jsonb
+          FROM UNNEST($1::int[], $2::text[]) AS u(id, links)
+        `, [cIds, linksJson]);
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 6. INGEST MARKERS (15) & 12 CANON DRAGON PRISONS / CHAOS FLOWS
+    // ─────────────────────────────────────────────────────────────────────────
+    console.log(`[Ingest] Ingesting ${parsed.markers.length} canon markers and 12 Dragon Prisons...`);
+    for (const p of CANON_DRAGON_PRISONS) {
       await client.query(`
         INSERT INTO sim_sacred_groves (cell_id, dragon_name, power_domain, seal_strength)
         VALUES ($1, $2, $3, 100)
       `, [p.cell, p.dragon, p.power]);
     }
 
-    // Seed all general markers into sim_world_landmarks
-    for (const m of markers) {
-      const rx = Math.floor((m.x || 0) / 18);
-      const ry = Math.floor((m.y || 0) / 10);
+    for (const m of parsed.markers) {
+      const rx = Math.floor((Number(m.x) || 0) / 18);
+      const ry = Math.floor((Number(m.y) || 0) / 10);
       await client.query(`
         INSERT INTO sim_world_landmarks (
           name, cell_id, sector_x, sector_y, landmark_type,
@@ -318,38 +549,15 @@ export async function ingestHolgalandMap() {
         )
       `, [
         m.name || `Landmark #${m.i}`,
-        m.cell || 0,
+        Number(m.cell) || 0,
         rx,
         ry,
-        m.type || "monument",
-        m.note || "Ancient site recorded on the Holgaland atlas"
+        m.type || "Landmark",
+        m.note || "Canon site recorded on the Ostraka atlas"
       ]);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // 5. INGEST ROADS & INFRASTRUCTURE ROUTES
-    // ─────────────────────────────────────────────────────────────────────────
-    const routes = pack.routes || [];
-    console.log(`[Ingest] Ingesting ${routes.length} roads and routes...`);
-    for (const r of routes) {
-      await client.query(`
-        INSERT INTO sim_roads (name, road_group, length, points)
-        VALUES ($1, $2, $3, $4)
-      `, [
-        r.name || `Route #${r.i}`,
-        r.group || "roads",
-        r.length || 0,
-        JSON.stringify(r.points || [])
-      ]);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // 6. INGEST THE 12 PRIMORDIAL CHAOS FLOWS CONVERGING AT THE VERGE
-    // ─────────────────────────────────────────────────────────────────────────
-    console.log("[Ingest] Synthesizing 12 Primordial Chaos Flows converging to The Verge...");
-
-    for (const p of DRAGON_PRISONS) {
-      // Calculate 6 meander waypoints from Prison to The Verge
+    for (const p of CANON_DRAGON_PRISONS) {
       const waypoints = [];
       const numPoints = 6;
       for (let step = 0; step <= numPoints; step++) {
@@ -391,38 +599,33 @@ export async function ingestHolgalandMap() {
       ]);
     }
 
-    // Reset sequences
-    const seqTables = ["sim_roads", "sim_world_landmarks", "sim_sacred_groves"];
+    const seqTables = ["sim_roads", "sim_world_landmarks", "sim_sacred_groves", "sim_trade_deals", "sim_faction_units", "sim_diplomacy"];
     for (const t of seqTables) {
       await client.query(`SELECT setval('${t}_id_seq', (SELECT COALESCE(MAX(id), 1) FROM ${t}))`).catch(() => {});
     }
 
     await client.query("COMMIT");
-    console.log(`[Ingest] SUCCESS! Holgaland map baseline ingested:`);
-    console.log(`  - ${pack.states.length} Factions`);
-    console.log(`  - ${pack.cells.length} Cells`);
-    console.log(`  - ${validBurgs.length} Burgs`);
-    console.log(`  - 12 Dragon Prisons & Chaos Flows`);
-    console.log(`  - ${markers.length} World Landmarks`);
-    console.log(`  - ${routes.length} Roads/Highways`);
+    console.log(`[Ingest] SUCCESS! Ostraka_full.map baseline ingested:`);
+    console.log(`  - ${parsed.states.length} Factions (${diplomacyRows} diplomacy links, ${regimentRows} standing regiments)`);
+    console.log(`  - ${parsed.cells.length} Cells (${rgEntries.length} route graph nodes)`);
+    console.log(`  - ${parsed.burgs.length} Burgs (${parsed.markets.length} markets, ${parsed.deals.length} trade deals)`);
+    console.log(`  - ${parsed.cultures.length} Cultures, ${parsed.religions.length} Religions, ${parsed.goods.length} Goods`);
+    console.log(`  - ${parsed.rivers.length} Rivers, ${parsed.routes.length} Routes, ${parsed.markers.length} Landmarks, 12 Dragon Prisons`);
 
-    // Create fast spatial and query indices
-    console.log("[Ingest] Creating spatial and relational database indices...");
     await pool.query("CREATE INDEX IF NOT EXISTS idx_sim_cells_coords ON sim_cells (center_x, center_y)");
     await pool.query("CREATE INDEX IF NOT EXISTS idx_sim_cells_faction ON sim_cells (faction_id)");
     await pool.query("CREATE INDEX IF NOT EXISTS idx_sim_burg_cell ON sim_burg_economy (cell_id)");
 
-    // Run downstream demographic, paragon, and syndicate pipeline for Holgaland
-    console.log("[Ingest] Initializing 12:1 world population for 345 burgs...");
+    console.log(`[Ingest] Initializing 12:1 world population for ${parsed.burgs.length} burgs...`);
     await prerenderWorldPopulation();
 
-    console.log("[Ingest] Provisioning authentic Paragons across all 345 burgs...");
+    console.log(`[Ingest] Provisioning authentic Paragons across all ${parsed.burgs.length} burgs...`);
     await provisionAllBurgParagons();
 
     console.log("[Ingest] Enhancing 10 Criminal Syndicates & Outlaw Lairs...");
     await enhanceAllCriminalSyndicates();
 
-    console.log("[Ingest] Holgaland full ingestion and demographic synthesis complete!");
+    console.log("[Ingest] Ostraka full ingestion and demographic synthesis complete!");
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("[Ingest] FAILED with error:", err);
@@ -432,7 +635,6 @@ export async function ingestHolgalandMap() {
   }
 }
 
-// CLI runner if invoked directly
 if (require.main === module) {
   ingestHolgalandMap().then(() => {
     pool.end();
@@ -442,4 +644,3 @@ if (require.main === module) {
     process.exit(1);
   });
 }
-

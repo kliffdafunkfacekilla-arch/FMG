@@ -1,7 +1,7 @@
 /**
  * End-to-End Vertical Slice Certification (Rule 9 / GEMINI.md Current Focus)
  * =========================================================================
- * Exercises one burg (Burg 81, Roromijima, Cell 13408), one thread, and one
+ * Exercises one burg (Burg 1, Excelsis Citadel, Cell 30627), one thread, and one
  * play session through the entire loop inside an isolated rolled-back
  * transaction (`isolateTest()`):
  *
@@ -30,11 +30,11 @@ function assert(cond: unknown, msg: string): asserts cond {
 
 async function runVerticalSliceTest() {
   console.log("==================================================================");
-  console.log("      VERTICAL SLICE CERTIFICATION: ROROMIJIMA (BURG 81)          ");
+  console.log("      VERTICAL SLICE CERTIFICATION: EXCELSIS CITADEL (BURG 1)    ");
   console.log("  tick -> thread -> hook -> v5.0 resolution -> writeback -> tick  ");
   console.log("==================================================================\n");
 
-  const burgId = 81; // Roromijima
+  const burgId = 1; // Excelsis Citadel
   const rx = 50;
   const ry = 50;
 
@@ -82,7 +82,7 @@ async function runVerticalSliceTest() {
     role: secParagon.title || "Watch Captain",
     pos: [128, 126] as [number, number],
     tags: ["Paragon", "military", "#Want_IronOrder", "#Line_NeverAbandonWalls"],
-    faction: "Roromijima Municipal Guard",
+    faction: "Avian Empire Municipal Guard",
     hp: 14,
     maxHp: 14,
     composure: 12,
@@ -125,7 +125,7 @@ async function runVerticalSliceTest() {
     role: citRow.profession || "Blacksmith",
     pos: [126, 128] as [number, number],
     tags: ["civilian", "temper:bitter", "#Line_NeverInformOnNeighbors", "#Want_OverturnLevy", "#Flaw_Vindictive"],
-    faction: "Roromijima",
+    faction: "Excelsis Citadel",
     hp: 12,
     maxHp: 12,
     composure: 10,
@@ -157,7 +157,7 @@ async function runVerticalSliceTest() {
   const reactionRes = evaluateSectorReactions(
     [{ ...captainNpc, type: "NPC", coords: { x: 128, y: 126 } }],
     ["#MartialLaw"],
-    { burgId, burgName: "Roromijima", cellId, unrest: 48, food: 900, wealth: 1000, tick: 1200, rx, ry }
+    { burgId, burgName: "Excelsis Citadel", cellId, unrest: 48, food: 900, wealth: 1000, tick: 1200, rx, ry }
   );
 
   assert(reactionRes.rulesTriggered.includes("paragon_iron_order_crackdown"), `Expected paragon_iron_order_crackdown rule to fire, got: ${reactionRes.rulesTriggered.join(", ")}`);
@@ -172,7 +172,7 @@ async function runVerticalSliceTest() {
     `UPDATE sim_sector_layers SET npcs = $1, props = $2 WHERE cell_id = $3 AND rx = $4 AND ry = $5 AND z_layer = 0`,
     [
       JSON.stringify([captainNpc]),
-      JSON.stringify([{ id: "prop_south_gate_81", name: "Roromijima South Gate", pos: [126, 130], tags: ["gate", "wood", "iron", "locked"], hp: 40, maxHp: 40 }]),
+      JSON.stringify([{ id: "prop_south_gate_1", name: "Excelsis Citadel South Gate", pos: [126, 130], tags: ["gate", "wood", "iron", "locked"], hp: 40, maxHp: 40 }]),
       cellId,
       rx,
       ry

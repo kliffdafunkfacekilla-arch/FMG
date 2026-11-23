@@ -66,7 +66,7 @@ async function testThreadActors() {
     question: "Will the grain tax trigger an open dock strike?",
     stakes: "Dockworkers refuse to load granary barges, driving local unrest above 40.",
     actor_ids: [String(realAgent.id)],
-    cell_id: 13408,
+    cell_id: 30627,
     rx: 50,
     ry: 50,
     clock: 0,
@@ -88,7 +88,7 @@ async function testThreadActors() {
       question: "Will the ghost conspirator strike?",
       stakes: "Fictional chaos.",
       actor_ids: ["hallucinated_actor_xyz"],
-      cell_id: 13408,
+      cell_id: 30627,
       rx: 50,
       ry: 50,
       created_tick: 3095

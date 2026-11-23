@@ -224,9 +224,9 @@ async function runSession() {
   // Initialize B.R.U.T.A.L. GM
   const gm = new BrutalGameMaster(pool);
 
-  // Setup the encounter sector: Burg 81 (Roromijima Harbor Sluice Gate)
-  const burgRes = await pool.query("SELECT * FROM sim_burg_economy WHERE burg_id = 81");
-  const burg = burgRes.rows[0] || { name: "Roromijima", cell_id: 24935 };
+  // Setup the encounter sector: Burg 1 (Excelsis Citadel Sluice Gate)
+  const burgRes = await pool.query("SELECT * FROM sim_burg_economy WHERE burg_id = 1");
+  const burg = burgRes.rows[0] || { name: "Excelsis Citadel", cell_id: 30627 };
 
   console.log(`\n📍 LOCATION: ${burg.name} (Cell #${burg.cell_id}) - Harbor Sluice Gate`);
   console.log("   Emergent Hook: The Canal Krewes (Otters) recently extracted a fugitive here.");
@@ -264,7 +264,7 @@ async function runSession() {
   const watchCaptain = {
     id: "npc_162",
     name: "Watch Captain Kenneth Fletcher",
-    title: "Watch Captain of Roromijima",
+    title: "Watch Captain of Excelsis Citadel",
     role: "Garrison Watch Commander",
     pos: [128, 129] as [number, number],
     tags: ["human", "military", "officer", "stern", "suspicious", "armed", "paragon"],
@@ -301,7 +301,7 @@ async function runSession() {
     ]
   };
 
-  let currentScene = `The damp salt-breeze of Roromijima carries the stench of river mud and fish. Before the party stands the Reinforced Iron Gate Checkpoint, blocking entry to the warehouse quays. Watch Captain Kenneth Fletcher and his halberdiers bar the way, questioning anyone who approaches following the Canal Krewes' brazen underwater extraction. Near the dock pilings, a Salt-Stained Contraband Crate lies half-tangled in fishing netting.`;
+  let currentScene = `The damp salt-breeze of Excelsis Citadel carries the stench of river mud and fish. Before the party stands the Reinforced Iron Gate Checkpoint, blocking entry to the warehouse quays. Watch Captain Kenneth Fletcher and his halberdiers bar the way, questioning anyone who approaches following the Canal Krewes' brazen underwater extraction. Near the dock pilings, a Salt-Stained Contraband Crate lies half-tangled in fishing netting.`;
 
   const chronicleHistory: string[] = [];
 

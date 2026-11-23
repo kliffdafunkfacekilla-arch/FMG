@@ -1001,7 +1001,7 @@ export class WhatElseStoryEngine {
 
     const rx = context?.rx ?? 105;
     const ry = context?.ry ?? 112;
-    const cellId = context?.cellId ?? 13408;
+    const cellId = context?.cellId ?? 30627;
     const seedVal = (cellId * 73856093) ^ (rx * 19349663) ^ (ry * 83492791);
     const rng = new SeededPRNG(seedVal);
 
@@ -1195,7 +1195,7 @@ export class WhatElseStoryEngine {
 
     const synthesizedNPCs = ProceduralNPCGenerator.generateNPCsForSector(
       context || {
-        cellId: 13408,
+        cellId: 30627,
         biomeName: "Temperate Forest",
         isWarzone: false,
         isFamine: false,

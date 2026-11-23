@@ -224,7 +224,7 @@ async function testTacticalInteractions() {
   const realAgentRes = await pool.query(`SELECT id, name FROM sim_agents LIMIT 1`);
   const realAgentId = String(realAgentRes.rows[0].id);
 
-  const testCellId = 13408;
+  const testCellId = 30627;
   const testRx = 50;
   const testRy = 50;
 

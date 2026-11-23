@@ -697,7 +697,7 @@ router.get('/state', (req, res) => {
 router.post('/sector_load', async (req, res) => {
   try {
     const context = req.body.context || (req.body.cellId ? req.body : null);
-    const targetCellId = Number(context?.cellId) || 13408;
+    const targetCellId = Number(context?.cellId) || 30627;
     const targetRx = context?.rx !== undefined ? Number(context.rx) : 50;
     const targetRy = context?.ry !== undefined ? Number(context.ry) : 50;
     const rawPhase = (req.body.diurnalPhase || context?.diurnalPhase || 'MORNING').toUpperCase();
@@ -1272,7 +1272,7 @@ async function ensureLocalSectorTrouble(
  */
 router.get('/sector_layer', async (req, res) => {
   try {
-    const targetCellId = Number(req.query.cellId || req.query.cell_id) || 13408;
+    const targetCellId = Number(req.query.cellId || req.query.cell_id) || 30627;
     const targetRx = req.query.rx !== undefined ? Number(req.query.rx) : 50;
     const targetRy = req.query.ry !== undefined ? Number(req.query.ry) : 50;
     const targetZ = req.query.z !== undefined ? Number(req.query.z) : 0;
@@ -1801,7 +1801,7 @@ router.post('/action_stream', async (req, res) => {
  */
 router.get('/trade/catalog', async (req, res) => {
   try {
-    const cellId = parseInt(req.query.cellId as string) || 13408;
+    const cellId = parseInt(req.query.cellId as string) || 30627;
 
     // 1. Fetch nearest burg economy & stockpiles
     const burgRes = await pool.query(
@@ -2147,7 +2147,7 @@ router.post('/trade/buy', async (req, res) => {
     );
 
     // Macroeconomic Backfeed: Commerce increases burg municipal tax wealth and stimulates commodity demand
-    const cellId = req.body.cellId ? parseInt(req.body.cellId) : 13408;
+    const cellId = req.body.cellId ? parseInt(req.body.cellId) : 30627;
     try {
       await pool.query(
         `UPDATE sim_burg_economy
@@ -2208,7 +2208,7 @@ router.post('/trade/sell', async (req, res) => {
     );
 
     // Macroeconomic Backfeed: Selling goods adds supply to local stockpiles & global commodity index
-    const cellId = req.body.cellId ? parseInt(req.body.cellId) : 13408;
+    const cellId = req.body.cellId ? parseInt(req.body.cellId) : 30627;
     try {
       await pool.query(
         `UPDATE sim_commodity_prices
@@ -2242,7 +2242,7 @@ router.post('/trade/sell', async (req, res) => {
  */
 router.get('/bounties', async (req, res) => {
   try {
-    const cellId = parseInt(req.query.cellId as string) || 13408;
+    const cellId = parseInt(req.query.cellId as string) || 30627;
 
     // 1. Fetch nearest burg economy
     const burgRes = await pool.query(
@@ -2547,7 +2547,7 @@ const INITIAL_MEMBERS: PartySessionMember[] = [
 
 let livePartySessionState: PartySessionState = {
   active: false,
-  cellId: 13408,
+  cellId: 30627,
   rx: 50,
   ry: 50,
   z: 0,
@@ -2672,7 +2672,7 @@ router.get('/party_session/state', async (req, res) => {
  */
 router.post('/party_session/init', async (req, res) => {
   try {
-    const { cellId = 13408, rx = 50, ry = 50, z = 0 } = req.body || {};
+    const { cellId = 30627, rx = 50, ry = 50, z = 0 } = req.body || {};
     const targetCellId = Number(cellId);
     const targetRx = Number(rx);
     const targetRy = Number(ry);

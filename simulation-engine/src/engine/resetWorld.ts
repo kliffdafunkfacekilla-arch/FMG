@@ -6,6 +6,7 @@ import { recordLedger } from "./agents/burgOperationsAgent";
 import { executeMasterTick } from "./masterOrchestrator";
 import { generateBurgSectorLayers } from "./maps/SectorMapGenerator";
 import { seedLayerNarrative } from "./rpg/narrativeSeeds";
+import { VERGE_COORD } from "./canon/dragonPrisons";
 import zlib from "zlib";
 
 const DDL = `
@@ -14,6 +15,13 @@ DROP TABLE IF EXISTS sim_active_projects CASCADE;
 DROP TABLE IF EXISTS sim_faction_units CASCADE;
 DROP TABLE IF EXISTS sim_faction_borders CASCADE;
 DROP TABLE IF EXISTS sim_weather_fronts CASCADE;
+DROP TABLE IF EXISTS sim_route_graph CASCADE;
+DROP TABLE IF EXISTS sim_trade_deals CASCADE;
+DROP TABLE IF EXISTS sim_markets CASCADE;
+DROP TABLE IF EXISTS sim_goods CASCADE;
+DROP TABLE IF EXISTS sim_rivers CASCADE;
+DROP TABLE IF EXISTS sim_religions CASCADE;
+DROP TABLE IF EXISTS sim_cultures CASCADE;
 DROP TABLE IF EXISTS sim_industrial_stockpiles CASCADE;
 DROP TABLE IF EXISTS sim_burg_economy CASCADE;
 DROP TABLE IF EXISTS sim_cells CASCADE;
@@ -81,7 +89,12 @@ CREATE TABLE sim_factions (
   trait_magic      REAL DEFAULT 0,
   trait_economy    REAL DEFAULT 0,
   wealth INT DEFAULT 1000,
-  treasury BIGINT DEFAULT 1000
+  treasury BIGINT DEFAULT 1000,
+  culture_id INT DEFAULT 0,
+  capital_burg_id INT DEFAULT NULL,
+  expansionism REAL DEFAULT 1.0,
+  state_type TEXT DEFAULT 'Generic',
+  fiscal_economy JSONB DEFAULT '{}'::jsonb
 );
 
 CREATE TABLE sim_cells (
@@ -104,7 +117,15 @@ CREATE TABLE sim_cells (
     eco_health  FLOAT DEFAULT 100.0,
     eco_max     FLOAT DEFAULT 100.0,
     elevation   INT  DEFAULT 0,
-    z_layer     INT  DEFAULT 0
+    z_layer     INT  DEFAULT 0,
+    culture_id  INT  DEFAULT 0,
+    religion_id INT  DEFAULT 0,
+    market_id   INT  DEFAULT 0,
+    river_id    INT  DEFAULT 0,
+    suitability INT  DEFAULT 0,
+    flux        INT  DEFAULT 0,
+    feature_id  INT  DEFAULT 0,
+    cell_type   SMALLINT DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS sim_weather_fronts (
@@ -157,7 +178,97 @@ CREATE TABLE IF NOT EXISTS sim_burg_economy (
   dedicated_civic_ratio REAL DEFAULT NULL,
   current_inventory JSONB DEFAULT '{}'::jsonb,
   pop_departure_pool FLOAT DEFAULT 0,
-  record_unit      INT DEFAULT NULL
+  record_unit      INT DEFAULT NULL,
+  x                REAL DEFAULT 0,
+  y                REAL DEFAULT 0,
+  citadel          BOOLEAN DEFAULT FALSE,
+  walls            BOOLEAN DEFAULT FALSE,
+  shanty           BOOLEAN DEFAULT FALSE,
+  temple           BOOLEAN DEFAULT FALSE,
+  plaza            BOOLEAN DEFAULT FALSE,
+  product_value    REAL DEFAULT 0,
+  production       JSONB DEFAULT '[]'::jsonb,
+  coa              JSONB DEFAULT '{}'::jsonb
+);
+
+CREATE TABLE IF NOT EXISTS sim_cultures (
+  id      INT PRIMARY KEY,
+  name    TEXT NOT NULL,
+  type    TEXT,
+  base    INT DEFAULT 0,
+  origins JSONB DEFAULT '[]'::jsonb,
+  urban   REAL DEFAULT 0,
+  rural   REAL DEFAULT 0,
+  area    REAL DEFAULT 0,
+  cells   INT DEFAULT 0,
+  tags    JSONB DEFAULT '[]'::jsonb
+);
+
+CREATE TABLE IF NOT EXISTS sim_religions (
+  id      INT PRIMARY KEY,
+  name    TEXT NOT NULL,
+  type    TEXT,
+  origins JSONB DEFAULT '[]'::jsonb,
+  urban   REAL DEFAULT 0,
+  rural   REAL DEFAULT 0,
+  area    REAL DEFAULT 0,
+  cells   INT DEFAULT 0,
+  tags    JSONB DEFAULT '[]'::jsonb
+);
+
+CREATE TABLE IF NOT EXISTS sim_goods (
+  id              INT PRIMARY KEY,
+  name            TEXT NOT NULL,
+  unit            TEXT,
+  value           REAL DEFAULT 1,
+  carriage        REAL DEFAULT 1,
+  color           TEXT,
+  tags            JSONB DEFAULT '[]'::jsonb,
+  distribution    TEXT,
+  demand_coverage JSONB DEFAULT '{}'::jsonb,
+  biome_output    JSONB DEFAULT '{}'::jsonb,
+  multipliers     JSONB DEFAULT '{}'::jsonb
+);
+
+CREATE TABLE IF NOT EXISTS sim_markets (
+  id             INT PRIMARY KEY,
+  center_burg_id INT,
+  color          TEXT,
+  fee_paid       REAL DEFAULT 0,
+  rural          JSONB DEFAULT '{}'::jsonb,
+  goods          JSONB DEFAULT '{}'::jsonb
+);
+
+CREATE TABLE IF NOT EXISTS sim_trade_deals (
+  id             SERIAL PRIMARY KEY,
+  from_burg_id   INT NOT NULL,
+  to_burg_id     INT NOT NULL,
+  good_id        INT NOT NULL,
+  deal_type      INT DEFAULT 0,
+  quantity       REAL DEFAULT 0,
+  price          REAL DEFAULT 0,
+  transport_cost REAL DEFAULT 0,
+  tariff         REAL DEFAULT 0,
+  margin         REAL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS sim_rivers (
+  id          INT PRIMARY KEY,
+  name        TEXT,
+  type        TEXT,
+  source_cell INT,
+  mouth_cell  INT,
+  basin       INT,
+  parent      INT,
+  discharge   REAL DEFAULT 0,
+  length      REAL DEFAULT 0,
+  width       REAL DEFAULT 0,
+  cells       JSONB DEFAULT '[]'::jsonb
+);
+
+CREATE TABLE IF NOT EXISTS sim_route_graph (
+  cell_id INT PRIMARY KEY,
+  links   JSONB DEFAULT '{}'::jsonb
 );
 
 CREATE TABLE sim_industrial_stockpiles (
@@ -714,7 +825,7 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
     await client.query(DDL);
     client.release();
 
-    console.log("[resetWorld] Ingesting authentic Holgaland atlas & world geography...");
+    console.log("[resetWorld] Ingesting authentic Ostraka_full.map atlas & world datasets...");
     await ingestHolgalandMap();
 
     console.log("[resetWorld] Building hierarchical supply chain & trade routes...");
@@ -785,8 +896,8 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
           c.motivation || 'Guard the 12 Dragon Seals against Shlaar',
           isElder ? 'Crypt_Elder' : 'Warden_Sentinel',
           c.settlement_id,
-          isElder ? 16166 : (grove?.cell_id || 16166),
-          grove?.cell_id || 16166,
+          isElder ? VERGE_COORD.cell : (grove?.cell_id || VERGE_COORD.cell),
+          grove?.cell_id || VERGE_COORD.cell,
           grove?.id || 1,
           isElder ? 'SPIRE_CRYPT_VIGIL' : 'PATROLLING_FLOW',
           isElder ? 65 : 28,
@@ -801,13 +912,13 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
       );
     }
 
-    console.log("[resetWorld] Seeding initial Roromijima (burg_id 81) tactical sector layers...");
+    console.log("[resetWorld] Seeding initial Excelsis Citadel (burg_id 1) tactical sector layers...");
     const roroRes = await pool.query(`
       SELECT b.*, c.faction_id, f.name AS faction_name
       FROM sim_burg_economy b
       LEFT JOIN sim_cells c ON c.id = b.cell_id
       LEFT JOIN sim_factions f ON f.id = c.faction_id
-      ORDER BY (b.burg_id = 81) DESC, b.burg_id ASC LIMIT 1
+      ORDER BY (b.burg_id = 1) DESC, b.burg_id ASC LIMIT 1
     `);
     if (roroRes.rows.length > 0) {
       const burg = roroRes.rows[0];
@@ -872,7 +983,7 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
     };
 
     console.log("[resetWorld] Done:", stats);
-    return { message: "Holgaland world reset successfully completed.", stats };
+    return { message: "Ostraka world reset successfully completed.", stats };
   } catch (err: any) {
     console.error("[resetWorld] Error during world reset:", err);
     throw err;

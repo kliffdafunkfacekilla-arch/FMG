@@ -2292,10 +2292,10 @@ export function Dashboard() {
                   <div style={{ fontSize: 10, color: "#64748b", marginBottom: 4 }}>Quick Jumps:</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                     {[
-                      { name: "Heartspire", id: 19561 },
-                      { name: "Flute", id: 13408 },
-                      { name: "Crystaldusk", id: 23498 },
-                      { name: "Lumina", id: 24017 }
+                      { name: "Excelsis Citadel", id: 30627 },
+                      { name: "The Sacred Spire", id: 27654 },
+                      { name: "Lake City", id: 38224 },
+                      { name: "Skyroost", id: 55487 }
                     ].map(loc => (
                       <button
                         key={loc.id}

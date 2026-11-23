@@ -345,6 +345,8 @@ export function evaluateThreadState(
   }
 
   const isNonCustodyThread =
+    thread.origin === 'world' ||
+    String(thread.rule_id || '').startsWith('WORLD_') ||
     thread.rule_id === 'LOCAL_PARAGON_FRICTION' ||
     thread.rule_id === 'LOCAL_CITIZEN_TROUBLE' ||
     thread.rule_id === 'LOCAL_AGENT_TROUBLE' ||

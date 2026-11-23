@@ -24,10 +24,10 @@ async function testFullLoopLiveSession() {
 
   await ensureThreadTable(pool);
 
-  const targetCellId = 13408;
+  const targetCellId = 30627;
   const targetRx = 50;
   const targetRy = 50;
-  const targetBurgId = 81; // Roromijima
+  const targetBurgId = 1; // Excelsis Citadel
 
   // 0. Locate a real agent from sim_agents to represent Doran Iron-Bender
   const realAgentRes = await pool.query(`SELECT id, name FROM sim_agents LIMIT 1`);
@@ -40,7 +40,7 @@ async function testFullLoopLiveSession() {
   // Set baseline economy in sim_burg_economy
   await pool.query(
     `INSERT INTO sim_burg_economy (burg_id, cell_id, name, unrest, wealth, food, raw_materials, crime_rate)
-     VALUES ($1, $2, 'Roromijima', 45, 1200, 1000, 300, 20)
+     VALUES ($1, $2, 'Excelsis Citadel', 45, 1200, 1000, 300, 20)
      ON CONFLICT (burg_id) DO UPDATE
      SET cell_id = $2, unrest = 45, wealth = 1200, food = 1000, raw_materials = 300, crime_rate = 20`,
     [targetBurgId, targetCellId]
@@ -136,12 +136,12 @@ async function testFullLoopLiveSession() {
       narrativeSummary: "The party dismantled the garrison false charges; Doran Iron-Bender was liberated and the forge reignited!"
     }
   });
-  console.log(`✅ PASSED (Thread #${seededThread.id} active in Roromijima)`);
+  console.log(`✅ PASSED (Thread #${seededThread.id} active in Excelsis Citadel)`);
 
   // ------------------------------------------------------------------
   // 2. HOOK REACHES THE PARTY (/api/dm/party_session/init)
   // ------------------------------------------------------------------
-  process.stdout.write("2. Hook reaches party: Initializing party session in cell 13408... ");
+  process.stdout.write("2. Hook reaches party: Initializing party session in cell 30627... ");
   const initRes = await fetch("http://127.0.0.1:3000/api/dm/party_session/init", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

@@ -38,9 +38,9 @@ async function testThreadReactions() {
   ];
 
   const stableContext: SectorContext = {
-    cellId: 13408,
+    cellId: 30627,
     burgId: 81,
-    burgName: "Roromijima",
+    burgName: "Excelsis Citadel",
     unrest: 0,
     food: 5000,
     wealth: 2000,
@@ -89,9 +89,9 @@ async function testThreadReactions() {
   ];
 
   const martialLawContext: SectorContext = {
-    cellId: 13408,
+    cellId: 30627,
     burgId: 81,
-    burgName: "Roromijima",
+    burgName: "Excelsis Citadel",
     unrest: 45, // Martial law unrest threshold
     food: 800,  // Resource scarcity
     wealth: 500,
@@ -140,11 +140,11 @@ async function testThreadReactions() {
     throw new Error(`Thread failed to persist properly: ${JSON.stringify(persistedThread)}`);
   }
 
-  const openInCell = await getOpenThreads(pool, 13408);
+  const openInCell = await getOpenThreads(pool, 30627);
   if (!openInCell.some(t => t.id === persistedThread.id)) {
     throw new Error(`Persisted thread ID ${persistedThread.id} not found in getOpenThreads!`);
   }
-  console.log(`✅ PASSED (Thread #${persistedThread.id} open in cell 13408)`);
+  console.log(`✅ PASSED (Thread #${persistedThread.id} open in cell 30627)`);
 
   // Clean up
   await pool.query(`DELETE FROM sim_threads WHERE id = $1`, [persistedThread.id]);

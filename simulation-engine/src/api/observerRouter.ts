@@ -550,7 +550,7 @@ observerRouter.post("/trigger_crisis", async (req, res) => {
       if (bRes.rows.length > 0) burgId = Number(bRes.rows[0].burg_id);
     }
 
-    if (!cellId) cellId = 11081; // Default Holgaland core cell
+    if (!cellId) cellId = 30627; // Excelsis Citadel (Avian Empire capital)
 
     const calRes = await pool.query("SELECT tick, year, month_name, day_of_month FROM sim_calendar ORDER BY id DESC LIMIT 1");
     const row = calRes.rows[0];

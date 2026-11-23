@@ -1149,9 +1149,9 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
             // Strictly 1 single headquarters lair in the central mountain range
             const lairCountRes = await client.query("SELECT COUNT(*) as total FROM sim_fringe_lairs WHERE faction_id = $1", [cartel.id]);
             if (parseInt(lairCountRes.rows[0].total) === 0) {
-                const peakCell = cartel.origin_cell_id || 13408;
+                const peakCell = cartel.origin_cell_id || 30627;
                 const originBurgRes = await client.query("SELECT burg_id FROM sim_burg_economy WHERE cell_id = $1 LIMIT 1", [peakCell]);
-                const originBurgId = originBurgRes.rows[0]?.burg_id || 73;
+                const originBurgId = originBurgRes.rows[0]?.burg_id || 1;
                 await client.query(`
                     INSERT INTO sim_fringe_lairs (faction_id, cell_id, burg_id, lair_type, manpower, heat)
                     VALUES ($1, $2, $3, 'CENTRAL_PEAK_SPRING_CAVERN', 40, 5)

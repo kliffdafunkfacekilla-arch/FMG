@@ -329,7 +329,7 @@ export class BrutalGameMaster {
     this.activeContext = context;
     const rx = context.rx ?? 105;
     const ry = context.ry ?? 112;
-    const cellId = context.cellId ?? 13408;
+    const cellId = context.cellId ?? 30627;
 
     // Resolve current world tick if not provided
     let tick = worldTick ?? 0;
@@ -2486,7 +2486,7 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
     ).catch(() => {});
 
     // Two-Way PostgreSQL Simulation Backfeed (Phase 1)
-    const cellId = this.activeContext?.cellId ?? 13408;
+    const cellId = this.activeContext?.cellId ?? 30627;
     const rx = this.activeContext?.rx ?? 105;
     const ry = this.activeContext?.ry ?? 112;
     let simDeltaNotice = "";

@@ -27,10 +27,11 @@ import { isYearEnd } from "../canon/calendar.js";
  */
 
 import { stepTowardCell, getNearestCultistCell, persistAgentStates, AgentStateRow } from "./agentMovementHelper.js";
-import { recruitWardenPersona, tagSectorEnvironment } from "./citizenPersonaHelper.js";import { sqlShuffle } from "../rng.js";
+import { recruitWardenPersona, tagSectorEnvironment } from "./citizenPersonaHelper.js";
+import { sqlShuffle } from "../rng.js";
+import { VERGE_COORD } from "../canon/dragonPrisons.js";
 
-
-const CONVERGENCE_SPIRE_CELL = 16166; // The Verge (Sacred Spire)
+const CONVERGENCE_SPIRE_CELL = VERGE_COORD.cell; // The Verge (Sacred Spire)
 const TARGET_WARDEN_COUNT = 72; // 12 Crypt Elders in alcoves + 60 active sentinels and flow seers
 
 export async function runWardenAgent(client: any, tick: number, loreDate: string) {

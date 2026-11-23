@@ -19,10 +19,10 @@ async function testSystemicOutcomes() {
   const realAgentRes = await pool.query(`SELECT id, name FROM sim_agents LIMIT 1`);
   const realAgentId = String(realAgentRes.rows[0].id);
 
-  const targetCellId = 13408;
+  const targetCellId = 30627;
   const targetRx = 50;
   const targetRy = 50;
-  const targetBurgId = 81;
+  const targetBurgId = 1;
 
   // Clean up any test threads
   await pool.query(`DELETE FROM sim_threads WHERE cell_id = $1`, [targetCellId]);
@@ -31,7 +31,7 @@ async function testSystemicOutcomes() {
   // Reset burg economy baseline
   await pool.query(
     `INSERT INTO sim_burg_economy (burg_id, cell_id, name, unrest, wealth, food, raw_materials, crime_rate)
-     VALUES ($1, $2, 'Roromijima', 40, 1000, 1000, 500, 20)
+     VALUES ($1, $2, 'Excelsis Citadel', 40, 1000, 1000, 500, 20)
      ON CONFLICT (burg_id) DO UPDATE
      SET cell_id = $2, unrest = 40, wealth = 1000, food = 1000, raw_materials = 500, crime_rate = 20`,
     [targetBurgId, targetCellId]

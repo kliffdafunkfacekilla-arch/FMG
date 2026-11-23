@@ -67,7 +67,7 @@ async function runCanonMandateTests() {
 
     // 2. Verify deterministic single-tick step distance bounding
     await initSpatialCache(pool);
-    const startCellId = 13408; // Roromijima
+    const startCellId = 30627; // Excelsis Citadel
     const distantTargetCellId = 1; // North edge of map
     const maxTickStep = 65; // Canonical 1-tick overland march limit
     const stepResult = await stepTowardCell(pool, startCellId, distantTargetCellId, maxTickStep);
@@ -111,7 +111,7 @@ async function runCanonMandateTests() {
     process.stdout.write("Test 3: No Invented Entities Guard... ");
     const mockPayload: DirectorInputPayload = {
       simulation_state: {
-        cell_id: 13408,
+        cell_id: 30627,
         sector_coords: { rx: 50, ry: 50 },
         economic_indicators: { active_tags: ["#Stable"], grain_reserve_percentage: 50, local_inflation_index: 1 },
         faction_dynamics: { active_tags: ["#Peace"], controlling_faction: "Provincial Sovereignty", garrison_strength: "LOW", unrest_index: 10 }
@@ -177,11 +177,13 @@ async function runCanonMandateTests() {
     process.stdout.write("Test 4: Zero Generic Spawns... ");
     const citizenCountRes = await pool.query(`SELECT count(*) as c FROM population_demographics`);
     const paragonCountRes = await pool.query(`SELECT count(*) as p FROM sim_paragons`);
+    const burgCountRes = await pool.query(`SELECT count(*) as b FROM sim_burg_economy`);
     const citizens = Number(citizenCountRes.rows[0]?.c || 0);
     const paragons = Number(paragonCountRes.rows[0]?.p || 0);
+    const burgs = Number(burgCountRes.rows[0]?.b || 0);
 
-    if (citizens < 1000 || paragons < 500) {
-      throw new Error(`Insufficient ground truth demographics: ${citizens} citizens, ${paragons} paragons`);
+    if (citizens < 1000 || paragons < burgs * 2) {
+      throw new Error(`Insufficient ground truth demographics: ${citizens} citizens, ${paragons} paragons (expected >= ${burgs * 2} for ${burgs} burgs)`);
     }
     console.log("✅ PASSED");
   } catch (err: any) {

@@ -11,7 +11,7 @@
 import fs from "fs";
 import path from "path";
 import pool from "../db/pool.js";
-import { CANON_DRAGON_PRISONS, VERGE_COORD } from "../engine/canon/dragonPrisons.js";
+import { CANON_DRAGON_PRISONS, OSTRAKA_MAP_HEIGHT, OSTRAKA_MAP_WIDTH, VERGE_COORD } from "../engine/canon/dragonPrisons.js";
 import { CHAOS_MUTATIONS, computeChaosFlowState, lunarSurgeModifier, parseChaosFlowAnchor } from "../engine/agents/chaosFlowAgent.js";
 import { DRAGON_DOMAINS } from "../engine/agents/grindCanyonAgent.js";
 import { DRAGON_PRISONS as STORY_PRISONS } from "../engine/rpg/WhatElseStoryEngine.js";
@@ -25,9 +25,9 @@ const CANON_ROSTER: [number, string, string][] = [
 // Canon/02 "Old dragon names": retired, must not appear.
 const RETIRED_NAMES = ["Aurgenas", "Tyrustis", "Metrion", "Termhill", "Opecten", "Igni", "Kyras", "Vrak", "Isolde"];
 
-// Holgaland map extent (data/Holgaland.json info.width / info.height).
-const MAP_W = 4608;
-const MAP_H = 2496;
+// Ostraka map extent (Shatterlands/Ostraka_full.map header width / height).
+const MAP_W = OSTRAKA_MAP_WIDTH;
+const MAP_H = OSTRAKA_MAP_HEIGHT;
 
 function check(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);

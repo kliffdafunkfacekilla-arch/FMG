@@ -30,9 +30,9 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
     id: 1,
     name: "The Gilded Compass",
     type: "MERCHANT_PRIVATEER_FLEET",
-    originBurgId: 338, // Peculiurus Spire
-    originCellId: 21143,
-    originFactionId: 3,
+    originBurgId: 3, // Peculiurus Spire
+    originCellId: 28002,
+    originFactionId: 40,
     bossName: "High Factor Cassian Midas",
     bossTitle: "Archon of the Meridian Ledger",
     bossTraits: [
@@ -70,9 +70,9 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
     id: 2,
     name: "The Free Sky-Barons",
     type: "AERIAL_SMUGGLER_PRIVATEER",
-    originBurgId: 330, // Zeveed
-    originCellId: 2179,
-    originFactionId: 25,
+    originBurgId: 25, // The Flotilla
+    originCellId: 1192,
+    originFactionId: 32,
     bossName: "Commodore Vaelis Skystrider",
     bossTitle: "Master of the Cloud Fleet",
     bossTraits: [
@@ -110,9 +110,9 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
     id: 3,
     name: "The Fuvuiku Legions",
     type: "MERCENARY_ARMADA_AND_TOLL",
-    originBurgId: 344, // Ivory Pass
-    originCellId: 27068,
-    originFactionId: 26,
+    originBurgId: 26, // Ivory Pass
+    originCellId: 53087,
+    originFactionId: 50,
     bossName: "High Commander Malakor Dread",
     bossTitle: "Warlord of the Ivory Pass",
     bossTraits: [
@@ -150,9 +150,9 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
     id: 4,
     name: "The Silk-Sovereign Syndicate",
     type: "VICE_AND_PROTECTION_ARM",
-    originBurgId: 340, // Forgespire
-    originCellId: 13802,
-    originFactionId: 7, // Part of the Obsidian Syndicate Network
+    originBurgId: 7, // Forgespire
+    originCellId: 21541,
+    originFactionId: 34, // Part of the Obsidian Syndicate Network
     bossName: "Madam Sylvira Night-Loom",
     bossTitle: "Matron of the Silk-Sovereign",
     bossTraits: [
@@ -190,9 +190,9 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
     id: 5,
     name: "The Ghostwind Raiders",
     type: "PHANTOM_PRIVATEER",
-    originBurgId: 115, // Port Sunder
-    originCellId: 24364,
-    originFactionId: 1, // Guerrilla Clans
+    originBurgId: 19, // Port Sunder
+    originCellId: 39289,
+    originFactionId: 51, // Port Sunder
     bossName: "Corsair Queen Lyra Ghostwind",
     bossTitle: "Captain of The Ghostwind",
     bossTraits: [
@@ -230,9 +230,9 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
     id: 6,
     name: "The Obsidian Cartel",
     type: "UNDERWORLD_ENGINE",
-    originBurgId: 340, // Forgespire
-    originCellId: 13802,
-    originFactionId: 7, // Iron Caldera (Deep Hall Engine)
+    originBurgId: 7, // Forgespire
+    originCellId: 21541,
+    originFactionId: 34, // Iron Caldera (Deep Hall Engine)
     bossName: "Baroness Vespera Blackglass",
     bossTitle: "Regional Guide of the Deep Hall",
     bossTraits: [
@@ -270,9 +270,9 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
     id: 7,
     name: "The Otters (Canal Krewes)",
     type: "CANAL_KREWE_MOB",
-    originBurgId: 170, // Lake City
-    originCellId: 31865,
-    originFactionId: 8, // Heartlands fringe
+    originBurgId: 11, // Lake City
+    originCellId: 38224,
+    originFactionId: 33, // River Folk
     bossName: "Don Finnegan 'Slick-Whiskers' Sliptide",
     bossTitle: "Grand Godfather of the Canal Krewes",
     bossTraits: [
@@ -310,9 +310,9 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
     id: 8,
     name: "The Ghostspring Subterrane",
     type: "OUTCAST_RIVERFOLK_SMUGGLERS",
-    originBurgId: 73, // Flute (Central Mountain Range)
-    originCellId: 13408,
-    originFactionId: 26, // River Folk lineage
+    originBurgId: 8, // Oakhaven (Heartland central mountain range)
+    originCellId: 33472,
+    originFactionId: 30, // Heartland Alliance
     bossName: "Mother Nilura Pale-Skin",
     bossTitle: "Matriarch of the Under-Springs",
     bossTraits: [
@@ -350,9 +350,9 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
     id: 9,
     name: "The Grind Canyon Corps",
     type: "NOMADIC_CHASM_HUNTERS",
-    originBurgId: 343, // Anvil Roosts
-    originCellId: 23152,
-    originFactionId: 15, // Dust-Husk Riders
+    originBurgId: 15, // Anvil Roosts
+    originCellId: 36286,
+    originFactionId: 53, // Dust-Husk Riders
     bossName: "Overman Torvald Gravel-Maw",
     bossTitle: "Foreman of the Caravan Trenches",
     bossTraits: [
@@ -390,9 +390,9 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
     id: 10,
     name: "The Hedge Wizards",
     type: "NOMADIC_ENTERTAINERS_AND_CHARM_PEDDLERS",
-    originBurgId: 241, // Vulpus-Prime
-    originCellId: 14380,
-    originFactionId: 14, // Canopy Clans
+    originBurgId: 12, // Vulpus-Prime
+    originCellId: 16416,
+    originFactionId: 49, // Canopy Clans
     bossName: "Malidore Thorn-Weaver",
     bossTitle: "Ringmaster of the Wonder-Wander Troupe",
     bossTraits: [

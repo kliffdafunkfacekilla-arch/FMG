@@ -139,17 +139,16 @@ export async function prerenderAllSectorMaps() {
     }
     console.log(`Pre-rendered ${recordsToInsert.length} burg & outlying sectors.`);
 
-    // 3. Pre-render The Verge (Sacred Spire) at Cell 16166
-    console.log("Pre-rendering The Verge (Sacred Spire) at Cell 16166...");
-    const vergeMap = generateTheVergeSectorMap(16166);
-    addSector(16166, 50, 50, 1, 990, vergeMap);
-    addSector(16166, 43, 50, 1, 990, vergeMap); // Landmark coordinate
+    // 3. Pre-render The Verge (Sacred Spire) at Cell 26707
+    console.log("Pre-rendering The Verge (Sacred Spire) at Cell 26707...");
+    const vergeMap = generateTheVergeSectorMap(26707);
+    addSector(26707, 50, 50, 1, 990, vergeMap);
+    addSector(26707, 43, 50, 1, 990, vergeMap); // Landmark coordinate
 
-    // 4. Pre-render The Eye / Coral Crown at Cell 16777
-    console.log("Pre-rendering The Eye / Coral Crown at Cell 16777...");
-    const crownMap = generateCoralCrownSectorMap(16777);
-    addSector(16777, 50, 50, 0, 10, crownMap);
-    addSector(16777, 50, 50, 0, 10, crownMap);
+    // 4. Pre-render The Eye / Coral Crown at Cell 30016
+    console.log("Pre-rendering The Eye / Coral Crown at Cell 30016...");
+    const crownMap = generateCoralCrownSectorMap(30016);
+    addSector(30016, 50, 50, 0, 10, crownMap);
 
     // 5. Pre-render the 12 Dragon Prisons
     console.log("Pre-rendering the 12 Dragon Prisons...");

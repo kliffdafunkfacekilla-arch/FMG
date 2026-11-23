@@ -3280,10 +3280,10 @@ export function generateOutlyingSectorMap(
 }
 
 
-// 3. THE VERGE (THE SACRED SPIRE, CELL 16166)
+// 3. THE VERGE (THE SACRED SPIRE, CELL 26707)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function generateTheVergeSectorMap(cellId: number = 16166): SectorMapResult {
+export function generateTheVergeSectorMap(cellId: number = 26707): SectorMapResult {
   const grid = new Uint8Array(SIZE * SIZE);
   grid.fill(0);
   const CENTER = 128;

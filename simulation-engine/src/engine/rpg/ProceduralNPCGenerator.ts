@@ -110,7 +110,7 @@ export class ProceduralNPCGenerator {
     const npcs: InjectedNPC[] = [];
     const rx = context.rx ?? 105;
     const ry = context.ry ?? 112;
-    const cellId = context.cellId ?? 13408;
+    const cellId = context.cellId ?? 30627;
 
     const baseSeed = (cellId * 73856093) ^ (rx * 19349663) ^ (ry * 83492791);
     const rng = new SeededPRNG(baseSeed);

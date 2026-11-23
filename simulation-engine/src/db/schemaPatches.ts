@@ -48,4 +48,113 @@ export async function applySchemaPatches(db: Db): Promise<void> {
       lifetime INT
     )
   `);
+
+  // Ostraka_full.map metadata columns & reference tables (additive, non-breaking)
+  await db.query(`
+    ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS culture_id INT DEFAULT 0;
+    ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS religion_id INT DEFAULT 0;
+    ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS market_id INT DEFAULT 0;
+    ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS river_id INT DEFAULT 0;
+    ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS suitability INT DEFAULT 0;
+    ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS flux INT DEFAULT 0;
+    ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS feature_id INT DEFAULT 0;
+    ALTER TABLE sim_cells ADD COLUMN IF NOT EXISTS cell_type SMALLINT DEFAULT 0;
+
+    ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS x REAL DEFAULT 0;
+    ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS y REAL DEFAULT 0;
+    ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS citadel BOOLEAN DEFAULT FALSE;
+    ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS walls BOOLEAN DEFAULT FALSE;
+    ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS shanty BOOLEAN DEFAULT FALSE;
+    ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS temple BOOLEAN DEFAULT FALSE;
+    ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS plaza BOOLEAN DEFAULT FALSE;
+    ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS product_value REAL DEFAULT 0;
+    ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS production JSONB DEFAULT '[]'::jsonb;
+    ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS coa JSONB DEFAULT '{}'::jsonb;
+
+    ALTER TABLE sim_factions ADD COLUMN IF NOT EXISTS culture_id INT DEFAULT 0;
+    ALTER TABLE sim_factions ADD COLUMN IF NOT EXISTS capital_burg_id INT DEFAULT NULL;
+    ALTER TABLE sim_factions ADD COLUMN IF NOT EXISTS expansionism REAL DEFAULT 1.0;
+    ALTER TABLE sim_factions ADD COLUMN IF NOT EXISTS state_type TEXT DEFAULT 'Generic';
+    ALTER TABLE sim_factions ADD COLUMN IF NOT EXISTS fiscal_economy JSONB DEFAULT '{}'::jsonb;
+
+    CREATE TABLE IF NOT EXISTS sim_cultures (
+      id      INT PRIMARY KEY,
+      name    TEXT NOT NULL,
+      type    TEXT,
+      base    INT DEFAULT 0,
+      origins JSONB DEFAULT '[]'::jsonb,
+      urban   REAL DEFAULT 0,
+      rural   REAL DEFAULT 0,
+      area    REAL DEFAULT 0,
+      cells   INT DEFAULT 0,
+      tags    JSONB DEFAULT '[]'::jsonb
+    );
+
+    CREATE TABLE IF NOT EXISTS sim_religions (
+      id      INT PRIMARY KEY,
+      name    TEXT NOT NULL,
+      type    TEXT,
+      origins JSONB DEFAULT '[]'::jsonb,
+      urban   REAL DEFAULT 0,
+      rural   REAL DEFAULT 0,
+      area    REAL DEFAULT 0,
+      cells   INT DEFAULT 0,
+      tags    JSONB DEFAULT '[]'::jsonb
+    );
+
+    CREATE TABLE IF NOT EXISTS sim_goods (
+      id              INT PRIMARY KEY,
+      name            TEXT NOT NULL,
+      unit            TEXT,
+      value           REAL DEFAULT 1,
+      carriage        REAL DEFAULT 1,
+      color           TEXT,
+      tags            JSONB DEFAULT '[]'::jsonb,
+      distribution    TEXT,
+      demand_coverage JSONB DEFAULT '{}'::jsonb,
+      biome_output    JSONB DEFAULT '{}'::jsonb,
+      multipliers     JSONB DEFAULT '{}'::jsonb
+    );
+
+    CREATE TABLE IF NOT EXISTS sim_markets (
+      id             INT PRIMARY KEY,
+      center_burg_id INT,
+      color          TEXT,
+      fee_paid       REAL DEFAULT 0,
+      rural          JSONB DEFAULT '{}'::jsonb,
+      goods          JSONB DEFAULT '{}'::jsonb
+    );
+
+    CREATE TABLE IF NOT EXISTS sim_trade_deals (
+      id             SERIAL PRIMARY KEY,
+      from_burg_id   INT NOT NULL,
+      to_burg_id     INT NOT NULL,
+      good_id        INT NOT NULL,
+      deal_type      INT DEFAULT 0,
+      quantity       REAL DEFAULT 0,
+      price          REAL DEFAULT 0,
+      transport_cost REAL DEFAULT 0,
+      tariff         REAL DEFAULT 0,
+      margin         REAL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS sim_rivers (
+      id          INT PRIMARY KEY,
+      name        TEXT,
+      type        TEXT,
+      source_cell INT,
+      mouth_cell  INT,
+      basin       INT,
+      parent      INT,
+      discharge   REAL DEFAULT 0,
+      length      REAL DEFAULT 0,
+      width       REAL DEFAULT 0,
+      cells       JSONB DEFAULT '[]'::jsonb
+    );
+
+    CREATE TABLE IF NOT EXISTS sim_route_graph (
+      cell_id INT PRIMARY KEY,
+      links   JSONB DEFAULT '{}'::jsonb
+    );
+  `);
 }

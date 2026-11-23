@@ -80,8 +80,9 @@ export async function resolveThreadByParty(
   let evaluation = evaluateThreadState(thread, npcs, props);
 
   // If entities haven't been mutated yet but a clear outcome was declared, synthesize the physical state change
+  const isWorldThread = thread.origin === 'world' || String(thread.rule_id || '').startsWith('WORLD_');
   if (!evaluation.isResolved && input.playerOutcome) {
-    if (input.playerOutcome === 'SUCCESS') {
+    if (input.playerOutcome === 'SUCCESS' && !isWorldThread) {
       // Free the captive
       const targetNpc = npcs.find((n: any) => npcIsActor(n, [String(thread.actor_ids[0])]));
       if (targetNpc) {

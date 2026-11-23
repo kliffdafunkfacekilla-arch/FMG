@@ -20,7 +20,7 @@ Per **Rule 1** of `GEMINI.md`:
 
 3. **Global Multi-Burg Faction War Expansion**:
    - Large-scale military siege maneuvers and multi-regiment logistics across 352 burgs.
-   - Parked until Burg 81 (`Roromijima`) loop operations and local slice are finalized.
+   - Parked until Burg 1 (`Excelsis Citadel`) loop operations and local slice are finalized.
 
 4. **Web Audio Synthesizer Procedural Orchestration**:
    - Procedural synth music generators for distinct biomes.
@@ -29,3 +29,14 @@ Per **Rule 1** of `GEMINI.md`:
 5. **External Client Mobile Responsive Wrapper**:
    - Mobile touch optimizations for tactical canvas.
    - Parked.
+
+
+## Phase B: Ostraka_full.map Rich Datasets (Seeded, Pending Global-Sim Integration)
+
+Ingested and stored in PostgreSQL from `Ostraka_full.map` without altering current tick/agent logic yet:
+- `sim_route_graph` / `sim_roads`: Wire route blockade/war closures to disrupt matching `sim_trade_deals` paths and freight costs.
+- `sim_markets` & `sim_goods` (31 markets, 71 goods): Replace uniform global commodity scarcity with market-by-market regional supply, demand, and trade-deal fulfillment.
+- `sim_factions` fiscal fields (`treasury`, `gdp`, `budget`, `corruption`, `total_pop`): Drive war chest solvency, troop upkeep (`sim_faction_units`), and corruption-fueled unrest/crime.
+- `sim_burg_economy` civic flags (`has_port`, `has_citadel`, `has_walls`, `has_plaza`, `has_temple`, `has_shanty`, `capital`): Feed tactical `SectorMapGenerator` district/building placement and siege mechanics.
+- `sim_cells` painted `culture_id` & `religion_id` + `sim_cultures` / `sim_religions`: Enable territory-wide heresy/cultural conversion/suppression diffusion.
+- `sim_rivers` & cell `flux` / `temp_c` / `precip`: Drive drought, flooding, river navigation tolls, and seasonal harvest variance.

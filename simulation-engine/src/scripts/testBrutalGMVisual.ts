@@ -23,7 +23,7 @@ async function main() {
     id: "npc_fletcher",
     name: "Watch Captain Kenneth Fletcher",
     role: "Garrison Watch Captain",
-    faction: "Roromijima Municipal Guard",
+    faction: "Avian Empire Municipal Guard",
     pos: [128, 126],
     tags: ["Guard", "Officer"],
     hp: 40,

@@ -4,7 +4,7 @@ import { ensureCellLayers } from "./seedCellLayers.js";
 import zlib from "zlib";
 import { DAYS_PER_MONTH } from "../engine/canon/calendar.js";
 
-const TARGET_CELL_ID = 13408; // Burg #73: Flute (Premier Coastal River Metropolis)
+const TARGET_CELL_ID = 30627; // Burg #1: Excelsis Citadel (Avian Empire)
 const TOTAL_TICKS = DAYS_PER_MONTH; // one full month
 
 function renderAsciiGrid(grid: Uint8Array, width: number = 256, height: number = 256, outW: number = 40, outH: number = 18): string {
@@ -91,7 +91,7 @@ async function main() {
         const sealRes = await client.query("SELECT MIN(seal_strength) as min_s, ROUND(AVG(seal_strength)::numeric, 1) as avg_s FROM sim_sacred_groves");
         const s = sealRes.rows[0];
 
-        // 2. REGIONAL FOCUSED CELL STATE (CELL 13408 - FLUTE)
+        // 2. REGIONAL FOCUSED CELL STATE (CELL 30627 - EXCELSIS CITADEL)
         const burgRes = await client.query(`
           SELECT burg_id, name, pop_null, wealth, food, unrest, crime_rate, military_forces
           FROM sim_burg_economy
@@ -107,7 +107,7 @@ async function main() {
           ORDER BY z_layer DESC
         `, [TARGET_CELL_ID]);
 
-        // Regional Events in Flute
+        // Regional Events in Excelsis Citadel
         const recentBurgEvents = await client.query(`
           SELECT type, message
           FROM sim_events

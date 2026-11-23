@@ -2,7 +2,7 @@ import pool from '../db/pool.js';
 import { generateBurgSectorLayers } from '../engine/maps/SectorMapGenerator.js';
 import zlib from 'zlib';
 
-export async function ensureCellLayers(cellId: number = 13408) {
+export async function ensureCellLayers(cellId: number = 30627) {
   const client = await pool.connect();
   try {
     const burgRes = await client.query(`
