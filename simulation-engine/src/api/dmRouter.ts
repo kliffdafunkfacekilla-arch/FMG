@@ -10,7 +10,7 @@ import { generateGrindCanyonSectorMap, generateBurgSectorLayers, generateOutlyin
 import { regionalNeighborhood, TERRAIN_VERSION } from '../engine/maps/TacticalTerrain.js';
 import { generateWardDistrictMap, deriveWardLayers } from '../engine/maps/WardDistrict.js';
 import { seedLayerNarrative } from '../engine/rpg/narrativeSeeds.js';
-import { ollamaGenerate } from '../engine/llm.js';
+import { ollamaGenerateStrict, LlmError } from '../engine/llm.js';
 import { getOrCreateRegionalInstance } from './regionalRouter.js';
 import { getFactionSpecialty, FACTION_SPECIALTIES, FactionSpecialty } from '../engine/economy/factionSpecialties.js';
 import { getOpenThreads, evaluateThreadState, createThread } from '../engine/threads/threadEngine.js';
@@ -2626,10 +2626,7 @@ Output ONLY valid JSON with two string fields:
   "action": "I [what you do]"
 }`;
 
-  const text = await ollamaGenerate(prompt, { json: true, temperature: 0.75, maxTokens: 160, timeoutMs: 60000 });
-  if (text === null) {
-    throw new Error(`Ollama unavailable or timed out generating turn for ${member.name}`);
-  }
+  const text = await ollamaGenerateStrict(prompt, { stage: "party_intent", json: true, temperature: 0.75, maxTokens: 160, timeoutMs: 60000 });
   const raw = String(text || "").trim();
 
   let dialogue = "";
@@ -2648,13 +2645,13 @@ Output ONLY valid JSON with two string fields:
   }
 
   if (!action) {
-    throw new Error(`Ollama returned no usable action for ${member.name}: ${raw.slice(0, 180)}`);
+    throw new LlmError("party_intent", `Ollama returned no usable action for ${member.name}: ${raw.slice(0, 180)}`, 502);
   }
   if (!action.toLowerCase().startsWith("i ")) {
     action = "I " + action;
   }
   if (!dialogue) {
-    throw new Error(`Ollama returned no usable dialogue for ${member.name}: ${raw.slice(0, 180)}`);
+    throw new LlmError("party_intent", `Ollama returned no usable dialogue for ${member.name}: ${raw.slice(0, 180)}`, 502);
   }
 
   return { dialogue, action };
@@ -2809,7 +2806,10 @@ router.post('/party_session/init', async (req, res) => {
       npcsLoaded: brutalGM.activeNPCs.size
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    const status = err instanceof LlmError ? err.statusCode : (Number(err?.statusCode) || 500);
+    const stage = err instanceof LlmError ? err.stage : (err?.stage || "party_init");
+    console.error(`[party_session/init] Failed at stage=${stage}:`, err?.message || err);
+    res.status(status).json({ success: false, error: err?.message || "Party init failed", stage });
   }
 });
 
@@ -2892,6 +2892,7 @@ router.post('/party_session/step', async (req, res) => {
       if (!action) action = intent.action;
     }
 
+    const isManualOverride = Boolean(req.body?.dialogueOverride && req.body?.actionOverride);
     const declaredAction = action;
     const declaredDialogue = dialogue;
 
@@ -2910,7 +2911,8 @@ router.post('/party_session/step', async (req, res) => {
         composure: currentMember.composure,
         owed: currentMember.owed
       },
-      zLayer: livePartySessionState.z
+      zLayer: livePartySessionState.z,
+      strictLlm: !isManualOverride
     });
 
     if (req.body?.forceSuccess) {
@@ -3068,7 +3070,14 @@ router.post('/party_session/step', async (req, res) => {
       threadResolution: threadResolutionResult
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    const status = err instanceof LlmError ? err.statusCode : (Number(err?.statusCode) || 500);
+    const stage = err instanceof LlmError ? err.stage : (err?.stage || "party_step");
+    console.error(`[party_session/step] Failed at stage=${stage}:`, err?.message || err);
+    res.status(status).json({
+      success: false,
+      error: err?.message || "Party step failed",
+      stage
+    });
   }
 });
 

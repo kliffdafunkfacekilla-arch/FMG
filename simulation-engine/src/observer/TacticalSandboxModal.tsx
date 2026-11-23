@@ -85,6 +85,7 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
   const [sessionMode, setSessionMode] = useState<'PARTY' | 'MANUAL'>('PARTY');
   const [partySession, setPartySession] = useState<any>(null);
   const [partyStepLoading, setPartyStepLoading] = useState<boolean>(false);
+  const [partyError, setPartyError] = useState<{ stage?: string; message: string } | null>(null);
   const [autoPlay, setAutoPlay] = useState<boolean>(false);
   const autoPlayRef = useRef<boolean>(false);
   autoPlayRef.current = autoPlay;
@@ -108,6 +109,7 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
 
   const initPartySession = async () => {
     setPartyStepLoading(true);
+    setPartyError(null);
     try {
       const res = await fetch('/api/dm/party_session/init', {
         method: 'POST',
@@ -116,12 +118,12 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data?.error || `Party session init failed (HTTP ${res.status})`);
+        setPartyError({ stage: data?.stage || 'party_init', message: data?.error || `Party session init failed (HTTP ${res.status})` });
         return;
       }
       setPartySession(data.sessionState);
     } catch (err: any) {
-      setError(err.message || 'Failed to init party session');
+      setPartyError({ stage: 'party_init', message: err.message || 'Failed to init party session' });
       console.error('Failed to init party session:', err);
     } finally {
       setPartyStepLoading(false);
@@ -131,6 +133,7 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
   const stepPartySession = async () => {
     if (partyStepLoading) return;
     setPartyStepLoading(true);
+    setPartyError(null);
     try {
       const res = await fetch('/api/dm/party_session/step', {
         method: 'POST',
@@ -139,7 +142,7 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
       const data = await res.json();
       if (!res.ok) {
         setAutoPlay(false);
-        setError(data?.error || `Party step failed (HTTP ${res.status})`);
+        setPartyError({ stage: data?.stage || 'party_step', message: data?.error || `Party step failed (HTTP ${res.status})` });
         return;
       }
       setPartySession(data.sessionState);
@@ -149,7 +152,7 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
       await loadLayer(zLayer);
     } catch (err: any) {
       setAutoPlay(false);
-      setError(err.message || 'Failed to step party session');
+      setPartyError({ stage: 'party_step', message: err.message || 'Failed to step party session' });
       console.error('Failed to step party session:', err);
     } finally {
       setPartyStepLoading(false);
@@ -1158,6 +1161,39 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
                     flexDirection: 'column',
                     gap: 8
                   }}>
+                    {partyError && (
+                      <div style={{
+                        background: '#450a0a',
+                        border: '1px solid #ef4444',
+                        borderRadius: 6,
+                        padding: '8px 12px',
+                        color: '#fecaca',
+                        fontSize: 11
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                          <span style={{ fontWeight: 800, color: '#f87171' }}>
+                            ❌ AI PARTY FAILED {partyError.stage ? `[${partyError.stage}]` : ''}
+                          </span>
+                          <button
+                            onClick={() => setPartyError(null)}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              color: '#fca5a5',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                              padding: '0 4px'
+                            }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        <div style={{ wordBreak: 'break-word' }}>{partyError.message}</div>
+                        <div style={{ marginTop: 4, fontSize: 10, color: '#fca5a5' }}>
+                          No fake fallback was substituted. Check Ollama / server logs and retry.
+                        </div>
+                      </div>
+                    )}
                     {partySession?.activeStoryArc?.resolved && (
                       <div style={{
                         background: '#064e3b',

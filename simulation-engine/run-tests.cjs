@@ -14,7 +14,7 @@ const SUITES = [
   "testCalendar", "testCanonMandates", "testTagMatrixFull", "testBrutalGMVisual", "testChaosFlows",
   "testThreadActors", "testThreadReactions", "testThreadClocks", "testQuestChainResolution", "testSystemicOutcomes",
   "testTacticalInteractions", "testStoryPipeline", "testSettlement", "testTickReplay", "testPopulationLedger",
-  "testTTRPGRules", "testVerticalSlice", "testAutonomousDrama",
+  "testTTRPGRules", "testVerticalSlice", "testAutonomousDrama", "testStrictPartyLlm",
 ];
 const root = __dirname;
 

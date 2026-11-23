@@ -15,7 +15,7 @@ import { SHADOWFALL_MONTH, isChaosPeak } from "../canon/calendar.js";
  * - Narrative Observation Component: Grounded sensory outcome generation
  */
 
-import { ollamaGenerate } from "../llm.js";
+import { ollamaGenerate, ollamaGenerateStrict, LlmError } from "../llm.js";
 import { Pool } from "pg";
 import { TagMatrixEngine, TaggedObject, TagInteractionResult } from "./TagMatrixEngine.js";
 import { WhatElseStoryEngine, StoryBeat, SectorContext, InjectedNPC, InjectedWorldState } from "./WhatElseStoryEngine.js";
@@ -81,6 +81,8 @@ export interface ActionInput {
   recentContext?: string[] | undefined;
   playerName?: string | undefined;
   playerSpecies?: string | undefined;
+  /** When true, fail loudly (LlmError) if Ollama is down, returns invalid JSON/empty, or breaks character instead of faking output. */
+  strictLlm?: boolean | undefined;
 }
 
 export type ActionCategory = "COMBAT" | "MAGIC" | "SOCIAL" | "SUBTERFUGE" | "EXPLORATION" | "SURVIVAL" | "CREATIVE_CHECK";
@@ -1046,10 +1048,29 @@ Return ONLY valid JSON matching this schema:
   }
 
   /**
+   * Strict variant of callModel: throws LlmError with the exact stage and failure reason.
+   */
+  public async callModelStrict(
+    stage: string,
+    contents: any,
+    systemInstruction: string,
+    maxOutputTokens = 250,
+    temperature = 0.7
+  ): Promise<string> {
+    let payload = contents;
+    if (Array.isArray(contents) && contents.length === 1 && contents[0]?.parts?.[0]?.text) {
+      payload = contents[0].parts[0].text;
+    }
+    const prompt = typeof payload === "string" ? payload : JSON.stringify(payload);
+    const json = /json/i.test(systemInstruction || "") || /json/i.test(prompt);
+    return ollamaGenerateStrict(prompt, { stage, system: systemInstruction, json, maxTokens: maxOutputTokens, temperature });
+  }
+
+  /**
    * COMPONENT 1: INTENT & TARGET PARSER
    * Translates natural language into structured category, verb, target, and 12-stat key.
    */
-  public async parseIntent(actionText: string): Promise<ParsedIntent> {
+  public async parseIntent(actionText: string, strictLlm = false): Promise<ParsedIntent> {
     const text = String(actionText || "").trim();
     const availableTargets = [
       ...Array.from(this.activeProps.values()).map(p => ({ id: p.id, name: p.name, tags: Array.from(p.tags) })),
@@ -1068,16 +1089,17 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
 }`;
 
     try {
-      const raw = await this.callModel(
-        [{ role: "user", parts: [{ text: prompt }] }],
-        "You are an exact intent parser for a dark fantasy RPG engine. Output only JSON.",
-        400,
-        0.1
-      );
+      const systemPrompt = "You are an exact intent parser for a dark fantasy RPG engine. Output only JSON.";
+      const raw = strictLlm
+        ? await this.callModelStrict("intent_parse", [{ role: "user", parts: [{ text: prompt }] }], systemPrompt, 400, 0.1)
+        : await this.callModel([{ role: "user", parts: [{ text: prompt }] }], systemPrompt, 400, 0.1);
 
       if (raw) {
         const clean = raw.replace(/```json|```/g, "").trim();
         const parsed = JSON.parse(clean);
+        if (!parsed || typeof parsed !== "object") {
+          throw new Error("Intent parser returned non-object JSON");
+        }
         const category: ActionCategory = parsed.category || "CREATIVE_CHECK";
         const isCombat = category === "COMBAT";
         const verb = (parsed.verb || "CUSTOM_CHECK").toUpperCase();
@@ -1116,7 +1138,11 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
           isCombat
         };
       }
-    } catch (e) {
+    } catch (e: any) {
+      if (strictLlm) {
+        if (e instanceof LlmError) throw e;
+        throw new LlmError("intent_parse", `Intent parser failed to produce valid JSON: ${e?.message || String(e)}`, 502);
+      }
       console.warn("[BrutalGM] Intent parser fallback:", e);
     }
 
@@ -1335,9 +1361,10 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
 
   public async executeTurn(input: ActionInput): Promise<GMResolutionOutput> {
     const { actionText, playerId, playerPos } = input;
+    const strictLlm = Boolean(input.strictLlm);
 
     // 1. Parse Intent & Action Mode
-    const intent = await this.parseIntent(actionText);
+    const intent = await this.parseIntent(actionText, strictLlm);
 
     // 2. Fetch Player Character from PostgreSQL
     const playerRes = await this.pool.query("SELECT * FROM sim_player_character WHERE id = $1", [playerId]);
@@ -1724,12 +1751,10 @@ ${repNote}
 ${recentRumors ? `Recent genuine rumors & occurrences across the realm:\n${recentRumors}\nIf appropriate to the player's query or disposition, weave one of these rumors into your dialogue.` : ""}
 Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks responding to the player. Mention your faction or secret motives.`;
 
-      const dialogueRes = await this.callModel(
-        [{ role: "user", parts: [{ text: dialoguePrompt }] }],
-        "You are an actor playing an authentic dark fantasy character. Output only spoken dialogue in quotation marks.",
-        150,
-        0.8
-      );
+      const dialogueSystem = "You are an actor playing an authentic dark fantasy character. Output only spoken dialogue in quotation marks.";
+      const dialogueRes = strictLlm
+        ? await this.callModelStrict("npc_dialogue", [{ role: "user", parts: [{ text: dialoguePrompt }] }], dialogueSystem, 150, 0.8)
+        : await this.callModel([{ role: "user", parts: [{ text: dialoguePrompt }] }], dialogueSystem, 150, 0.8);
 
       inCharacterDialogue = dialogueRes || (hit
         ? `"${npcName} relaxes their guard. 'Very well, traveler. If you seek what was taken, look to the old ruins.'"`
@@ -2894,13 +2919,28 @@ RULES:
 - On a successful search/inspect, reveal a concrete tactical clue (lock condition, patrol gap, tracks, hidden latch).
 - No purple prose or invented props/NPCs.`;
 
-    const rawNarrative = customNarrative || (await this.callModel(
-      [{ role: "user", parts: [{ text: narrativePrompt }] }],
-      gmInstruction,
-      220,
-      0.55
-    ));
+    const rawNarrative = customNarrative || (strictLlm
+      ? await this.callModelStrict(
+          "gm_narration",
+          [{ role: "user", parts: [{ text: narrativePrompt }] }],
+          gmInstruction,
+          220,
+          0.55
+        )
+      : await this.callModel(
+          [{ role: "user", parts: [{ text: narrativePrompt }] }],
+          gmInstruction,
+          220,
+          0.55
+        ));
     const looksMeta = !rawNarrative || /\b(it seems (that )?you'?ve|to progress the story|choose one of the following|to proceed, i'?ll summarize|what would you like to do)\b/i.test(rawNarrative);
+    if (strictLlm && !customNarrative && looksMeta) {
+      throw new LlmError(
+        "gm_narration",
+        `GM model broke character with meta-assistant output instead of in-world narration: "${String(rawNarrative || "").slice(0, 140)}"`,
+        502
+      );
+    }
     const npcReplyBit = inCharacterDialogue ? ` ${inCharacterDialogue}` : "";
     const narrativeResponse = (!looksMeta && rawNarrative) ? rawNarrative : (hit
       ? `${player.name} acts on ${intent.targetName} (${intent.verb.toLowerCase().replace(/_/g, " ")}) and succeeds.${npcReplyBit}`

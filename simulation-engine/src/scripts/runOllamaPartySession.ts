@@ -11,7 +11,7 @@
 import dotenv from 'dotenv';
 import pool from '../db/pool.js';
 import { BrutalGameMaster } from '../engine/rpg/BrutalGM.js';
-import { ollamaGenerate } from '../engine/llm.js';
+import { ollamaGenerateStrict } from '../engine/llm.js';
 import { TaggedObject } from '../engine/rpg/TagMatrixEngine.js';
 import { calculateDerivedPools, calculateDerivedSenses, Attributes } from '../engine/customRulesEngine.js';
 
@@ -194,30 +194,24 @@ Output format EXACTLY:
 Dialogue: "your spoken words"
 Action: I [what you do]`;
 
-  try {
-    const text = await ollamaGenerate(prompt, { temperature: 0.7, maxTokens: 120, timeoutMs: 60000 });
-    if (text === null) throw new Error("local model unavailable");
-    const data: any = { response: text };
-    const raw = String(data.response || "").trim();
+  const text = await ollamaGenerateStrict(prompt, { stage: "party_intent", temperature: 0.7, maxTokens: 120, timeoutMs: 60000 });
+  const raw = String(text || "").trim();
 
-    let dialogue = "Let's stay sharp.";
-    let action = "I survey the area and keep watch.";
+  let dialogue = "";
+  let action = "";
 
-    const dMatch = raw.match(/Dialogue:\s*["“]?([^"”\n]+)["”]?/i);
-    if (dMatch && dMatch[1]) dialogue = dMatch[1].trim();
+  const dMatch = raw.match(/\*{0,2}Dialogue\*{0,2}:\s*["“]?([^"”\n]+)["”]?/i);
+  if (dMatch && dMatch[1]) dialogue = dMatch[1].trim();
 
-    const aMatch = raw.match(/Action:\s*([^\n]+)/i);
-    if (aMatch && aMatch[1]) action = aMatch[1].trim();
-    else if (!dMatch) action = raw.split("\n")[0] || action;
+  const aMatch = raw.match(/\*{0,2}Action\*{0,2}:\s*([^\n]+)/i);
+  if (aMatch && aMatch[1]) action = aMatch[1].trim();
+  else if (!dMatch) action = raw.split("\n")[0]?.trim() || "";
 
-    return { dialogue, action };
-  } catch (err) {
-    console.warn(`[Ollama] Fallback for ${member.name}:`, err);
-    return {
-      dialogue: "Watch our backs, team.",
-      action: `I ready my ${member.weapon} and search the area for threats.`
-    };
+  if (!dialogue || !action) {
+    throw new Error(`Ollama returned incomplete turn for ${member.name}: ${raw.slice(0, 180)}`);
   }
+
+  return { dialogue, action };
 }
 
 async function runSession() {
@@ -333,7 +327,8 @@ async function runSession() {
       const gmOutput = await gm.executeTurn({
         actionText: playerIntent.action,
         playerId: member.id,
-        playerPos: [128, 128]
+        playerPos: [128, 128],
+        strictLlm: true
       });
 
       // 3. Display deterministic dice roll & B.R.U.T.A.L. math

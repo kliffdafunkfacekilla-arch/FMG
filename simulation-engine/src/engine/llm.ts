@@ -15,8 +15,28 @@
 export const OLLAMA_URL = (process.env.OLLAMA_URL || "http://127.0.0.1:11434").replace(/\/+$/, "");
 export const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3.2:latest";
 
+export function getOllamaUrl(): string {
+  return (process.env.OLLAMA_URL || "http://127.0.0.1:11434").replace(/\/+$/, "");
+}
+
+export function getOllamaModel(): string {
+  return process.env.OLLAMA_MODEL || "llama3.2:latest";
+}
+
 export function llmDisabled(): boolean {
   return String(process.env.STORY_LLM || "").toLowerCase() === "off";
+}
+
+export class LlmError extends Error {
+  public readonly stage: string;
+  public readonly statusCode: number;
+
+  constructor(stage: string, message: string, statusCode = 502) {
+    super(message);
+    this.name = "LlmError";
+    this.stage = stage;
+    this.statusCode = statusCode;
+  }
 }
 
 export interface GenerateOptions {
@@ -31,18 +51,27 @@ export interface GenerateOptions {
 
 let warnedDown = false;
 
-/** Plain-text completion, or null. */
-export async function ollamaGenerate(prompt: string, opts: GenerateOptions = {}): Promise<string | null> {
-  if (llmDisabled()) return null;
+/** Strict plain-text completion: throws LlmError with the exact failure reason instead of returning null. */
+export async function ollamaGenerateStrict(
+  prompt: string,
+  opts: GenerateOptions & { stage?: string } = {}
+): Promise<string> {
+  const stage = opts.stage || "llm_generate";
+  if (llmDisabled()) {
+    throw new LlmError(stage, "LLM is disabled (STORY_LLM=off); refusing to fake AI output.", 503);
+  }
+  const url = getOllamaUrl();
+  const model = getOllamaModel();
+  const timeoutMs = opts.timeoutMs ?? 60000;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 60000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(`${OLLAMA_URL}/api/generate`, {
+    const res = await fetch(`${url}/api/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,
       body: JSON.stringify({
-        model: OLLAMA_MODEL,
+        model,
         prompt,
         ...(opts.system ? { system: opts.system } : {}),
         ...(opts.json ? { format: "json" } : {}),
@@ -51,21 +80,46 @@ export async function ollamaGenerate(prompt: string, opts: GenerateOptions = {})
       }),
     });
     if (!res.ok) {
-      console.warn(`[llm] Ollama answered ${res.status} for model ${OLLAMA_MODEL}${res.status === 404 ? " (is it pulled? run: ollama pull " + OLLAMA_MODEL + ")" : ""}`);
-      return null;
+      let bodySnippet = "";
+      try {
+        bodySnippet = (await res.text()).replace(/\s+/g, " ").trim().slice(0, 140);
+      } catch {}
+      throw new LlmError(
+        stage,
+        `Ollama HTTP ${res.status} for model '${model}' at ${url}${res.status === 404 ? ` (pull it with: ollama pull ${model})` : ""}${bodySnippet ? `: ${bodySnippet}` : ""}`,
+        502
+      );
     }
     warnedDown = false;
     const data: any = await res.json();
     const text = String(data.response || "").trim();
-    return text.length ? text : null;
+    if (!text.length) {
+      throw new LlmError(stage, `Ollama returned an empty response for model '${model}'`, 502);
+    }
+    return text;
+  } catch (err: any) {
+    if (err instanceof LlmError) throw err;
+    const reason =
+      err?.name === "AbortError"
+        ? `Ollama timed out after ${timeoutMs}ms for model '${model}' at ${url}`
+        : `Ollama unreachable at ${url}: ${err?.message || String(err)}`;
+    throw new LlmError(stage, reason, 503);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Plain-text completion, or null. */
+export async function ollamaGenerate(prompt: string, opts: GenerateOptions = {}): Promise<string | null> {
+  if (llmDisabled()) return null;
+  try {
+    return await ollamaGenerateStrict(prompt, { ...opts, stage: "llm_generate" });
   } catch (err: any) {
     if (!warnedDown) {
-      console.warn(`[llm] Ollama not reachable at ${OLLAMA_URL} (${err?.name === "AbortError" ? "timed out" : err?.message}); using procedural fallbacks.`);
+      console.warn(`[llm] ${err?.message || err}; using procedural fallbacks.`);
       warnedDown = true;
     }
     return null;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
