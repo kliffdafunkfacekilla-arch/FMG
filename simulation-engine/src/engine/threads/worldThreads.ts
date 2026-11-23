@@ -71,6 +71,20 @@ const BY_EVENT: Record<string, Template> = {
     onExpire: (b) => ({ wealthDelta: -250, crimeRateDelta: 8, unrestDelta: 6, narrativeSummary: `The raiders took the roads around ${b}; trade withered and more young folk rode out to join them.` }),
     onParty: (b) => ({ wealthDelta: 150, crimeRateDelta: -6, unrestDelta: -6, narrativeSummary: `The raider camp near ${b} was broken; caravans returned to its gates.` }),
   },
+  CARAVAN_RAIDED: {
+    rule: "WORLD_CARAVAN_RAID", actor: "security", clock: 6,
+    question: (b) => `Will the raiders hitting supply convoys bound for ${b} be stopped?`,
+    stakes: (b) => `Every intercepted shipment starves ${b}'s workshops and emboldens underworld tolls along the trade roads.`,
+    onExpire: (b) => ({ wealthDelta: -180, crimeRateDelta: 6, unrestDelta: 10, narrativeSummary: `With the trade roads left unguarded, raiders bled supply lines into ${b} dry.` }),
+    onParty: (b) => ({ wealthDelta: 120, crimeRateDelta: -5, unrestDelta: -6, narrativeSummary: `The escort route into ${b} was cleared and seized cargo recovered for its markets.` }),
+  },
+  TRADE_EMBARGO_CHOKEPOINT: {
+    rule: "WORLD_TRADE_CHOKEPOINT", actor: "civic", clock: 7,
+    question: (b) => `Will ${b} break the blockade starving its workshops of vital imports?`,
+    stakes: (b) => `Cut off from imported ore, fuel, and hides, craftspeople in ${b} stand idle as shortages drive unrest.`,
+    onExpire: (b) => ({ wealthDelta: -200, unrestDelta: 12, narrativeSummary: `No alternate trade corridor opened for ${b}; stalled guilds shut their doors.` }),
+    onParty: (b) => ({ wealthDelta: 150, unrestDelta: -8, narrativeSummary: `Emergency smuggling charters and escorts bypassed the chokepoint, relieving ${b}.` }),
+  },
 };
 BY_EVENT.COMMANDER_TAKE_UNDERWORLD_BRIBE = BY_EVENT.COMMANDER_BRIBED!;
 

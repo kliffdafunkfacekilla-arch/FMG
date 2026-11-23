@@ -192,6 +192,37 @@ async function runTick(): Promise<TickResult> {
                 const ghosts = await client.query("SELECT burg_id FROM sim_burg_economy WHERE pop_null <= 0 AND COALESCE(pop_attuned, 0) <= 0");
                 const ids = ghosts.rows.map((r: any) => r.burg_id);
                 if (ids.length === 0) return;
+
+                // Abort any in-transit convoys belonging to ruined burgs and release surviving crew
+                const ghostShipments = await client.query(
+                    `SELECT id, merchant_citizen_id, crew_citizen_ids FROM sim_trade_shipments
+                     WHERE status = 'IN_TRANSIT' AND (source_burg_id = ANY($1) OR dest_burg_id = ANY($1)) ORDER BY id`,
+                    [ids]
+                );
+                if (ghostShipments.rows.length > 0) {
+                    const releaseIds: number[] = [];
+                    const abortIds: number[] = [];
+                    for (const s of ghostShipments.rows) {
+                        abortIds.push(Number(s.id));
+                        if (Number(s.merchant_citizen_id) > 0) releaseIds.push(Number(s.merchant_citizen_id));
+                        const crewArr = Array.isArray(s.crew_citizen_ids) ? s.crew_citizen_ids : [];
+                        for (const cid of crewArr) {
+                            if (Number(cid) > 0) releaseIds.push(Number(cid));
+                        }
+                    }
+                    if (releaseIds.length > 0) {
+                        await client.query(
+                            `UPDATE population_demographics SET allegiance_status = 'CIVILIAN'
+                             WHERE citizen_id = ANY($1::int[]) AND allegiance_status = 'ON_CARAVAN'`,
+                            [releaseIds]
+                        );
+                    }
+                    await client.query(
+                        `UPDATE sim_trade_shipments SET status = 'ABORTED', resolved_tick = $2 WHERE id = ANY($1::int[])`,
+                        [abortIds, tick]
+                    );
+                }
+
                 for (const table of ["sim_paragons", "sim_infrastructure", "sim_fringe_lairs", "sim_industrial_stockpiles"]) {
                     await client.query(`DELETE FROM ${table} WHERE burg_id = ANY($1)`, [ids]);
                 }

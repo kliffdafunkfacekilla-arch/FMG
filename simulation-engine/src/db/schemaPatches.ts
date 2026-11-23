@@ -34,6 +34,13 @@ export async function applySchemaPatches(db: Db): Promise<void> {
   await db.query(`CREATE INDEX IF NOT EXISTS idx_sim_events_type ON sim_events(type)`);
   // A burg's living civilians in id order: tagBurgCitizens picks from a seeded point in this range
   await db.query(`CREATE INDEX IF NOT EXISTS idx_pop_civilians_by_burg ON population_demographics(settlement_id, citizen_id) WHERE allegiance_status = 'CIVILIAN'`);
+  // Fast lookup of available living logistics crew per burg without scanning all 340k citizens
+  await db.query(`
+    CREATE INDEX IF NOT EXISTS idx_pop_logistics_civilians
+      ON population_demographics(settlement_id, profession, citizen_id)
+      WHERE allegiance_status = 'CIVILIAN' AND life_stage = 'ADULT'
+        AND profession IN ('Merchant Factor', 'Merchant Trader', 'Caravan Drover', 'Caravan Guard', 'Sailor', 'Aether-Crew')
+  `);
 
   // Weather fronts table was missing in live databases where schemaPatches ran instead of resetWorld
   await db.query(`
@@ -173,5 +180,34 @@ export async function applySchemaPatches(db: Db): Promise<void> {
       cell_id INT PRIMARY KEY,
       links   JSONB DEFAULT '{}'::jsonb
     );
+
+    CREATE TABLE IF NOT EXISTS sim_trade_shipments (
+      id                  SERIAL PRIMARY KEY,
+      source_burg_id      INT NOT NULL,
+      dest_burg_id        INT NOT NULL,
+      source_faction_id   INT NOT NULL DEFAULT 0,
+      dest_faction_id     INT NOT NULL DEFAULT 0,
+      transport_mode      VARCHAR(16) NOT NULL DEFAULT 'LAND',
+      good_id             INT NOT NULL DEFAULT 0,
+      good_key            TEXT NOT NULL,
+      good_name           TEXT NOT NULL,
+      quantity            INT NOT NULL,
+      unit_price          REAL NOT NULL DEFAULT 1,
+      total_gold          INT NOT NULL DEFAULT 0,
+      tariff_gold         INT NOT NULL DEFAULT 0,
+      carriage_weight     REAL NOT NULL DEFAULT 1,
+      merchant_citizen_id INT NOT NULL,
+      crew_citizen_ids    JSONB NOT NULL DEFAULT '[]'::jsonb,
+      guard_count         INT NOT NULL DEFAULT 0,
+      path_cells          JSONB NOT NULL DEFAULT '[]'::jsonb,
+      path_index          INT NOT NULL DEFAULT 0,
+      current_cell_id     INT NOT NULL,
+      status              VARCHAR(24) NOT NULL DEFAULT 'IN_TRANSIT',
+      dispatched_tick     INT NOT NULL DEFAULT 0,
+      eta_ticks           INT NOT NULL DEFAULT 1,
+      resolved_tick       INT DEFAULT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_trade_shipments_status ON sim_trade_shipments(status);
+    CREATE INDEX IF NOT EXISTS idx_trade_shipments_cell ON sim_trade_shipments(current_cell_id) WHERE status = 'IN_TRANSIT';
   `);
 }

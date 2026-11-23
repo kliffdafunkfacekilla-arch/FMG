@@ -15,6 +15,7 @@ DROP TABLE IF EXISTS sim_active_projects CASCADE;
 DROP TABLE IF EXISTS sim_faction_units CASCADE;
 DROP TABLE IF EXISTS sim_faction_borders CASCADE;
 DROP TABLE IF EXISTS sim_weather_fronts CASCADE;
+DROP TABLE IF EXISTS sim_trade_shipments CASCADE;
 DROP TABLE IF EXISTS sim_route_graph CASCADE;
 DROP TABLE IF EXISTS sim_trade_deals CASCADE;
 DROP TABLE IF EXISTS sim_markets CASCADE;
@@ -272,6 +273,35 @@ CREATE TABLE IF NOT EXISTS sim_route_graph (
   cell_id INT PRIMARY KEY,
   links   JSONB DEFAULT '{}'::jsonb
 );
+
+CREATE TABLE IF NOT EXISTS sim_trade_shipments (
+  id                  SERIAL PRIMARY KEY,
+  source_burg_id      INT NOT NULL,
+  dest_burg_id        INT NOT NULL,
+  source_faction_id   INT NOT NULL DEFAULT 0,
+  dest_faction_id     INT NOT NULL DEFAULT 0,
+  transport_mode      VARCHAR(16) NOT NULL DEFAULT 'LAND',
+  good_id             INT NOT NULL DEFAULT 0,
+  good_key            TEXT NOT NULL,
+  good_name           TEXT NOT NULL,
+  quantity            INT NOT NULL,
+  unit_price          REAL NOT NULL DEFAULT 1,
+  total_gold          INT NOT NULL DEFAULT 0,
+  tariff_gold         INT NOT NULL DEFAULT 0,
+  carriage_weight     REAL NOT NULL DEFAULT 1,
+  merchant_citizen_id INT NOT NULL,
+  crew_citizen_ids    JSONB NOT NULL DEFAULT '[]'::jsonb,
+  guard_count         INT NOT NULL DEFAULT 0,
+  path_cells          JSONB NOT NULL DEFAULT '[]'::jsonb,
+  path_index          INT NOT NULL DEFAULT 0,
+  current_cell_id     INT NOT NULL,
+  status              VARCHAR(24) NOT NULL DEFAULT 'IN_TRANSIT',
+  dispatched_tick     INT NOT NULL DEFAULT 0,
+  eta_ticks           INT NOT NULL DEFAULT 1,
+  resolved_tick       INT DEFAULT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_trade_shipments_status ON sim_trade_shipments(status);
+CREATE INDEX IF NOT EXISTS idx_trade_shipments_cell ON sim_trade_shipments(current_cell_id) WHERE status = 'IN_TRANSIT';
 
 CREATE TABLE sim_industrial_stockpiles (
   burg_id           INT PRIMARY KEY REFERENCES sim_burg_economy(burg_id) ON DELETE CASCADE,
@@ -793,6 +823,10 @@ CREATE INDEX IF NOT EXISTS idx_pop_spark ON population_demographics(spark_tier);
 CREATE INDEX IF NOT EXISTS idx_pop_allegiance ON population_demographics(allegiance_status);
 CREATE INDEX IF NOT EXISTS idx_pop_stage ON population_demographics(settlement_id, life_stage);
 CREATE INDEX IF NOT EXISTS idx_pop_demo_workplace ON population_demographics(workplace_type);
+CREATE INDEX IF NOT EXISTS idx_pop_logistics_civilians
+    ON population_demographics(settlement_id, profession, citizen_id)
+    WHERE allegiance_status = 'CIVILIAN' AND life_stage = 'ADULT'
+      AND profession IN ('Merchant Factor', 'Merchant Trader', 'Caravan Drover', 'Caravan Guard', 'Sailor', 'Aether-Crew');
 
 CREATE TABLE IF NOT EXISTS sim_sector_layers (
     cell_id INT NOT NULL,

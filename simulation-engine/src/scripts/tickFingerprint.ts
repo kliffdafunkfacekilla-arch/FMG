@@ -14,5 +14,7 @@ export async function worldFingerprint(tick: number, baseCitizenId: number, base
     // New citizens' ids come from a sequence, and sequences do not roll back: hash those without their id
     people: await q(`SELECT md5(string_agg(concat_ws(',', CASE WHEN citizen_id <= $1 THEN citizen_id END, settlement_id, allegiance_status, life_stage, name, profession, unit_size), '|' ORDER BY citizen_id <= $1 DESC, CASE WHEN citizen_id <= $1 THEN citizen_id END, settlement_id, allegiance_status, life_stage, name, profession, unit_size)) h FROM population_demographics`, [baseCitizenId]),
     events: await q(`SELECT md5(string_agg(concat_ws(',', type, burg_id, message), '|' ORDER BY type, burg_id, message)) h FROM sim_events WHERE tick = $1`, [tick]),
+    // Exclude SERIAL shipment id so rolled-back sequences never cause false diffs across replays
+    shipments: await q(`SELECT COALESCE(md5(string_agg(concat_ws(',', source_burg_id, dest_burg_id, transport_mode, good_key, quantity, status, current_cell_id, path_index, merchant_citizen_id, tariff_gold), '|' ORDER BY source_burg_id, dest_burg_id, transport_mode, good_key, dispatched_tick, merchant_citizen_id)), '') h FROM sim_trade_shipments`),
   };
 }
