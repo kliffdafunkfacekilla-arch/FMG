@@ -113,8 +113,13 @@ export async function applySchemaPatches(db: Db): Promise<void> {
       distribution    TEXT,
       demand_coverage JSONB DEFAULT '{}'::jsonb,
       biome_output    JSONB DEFAULT '{}'::jsonb,
-      multipliers     JSONB DEFAULT '{}'::jsonb
+      multipliers     JSONB DEFAULT '{}'::jsonb,
+      recipes         JSONB DEFAULT '[]'::jsonb,
+      development     INT DEFAULT 0
     );
+
+    ALTER TABLE sim_goods ADD COLUMN IF NOT EXISTS recipes JSONB DEFAULT '[]'::jsonb;
+    ALTER TABLE sim_goods ADD COLUMN IF NOT EXISTS development INT DEFAULT 0;
 
     CREATE TABLE IF NOT EXISTS sim_markets (
       id             INT PRIMARY KEY,
@@ -128,7 +133,7 @@ export async function applySchemaPatches(db: Db): Promise<void> {
     CREATE TABLE IF NOT EXISTS sim_trade_deals (
       id             SERIAL PRIMARY KEY,
       from_burg_id   INT NOT NULL,
-      to_burg_id     INT NOT NULL,
+      to_market_id   INT NOT NULL,
       good_id        INT NOT NULL,
       deal_type      INT DEFAULT 0,
       quantity       REAL DEFAULT 0,
@@ -137,6 +142,18 @@ export async function applySchemaPatches(db: Db): Promise<void> {
       tariff         REAL DEFAULT 0,
       margin         REAL DEFAULT 0
     );
+
+    DO $$ BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'sim_trade_deals' AND column_name = 'to_burg_id'
+      ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'sim_trade_deals' AND column_name = 'to_market_id'
+      ) THEN
+        ALTER TABLE sim_trade_deals RENAME COLUMN to_burg_id TO to_market_id;
+      END IF;
+    END $$;
 
     CREATE TABLE IF NOT EXISTS sim_rivers (
       id          INT PRIMARY KEY,

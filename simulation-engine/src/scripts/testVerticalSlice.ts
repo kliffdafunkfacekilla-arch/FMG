@@ -113,8 +113,9 @@ async function runVerticalSliceTest() {
     `SELECT citizen_id, name, profession, temper, instinct, allegiance_status, want, flaw, line_wont_cross
      FROM population_demographics
      WHERE settlement_id = $1 AND life_stage = 'ADULT' AND allegiance_status = 'CIVILIAN'
+       AND name <> $2
      ORDER BY citizen_id LIMIT 1`,
-    [burgId]
+    [burgId, secParagon.name]
   );
   assert(citizenRowRes.rows.length > 0, "Expected at least one adult civilian in Burg 81");
   const citRow = citizenRowRes.rows[0];

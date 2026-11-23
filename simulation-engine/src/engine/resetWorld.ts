@@ -227,7 +227,9 @@ CREATE TABLE IF NOT EXISTS sim_goods (
   distribution    TEXT,
   demand_coverage JSONB DEFAULT '{}'::jsonb,
   biome_output    JSONB DEFAULT '{}'::jsonb,
-  multipliers     JSONB DEFAULT '{}'::jsonb
+  multipliers     JSONB DEFAULT '{}'::jsonb,
+  recipes         JSONB DEFAULT '[]'::jsonb,
+  development     INT DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS sim_markets (
@@ -242,7 +244,7 @@ CREATE TABLE IF NOT EXISTS sim_markets (
 CREATE TABLE IF NOT EXISTS sim_trade_deals (
   id             SERIAL PRIMARY KEY,
   from_burg_id   INT NOT NULL,
-  to_burg_id     INT NOT NULL,
+  to_market_id   INT NOT NULL,
   good_id        INT NOT NULL,
   deal_type      INT DEFAULT 0,
   quantity       REAL DEFAULT 0,

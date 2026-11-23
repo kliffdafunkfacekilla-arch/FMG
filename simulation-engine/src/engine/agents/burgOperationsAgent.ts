@@ -7,7 +7,19 @@ import {
     getGoodsByCategory, 
     CommodityCategory 
 } from "../economy/factionSpecialties.js";
-import { evaluateBurgInventoryEffects } from "../economy/itemSystemicMatrix.js";import { sqlShuffle } from "../rng.js";
+import {
+    GOOD_ROLE_BY_ID,
+    CIVIC_PROFESSIONS,
+    SECURITY_PROFESSIONS,
+    SOCIAL_SPIRITUAL_PROFESSIONS,
+    getProfessionForGood,
+    getWorkplaceForProfession,
+    goodKeyFromName
+} from "../economy/goodCatalog.js";
+import { evaluateBurgInventoryEffects } from "../economy/itemSystemicMatrix.js";
+import { sqlShuffle } from "../rng.js";
+
+export { getWorkplaceForProfession };
 
 
 const ADULT_TRADE_MAP: Record<string, string> = {
@@ -96,25 +108,6 @@ function resolveSpecies(demographicsStr: string): string {
     return "Human";
 }
 
-export function getWorkplaceForProfession(profession: string, burgName: string): { type: string; name: string } {
-    if (profession === "Baker") return { type: "BAKERY", name: `${burgName} Communal Hearth Bakery` };
-    if (["Blacksmith", "Armorer", "Foundry Worker"].includes(profession)) return { type: "FORGE", name: `${burgName} Armory & Smithy` };
-    if (["Brewmaster", "Brewer"].includes(profession)) return { type: "BREWERY", name: `${burgName} Brewhouse & Tavern` };
-    if (profession === "Carpenter") return { type: "CARPENTRY", name: `${burgName} Woodcraft Atelier` };
-    if (profession === "Tanner") return { type: "TANNERY", name: `${burgName} Currier Tannery` };
-    if (profession === "Weaver") return { type: "WEAVERY", name: `${burgName} Draper Loom Guild` };
-    if (profession === "Potter") return { type: "POTTERY", name: `${burgName} Pottery Kiln Shed` };
-    if (["City Watchman", "Guard"].includes(profession)) return { type: "BARRACKS", name: `${burgName} City Watch Barracks` };
-    if (["Farmer", "Laborer", "Disenfranchised Laborer"].includes(profession)) return { type: "FARMSTEAD", name: `${burgName} Outlying Granary & Fields` };
-    if (profession === "Fisherman") return { type: "FISHERY", name: `${burgName} Basin Fishery Quay` };
-    if (["Hedge Herbalist", "Apothecary"].includes(profession)) return { type: "APOTHECARY", name: `${burgName} Herbal Dispensary` };
-    if (["Temple Acolyte", "Priest"].includes(profession)) return { type: "TEMPLE", name: `${burgName} Sanctuary of the Seals` };
-    if (["Merchant Trader", "Caravan Drover"].includes(profession)) return { type: "MARKET_STALL", name: `${burgName} Central Market Stalls` };
-    if (["Town Scribe", "Magistrate"].includes(profession)) return { type: "REGISTRY", name: `${burgName} Chancellery & Registry` };
-    if (profession === "Clockmaker") return { type: "PRECISION_ATELIER", name: `${burgName} Horologist Atelier` };
-    if (profession === "Stonemason") return { type: "MASONRY", name: `${burgName} Stonecutting Yard` };
-    return { type: "CIVIC_GUILD", name: `${burgName} Provincial Guild` };
-}
 
 /**
  * How a burg's population counters map onto its citizen records. Each record stands for `unit` people:
@@ -236,51 +229,55 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
     const stockpileUpdates: any[] = [];
     const burgEvents: any[] = [];
 
-    const RESOURCE_TYPES: Record<string, string> = {
-        "veg": "food", "meat": "food", "fruit": "food", "root_veg": "food", "grain": "food", "lard": "food",
-        "stone": "mats", "clay": "mats", "fibre": "mats", "wood": "mats", "leather": "mats", "adhesive": "mats",
-        "reagents": "lux", "poison": "lux", "mounts": "lux", "ivory": "lux", "gems": "lux", "fur": "lux",
-        "draftbeasts": "lux", "wool": "lux", "pets": "lux", "errand_beasts": "lux", "companion_beasts": "lux",
-        "herbs": "lux", "medicine": "lux", "codependent_beasts": "lux"
-    };
+    // Load canonical goods & recipes from sim_goods (Ostraka_full.map)
+    const goodsRes = await client.query(`SELECT id, name, value, tags, recipes FROM sim_goods ORDER BY id`);
+    const goodsById = new Map<number, { id: number; name: string; key: string; value: number; recipes: Array<Record<string, number>> }>();
+    const goodKeyById = new Map<number, string>();
+    const rawMaterialKeys = new Set<string>();
+    const refinedGoodKeys = new Set<string>();
+    const advancedGoodKeys = new Set<string>();
+    for (const g of goodsRes.rows) {
+        const gId = Number(g.id);
+        const key = goodKeyFromName(String(g.name || "")) || GOOD_ROLE_BY_ID[gId]?.goodKey || `good_${gId}`;
+        let recipes: Array<Record<string, number>> = [];
+        try {
+            recipes = Array.isArray(g.recipes) ? g.recipes : JSON.parse(g.recipes || "[]");
+        } catch {
+            recipes = [];
+        }
+        goodsById.set(gId, { id: gId, name: String(g.name || ""), key, value: Number(g.value) || 1, recipes });
+        goodKeyById.set(gId, key);
+        const role = GOOD_ROLE_BY_ID[gId];
+        if (recipes.length === 0) {
+            if (!role?.isFood) rawMaterialKeys.add(key);
+        } else if (Number(g.value) >= 12) {
+            advancedGoodKeys.add(key);
+        } else {
+            refinedGoodKeys.add(key);
+        }
+    }
 
-    const CRAFTING_TREE: Record<string, { refined: string, crafted: string }> = {
-        "veg": { refined: "pickled_veg", crafted: "preserved_rations" },
-        "meat": { refined: "cured_meat", crafted: "gourmet_rations" },
-        "fruit": { refined: "pressed_juice", crafted: "fine_wine" },
-        "root_veg": { refined: "milled_flour", crafted: "baked_goods" },
-        "grain": { refined: "malt", crafted: "ale" },
-        "lard": { refined: "tallow", crafted: "fine_candles" },
-        "stone": { refined: "cut_stone", crafted: "sculptures" },
-        "clay": { refined: "bricks", crafted: "fine_pottery" },
-        "fibre": { refined: "thread", crafted: "textiles" },
-        "wood": { refined: "lumber", crafted: "furniture" },
-        "leather": { refined: "tanned_hide", crafted: "leather_armor" },
-        "adhesive": { refined: "resin", crafted: "sealant" },
-        "reagents": { refined: "alchemical_base", crafted: "elixirs" },
-        "poison": { refined: "venom_extract", crafted: "assassin_vials" },
-        "mounts": { refined: "trained_mounts", crafted: "war_mounts" },
-        "ivory": { refined: "polished_ivory", crafted: "ivory_carvings" },
-        "gems": { refined: "cut_gems", crafted: "jewelry" },
-        "fur": { refined: "treated_fur", crafted: "luxurious_coats" },
-        "draftbeasts": { refined: "harnessed_beasts", crafted: "siege_beasts" },
-        "wool": { refined: "yarn", crafted: "tapestries" },
-        "pets": { refined: "tamed_pets", crafted: "exotic_companions" },
-        "errand_beasts": { refined: "messenger_beasts", crafted: "courier_network_beasts" },
-        "companion_beasts": { refined: "guard_beasts", crafted: "elite_guard_beasts" },
-        "herbs": { refined: "dried_herbs", crafted: "incense" },
-        "medicine": { refined: "poultices", crafted: "miracle_cures" },
-        "codependent_beasts": { refined: "symbiotic_beasts", crafted: "bonded_beasts" },
-        "foraged_food": { refined: "dried_forage", crafted: "survival_rations" },
-        "scrap": { refined: "usable_parts", crafted: "salvaged_tools" },
-        "trinkets": { refined: "polished_trinkets", crafted: "curiosities" },
-        "iron": { refined: "forged_steel", crafted: "steel_weapons" },
-        "copper": { refined: "bronze_ingots", crafted: "bronze_statues" },
-        "gold": { refined: "gold_bars", crafted: "gold_relics" },
-        "silver": { refined: "silver_ingots", crafted: "silver_artifacts" },
-        "crystals": { refined: "cut_crystals", crafted: "crystal_foci" },
-        "dragon_stone_shard": { refined: "dragon_core", crafted: "airship_engine" }
-    };
+    // Load real living adult civilian workers grouped by (settlement_id, profession)
+    const wfRes = await client.query(`
+        SELECT settlement_id, profession, COUNT(*)::int AS active_records, COALESCE(SUM(unit_size), 0)::int AS active_people
+        FROM population_demographics
+        WHERE life_stage = 'ADULT' AND allegiance_status = 'CIVILIAN'
+        GROUP BY settlement_id, profession
+        ORDER BY settlement_id, profession
+    `);
+    const burgWorkforce = new Map<number, Map<string, { records: number; people: number }>>();
+    for (const row of wfRes.rows) {
+        const bId = Number(row.settlement_id);
+        let pMap = burgWorkforce.get(bId);
+        if (!pMap) {
+            pMap = new Map();
+            burgWorkforce.set(bId, pMap);
+        }
+        pMap.set(String(row.profession || ""), {
+            records: Number(row.active_records) || 0,
+            people: Number(row.active_people) || 0
+        });
+    }
 
     // Map to accumulate hierarchical shipments from downstream hamlets/villages/towns
     const incomingTributes = new Map<number, { food: number; wealth: number }>();
@@ -301,14 +298,6 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
     for (const [cellId, tags] of await loadCellTagMap(client)) {
         if (tags.some((t: string) => t.includes("Blockade") || t.includes("Embargo"))) sectorBlockadeMap.set(cellId, true);
     }
-
-    // ── QUANTITATIVE ECOLOGY (QE) & INFRASTRUCTURE SETUP ─────────────────────
-    const INFRA_MAP: Record<string, string> = {
-        "grain": "FARM", "fruit": "FARM", "root_veg": "FARM", "veg": "FARM", "fibre": "FARM", "herbs": "FARM", "medicine": "FARM",
-        "wood": "CAMP", "pitch": "CAMP", "meat": "CAMP", "ivory": "CAMP", "leather": "CAMP", "wool": "CAMP", "fur": "CAMP", "lard": "CAMP", "adhesive": "CAMP", "reagents": "CAMP", "pets": "CAMP", "mounts": "CAMP", "draftbeasts": "CAMP", "poison": "CAMP",
-        "stone": "QUARRY", "clay": "QUARRY",
-        "ore": "MINE", "iron": "MINE", "copper": "MINE", "gold": "MINE", "silver": "MINE", "gems": "MINE", "crystals": "MINE", "dragon_stone_shard": "MINE"
-    };
 
     const infraRes = await client.query("SELECT burg_id, type, level FROM sim_infrastructure");
     const burgInfraMap = new Map<number, Map<string, number>>();
@@ -343,73 +332,138 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
     for (const burg of burgRes.rows) {
         const pop = burg.pop_null || 0;
         const ledger = ledgerFor(burg);
-        // People who leave the counters outside births and starvation; records follow (see the ledger below)
         let departedDead = 0, departedLeft = 0;
         let urbanTier = burg.urban_tier || 1;
         const gatherRate = 1 + urbanTier;
 
-        const totalWorkers = Math.floor(pop / 10);
-        const fullBlocks = Math.floor(totalWorkers / 12);
-
-        // --- PURPOSE-DRIVEN WORKFORCE: DEDICATED CIVIC OVERHEAD VS PRODUCTIVE CRAFTING ---
-        // Each settlement size requires dedicated civic operational population:
-        // Hamlet: 5%, Village: 15%, Town: 25%, City: 35%, Capital: 45%
-        const civicRatio = Number(burg.dedicated_civic_ratio) || (burg.is_capital ? 0.45 : burg.urban_tier >= 3 ? 0.35 : burg.urban_tier === 2 ? 0.25 : burg.parent_burg_id ? 0.05 : 0.15);
-        const civicWorkers = Math.max(1, Math.floor(totalWorkers * civicRatio));
-        const productiveWorkers = Math.max(0, totalWorkers - civicWorkers);
-
-        let wCivil = Math.floor(civicWorkers * 0.34);
-        let wSec = Math.floor(civicWorkers * 0.33);
-        let wSoc = Math.max(0, civicWorkers - wCivil - wSec);
-
-        let wFood = 0, wMats = 0, wLux = 0;
-        // Group of 12 Distribution: 6 Food Creating (50%), 2-4 Resources (25-30%), rest artisanal crafts/luxuries
-        if (burg.urban_tier <= 1 || burg.parent_burg_id) {
-            // Hamlets & Agrarian Hinterlands focus on primary agricultural extraction
-            wFood = Math.floor(productiveWorkers * 0.60);
-            wMats = Math.floor(productiveWorkers * 0.25);
-            wLux = Math.max(0, productiveWorkers - wFood - wMats);
-        } else if (burg.urban_tier === 2) {
-            // Towns: balanced regional aggregation (50% Food hinterland, 25% Mats, 25% Lux)
-            wFood = Math.floor(productiveWorkers * 0.50);
-            wMats = Math.floor(productiveWorkers * 0.25);
-            wLux = Math.max(0, productiveWorkers - wFood - wMats);
-        } else {
-            // Cities & Capitals: regional farms & outposts account for 50% food, 25% resource milling, 25% fine craft
-            wFood = Math.floor(productiveWorkers * 0.50);
-            wMats = Math.floor(productiveWorkers * 0.25);
-            wLux = Math.max(0, productiveWorkers - wFood - wMats);
+        // Real living adult workforce in this burg
+        const profMap = burgWorkforce.get(Number(burg.burg_id)) || new Map<string, { records: number; people: number }>();
+        let wCivil = 0, wSec = 0, wSoc = 0, craftedCount = 0, totalActiveRecords = 0;
+        for (const [prof, counts] of profMap.entries()) {
+            totalActiveRecords += counts.records;
+            if (CIVIC_PROFESSIONS.has(prof)) wCivil += counts.records;
+            else if (SECURITY_PROFESSIONS.has(prof)) wSec += counts.records;
+            else if (SOCIAL_SPIRITUAL_PROFESSIONS.has(prof)) wSoc += counts.records;
+            else if (["Armorer", "Blacksmith", "Tanner", "Weaver", "Potter", "Foundry Worker", "Alchemist", "Goldsmith", "Brewmaster", "Baker"].includes(prof)) {
+                craftedCount += counts.records;
+            }
         }
+        const fullBlocks = Math.max(0, Math.floor(totalActiveRecords / 12));
 
-        let invObj: Record<string, number> = {};
+        let inventory: Record<string, number> = {};
         try {
-            invObj = typeof burg.current_inventory === 'string'
+            inventory = typeof burg.current_inventory === 'string'
                 ? JSON.parse(burg.current_inventory)
-                : (burg.current_inventory || {});
+                : { ...(burg.current_inventory || {}) };
         } catch (e) {
-            invObj = {};
+            inventory = {};
         }
-        const systemicEffects = evaluateBurgInventoryEffects(invObj);
+        const systemicEffects = evaluateBurgInventoryEffects(inventory);
 
-        // --- CONTROLLED INSTABILITY 1: SEASONAL AGRICULTURAL CYCLE & CHAOS BLIGHT ---
-        // Winter cuts base crop yields to 35%; Coal & Stone-Root winter resilience mitigates cold!
+        const currentUnrest = Number(burg.unrest || 0);
+        const currentCrime = Number(burg.crime_rate || 0);
+        const currentHealth = Number(burg.health ?? 100);
+        const chaosIntensity = chaosIntensityMap.get(Number(burg.cell_id)) || 0;
+
+        // Deterministic worker hindrance from occupation, riots, illness, or chaos blight
+        let workEfficiency = 1.0;
+        if (burg.occupier_faction_id) workEfficiency *= 0.50;
+        if (currentUnrest >= 80) workEfficiency *= 0.25;
+        else if (currentUnrest >= 60) workEfficiency *= 0.60;
+        if (currentHealth < 40) workEfficiency *= 0.50;
+        else if (currentHealth < 65) workEfficiency *= 0.80;
+        if (chaosIntensity >= 70) workEfficiency *= Math.max(0.25, 1 - (chaosIntensity / 100) * 0.50);
+        workEfficiency = Math.max(0.1, Math.min(1.0, workEfficiency));
+
+        // Seasonal agricultural factor
         const isWinterFreeze = seasonKind(currentSeason) === "Winter" || currentSeason === SHADOWFALL || (burg.current_temp !== undefined && Number(burg.current_temp) < 0);
         const winterFloor = Math.min(0.85, 0.35 + (systemicEffects.winterResilience * 0.05));
         const seasonMod = isWinterFreeze ? winterFloor : (currentSeason === "Dryspell" ? 1.45 : (seasonKind(currentSeason) === "Spring" ? 1.20 : (currentSeason === "Cropfade" ? 0.8 : 1.0)));
-        let foodYieldPerWorker = Math.max(6, Math.floor((28 + (urbanTier * 3)) * seasonMod));
 
-        const chaosIntensity = chaosIntensityMap.get(Number(burg.cell_id)) || 0;
-        if (chaosIntensity >= 70) {
-            foodYieldPerWorker = Math.max(4, Math.floor(foodYieldPerWorker * (1 - (chaosIntensity / 100) * 0.70)));
+        // Parse primary extraction & crafted workshop profile from Ostraka_full.map
+        let profile: { primary?: Array<{ goodId: number; key: string; share: number }>; crafted?: Array<{ goodId: number; key: string; targetOutput: number }> } = {};
+        try {
+            if (burg.resource_profile) {
+                profile = typeof burg.resource_profile === 'string' ? JSON.parse(burg.resource_profile) : burg.resource_profile;
+            }
+        } catch (e) { }
+
+        const primarySlots = Array.isArray(profile.primary) && profile.primary.length > 0
+            ? profile.primary
+            : [
+                { goodId: 9, key: "grain", share: 0.6 },
+                { goodId: 1, key: "wood", share: 0.4 }
+            ];
+        const craftedSlots = Array.isArray(profile.crafted) && profile.crafted.length > 0
+            ? profile.crafted
+            : (Array.isArray(burg.production) ? burg.production : []).map(([gid, out]: [number, number]) => ({
+                goodId: Number(gid),
+                key: goodKeyById.get(Number(gid)) || goodKeyFromName(GOOD_ROLE_BY_ID[Number(gid)]?.goodKey || ""),
+                targetOutput: Number(out) || 1
+            })).filter((c: any) => c.goodId > 0 && c.key);
+
+        // --- CITIZEN-BACKED PRIMARY GATHERING (NO WORKER = NO RESOURCE) ---
+        let foodProduced = 0;
+        const requiredInfraBuilds = new Map<string, number>();
+        const primaryByProfession = new Map<string, Array<{ goodId: number; key: string; share: number }>>();
+        for (const slot of primarySlots) {
+            const role = getProfessionForGood(Number(slot.goodId));
+            const list = primaryByProfession.get(role.profession) || [];
+            list.push({ goodId: Number(slot.goodId), key: slot.key || role.goodKey, share: Math.max(0.01, Number(slot.share) || 0.1) });
+            primaryByProfession.set(role.profession, list);
         }
 
-        let foodProduced = Math.floor(wFood * foodYieldPerWorker);
-        // Base subsistence floor: foraging in deep winter snow or blighted soil is severely crippled!
-        const baseFloorRate = isWinterFreeze ? 0.40 : (chaosIntensity >= 70 ? 0.35 : 0.90);
-        foodProduced = Math.max(foodProduced, Math.floor(pop * baseFloorRate));
+        const bInfra = burgInfraMap.get(burg.burg_id) || new Map<string, number>();
+        for (const [profName, slotsForProf] of primaryByProfession.entries()) {
+            const profRecords = profMap.get(profName)?.records || 0;
+            if (profRecords <= 0) continue; // No living workers -> strictly 0 output
 
-        // Artisanal luxury wealth net calculation (luxury tax revenue minus civic overhead):
-        const luxRevenue = Math.floor(wLux * 0.10 * (1 + urbanTier * 0.20));
+            const sortedSlots = slotsForProf.slice().sort((a, b2) => a.goodId - b2.goodId);
+            const totalShare = sortedSlots.reduce((s, x) => s + x.share, 0) || 1;
+            const allocs = sortedSlots.map((s) => {
+                const exact = profRecords * (s.share / totalShare);
+                const base = Math.floor(exact);
+                return { slot: s, count: base, frac: exact - base };
+            });
+            let rem = profRecords - allocs.reduce((s, a) => s + a.count, 0);
+            const byFrac = allocs.slice().sort((a, b2) => (b2.frac - a.frac) || (a.slot.goodId - b2.slot.goodId));
+            for (let k = 0; k < rem && byFrac.length > 0; k++) {
+                byFrac[k % byFrac.length]!.count++;
+            }
+
+            for (const { slot, count } of allocs) {
+                if (count <= 0) continue;
+                const role = getProfessionForGood(slot.goodId);
+                const reqInfra = role.infraType === "WORKSHOP" ? "CAMP" : role.infraType;
+                const infraLevel = bInfra.get(reqInfra) || 0;
+                const infraCap = infraLevel * 10;
+                const covered = Math.min(count, infraCap);
+                const uncovered = Math.max(0, count - infraCap);
+
+                const seasonFactor = (role.infraType === "FARM" || role.isFood) ? seasonMod : 1.0;
+                const basePerRecord = 1.0 + urbanTier * 0.5;
+                const yieldAmt = Math.floor((covered * 2 + uncovered) * workEfficiency * seasonFactor * basePerRecord);
+                if (yieldAmt > 0) {
+                    inventory[slot.key] = (inventory[slot.key] || 0) + yieldAmt;
+                    if (role.isFood) {
+                        foodProduced += Math.round(yieldAmt * Math.max(8, role.foodNutrition) * 1.6);
+                    }
+                }
+                if (uncovered > 0 && burg.cell_id) {
+                    cellEcoDeltas.set(burg.cell_id, (cellEcoDeltas.get(burg.cell_id) || 0) + uncovered);
+                    requiredInfraBuilds.set(reqInfra, (requiredInfraBuilds.get(reqInfra) || 0) + uncovered);
+                }
+            }
+        }
+
+        // Millers & Bakers add provisioning efficiency only when living food gatherers produced food
+        if (foodProduced > 0) {
+            const foodProcessors = (profMap.get("Baker")?.records || 0) + (profMap.get("Grain Miller")?.records || 0);
+            foodProduced += Math.floor(foodProcessors * 12 * workEfficiency * seasonMod);
+        }
+
+        // Artisanal wealth calculation backed by living crafters & civic workers:
+        const luxRevenue = Math.floor(craftedCount * workEfficiency * 0.12 * (1 + urbanTier * 0.20));
         const municipalCosts = Math.floor(wCivil * 0.04 + wSec * 0.04 + urbanTier * 2);
         let wealthDelta = Math.max(-8, Math.min(25, luxRevenue - municipalCosts));
 
@@ -433,10 +487,8 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
                     breadbasket.food = Math.max(0, (breadbasket.food || 0) - grainRelief);
                 }
             } else if (isTradeBlockaded) {
-                // Mercantile sanctions freeze commercial food imports and siphon wealth
                 wealthDelta = Math.min(0, wealthDelta - 4);
             } else if ((burg.wealth || 0) > 25) {
-                // Commercial Grain Purchase: Wealthy cities buy grain from trade caravans (1 Gold = 25 Food)
                 const affordableGrain = Math.min(deficit, ((burg.wealth || 0) - 25) * 25);
                 if (affordableGrain > 0) {
                     foodDelta += affordableGrain;
@@ -469,15 +521,13 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
         }
 
         // MILITARY POPULATION & CONSUMPTION
-
         let military: any = {};
         try {
             if (burg.military_forces) {
-                const parsed = typeof burg.military_forces === 'string' ? JSON.parse(burg.military_forces) : burg.military_forces;
-                for (const k in parsed) military[k.toLowerCase()] = parsed[k];
+                const parsedMil = typeof burg.military_forces === 'string' ? JSON.parse(burg.military_forces) : burg.military_forces;
+                for (const k in parsedMil) military[k.toLowerCase()] = parsedMil[k];
             }
         } catch (e) { }
-
 
         const milInfantry = (military.infantry || military.footmen || military.militia || 0);
         const milRanged = (military.ranged || military.archers || 0);
@@ -501,36 +551,23 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
         // Authentic civil equilibrium:
         let healthDelta = Math.min(4, Math.max(-4, Math.floor(wCivil * 0.08) - ((burg.health || 100) > 80 ? 0 : 1) + systemicEffects.healthDelta));
 
-        // Organic Civil Tension:
-        // Unrest naturally settles around an authentic societal equilibrium (~40-50%).
-        // It drops toward 20-30% in prosperous, well-fed, peaceful burgs,
-        // and spikes toward 60-80% during famine, siege, war, or chaos storms.
         let baseUnrestDelta = 0;
-        const currentUnrest = Number(burg.unrest || 0);
-        const currentCrime = Number(burg.crime_rate || 0);
-        const currentHealth = Number(burg.health ?? 100);
-
         const isWellFed = (burg.food || 0) + foodDelta >= pop * 1.1;
         const isHealthy = currentHealth >= 50;
         const isLowCrime = currentCrime < 45;
 
         if (isWellFed && isHealthy && isLowCrime) {
-            // Peace and abundance calms civil tension
             baseUnrestDelta = -Math.max(1, Math.floor(wSoc * 0.05));
-            if (currentUnrest > 50) baseUnrestDelta -= 2; // Accelerated pacification at elevated unrest
+            if (currentUnrest > 50) baseUnrestDelta -= 2;
             else if (currentUnrest > 35) baseUnrestDelta -= 1;
         } else if ((burg.food || 0) + foodDelta < pop * 0.5) {
-            // Acute food scarcity stokes bread riots
             baseUnrestDelta = +2;
         }
 
-        // Underworld cartel presence & severe crime stokes unrest
         if (currentCrime >= 60) {
             baseUnrestDelta += 1;
         }
 
-        // Natural mean reversion toward societal resting band (40-50%):
-        // Extended high unrest causes exhaustion, marshal curfews, and public fatigue
         if (currentUnrest > 60) {
             baseUnrestDelta -= 2;
         } else if (currentUnrest > 50) {
@@ -549,10 +586,7 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
             unrestDelta += 4;
             crimeDelta += 3;
 
-            // Actually kill off pop/military
             let shortfall = Math.abs((burg.food || 0) + foodDelta);
-
-            // First armies desert
             for (const type of Object.keys(military)) {
                 if (military[type] > 0 && shortfall > 0) {
                     let desertion = Math.min(military[type], Math.ceil(shortfall / 200));
@@ -562,117 +596,41 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
                 }
             }
 
-            // Civilians suffer realistic daily famine attrition (~0.1% of shortfall per day)
-            // Desperate survivors turn to highway banditry and swell cartel ranks!
             if (shortfall > 0) {
                 starvationDeaths = Math.min(burg.pop_null || 0, Math.floor(shortfall * 0.001));
                 banditDefectors = Math.min(Math.floor((burg.pop_null || 0) * 0.04), Math.max(0, Math.floor(shortfall * 0.004)));
             }
         }
 
-        // Chaos Blight impact on health and unrest
         if (chaosIntensity >= 70) {
             healthDelta -= Math.floor((chaosIntensity - 55) * 0.12);
             unrestDelta += Math.floor((chaosIntensity - 55) * 0.15);
         }
 
-        // --- SPECIFIC RESOURCE GATHERING ---
-        let profile = { slots: [] };
-        try {
-            if (burg.resource_profile) profile = JSON.parse(burg.resource_profile);
-        } catch (e) { }
-
-        const slots: any[] = profile.slots || [];
-        const weights = { food: 0, mats: 0, lux: 0 };
-        const categorizedSlots: any = { food: [], mats: [], lux: [] };
-
-        for (const slot of slots) {
-            const type = RESOURCE_TYPES[slot.res] || "mats";
-            weights[type as keyof typeof weights] += slot.workers;
-            categorizedSlots[type].push(slot);
-        }
-
-        let inventory: any = {};
-        try {
-            if (burg.current_inventory) inventory = JSON.parse(burg.current_inventory);
-        } catch (e) { }
-
         // --- AUTHENTIC LORE COMMODITY SYSTEMIC EFFECTS ---
-        // 1. The Reliance: Chaos-Resistant Compound neutralizes Chaos Blight
-        if (chaosIntensity >= 70 && ((inventory['chaos_resistant_compound'] as number) || 0) >= 1) {
-            inventory['chaos_resistant_compound'] -= 1;
-            healthDelta += 2; // Shields from blight rot
+        if (chaosIntensity >= 70 && ((inventory['aether_clear'] as number) || (inventory['chaos_resistant_compound'] as number) || 0) >= 1) {
+            if (inventory['aether_clear']) inventory['aether_clear'] -= 1;
+            else inventory['chaos_resistant_compound'] = Math.max(0, (inventory['chaos_resistant_compound'] || 0) - 1);
+            healthDelta += 2;
             unrestDelta = Math.max(-2, unrestDelta - 2);
         }
 
-        // 2. Sump-Kin: Mire Pharmaceuticals & Narcotics treat health emergencies
-        if ((burg.health || 100) < 55 && ((inventory['sumpkin_pharmaceutical_chems'] as number) || 0) >= 1) {
-            inventory['sumpkin_pharmaceutical_chems'] -= 1;
+        if ((burg.health || 100) < 55 && ((inventory['grave_berries'] as number) || (inventory['sumpkin_pharmaceutical_chems'] as number) || 0) >= 1) {
+            if (inventory['grave_berries']) inventory['grave_berries'] -= 1;
+            else inventory['sumpkin_pharmaceutical_chems'] = Math.max(0, (inventory['sumpkin_pharmaceutical_chems'] || 0) - 1);
             healthDelta += 3;
             unrestDelta -= 1;
         }
 
-        // 3. Flower Valley: Intel Dossiers grant early warnings, curbing crime and unrest
-        if (((inventory['coded_intel_dossiers'] as number) || 0) >= 2) {
+        if (((inventory['perfume'] as number) || 0) >= 2) {
             crimeDelta = Math.max(-3, crimeDelta - 1);
             if (currentUnrest > 45) unrestDelta -= 1;
         }
 
-        // 4. Dust-Husk Moonflowers: Calming dream teas ease civil agitation
-        if (currentUnrest > 55 && ((inventory['night_moonflowers'] as number) || 0) >= 1) {
-            inventory['night_moonflowers'] -= 1;
-            unrestDelta -= 2;
-        }
-
-        const requiredInfraBuilds = new Map<string, number>();
-
-        const distribute = (availableWorkers: number, typeStr: "food" | "mats" | "lux") => {
-            const totalWeight = weights[typeStr];
-            let remainingWorkers = availableWorkers;
-
-            if (totalWeight === 0 && availableWorkers > 0) {
-                const fallback = typeStr === "food" ? "foraged_food" : (typeStr === "mats" ? "scrap" : "trinkets");
-                inventory[fallback] = (inventory[fallback] || 0) + (availableWorkers * gatherRate);
-                return;
-            }
-
-            for (let i = 0; i < categorizedSlots[typeStr].length; i++) {
-                const slot = categorizedSlots[typeStr][i];
-                const assigned = (i === categorizedSlots[typeStr].length - 1)
-                    ? remainingWorkers
-                    : Math.floor(availableWorkers * (slot.workers / totalWeight));
-
-                remainingWorkers -= assigned;
-
-                // Quantitative Ecology (QE): Covered vs Uncovered Workers
-                const reqInfra = INFRA_MAP[slot.res] || "CAMP";
-                const bInfra = burgInfraMap.get(burg.burg_id) || new Map<string, number>();
-                const infraLevel = bInfra.get(reqInfra) || 0;
-                const infraCap = infraLevel * 10;
-                const covered = Math.min(assigned, infraCap);
-                const uncovered = Math.max(0, assigned - infraCap);
-
-                // Covered workers produce 2x yield with zero eco damage;
-                // Uncovered workers produce 1x yield and inflict damage on the cell's eco_health
-                const yieldAmt = (covered * 2 * gatherRate) + (uncovered * 1 * gatherRate);
-                inventory[slot.res] = (inventory[slot.res] || 0) + yieldAmt;
-
-                if (uncovered > 0 && burg.cell_id) {
-                    cellEcoDeltas.set(burg.cell_id, (cellEcoDeltas.get(burg.cell_id) || 0) + uncovered);
-                    requiredInfraBuilds.set(reqInfra, (requiredInfraBuilds.get(reqInfra) || 0) + uncovered);
-                }
-            }
-        };
-
-        distribute(wFood, "food");
-        distribute(wMats, "mats");
-        distribute(wLux, "lux");
-
         // Auto-build infrastructure to halt ecological bleeding
         for (const [infraType, deficit] of requiredInfraBuilds.entries()) {
-            if (deficit >= 10 && (inventory['lumber'] || inventory['wood'] || 0) >= 20 && (burg.wealth || 0) >= 20) {
-                if (inventory['lumber']) inventory['lumber'] -= 20;
-                else inventory['wood'] -= 20;
+            if (deficit >= 10 && (inventory['wood'] || 0) >= 20 && (burg.wealth || 0) >= 20) {
+                inventory['wood'] = Math.max(0, (inventory['wood'] || 0) - 20);
                 await client.query(`
                     INSERT INTO sim_infrastructure (burg_id, cell_id, type, level)
                     VALUES ($1, $2, $3, 1)
@@ -682,117 +640,112 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
             }
         }
 
-        // --- PRODUCTION & CONSTRUCTION (PROCESSING SPECIFIC TIERS) ---
-        if (urbanTier >= 2) {
-            let actions = fullBlocks;
-            let refineRate = urbanTier - 1; // Village(2)=1, Town(3)=2, City(4)=3
-            let craftRate = Math.max(0, urbanTier - 2); // Village(2)=0, Town(3)=1, City(4)=2
+        // --- CITIZEN-BACKED RECIPE CRAFTING (INPUTS + CRAFTERS REQUIRED) ---
+        let workshopShortageLogged = false;
+        for (const cSlot of craftedSlots) {
+            const g = goodsById.get(Number(cSlot.goodId));
+            const role = getProfessionForGood(Number(cSlot.goodId));
+            const crafterRecords = profMap.get(role.profession)?.records || 0;
+            if (crafterRecords <= 0 || !g || !Array.isArray(g.recipes) || g.recipes.length === 0) continue;
 
-            let craftActions = urbanTier >= 3 ? Math.floor(actions / 3) : 0;
-            let refineActions = actions - craftActions;
+            const maxBatches = Math.max(1, Math.floor(crafterRecords * workEfficiency * (0.25 + urbanTier * 0.15)));
+            let remainingBatches = Math.min(maxBatches, Math.max(2, Math.ceil((Number(cSlot.targetOutput) || 2) * 3)));
+            let craftedTotal = 0;
 
-            // Crafting Phase (Refined -> Crafted)
-            if (craftRate > 0 && craftActions > 0) {
-                let maxCrafts = craftActions * craftRate;
+            for (const recipeObj of g.recipes) {
+                if (remainingBatches <= 0 || !recipeObj || typeof recipeObj !== 'object') break;
+                const inputs = Object.entries(recipeObj)
+                    .map(([idStr, req]) => {
+                        const iId = Number(idStr);
+                        const iKey = goodKeyById.get(iId) || goodKeyFromName(GOOD_ROLE_BY_ID[iId]?.goodKey || "");
+                        return { id: iId, key: iKey, req: Number(req) || 0 };
+                    })
+                    .filter((x) => x.id > 0 && x.key && x.req > 0)
+                    .sort((a, b2) => a.id - b2.id);
 
-                let availableRefined = Object.keys(inventory).filter(k =>
-                    Object.values(CRAFTING_TREE).some(t => t.refined === k)
-                ).sort((a, b) => (inventory[b] || 0) - (inventory[a] || 0));
-
-                for (const refKey of availableRefined) {
-                    if (maxCrafts <= 0) break;
-                    let possible = Math.floor(((inventory[refKey] as number) || 0) / 2);
-                    let actual = Math.min(possible, maxCrafts);
-
-                    if (actual > 0) {
-                        let craftedKey = Object.values(CRAFTING_TREE).find(t => t.refined === refKey)?.crafted || "crafted_goods";
-                        inventory[refKey] -= actual * 2;
-                        inventory[craftedKey] = (inventory[craftedKey] || 0) + actual;
-                        maxCrafts -= actual;
+                if (inputs.length === 0) continue;
+                let canMake = remainingBatches;
+                for (const inp of inputs) {
+                    canMake = Math.min(canMake, Math.floor((inventory[inp.key] || 0) / inp.req));
+                }
+                if (canMake > 0) {
+                    for (const inp of inputs) {
+                        const spent = Math.max(1, Math.round(canMake * inp.req));
+                        inventory[inp.key] = Math.max(0, (inventory[inp.key] || 0) - spent);
                     }
+                    inventory[g.key] = (inventory[g.key] || 0) + canMake;
+                    craftedTotal += canMake;
+                    remainingBatches -= canMake;
                 }
             }
 
-            // Refining Phase (Raw -> Refined)
-            if (refineRate > 0 && refineActions > 0) {
-                let maxRefines = refineActions * refineRate;
-
-                let availableRaw = Object.keys(inventory).filter(k =>
-                    CRAFTING_TREE[k] !== undefined
-                ).sort((a, b) => (inventory[b] || 0) - (inventory[a] || 0));
-
-                for (const rawKey of availableRaw) {
-                    if (maxRefines <= 0) break;
-                    let possible = Math.floor(((inventory[rawKey] as number) || 0) / 2);
-                    let actual = Math.min(possible, maxRefines);
-
-                    if (actual > 0) {
-                        let refinedKey = CRAFTING_TREE[rawKey]?.refined || "refined_goods";
-                        inventory[rawKey] -= actual * 2;
-                        inventory[refinedKey] = (inventory[refinedKey] || 0) + actual;
-                        maxRefines -= actual;
-                    }
-                }
+            if (craftedTotal > 0 && role.isFood) {
+                foodProduced += craftedTotal * Math.max(8, role.foodNutrition);
+            } else if (craftedTotal === 0 && !workshopShortageLogged && (tick + burg.burg_id) % 30 === 0) {
+                workshopShortageLogged = true;
+                const neededNames = Object.keys(g.recipes[0] || {})
+                    .map((idStr) => goodsById.get(Number(idStr))?.name || idStr)
+                    .join(", ");
+                burgEvents.push({
+                    tick,
+                    type: 'WORKSHOP_INPUT_SHORTAGE',
+                    message: `${role.profession} workshops in ${burg.name} stalled on ${g.name}: awaiting inputs (${neededNames}).`,
+                    tier: 'MINOR',
+                    burg_id: burg.burg_id,
+                    lore_date: loreDate
+                });
             }
         }
 
-        // --- FACTION-SPECIFIC SIGNATURE COMMODITY PRODUCTION ---
-        // Each sovereign faction executes unique harvest/production methods yielding signature commodities
-        // that foreign settlements require to advance their urban tiers and infrastructure.
+        // --- FACTION-SPECIFIC SIGNATURE COMMODITY PRODUCTION (STRICT INPUT GATE) ---
         const factionSpecialty = getFactionSpecialty(factionId);
-        if (factionSpecialty && productiveWorkers >= 5) {
-            // Determine maximum batches based on productive workforce
-            const maxBatches = Math.max(1, Math.floor(productiveWorkers / 25));
+        if (factionSpecialty && totalActiveRecords >= 5) {
+            const inputs = factionSpecialty.requiredRawInputs || [];
+            const maxBatches = Math.max(1, Math.floor(totalActiveRecords * workEfficiency / 20));
             let possibleBatches = maxBatches;
 
-            // Check if required raw materials are available
-            for (const input of (factionSpecialty.requiredRawInputs || [])) {
+            for (const input of inputs) {
                 const stock = (inventory[input.resource] || 0) as number;
-                const canMake = Math.floor(stock / Math.max(1, input.count));
+                const canMake = Math.floor(stock / Math.max(0.25, input.count));
                 possibleBatches = Math.min(possibleBatches, canMake);
             }
 
-            // If raw inputs are available, produce full yield; otherwise produce a base harvest (1 batch)
-            const actualBatches = Math.max(1, Math.min(maxBatches, possibleBatches));
-            for (const input of (factionSpecialty.requiredRawInputs || [])) {
-                if (inventory[input.resource]) {
-                    inventory[input.resource] = Math.max(0, inventory[input.resource] - (input.count * actualBatches));
+            if (possibleBatches > 0) {
+                const actualBatches = Math.min(maxBatches, possibleBatches);
+                for (const input of inputs) {
+                    const spent = Math.max(1, Math.round(input.count * actualBatches));
+                    inventory[input.resource] = Math.max(0, (inventory[input.resource] || 0) - spent);
                 }
-            }
+                const producedSignatureGoods = actualBatches * factionSpecialty.outputPerBatch;
+                inventory[factionSpecialty.uniqueGood] = (inventory[factionSpecialty.uniqueGood] || 0) + producedSignatureGoods;
 
-            const producedSignatureGoods = actualBatches * factionSpecialty.outputPerBatch;
-            inventory[factionSpecialty.uniqueGood] = (inventory[factionSpecialty.uniqueGood] || 0) + producedSignatureGoods;
-
-            // Periodically tag authentic local artisan citizens
-            if ((tick + burg.burg_id) % 30 === 0) {
-                await tagBurgCitizens(
-                    client,
-                    burg.burg_id,
-                    [factionSpecialty.artisanPersonaTag],
-                    'FOCUSED',
-                    `Practicing ${factionSpecialty.specialtyName} using traditional ${factionSpecialty.harvestMethod.toLowerCase()}.`,
-                    null,
-                    2
-                ).catch(() => { });
+                if ((tick + burg.burg_id) % 30 === 0) {
+                    await tagBurgCitizens(
+                        client,
+                        burg.burg_id,
+                        [factionSpecialty.artisanPersonaTag],
+                        'FOCUSED',
+                        `Practicing ${factionSpecialty.specialtyName} using traditional ${factionSpecialty.harvestMethod.toLowerCase()}.`,
+                        null,
+                        2
+                    ).catch(() => { });
+                }
             }
         }
 
-        // Helper for specific consumption
         const consumeSpecific = (poolType: "raw" | "refined" | "crafted", amount: number) => {
             let remaining = amount;
-            let keys: string[] = [];
-            if (poolType === "raw") keys = Object.keys(inventory).filter(k => CRAFTING_TREE[k]);
-            else if (poolType === "refined") keys = Object.keys(inventory).filter(k => Object.values(CRAFTING_TREE).some(t => t.refined === k));
-            else if (poolType === "crafted") keys = Object.keys(inventory).filter(k => Object.values(CRAFTING_TREE).some(t => t.crafted === k));
-
-            keys.sort((a, b) => (inventory[b] || 0) - (inventory[a] || 0));
+            const targetSet = poolType === "raw" ? rawMaterialKeys : (poolType === "refined" ? refinedGoodKeys : advancedGoodKeys);
+            const keys = Object.keys(inventory)
+                .filter((k) => targetSet.has(k) && (inventory[k] || 0) > 0)
+                .sort((a, b) => ((inventory[b] || 0) - (inventory[a] || 0)) || a.localeCompare(b));
             for (const k of keys) {
                 if (remaining <= 0) break;
-                let take = Math.min((inventory[k] || 0) as number, remaining);
-                inventory[k] -= take;
+                const take = Math.min(inventory[k] || 0, remaining);
+                inventory[k] = (inventory[k] || 0) - take;
                 remaining -= take;
             }
-            return remaining; // returns deficit
+            return remaining;
         };
 
         const tryConsume = (acceptableKeys: string[], amount: number) => {
@@ -800,12 +753,12 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
             for (const key of acceptableKeys) {
                 if (remaining <= 0) break;
                 if (inventory[key] && inventory[key] > 0) {
-                    let take = Math.min(inventory[key], remaining);
+                    const take = Math.min(inventory[key], remaining);
                     inventory[key] -= take;
                     remaining -= take;
                 }
             }
-            return remaining; // returns deficit
+            return remaining;
         };
 
         // --- INFRASTRUCTURE MAINTENANCE ---
@@ -821,23 +774,14 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
 
         // --- MILITARY MAINTENANCE ---
         let supplyDeficit = 0;
-        supplyDeficit += tryConsume(["leather_armor", "tanned_hide", "leather"], military.infantry || 0);
-        supplyDeficit += tryConsume(["forged_steel", "iron", "scrap"], military.infantry || 0);
-
-        supplyDeficit += tryConsume(["lumber", "wood", "dragon_stone_shard"], military.ranged || 0);
-
-        supplyDeficit += tryConsume(["war_mounts", "trained_mounts", "mounts", "draftbeasts"], military.mounted || 0);
-
-        supplyDeficit += tryConsume(["airship_engine", "dragon_core", "dragon_stone_shard", "cut_stone"], military.airship || 0);
-
-        supplyDeficit += tryConsume(["elixirs", "alchemical_base", "reagents", "poison"], military.mage || 0);
-        supplyDeficit += tryConsume(["fine_wine", "pressed_juice", "fruit"], military.mage || 0);
+        supplyDeficit += tryConsume(["arms", "leather", "tools", "iron"], military.infantry || 0);
+        supplyDeficit += tryConsume(["arms", "wood", "leather", "ropes"], military.ranged || 0);
+        supplyDeficit += tryConsume(["horses", "camels", "tack", "leather"], military.mounted || 0);
+        supplyDeficit += tryConsume(["aether_skiffs", "sails", "ropes", "tar", "dragonstone"], military.airship || 0);
+        supplyDeficit += tryConsume(["aether_clear", "incense", "wine", "candles"], military.mage || 0);
 
         if (supplyDeficit > 0) {
-            // Military equipment shortage affects readiness, not massive daily civilian rioting
             if (supplyDeficit > 10) unrestDelta += 1;
-
-            // Only severe chronic deficits occasionally cause deserters (periodic check, capped at 2,500 syndicate max)
             if (supplyDeficit >= 15 && (tick + burg.burg_id) % 15 === 0) {
                 const deserters = Math.min(4, Math.floor(supplyDeficit * 0.05));
                 if (deserters > 0) {
@@ -851,20 +795,17 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
         }
 
         // --- TIER 1 & TIER 2 CIVILIAN COMFORT & LUXURY NEEDS ---
-        // Tier 1 Comfort Need: Population > 5,000 requires textiles / medicine
         if (pop > 5000) {
             const neededComfort = Math.ceil((pop - 5000) / 1000);
-            const comfortDeficit = tryConsume(["textiles", "thread", "medicine", "poultices"], neededComfort);
+            const comfortDeficit = tryConsume(["garments", "cloth", "boots", "soap", "aether_clear", "grave_berries"], neededComfort);
             if (comfortDeficit > 5) {
                 healthDelta -= 1;
                 if (comfortDeficit > 15) unrestDelta += 1;
             }
         }
-        // Tier 2 Luxury Need: Population > 20,000 requires fine goods / wine / ale / jewelry
         if (pop > 20000) {
             const neededLuxury = Math.ceil((pop - 20000) / 2000);
-            const luxuryDeficit = tryConsume(["fine_wine", "jewelry", "fine_pottery", "ale", "sculptures", "tapestries"], neededLuxury);
-            // Lack of luxury goods slightly dampens satisfaction if unrest is low, but doesn't cause armed riots
+            const luxuryDeficit = tryConsume(["wine", "beer", "liquor", "jewelry", "ceramics", "perfume", "candles", "tea"], neededLuxury);
             if (luxuryDeficit > 10 && currentUnrest < 35) {
                 unrestDelta += 1;
             }
@@ -908,7 +849,7 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
             } else {
                 // Hearts and minds grain relief
                 if ((inventory['grain'] || 0) >= 40) {
-                    inventory['grain'] -= 40;
+                    inventory['grain'] = Math.max(0, (inventory['grain'] || 0) - 40);
                     resPwr = Math.max(0, resPwr - 20);
                 } else {
                     resPwr += 10;
@@ -990,13 +931,13 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
 
             const deductMat = (m: string, amt: number) => {
                 if ((inventory[m] || 0) >= amt) {
-                    inventory[m] -= amt;
+                    inventory[m] = Math.max(0, (inventory[m] || 0) - amt);
                 }
             };
 
             const t1 = ['wood', 'stone', 'clay'];
-            const t2 = ['refined_lumber', 'cut_stone', 'bricks'];
-            const t3 = ['treated_lumber', 'masonry', 'ceramics'];
+            const t2 = ['coal', 'leather', 'cloth', 'bronze', 'tools', 'ceramics', 'glass', 'tar'];
+            const t3 = ['mahogany', 'marble', 'garments', 'jewelry', 'artillery', 'sheet_metal', 'stone_root_timber', 'books'];
 
                 // Helper to check for signature commodities by category
                 const checkCategoryCommodity = (cat: CommodityCategory, minRequired: number): string | null => {
@@ -1018,7 +959,7 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
                     if (b1 && b2 && presGood) {
                         deductMat(b1, 100);
                         deductMat(b2, 50);
-                        inventory[presGood] -= 15;
+                        deductMat(presGood, 15);
                         newWealth -= 100;
                         archType = b1.toUpperCase(); // 'WOOD', 'STONE', or 'CLAY'
                         await client.query(`
@@ -1054,10 +995,10 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
                     if (b2 && b3 && structGood && foundGood) {
                         deductMat(b2, 200);
                         deductMat(b3, 50);
-                        inventory[structGood] -= 20;
-                        inventory[foundGood] -= 20;
+                        deductMat(structGood, 20);
+                        deductMat(foundGood, 20);
                         newWealth -= 200;
-                        archType = b2 === 'refined_lumber' ? 'WOOD' : b2 === 'cut_stone' ? 'STONE' : 'CLAY';
+                        archType = ['tar', 'leather', 'cloth'].includes(b2) ? 'WOOD' : ['glass', 'tools', 'bronze'].includes(b2) ? 'STONE' : 'CLAY';
                         await client.query(`
                         INSERT INTO sim_active_projects (burg_id, project_type, target_tier, ticks_remaining)
                         VALUES ($1, 'URBAN_TIER', 3, 20)
@@ -1084,16 +1025,15 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
                     }
                 } else if (urbanTier === 3 && newWealth >= 500 && !activeProjectsSet.has(`${burg.burg_id}_URBAN_TIER`)) {
                     const b3 = getBest(t3, 300);
-                    const lux = (inventory['luxury'] || inventory['fine_goods'] || 0) as number;
-                    // Tier 3 -> 4 requires ADVANCED commodity (Aether-Glass, Astrolabe Gears, Spidersilk) PLUS HEALTH or METAPHYSICAL
+                    const lux = (inventory['jewelry'] || 0) + (inventory['perfume'] || 0) + (inventory['wine'] || 0) + (inventory['candles'] || 0) + (inventory['tea'] || 0);
                     const advGood = checkCategoryCommodity("ADVANCED", 25);
                     const metaGood = checkCategoryCommodity("METAPHYSICAL", 20) || checkCategoryCommodity("HEALTH", 20) || checkCategoryCommodity("ENERGY", 20);
 
                     if (b3 && lux >= 100 && advGood && metaGood) {
                         deductMat(b3, 300);
-                        if (inventory['luxury']) inventory['luxury'] -= 100;
-                        inventory[advGood] -= 25;
-                        inventory[metaGood] -= 20;
+                        tryConsume(['jewelry', 'perfume', 'wine', 'candles', 'tea'], 100);
+                        deductMat(advGood, 25);
+                        deductMat(metaGood, 20);
                         newWealth -= 500;
                         await client.query(`
                         INSERT INTO sim_active_projects (burg_id, project_type, target_tier, ticks_remaining)
@@ -1419,7 +1359,7 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
             });
 
             for (const key in inventory) {
-                if (inventory[key] > 100000) inventory[key] = 100000;
+                if ((inventory[key] || 0) > 100000) inventory[key] = 100000;
             }
 
             burgUpdates.push({

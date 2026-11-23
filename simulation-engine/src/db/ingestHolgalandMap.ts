@@ -18,6 +18,7 @@ import { prerenderWorldPopulation } from "./prerenderWorldPopulation";
 import { provisionAllBurgParagons } from "./provisionAllBurgParagons";
 import { CANON_DRAGON_PRISONS, VERGE_COORD, canonFlowName } from "../engine/canon/dragonPrisons";
 import { enhanceAllCriminalSyndicates } from "./enhanceAllCriminalSyndicates";
+import { GOOD_ROLE_BY_ID, goodKeyFromName } from "../engine/economy/goodCatalog";
 
 // Lore Profiles for Factions (Aggression, Magic, Economy, Species)
 const FACTION_LORE_PROFILES: Record<string, { aggression: number; magic: number; economy: number; species: Record<string, number> }> = {
@@ -274,9 +275,23 @@ export async function ingestHolgalandMap() {
 
     for (const g of parsed.goods) {
       await client.query(`
-        INSERT INTO sim_goods (id, name, unit, value, carriage, color, tags, distribution, demand_coverage, biome_output, multipliers)
-        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10::jsonb, $11::jsonb)
-      `, [g.i, g.name, g.unit || "unit", Number(g.value) || 1, Number(g.carriage) || 1, g.color || "#888888", JSON.stringify(g.tags || []), String(g.distribution || ""), JSON.stringify(g.demandCoverage || {}), JSON.stringify(g.biomeOutput || {}), JSON.stringify(g.multipliers || {})]);
+        INSERT INTO sim_goods (id, name, unit, value, carriage, color, tags, distribution, demand_coverage, biome_output, multipliers, recipes, development)
+        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb, $13)
+      `, [
+        g.i,
+        g.name,
+        g.unit || "unit",
+        Number(g.value) || 1,
+        Number(g.carriage) || 1,
+        g.color || "#888888",
+        JSON.stringify(g.tags || []),
+        String(g.distribution || ""),
+        JSON.stringify(g.demandCoverage || {}),
+        JSON.stringify(g.biomeOutput || {}),
+        JSON.stringify(g.multipliers || {}),
+        JSON.stringify(g.recipes || []),
+        Number(g.development) || 0
+      ]);
     }
 
     for (const m of parsed.markets) {
@@ -366,6 +381,17 @@ export async function ingestHolgalandMap() {
     // 4. INGEST BURGS & ECONOMY (189 active burgs with civic & production data)
     // ─────────────────────────────────────────────────────────────────────────
     const stateNameById = new Map<number, string>(parsed.states.map((s) => [Number(s.i), s.name]));
+    const marketById = new Map<number, any>(parsed.markets.map((m) => [Number(m.i), m]));
+    const goodById = new Map<number, any>(parsed.goods.map((g) => [Number(g.i), g]));
+    const marketPopTotals = new Map<number, number>();
+    for (const b of parsed.burgs) {
+      const mId = Number(parsed.cells[Number(b.cell)]?.market) || 0;
+      marketPopTotals.set(mId, (marketPopTotals.get(mId) || 0) + Math.max(0.2, Number(b.population) || 0.2));
+    }
+
+    const stockpileBurgIds: number[] = [];
+    const stockpileInvs: string[] = [];
+
     console.log(`[Ingest] Ingesting ${parsed.burgs.length} burgs...`);
 
     for (const b of parsed.burgs) {
@@ -381,19 +407,88 @@ export async function ingestHolgalandMap() {
       const startingMats = Math.max(1500, Math.floor(popNull * 3));
       const startingRefined = Math.max(1500, Math.floor(popNull * 3));
 
+      const cell = parsed.cells[Number(b.cell)];
+      const mId = Number(cell?.market) || 0;
+      const market = marketById.get(mId);
+      const hasAquatic =
+        Boolean(b.port) ||
+        (Number(cell?.river) || 0) > 0 ||
+        (Array.isArray(b.production) && b.production.some(([gid]: [number, number]) => GOOD_ROLE_BY_ID[Number(gid)]?.isAquatic));
+
+      const keptPairs: Array<[number, number]> = Array.isArray(market?.rural?.kept) ? market.rural.kept : [];
+      const filteredPrimary = keptPairs
+        .map(([gid, qty]) => ({ goodId: Number(gid), qty: Number(qty) || 0, role: GOOD_ROLE_BY_ID[Number(gid)] }))
+        .filter((e) => e.goodId > 0 && e.qty > 0 && e.role && (!e.role.isAquatic || hasAquatic))
+        .sort((a, b2) => b2.qty - a.qty)
+        .slice(0, 10);
+
+      const totalPrimaryQty = filteredPrimary.reduce((sum, e) => sum + e.qty, 0);
+      const primaryProfile =
+        filteredPrimary.length > 0 && totalPrimaryQty > 0
+          ? filteredPrimary.map((e) => ({
+              goodId: e.goodId,
+              key: goodKeyFromName(goodById.get(e.goodId)?.name || e.role!.goodKey),
+              share: Math.round((e.qty / totalPrimaryQty) * 10000) / 10000,
+              marketRuralQty: Math.round(e.qty * 100) / 100,
+            }))
+          : [
+              { goodId: 9, key: "grain", share: 0.6, marketRuralQty: 20 },
+              { goodId: 1, key: "wood", share: 0.4, marketRuralQty: 20 },
+            ];
+
+      const craftedProfile = (Array.isArray(b.production) ? b.production : [])
+        .map(([gid, out]: [number, number]) => {
+          const gId = Number(gid);
+          const key = goodKeyFromName(goodById.get(gId)?.name || GOOD_ROLE_BY_ID[gId]?.goodKey || "");
+          return { goodId: gId, key, targetOutput: Number(out) || 0 };
+        })
+        .filter((x: { goodId: number; key: string; targetOutput: number }) => x.goodId > 0 && x.key);
+
+      const resourceProfile = JSON.stringify({ marketId: mId, primary: primaryProfile, crafted: craftedProfile });
+
+      const inv: Record<string, number> = {};
+      const marketPop = Math.max(0.2, marketPopTotals.get(mId) || 1);
+      const burgWeight = Math.max(0.05, Math.min(1.0, (Number(b.population) || 0.2) / marketPop));
+      if (market?.goods && typeof market.goods === "object") {
+        for (const [gidStr, entry] of Object.entries(market.goods as Record<string, any>)) {
+          const gId = Number(gidStr);
+          const stock = Number(entry?.stock) || 0;
+          const role = GOOD_ROLE_BY_ID[gId];
+          if (stock <= 0 || !role || (role.isAquatic && !hasAquatic)) continue;
+          const key = goodKeyFromName(goodById.get(gId)?.name || role.goodKey);
+          inv[key] = Math.max(10, Math.round(stock * burgWeight * 4));
+        }
+      }
+      for (const p of primaryProfile) {
+        if ((inv[p.key] || 0) < 20) inv[p.key] = 20;
+      }
+      for (const cSpec of craftedProfile) {
+        const gObj = goodById.get(cSpec.goodId);
+        const firstRecipe = Array.isArray(gObj?.recipes) ? gObj.recipes[0] : null;
+        if (firstRecipe && typeof firstRecipe === "object") {
+          for (const inpIdStr of Object.keys(firstRecipe)) {
+            const inpId = Number(inpIdStr);
+            const inpKey = goodKeyFromName(goodById.get(inpId)?.name || GOOD_ROLE_BY_ID[inpId]?.goodKey || "");
+            if (inpKey) inv[inpKey] = Math.max(inv[inpKey] || 0, 40);
+          }
+        }
+      }
+      stockpileBurgIds.push(b.i);
+      stockpileInvs.push(JSON.stringify(inv));
+
       await client.query(`
         INSERT INTO sim_burg_economy (
           burg_id, name, cell_id, food, raw_materials, refined_goods,
           wealth, unrest, pop_null, pop_attuned, urban_tier,
           dominant_domain, species_demographics, health, crime_rate,
           is_capital, port, culture_id,
-          x, y, citadel, walls, shanty, temple, plaza, product_value, production, coa
+          x, y, citadel, walls, shanty, temple, plaza, product_value, production, coa, resource_profile
         ) VALUES (
           $1, $2, $3, $4, $5, $6,
           $7, 0, $8, $9, $10,
           'MATERIAL', $11, 100, 0,
           $12, $13, $14,
-          $15, $16, $17, $18, $19, $20, $21, $22, $23::jsonb, $24::jsonb
+          $15, $16, $17, $18, $19, $20, $21, $22, $23::jsonb, $24::jsonb, $25
         )
       `, [
         b.i,
@@ -419,12 +514,22 @@ export async function ingestHolgalandMap() {
         Boolean(b.plaza),
         Number(b.product) || 0,
         JSON.stringify(b.production || []),
-        JSON.stringify(b.coa || {})
+        JSON.stringify(b.coa || {}),
+        resourceProfile
       ]);
 
       if (b.state > 0 && activeStateIds.has(Number(b.state)) && b.cell) {
         await client.query("UPDATE sim_cells SET faction_id = $1 WHERE id = $2", [b.state, b.cell]);
       }
+    }
+
+    if (stockpileBurgIds.length > 0) {
+      await client.query(`
+        INSERT INTO sim_industrial_stockpiles (burg_id, complex_inventory)
+        SELECT u.id, u.inv::jsonb
+        FROM UNNEST($1::int[], $2::text[]) AS u(id, inv)
+        ON CONFLICT (burg_id) DO UPDATE SET complex_inventory = EXCLUDED.complex_inventory
+      `, [stockpileBurgIds, stockpileInvs]);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -433,12 +538,12 @@ export async function ingestHolgalandMap() {
     if (parsed.deals.length > 0) {
       for (let i = 0; i < parsed.deals.length; i += BATCH_SIZE) {
         const chunk = parsed.deals.slice(i, i + BATCH_SIZE);
-        const fromB: number[] = [], toB: number[] = [], goodId: number[] = [], dType: number[] = [];
+        const fromB: number[] = [], toM: number[] = [], goodId: number[] = [], dType: number[] = [];
         const qty: number[] = [], price: number[] = [], tCost: number[] = [], tariff: number[] = [], margin: number[] = [];
         for (const d of chunk) {
           if (!Array.isArray(d)) continue;
           fromB.push(Number(d[0]) || 0);
-          toB.push(Number(d[1]) || 0);
+          toM.push(Number(d[1]) || 0);
           goodId.push(Number(d[2]) || 0);
           dType.push(Number(d[3]) || 0);
           qty.push(Number(d[4]) || 0);
@@ -448,9 +553,9 @@ export async function ingestHolgalandMap() {
           margin.push(Number(d[8]) || 0);
         }
         await client.query(`
-          INSERT INTO sim_trade_deals (from_burg_id, to_burg_id, good_id, deal_type, quantity, price, transport_cost, tariff, margin)
+          INSERT INTO sim_trade_deals (from_burg_id, to_market_id, good_id, deal_type, quantity, price, transport_cost, tariff, margin)
           SELECT * FROM UNNEST($1::int[], $2::int[], $3::int[], $4::int[], $5::real[], $6::real[], $7::real[], $8::real[], $9::real[])
-        `, [fromB, toB, goodId, dType, qty, price, tCost, tariff, margin]);
+        `, [fromB, toM, goodId, dType, qty, price, tCost, tariff, margin]);
       }
     }
 
