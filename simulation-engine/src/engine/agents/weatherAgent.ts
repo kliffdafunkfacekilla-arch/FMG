@@ -1,5 +1,5 @@
 import { tagBurgCitizens, tagSectorEnvironment } from "./citizenPersonaHelper";
-import { MERCY_ALIGNMENT, NIGHTMARE_ALIGNMENT, SHADOWFALL, moonPhaseFor, seasonByName } from "../canon/calendar.js";import { sqlShuffle } from "../rng.js";
+import { MERCY_ALIGNMENT, NIGHTMARE_ALIGNMENT, SHADOWFALL, moonPhaseFor, seasonByName } from "../canon/calendar.js";
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -9,6 +9,45 @@ import { MERCY_ALIGNMENT, NIGHTMARE_ALIGNMENT, SHADOWFALL, moonPhaseFor, seasonB
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Weather effect for Cruorbus's face (Canon/04 §2), from the canon calendar.
+export interface MapBounds {
+    minX: number;
+    maxX: number;
+    minY: number;
+    maxY: number;
+}
+
+let cachedMapBounds: MapBounds | null = null;
+
+async function getMapBounds(client: any): Promise<MapBounds> {
+    if (cachedMapBounds) return cachedMapBounds;
+    const res = await client.query(
+        `SELECT COALESCE(MIN(center_x), 0) AS min_x,
+                COALESCE(MAX(center_x), 6120) AS max_x,
+                COALESCE(MIN(center_y), 0) AS min_y,
+                COALESCE(MAX(center_y), 2496) AS max_y
+         FROM sim_cells`
+    );
+    const row = res.rows[0] || {};
+    const minX = Number(row.min_x) || 0;
+    const maxX = Math.max(minX + 1, Number(row.max_x) || 6120);
+    const minY = Number(row.min_y) || 0;
+    const maxY = Math.max(minY + 1, Number(row.max_y) || 2496);
+    cachedMapBounds = { minX, maxX, minY, maxY };
+    return cachedMapBounds;
+}
+
+export function frontToMapCircle(
+    front: { x: number; y: number; radius: number },
+    bounds: MapBounds
+): { fx: number; fy: number; radiusMap: number } {
+    const width = Math.max(1, bounds.maxX - bounds.minX);
+    const height = Math.max(1, bounds.maxY - bounds.minY);
+    const fx = bounds.minX + (Number(front.x) / 100) * width;
+    const fy = bounds.minY + (Number(front.y) / 100) * height;
+    const radiusMap = Math.max(1, (Number(front.radius) / 100) * Math.min(width, height));
+    return { fx, fy, radiusMap };
+}
+
 function getCruorbusPhase(season: string, dayOfMonth: number, isShadowWeek?: boolean): string {
     if (isShadowWeek) return "SHADOW_WEEK";
     const s = seasonByName(season);
@@ -77,13 +116,21 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
 
     // ── 3. APPLY active fronts to cells & burgs they are over ─────────────────
     const fronts = await client.query("SELECT * FROM sim_weather_fronts ORDER BY id");
+    const bounds = fronts.rows.length > 0 ? await getMapBounds(client) : null;
     for (const front of fronts.rows) {
-        // Find burgs inside this front's radius using cell geometry approximation
-        // We stored burg cell_id; we need the cell x/y. Use a simple bounding check on geometry centroid.
-        // For now: apply to a random sample of burgs weighted by probability — real geo join is Phase 2.
+        const { fx, fy, radiusMap } = frontToMapCircle(front, bounds!);
         const affectedBurgs = await client.query(
-            `SELECT burg_id, name, cell_id, food, unrest, health, pop_null, architecture_type FROM sim_burg_economy ORDER BY ${sqlShuffle("burg_id")} LIMIT $1`,
-            [Math.max(1, Math.floor(front.radius / 20))] // more burgs hit by bigger fronts
+            `SELECT b.burg_id, b.name, b.cell_id, b.food, b.unrest, b.health, b.pop_null, b.architecture_type
+             FROM sim_burg_economy b
+             JOIN sim_cells c ON b.cell_id = c.id
+             WHERE (b.pop_null > 0 OR COALESCE(b.pop_attuned, 0) > 0)
+               AND point(c.center_x, c.center_y) <@ box(
+                 point($1::float8 - $3::float8, $2::float8 - $3::float8),
+                 point($1::float8 + $3::float8, $2::float8 + $3::float8)
+               )
+               AND ((c.center_x - $1::float8) * (c.center_x - $1::float8) + (c.center_y - $2::float8) * (c.center_y - $2::float8)) <= ($3::float8 * $3::float8)
+             ORDER BY b.burg_id ASC`,
+            [fx, fy, radiusMap]
         );
 
         for (const burg of affectedBurgs.rows) {
@@ -311,23 +358,34 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
         `, [baseTemp]);
 
         // Blizzards plunge local temperatures sub-zero
+        const tempBounds = fronts.rows.length > 0 ? await getMapBounds(client) : null;
         const blizzards = fronts.rows.filter((f: any) => f.type === 'BLIZZARD');
         for (const b of blizzards) {
+            const { fx, fy, radiusMap } = frontToMapCircle(b, tempBounds!);
             await client.query(`
                 UPDATE sim_cells
                 SET current_temp = current_temp - 14
-                WHERE power(center_x - $1::numeric, 2) + power(center_y - $2::numeric, 2) <= power($3::numeric * 8, 2)
-            `, [Number(b.x), Number(b.y), Number(b.radius)]);
+                WHERE point(center_x, center_y) <@ box(
+                    point($1::float8 - $3::float8, $2::float8 - $3::float8),
+                    point($1::float8 + $3::float8, $2::float8 + $3::float8)
+                )
+                  AND ((center_x - $1::float8) * (center_x - $1::float8) + (center_y - $2::float8) * (center_y - $2::float8)) <= ($3::float8 * $3::float8)
+            `, [fx, fy, radiusMap]);
         }
 
         // Droughts spike heatwaves
         const droughts = fronts.rows.filter((f: any) => f.type === 'DROUGHT');
         for (const d of droughts) {
+            const { fx, fy, radiusMap } = frontToMapCircle(d, tempBounds!);
             await client.query(`
                 UPDATE sim_cells
                 SET current_temp = current_temp + 14
-                WHERE power(center_x - $1::numeric, 2) + power(center_y - $2::numeric, 2) <= power($3::numeric * 8, 2)
-            `, [Number(d.x), Number(d.y), Number(d.radius)]);
+                WHERE point(center_x, center_y) <@ box(
+                    point($1::float8 - $3::float8, $2::float8 - $3::float8),
+                    point($1::float8 + $3::float8, $2::float8 + $3::float8)
+                )
+                  AND ((center_x - $1::float8) * (center_x - $1::float8) + (center_y - $2::float8) * (center_y - $2::float8)) <= ($3::float8 * $3::float8)
+            `, [fx, fy, radiusMap]);
         }
     }
 }
