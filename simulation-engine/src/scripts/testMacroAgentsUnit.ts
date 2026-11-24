@@ -8,6 +8,7 @@ import { stepWeather } from "../engine/macro/weather/step.js";
 import type { WeatherBurgRow, WeatherSnapshot } from "../engine/macro/weather/load.js";
 import { stepEcology } from "../engine/macro/ecology/step.js";
 import type { EcologySnapshot } from "../engine/macro/ecology/load.js";
+import { stepCalendar } from "../engine/macro/calendar/step.js";
 
 function testEncounterUnit() {
   const emptyDeltas = stepEncounter({ agents: [], cellIds: [10, 20, 30] }, { tick: 2, random: mulberry32(42) });
@@ -191,11 +192,31 @@ function testEcologyUnit() {
   console.log("3. stepEcology (no DB) growth, predators, grove blight & foraging feedback... PASSED");
 }
 
+function testCalendarUnit() {
+  const day1 = stepCalendar({ tick: 1, calendarRowId: 1, chaosBurgIds: [], unrestBurgIds: [] });
+  assert.equal(day1.calendar.month, 1);
+  assert.equal(day1.calendar.monthName, "Nexar");
+  assert.equal(day1.calendar.isShadowWeek, false);
+  assert.equal(day1.deltas.length, 1);
+  assert.equal(day1.deltas[0]!.kind, "calendar.set");
+
+  const day48 = stepCalendar({ tick: 48, calendarRowId: 1, chaosBurgIds: [1, 2], unrestBurgIds: [1, 3] });
+  assert.equal(day48.calendar.dayOfMonth, 48);
+  assert.equal(day48.deltas.filter((d) => d.kind === "burg.adjust").length, 4);
+
+  const shadowfall = stepCalendar({ tick: 577, calendarRowId: 1, chaosBurgIds: [1], unrestBurgIds: [1] });
+  assert.equal(shadowfall.calendar.isShadowWeek, true);
+  assert.equal(shadowfall.calendar.monthName, "Shadowfall");
+  assert.equal(shadowfall.deltas.filter((d) => d.kind === "burg.adjust").length, 0, "Shadowfall Day 577 must not fire month-end hemorrhage");
+  console.log("4. stepCalendar (no DB) Day 1, Day 48 hemorrhage & Shadowfall... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
   testWeatherUnit();
   testEcologyUnit();
+  testCalendarUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 

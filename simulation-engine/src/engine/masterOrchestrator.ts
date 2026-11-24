@@ -1,5 +1,7 @@
 import pool from "../db/pool";
 import { runCalendarAgent } from "./agents/calendarAgent";
+import { loadCalendar } from "./macro/calendar/load.js";
+import { stepCalendar } from "./macro/calendar/step.js";
 import { runWeatherAgent } from "./agents/weatherAgent";
 import { loadWeather } from "./macro/weather/load.js";
 import { stepWeather } from "./macro/weather/step.js";
@@ -150,7 +152,12 @@ async function runTick(): Promise<TickResult> {
 
             // 1. Calendar
             let cal: any;
-            await step('calendar', async () => { cal = await runCalendarAgent(client, tick); }, true);
+            await step('calendar', async (emit) => {
+                const snap = await loadCalendar(client, tick);
+                const out = stepCalendar(snap);
+                cal = out.calendar;
+                for (const d of out.deltas) emit(d);
+            }, true);
             const loreDate = cal.loreDate;
 
             // 2. Weather, ecology and the twelve chaos flows
