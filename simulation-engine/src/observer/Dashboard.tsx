@@ -4,6 +4,15 @@ import { TacticalSandboxModal } from "./TacticalSandboxModal";
 import { RulesLabTab } from "./RulesLabTab";
 import { DAYS_PER_MONTH, SHADOWFALL_DAYS, SHADOWFALL_MONTH } from "../engine/canon/calendar.js";
 
+interface TickHealthSummary {
+  tick: number;
+  totalMs: number;
+  status: "success" | "partial";
+  failedAgents: { agent: string; error: string }[];
+  slowestSteps: { step: string; ms: number; queries: number }[];
+  at: string;
+}
+
 interface Faction {
   id: number;
   name: string;
@@ -1172,6 +1181,7 @@ export function Dashboard() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [serverTickError, setServerTickError] = useState<{ tick: number | null; message: string } | null>(null);
+  const [tickHealth, setTickHealth] = useState<TickHealthSummary | null>(null);
   const [tickInProgress, setTickInProgress] = useState(false);
   const mapRequested = useRef(false);
   const cellsLoaded = useRef(false);
@@ -1273,6 +1283,7 @@ export function Dashboard() {
         setIsPlaying(!!s.autoplay);
         setTickInProgress(!!s.tickInProgress);
         setServerTickError(s.lastTickError || null);
+        setTickHealth(s.lastTickHealth || null);
         if (s.tick !== lastSeenTick.current) {
           lastSeenTick.current = s.tick;
           await refreshAll();
@@ -1388,7 +1399,15 @@ export function Dashboard() {
         body: JSON.stringify(body ?? {})
       });
       lastSeenTick.current = undefined; // force the refresh now instead of on the next poll
-      await refreshAll();
+      await Promise.all([
+        getJson("/api/observer/status")
+          .then((s) => {
+            setServerTickError(s.lastTickError || null);
+            setTickHealth(s.lastTickHealth || null);
+          })
+          .catch(() => {}),
+        refreshAll(),
+      ]);
     } catch (e: any) {
       setActionError(e.message);
     } finally {
@@ -1447,9 +1466,41 @@ export function Dashboard() {
             <span style={{ fontSize: 10, background: "#0369a1", color: "#e0f2fe", padding: "2px 6px", borderRadius: 4, fontWeight: 700, textTransform: "uppercase" }}>Observer</span>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#0f172a", border: "1px solid #1e293b", padding: "4px 10px", borderRadius: 6, fontSize: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#0f172a", border: `1px solid ${tickHealth?.status === "partial" ? "#f59e0b" : "#1e293b"}`, padding: "4px 10px", borderRadius: 6, fontSize: 12 }}>
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: serverDown ? "#ef4444" : isPlaying || isBatchRunning || tickInProgress ? "#22c55e" : "#64748b", boxShadow: isPlaying ? "0 0 8px #22c55e" : "none" }} />
             <span style={{ color: "#94a3b8" }}>Tick <strong style={{ color: "#38bdf8", fontSize: 13 }}>{cal?.tick || 0}</strong></span>
+            {tickHealth && (
+              <span
+                title={[
+                  `Tick ${tickHealth.tick} (${tickHealth.totalMs}ms, ${tickHealth.status})`,
+                  ...tickHealth.slowestSteps.map(s => `${s.step}: ${s.ms}ms (${s.queries}q)`),
+                  ...tickHealth.failedAgents.map(f => `Failed: ${f.agent} - ${f.error}`)
+                ].join("\n")}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "1px 7px",
+                  borderRadius: 4,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  background: tickHealth.status === "partial" ? "#78350f" : "#020617",
+                  border: `1px solid ${tickHealth.status === "partial" ? "#f59e0b" : "#1e293b"}`,
+                  color: tickHealth.status === "partial" ? "#fde68a" : (tickHealth.totalMs >= 1500 ? "#fbbf24" : "#34d399"),
+                }}
+              >
+                <span>
+                  {tickHealth.status === "partial"
+                    ? `⚠ Partial (${tickHealth.failedAgents.length} failed) · ${tickHealth.totalMs}ms`
+                    : `${tickHealth.totalMs}ms`}
+                </span>
+                {tickHealth.slowestSteps.length > 0 && (
+                  <span style={{ color: tickHealth.status === "partial" ? "#fcd34d" : "#94a3b8", fontWeight: 400 }}>
+                    {tickHealth.slowestSteps.map(s => `${s.step} ${s.ms}ms`).join(" · ")}
+                  </span>
+                )}
+              </span>
+            )}
             <span style={{ color: "#334155" }}>|</span>
             <span style={{ color: cal?.is_shadow_week ? "#f87171" : "#e2e8f0", fontWeight: 500 }}>{dateDisplay}</span>
           </div>

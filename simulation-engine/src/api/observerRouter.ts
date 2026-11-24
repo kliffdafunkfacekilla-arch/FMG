@@ -1,6 +1,6 @@
 import { Router } from "express";
 import pool from "../db/pool";
-import { executeMasterTick } from "../engine/masterOrchestrator";
+import { executeMasterTick, type TickResult } from "../engine/masterOrchestrator";
 import { resetWorld } from "../engine/resetWorld";
 import { FACTION_SPECIALTIES } from "../engine/economy/factionSpecialties";
 import { VERGE_COORD } from "../engine/canon/dragonPrisons.js";
@@ -247,10 +247,51 @@ observerRouter.get("/threads", async (req, res) => {
         res.status(500).json({ error: e.message });
     }
 });
+export interface TickHealthSummary {
+  tick: number;
+  totalMs: number;
+  status: "success" | "partial";
+  failedAgents: { agent: string; error: string }[];
+  slowestSteps: { step: string; ms: number; queries: number }[];
+  at: string;
+}
+
+/** Summarizes total duration, failure state, and top-3 slowest pipeline steps for /status. */
+export function summarizeTickHealth(
+  result: TickResult,
+  at = new Date().toISOString()
+): TickHealthSummary {
+  const slowestSteps = Object.entries(result.timings || {})
+    .map(([step, ms]) => ({
+      step,
+      ms: Math.round(Number(ms) || 0),
+      queries: Number(result.queries?.[step] || 0),
+    }))
+    .sort((a, b) => b.ms - a.ms || a.step.localeCompare(b.step))
+    .slice(0, 3);
+
+  const failedAgents = Array.isArray(result.failedAgents)
+    ? result.failedAgents.map((f) => ({
+        agent: String(f.agent),
+        error: String(f.error),
+      }))
+    : [];
+
+  return {
+    tick: Number(result.currentTick || 0),
+    totalMs: Math.round(Number(result.totalMs) || 0),
+    status: result.status === "partial" || failedAgents.length > 0 ? "partial" : "success",
+    failedAgents,
+    slowestSteps,
+    at,
+  };
+}
+
 let tickInProgress = false;
 let resetInProgress = false;
 // The last tick failure (manual, batch or autoplay), so the dashboard can show it. Cleared by the next good tick.
 let lastTickError: { tick: number | null; message: string; at: string } | null = null;
+let lastTickHealth: TickHealthSummary | null = null;
 
 async function currentTick(): Promise<number | null> {
   const r = await pool.query("SELECT tick FROM sim_calendar ORDER BY id DESC LIMIT 1");
@@ -261,6 +302,7 @@ async function currentTick(): Promise<number | null> {
 async function runTrackedTick() {
   try {
     const result = await executeMasterTick();
+    lastTickHealth = summarizeTickHealth(result);
     // A partial day committed, but some agents' work was rolled back: show which on the dashboard
     lastTickError = result.failedAgents.length
       ? { tick: result.currentTick, message: `Agents rolled back: ${result.failedAgents.map(f => `${f.agent} (${f.error})`).join("; ")}`, at: new Date().toISOString() }
@@ -296,7 +338,7 @@ observerRouter.get("/autoplay", (req, res) => {
 // Cheap poll target: the dashboard polls this and refetches everything else only when `tick` changes.
 observerRouter.get("/status", async (req, res) => {
   try {
-    res.json({ tick: await currentTick(), tickInProgress, resetInProgress, autoplay: !!autoplayTimer, lastTickError });
+    res.json({ tick: await currentTick(), tickInProgress, resetInProgress, autoplay: !!autoplayTimer, lastTickError, lastTickHealth });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -981,6 +1023,8 @@ observerRouter.post("/reset", async (req, res) => {
   try {
     console.log("[API] World reset requested...");
     const result = await resetWorld();
+    lastTickHealth = null;
+    lastTickError = null;
     console.log("[API] World reset complete:", result.stats);
     res.json(result);
   } catch (error: any) {

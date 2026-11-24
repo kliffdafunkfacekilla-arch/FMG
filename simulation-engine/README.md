@@ -57,7 +57,7 @@ Every execution of `/api/observer/tick` runs this exact agentic sequence:
 
 ## 3. Key Endpoints
 
-- `GET /api/observer/status`: The current tick, whether a tick is running, autoplay, and the last tick error. The dashboard polls this and refetches everything else only when the tick changes.
+- `GET /api/observer/status`: The current tick, whether a tick is running, autoplay, `lastTickError`, and `lastTickHealth` (`totalMs`, `status`, `failedAgents`, and top 3 `slowestSteps` with query counts). The dashboard polls this and refetches everything else only when the tick changes.
 - `GET /api/observer/state`: Calendar, factions (treasury), the latest 100 events, and per-burg unrest for the map.
 - `POST /api/observer/tick`: Triggers a 1-day simulation step (429 with a reason if a tick or autoplay is already running).
 - `GET /api/observer/map`: Cell geometry, biomes and centres (~11 MB). Loaded once per page.

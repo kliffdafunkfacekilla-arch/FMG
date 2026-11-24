@@ -4,7 +4,7 @@ import path from "node:path";
 import pool from "../db/pool.js";
 import { isolateTest } from "./testIsolation.js";
 import { applySchemaPatches } from "../db/schemaPatches.js";
-import { resolveBorderWarPair } from "../api/observerRouter.js";
+import { resolveBorderWarPair, summarizeTickHealth } from "../api/observerRouter.js";
 import { runInterFactionTradeEngine } from "../engine/economy/interFactionTradeEngine.js";
 import { runSeeded, tickSeed } from "../engine/rng.js";
 
@@ -102,6 +102,48 @@ async function main() {
   assert.ok(Number(onCaravanRes.rows[0].away) >= 2, "Source burg workforce failed to show ON_CARAVAN crew");
   await pool.query("ROLLBACK TO SAVEPOINT observer_convoy_probe");
   console.log("5. Live convoy overlay, merchant join & ON_CARAVAN workforce visibility... PASSED");
+
+  // 6. Tick health summary (C4): top-3 slowest steps, partial-day detection, and Dashboard wiring
+  const partialHealth = summarizeTickHealth(
+    {
+      status: "partial",
+      currentTick: 12,
+      failedAgents: [{ agent: "cartels", error: "deadlock detected" }],
+      timings: { calendar: 2.1, weather: 14.4, burgOperations: 87.2, trade: 57.6, chaosFlows: 26.3 },
+      queries: { calendar: 2, weather: 5, burgOperations: 46, trade: 29, chaosFlows: 72 },
+      totalMs: 412.6,
+    },
+    "2026-11-24T00:00:00.000Z"
+  );
+  assert.equal(partialHealth.tick, 12);
+  assert.equal(partialHealth.totalMs, 413);
+  assert.equal(partialHealth.status, "partial");
+  assert.equal(partialHealth.failedAgents.length, 1);
+  assert.deepEqual(
+    partialHealth.slowestSteps,
+    [
+      { step: "burgOperations", ms: 87, queries: 46 },
+      { step: "trade", ms: 58, queries: 29 },
+      { step: "chaosFlows", ms: 26, queries: 72 },
+    ],
+    "Expected top 3 slowest steps sorted descending with query counts"
+  );
+
+  const cleanHealth = summarizeTickHealth({
+    status: "success",
+    currentTick: 13,
+    failedAgents: [],
+    timings: { weather: 12, calendar: 1 },
+    queries: { weather: 4, calendar: 2 },
+    totalMs: 288.2,
+  });
+  assert.equal(cleanHealth.status, "success");
+  assert.equal(cleanHealth.failedAgents.length, 0);
+  assert.equal(cleanHealth.slowestSteps.length, 2);
+
+  assert.ok(dashSrc.includes("lastTickHealth"), "Dashboard missing lastTickHealth state wiring");
+  assert.ok(dashSrc.includes('status === "partial"'), "Dashboard missing amber partial-day indicator");
+  console.log("6. Tick health /status summary & Dashboard partial-day badge... PASSED");
 
   console.log("\nALL OBSERVER API TESTS PASSED");
 }
