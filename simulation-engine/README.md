@@ -79,7 +79,24 @@ The Observer runs at `http://localhost:5174` (via Vite) or `http://127.0.0.1:300
 
 ---
 
-## 5. Development & Build Scripts
+## 5. Local LLM (`Ollama` Prerequisite & Model Selection)
+
+The engine sends zero world data off-machine: all LLM intent parsing, NPC voices, and sensory narration go through `src/engine/llm.ts` to a local Ollama server (`OLLAMA_URL`, default `http://127.0.0.1:11434`).
+
+- **Strict fail-loudly requirement:** **Ollama must be running (`ollama serve`) with the configured model pulled; party sessions (`runOllamaPartySession.js`, `BrutalGameMaster.executeTurn({ strictLlm: true })`) and strict party endpoints fail loudly without it (no silent procedural fallback).**
+- **Offline / test mode:** Deterministic test suites set `STORY_LLM=off` inside rolled-back transactions (`testIsolation.ts`) so tests never depend on a live LLM or mutate world state.
+- **Model benchmark (`runOllamaPartySession.js`, 2 rounds / 8 turns at Excelsis Citadel, CPU inference, 2026-11-24):**
+
+| Model | Outcome | Avg Turn Time | Format / JSON Errors | Rule 7 Grounding | Decision |
+|---|---|---|---|---|---|
+| `llama3.2:latest` (2.0 GB) | Failed Run 1 & Run 2 on Turn 1 | — | Failed strict `Dialogue:` / `Action:` output compliance immediately (4.5s–7.1s fail-fast) | N/A | Rejected |
+| `gemma2:9b` (5.4 GB) | **Passed 8/8 turns cleanly** | **40.2s / turn** (321.3s total across ~3 LLM calls/turn) | **0** format/JSON errors | **0** invented entities; faithful B.R.U.T.A.L. scene continuity | **Selected in `.env`** |
+
+Pull `gemma2:9b` once with `ollama pull gemma2:9b`, start `ollama serve`, and set `OLLAMA_MODEL=gemma2:9b` in `simulation-engine/.env`.
+
+---
+
+## 6. Development & Build Scripts
 
 ```bash
 # Compile TypeScript server
@@ -102,13 +119,13 @@ The server listens on `127.0.0.1` only. Set `HOST=0.0.0.0` to expose it to your 
 
 ---
 
-## 6. Testing
+## 7. Testing
 
 ```bash
 npm test
 ```
 
-This rebuilds `dist/` from scratch and runs every suite in `run-tests.cjs`. The suites read the live PostgreSQL database, so Postgres must be running. The repo's pre-commit hook (`.githooks/pre-commit`, enabled with `git config core.hooksPath .githooks`) runs the same command for any commit touching `simulation-engine/`, and a failing test blocks the commit (AGENT_RULES rule 9).
+This rebuilds `dist/` from scratch and runs all 24 suites in `run-tests.cjs`. The suites read the live PostgreSQL database, so Postgres must be running. The repo's pre-commit hook (`.githooks/pre-commit`, enabled with `git config core.hooksPath .githooks`) runs the same command for any commit touching `simulation-engine/`, and a failing test blocks the commit (AGENT_RULES rule 9).
 
 | Suite | Checks |
 |---|---|
@@ -125,11 +142,11 @@ This rebuilds `dist/` from scratch and runs every suite in `run-tests.cjs`. The 
 | `testTacticalInteractions` | Fire, collapse and custody interactions open an emergent thread with a real actor |
 | `testStoryPipeline` | Narrative seeds, world-event threads, managed arcs, the procedural director, the Bleed rule |
 
-The thread suites write while they run, but inside one transaction that is rolled back (`src/scripts/testIsolation.ts`) with LLM calls switched off (`STORY_LLM=off`), so they never change the live world or send data to Gemini or Ollama. `testFullLoopIntegration` is different: it drives the running server over HTTP and really ticks the world, so it only runs with `--live` and is not part of `npm test`.
+The thread suites write while they run, but inside one transaction that is rolled back (`src/scripts/testIsolation.ts`) with LLM calls switched off (`STORY_LLM=off`), so they never change the live world or invoke local Ollama. `testFullLoopIntegration` is different: it drives the running server over HTTP and really ticks the world, so it only runs with `--live` and is not part of `npm test`.
 
 Add a suite by adding its script name to `SUITES` in `run-tests.cjs`.
 
-## 7. Data repairs
+## 8. Data repairs
 
 One-off scripts for live data written before a fix. Each previews by default and writes in one transaction with `--apply`:
 
