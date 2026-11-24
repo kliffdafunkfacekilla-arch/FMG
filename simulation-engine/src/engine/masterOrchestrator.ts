@@ -1,6 +1,8 @@
 import pool from "../db/pool";
 import { runCalendarAgent } from "./agents/calendarAgent";
 import { runWeatherAgent } from "./agents/weatherAgent";
+import { loadWeather } from "./macro/weather/load.js";
+import { stepWeather } from "./macro/weather/step.js";
 import { runBurgOperationsAgent } from "./agents/burgOperationsAgent";
 import { runLocalParagonAgent } from "./agents/paragonPlanningAgent";
 import { runFactionPlanningAgent } from "./agents/factionPlanningAgent";
@@ -150,7 +152,10 @@ async function runTick(): Promise<TickResult> {
             const loreDate = cal.loreDate;
 
             // 2. Weather, ecology and the twelve chaos flows
-            await step('weather', () => runWeatherAgent(client, tick, cal.season, cal.dayOfMonth, loreDate, cal.isShadowWeek));
+            await step('weather', async (emit) => {
+                const snap = await loadWeather(client, tick, cal.season, cal.dayOfMonth, loreDate, cal.isShadowWeek);
+                for (const d of stepWeather(snap, { random: Math.random })) emit(d);
+            });
             await step('ecology', () => runTrophicEcologyAgent(client, tick, cal.season, loreDate, {
                 month: cal.month,
                 monthName: cal.monthName,
