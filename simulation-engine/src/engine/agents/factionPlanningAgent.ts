@@ -22,10 +22,128 @@ function getTraitsList(p: any): string[] {
     return list;
 }
 
+function parseJsonObj(raw: any, fallback: Record<string, any> = {}): Record<string, any> {
+    if (!raw) return fallback;
+    if (typeof raw === 'string') {
+        try { return JSON.parse(raw) || fallback; } catch { return fallback; }
+    }
+    return typeof raw === 'object' ? { ...raw } : fallback;
+}
+
+export interface FactionFinanceResult {
+    grossIncome: number;
+    pocketedGold: number;
+    netRevenue: number;
+    militaryUpkeep: number;
+    totalUpkeep: number;
+    newTreasury: number;
+    effectiveCorruption: number;
+    insolvent: boolean;
+    deficit: number;
+    totalPop: number;
+    gdp: number;
+    updatedFiscal: Record<string, any>;
+}
+
+/**
+ * Pure deterministic fiscal evaluation from `sim_factions.fiscal_economy` + real burg pop/wealth + active regiments.
+ */
+export function evaluateFactionFinances(params: {
+    treasury: number;
+    fiscalRaw: any;
+    myBurgs: any[];
+    activeUnits: any[];
+    activeWarCount: number;
+    leaderCorruption: number;
+}): FactionFinanceResult {
+    const fiscal = parseJsonObj(params.fiscalRaw, {});
+    const budget = parseJsonObj(fiscal.budget, {});
+    const pollTax = Math.max(0, Number(fiscal.pollTax ?? 0.05) || 0);
+    const salesTax = Math.max(0, Number(fiscal.salesTax ?? 0.08) || 0);
+    const baseCollected = Math.max(0, Number(fiscal.collected ?? 0) || 0);
+    const budgetCorr = Math.max(0, Number(budget.corruption ?? 15) || 0);
+    const milBudget = Math.max(5, Number(budget.military ?? 30) || 0);
+    const adminBudget = Math.max(10, (Number(budget.court ?? 30) || 0) + (Number(budget.administration ?? 25) || 0));
+
+    let totalPop = 0;
+    let burgWealthSum = 0;
+    for (const b of params.myBurgs) {
+        totalPop += (Number(b.pop_null) || 0) + (Number(b.pop_attuned) || 0);
+        burgWealthSum += Math.max(0, Number(b.wealth) || 0);
+    }
+    const gdp = Math.round(totalPop * 0.1 + burgWealthSum);
+
+    const taxDisabled = pollTax === 0 && salesTax === 0 && baseCollected === 0;
+    const grossIncome = params.myBurgs.length === 0 || taxDisabled
+        ? 0
+        : Math.max(
+            12,
+            Math.round(
+                params.myBurgs.length * 10 +
+                totalPop * pollTax * 0.008 +
+                burgWealthSum * salesTax * 0.06 +
+                baseCollected * 0.12
+            )
+        );
+
+    const effectiveCorruption = Math.max(0, Math.min(0.75, (budgetCorr + Math.max(0, params.leaderCorruption) * 0.25) / 100));
+    const pocketedGold = Math.round(grossIncome * effectiveCorruption);
+    const netRevenue = Math.max(0, grossIncome - pocketedGold);
+
+    const milScale = Math.max(0.6, Math.min(1.6, milBudget / 30));
+    let militaryUpkeep = 0;
+    for (const u of params.activeUnits) {
+        const cnt = Math.max(0, Number(u.count) || 0);
+        if (cnt <= 0) continue;
+        militaryUpkeep += Math.round(Math.max(4, Math.min(80, Math.ceil(cnt / 25))) * milScale);
+    }
+    const courtAdminUpkeep = Math.round(params.myBurgs.length * 5 * (adminBudget / 55));
+    const warCampaignCost = params.activeWarCount * (35 + Math.min(60, params.myBurgs.length * 2));
+    const totalUpkeep = militaryUpkeep + courtAdminUpkeep + warCampaignCost;
+
+    const preBalance = Math.max(0, Number(params.treasury) || 0) + netRevenue;
+    const insolvent = preBalance < totalUpkeep;
+    const deficit = insolvent ? totalUpkeep - preBalance : 0;
+    let newTreasury = Math.max(0, preBalance - totalUpkeep);
+    if (newTreasury > 15000) {
+        newTreasury -= Math.floor((newTreasury - 15000) * 0.02);
+    }
+
+    const prevSpent = parseJsonObj(fiscal.spent, {});
+    const updatedFiscal: Record<string, any> = {
+        ...fiscal,
+        budget,
+        total_pop: totalPop,
+        gdp,
+        collected: grossIncome,
+        pocketed: pocketedGold,
+        treasury: newTreasury,
+        spent: {
+            ...prevSpent,
+            military: militaryUpkeep,
+        },
+    };
+
+    return {
+        grossIncome,
+        pocketedGold,
+        netRevenue,
+        militaryUpkeep,
+        totalUpkeep,
+        newTreasury,
+        effectiveCorruption,
+        insolvent,
+        deficit,
+        totalPop,
+        gdp,
+        updatedFiscal,
+    };
+}
+
 export async function runFactionPlanningAgent(client: any, tick: number, loreDate: string) {
     const factionRes = await client.query("SELECT * FROM sim_factions ORDER BY id");
     const burgRes = await client.query(`
-        SELECT b.burg_id, b.pop_null, c.faction_id, b.unrest, b.crime_rate, b.food, b.health, 
+        SELECT b.burg_id, b.pop_null, COALESCE(b.pop_attuned, 0)::int AS pop_attuned, c.faction_id, b.unrest, b.crime_rate, b.food, b.health, 
                b.military_forces, b.wealth, c.id as cell_id 
         FROM sim_burg_economy b 
         JOIN sim_cells c ON b.cell_id = c.id 
@@ -48,16 +166,16 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
     const diplomacy = diploRes.rows;
 
     const events: any[] = [];
-    const WAGES: any = { 'INFANTRY': 100, 'RANGED': 200, 'MOUNTED': 300, 'AIRSHIP': 400, 'MAGE': 1500 };
     const factionStates = new Map<number, FactionState>();
+    const factionBatchUpdates: Array<{ id: number; treasury: number; fiscal: string }> = [];
+    const unitBatchUpdates: Array<{ id: number; count: number; status: string }> = [];
+    const burgFiscalDeltas = new Map<number, { du: number; dc: number }>();
 
     // --- PHASE 1: BUILD FACTION STATES ---
     for (const f of factions) {
         const myBurgs = burgs.filter((b: any) => b.faction_id === f.id);
-        const myUnits = units.filter((u: any) => u.faction_id === f.id);
+        const myUnits = units.filter((u: any) => u.faction_id === f.id && u.status !== 'DISBANDED' && Number(u.count) > 0);
 
-        let grossIncome = 0;
-        let totalUpkeep = 0;
         let avgUnrest = 0;
         let avgHealth = 0;
         let avgCrime = 0;
@@ -65,8 +183,6 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
         // Collect all active macro tags across the faction's territories
         const macroTagsSet = new Set<string>();
         for (const b of myBurgs) {
-            // Balanced provincial taxation: 10-60 gold per burg based on population & urban tier
-            grossIncome += Math.floor(12 + Math.min(80, (b.pop_null || 0) * 0.015));
             avgUnrest += b.unrest || 0;
             avgHealth += b.health || 100;
             avgCrime += b.crime_rate || 0;
@@ -81,32 +197,92 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
             avgCrime /= myBurgs.length;
         }
 
-        for (const u of myUnits) {
-            totalUpkeep += Math.min(50, WAGES[u.unit_type] ? Math.floor(WAGES[u.unit_type] / 4) : 25);
-        }
-
-        // Court & administrative bureaucracy overhead (scales with empire size)
-        totalUpkeep += myBurgs.length * 6;
-
-        // Active military war logistics: fighting active campaigns drains treasury for frontline supplies
-        const activeWarsList = diplomacy.filter((d: any) => d.status === 'WAR' && (d.faction_a_id === f.id || d.faction_b_id === f.id));
-        const warCampaignCost = activeWarsList.length * (35 + Math.min(60, myBurgs.length * 2));
-        totalUpkeep += warCampaignCost;
-
-        const netIncome = grossIncome - totalUpkeep;
-        let newTreasury = Math.max(0, (Number(f.treasury) || 0) + netIncome);
-
-        // Empire administrative decay (prevents runaway treasury inflation beyond 50k)
-        if (newTreasury > 15000) {
-            const adminDecay = Math.floor((newTreasury - 15000) * 0.02);
-            newTreasury -= adminDecay;
-        }
-
         const myCounselors = paragons.filter((p: any) => p.faction_id === f.id && p.is_counselor);
         let avgSurv = 1.0, avgProt = 1.0;
         if (myCounselors.length > 0) {
             avgSurv = myCounselors.reduce((sum: number, c: any) => sum + (c.survival_mult || 1.0), 0) / myCounselors.length;
             avgProt = myCounselors.reduce((sum: number, c: any) => sum + (c.protection_mult || 1.0), 0) / myCounselors.length;
+        }
+
+        // Identify sovereign ruler before fiscal evaluation so ruler corruption affects embezzlement
+        const leader = paragons.find((p: any) => p.faction_id === f.id && [
+            "EMPEROR", "EMPRESS", "HIGH_MATRIARCH", "ARCH-DUKE", "GRAND_CHIEFTAIN", "LORD_PROTECTOR", "HIGH_CHANCELLOR", "WARLORD"
+        ].includes(String(p.title || "").toUpperCase())) || paragons.find((p: any) => p.faction_id === f.id && !p.is_counselor);
+
+        const leaderTraits = getTraitsList(leader);
+        const leaderName = leader ? leader.name : `Sovereign of ${f.name}`;
+        const leaderTitle = leader ? leader.title : "High Sovereign";
+        const leaderCorruption = Number(leader?.corruption_score || 0);
+
+        const activeWarsList = diplomacy.filter((d: any) => d.status === 'WAR' && (d.faction_a_id === f.id || d.faction_b_id === f.id));
+        const finance = evaluateFactionFinances({
+            treasury: Number(f.treasury) || 0,
+            fiscalRaw: f.fiscal_economy,
+            myBurgs,
+            activeUnits: myUnits,
+            activeWarCount: activeWarsList.length,
+            leaderCorruption,
+        });
+        const newTreasury = finance.newTreasury;
+        const netIncome = finance.netRevenue - finance.totalUpkeep;
+
+        // Bankruptcy triggers unpaid regiment desertions in `sim_faction_units`
+        if (finance.insolvent && myUnits.length > 0) {
+            const desertRate = Math.min(0.5, 0.15 + finance.deficit / Math.max(100, finance.totalUpkeep * 2));
+            let troopsDeserted = 0;
+            let unitsDisbanded = 0;
+            for (const u of myUnits) {
+                const curCnt = Math.max(0, Number(u.count) || 0);
+                const loss = Math.max(12, Math.ceil(curCnt * desertRate));
+                const nextCnt = Math.max(0, curCnt - loss);
+                const actualLoss = curCnt - nextCnt;
+                const nextStatus = nextCnt <= 0 ? 'DISBANDED' : String(u.status || 'ACTIVE');
+                troopsDeserted += actualLoss;
+                if (nextStatus === 'DISBANDED') unitsDisbanded++;
+                u.count = nextCnt;
+                u.status = nextStatus;
+                unitBatchUpdates.push({ id: Number(u.id), count: nextCnt, status: nextStatus });
+            }
+            if (troopsDeserted > 0) {
+                events.push({
+                    tick,
+                    type: 'FACTION_TROOP_DESERTION',
+                    message: `💸 PAYROLL COLLAPSE: ${f.name} defaulted on military upkeep (${finance.deficit} gold short). ${troopsDeserted} soldiers deserted (${unitsDisbanded} units disbanded)!`,
+                    tier: 'MAJOR',
+                    faction_id: f.id,
+                    burg_id: myBurgs[0]?.burg_id || null,
+                    lore_date: loreDate,
+                });
+            }
+            for (const b of myBurgs) {
+                const cur = burgFiscalDeltas.get(Number(b.burg_id)) || { du: 0, dc: 0 };
+                cur.du += 3;
+                burgFiscalDeltas.set(Number(b.burg_id), cur);
+            }
+        }
+
+        // Systemic graft (corruption >= 30%) breeds provincial unrest and underworld crime
+        if (finance.effectiveCorruption >= 0.30 && myBurgs.length > 0) {
+            const excess = finance.effectiveCorruption - 0.25;
+            const du = Math.max(1, Math.round(excess * 10));
+            const dc = Math.round(excess * 8 * 10) / 10;
+            for (const b of myBurgs) {
+                const cur = burgFiscalDeltas.get(Number(b.burg_id)) || { du: 0, dc: 0 };
+                cur.du += du;
+                cur.dc += dc;
+                burgFiscalDeltas.set(Number(b.burg_id), cur);
+            }
+            if (finance.effectiveCorruption >= 0.35) {
+                events.push({
+                    tick,
+                    type: 'FACTION_CORRUPTION_UNREST',
+                    message: `⚖️ TREASURY SKIMMING: Officials in ${f.name} pocketed ${finance.pocketedGold} gold (${Math.round(finance.effectiveCorruption * 100)}% graft), stoking provincial unrest and syndicate crime.`,
+                    tier: 'MINOR',
+                    faction_id: f.id,
+                    burg_id: myBurgs[0]?.burg_id || null,
+                    lore_date: loreDate,
+                });
+            }
         }
 
         // Calculate authentic military combat squads across all garrisons in the faction
@@ -125,16 +301,6 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
 
         let perceivedEconomy = netIncome * avgSurv;
         let perceivedDefense = Math.max(15, Math.floor(totalCombatSquads * avgProt));
-
-        // Identify sovereign ruler
-        const leader = paragons.find((p: any) => p.faction_id === f.id && [
-            "EMPEROR", "EMPRESS", "HIGH_MATRIARCH", "ARCH-DUKE", "GRAND_CHIEFTAIN", "LORD_PROTECTOR", "HIGH_CHANCELLOR", "WARLORD"
-        ].includes(String(p.title || "").toUpperCase())) || paragons.find((p: any) => p.faction_id === f.id && !p.is_counselor);
-
-        const leaderTraits = getTraitsList(leader);
-        const leaderName = leader ? leader.name : `Sovereign of ${f.name}`;
-        const leaderTitle = leader ? leader.title : "High Sovereign";
-        const leaderCorruption = Number(leader?.corruption_score || 0);
 
         let aggression = f.trait_aggression || 5;
         let economy = f.trait_economy || 5;
@@ -163,8 +329,53 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
             tick, loreDate
         });
 
-        // Update sovereign treasury
-        await client.query("UPDATE sim_factions SET treasury = $1 WHERE id = $2", [newTreasury, f.id]);
+        factionBatchUpdates.push({
+            id: Number(f.id),
+            treasury: newTreasury,
+            fiscal: JSON.stringify(finance.updatedFiscal),
+        });
+    }
+
+    if (factionBatchUpdates.length > 0) {
+        await client.query(
+            `UPDATE sim_factions AS f SET treasury = v.treasury, fiscal_economy = v.fiscal
+             FROM (SELECT unnest($1::int[]) AS id, unnest($2::bigint[]) AS treasury, unnest($3::jsonb[]) AS fiscal) AS v
+             WHERE f.id = v.id`,
+            [
+                factionBatchUpdates.map(u => u.id),
+                factionBatchUpdates.map(u => u.treasury),
+                factionBatchUpdates.map(u => u.fiscal),
+            ]
+        );
+    }
+
+    if (unitBatchUpdates.length > 0) {
+        await client.query(
+            `UPDATE sim_faction_units AS u SET count = v.count, status = v.status
+             FROM (SELECT unnest($1::int[]) AS id, unnest($2::int[]) AS count, unnest($3::text[]) AS status) AS v
+             WHERE u.id = v.id`,
+            [
+                unitBatchUpdates.map(u => u.id),
+                unitBatchUpdates.map(u => u.count),
+                unitBatchUpdates.map(u => u.status),
+            ]
+        );
+    }
+
+    if (burgFiscalDeltas.size > 0) {
+        const bIds = Array.from(burgFiscalDeltas.keys()).sort((a, b) => a - b);
+        await client.query(
+            `UPDATE sim_burg_economy AS b SET
+                unrest = LEAST(100, GREATEST(0, b.unrest + v.du)),
+                crime_rate = LEAST(100, GREATEST(0, COALESCE(b.crime_rate, 0) + v.dc))
+             FROM (SELECT unnest($1::int[]) AS burg_id, unnest($2::int[]) AS du, unnest($3::real[]) AS dc) AS v
+             WHERE b.burg_id = v.burg_id`,
+            [
+                bIds,
+                bIds.map(id => burgFiscalDeltas.get(id)!.du),
+                bIds.map(id => burgFiscalDeltas.get(id)!.dc),
+            ]
+        );
     }
 
     // --- PHASE 1B: ORGANIC BORDER FRICTION & NATURAL TENSION ESCALATION ---
