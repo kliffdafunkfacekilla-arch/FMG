@@ -25,6 +25,7 @@ import { DAYS_PER_MONTH } from "./canon/calendar.js";
 import { runMarketAgent } from "./economy/marketAgent.js";
 import { runFactionCollapse } from "./agents/factionCollapse.js";
 import { migrate } from "../db/migrate.js";
+import { flushStepDeltas, type Delta, type DeltaEmitter } from "./deltas/index.js";
 import { runSeeded, seedSql, tickSeed } from "./rng.js";
 import { runAutonomousDramaAgent } from "./agents/autonomousDramaAgent.js";
 import { advanceThreadClocks } from "./threads/threadEngine.js";
@@ -89,17 +90,25 @@ async function runTick(): Promise<TickResult> {
     const timings: Record<string, number> = {};
     const queries: Record<string, number> = {};
     let stepNo = 0;
+    let tick = 0;
 
-    /** Runs one agent in a savepoint; on failure rolls back just that agent and carries on. */
-    const step = async (name: string, fn: () => Promise<unknown>, required = false) => {
+    /** Runs one agent in a savepoint; validates, applies, and logs any emitted deltas inside the savepoint. */
+    const step = async (name: string, fn: (emit: DeltaEmitter) => Promise<unknown>, required = false) => {
         const sp = `agent_${++stepNo}`;
         const t0 = performance.now();
         const failuresBefore = failedQueries.length;
         const queriesBefore = queryCount;
         currentStep = name;
+        const pending: Delta[] = [];
+        const emit: DeltaEmitter = (d: Delta) => { pending.push(d); };
         await rawQuery(`SAVEPOINT ${sp}`);
         let thrown: any = null;
-        try { await fn(); } catch (e) { thrown = e; }
+        try {
+            await fn(emit);
+            if (pending.length > 0) {
+                await flushStepDeltas(client, `agent:${name}`, tick, pending);
+            }
+        } catch (e) { thrown = e; }
         // A failed query the agent swallowed leaves the transaction aborted: RELEASE then fails too.
         let aborted = !!thrown;
         if (!aborted) {
@@ -123,7 +132,7 @@ async function runTick(): Promise<TickResult> {
 
         // The calendar is the only clock (an event stamped in the future used to make the world jump ahead)
         const calTickRes = await client.query('SELECT COALESCE(MAX(tick), 0) as t FROM sim_calendar');
-        const tick = Number(calTickRes.rows[0]?.t || 0) + 1;
+        tick = Number(calTickRes.rows[0]?.t || 0) + 1;
         const seed = tickSeed(tick);
         await client.query('SELECT setseed($1)', [seedSql(seed)]);
 
@@ -246,7 +255,8 @@ async function runTick(): Promise<TickResult> {
                 );
             });
 
-            // 12. Once a month keep a rolling buffer of ~25,000 MINOR and ~25,000 MAJOR events; CRITICAL lore stays forever
+            // 12. Once a month keep a rolling buffer of ~25,000 MINOR and ~25,000 MAJOR events; CRITICAL lore stays forever,
+            // and prune world_deltas older than one canon month.
             if (tick % DAYS_PER_MONTH === 0) {
                 await step('eventRetention', async () => {
                     await client.query(`
@@ -261,6 +271,7 @@ async function runTick(): Promise<TickResult> {
                             SELECT id FROM sim_events WHERE tier = 'MAJOR' ORDER BY id DESC OFFSET 25000 LIMIT 1
                         ), 0)
                     `);
+                    await client.query(`DELETE FROM world_deltas WHERE tick < $1`, [tick - DAYS_PER_MONTH]);
                 });
             }
 

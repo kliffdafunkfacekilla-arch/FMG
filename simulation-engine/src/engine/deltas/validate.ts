@@ -1,0 +1,467 @@
+import type { Db, Delta, RejectedDelta, ValidateResult } from "./types.js";
+
+const KNOWN_KINDS = new Set<string>([
+  "burg.adjust",
+  "burg.set",
+  "cell.adjust",
+  "cell.set",
+  "cell.setFaction",
+  "citizen.status",
+  "citizen.move",
+  "citizen.tagBurg",
+  "agent.update",
+  "agent.remove",
+  "tags.add",
+  "event.log",
+  "thread.open",
+  "scheduled.add",
+  "weatherFront.update",
+  "weatherFront.create",
+  "weatherFront.remove",
+  "chaosZone.upsert",
+  "chaosZone.adjust",
+  "calendar.set",
+]);
+
+function clamp(v: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, v));
+}
+
+function finiteOrReject(nums: Array<[string, number | undefined]>): string | null {
+  for (const [k, v] of nums) {
+    if (v !== undefined && !Number.isFinite(v)) {
+      return `Non-finite number for ${k}`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Validates existence of all referenced entity IDs (at most 1 SQL query per table), rejects malformed
+ * or unknown deltas, and clamps absolute numeric fields to canonical simulation bounds.
+ */
+export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateResult> {
+  if (deltas.length === 0) return { ok: [], rejected: [] };
+
+  const burgIds = new Set<number>();
+  const cellIds = new Set<number>();
+  const citizenIds = new Set<number>();
+  const agentIds = new Set<number>();
+  const factionIds = new Set<number>();
+
+  const structuralErrors = new Map<number, string>();
+
+  for (let i = 0; i < deltas.length; i++) {
+    const d = deltas[i];
+    if (!d || typeof d !== "object" || !KNOWN_KINDS.has((d as any).kind)) {
+      structuralErrors.set(i, `Unknown delta kind: ${(d as any)?.kind}`);
+      continue;
+    }
+
+    switch (d.kind) {
+      case "burg.adjust": {
+        const err = finiteOrReject([
+          ["burgId", d.burgId],
+          ["food", d.food],
+          ["wealth", d.wealth],
+          ["unrest", d.unrest],
+          ["health", d.health],
+          ["crime", d.crime],
+          ["rawMaterials", d.rawMaterials],
+          ["popNull", d.popNull],
+          ["popAttuned", d.popAttuned],
+        ]);
+        if (err) structuralErrors.set(i, err);
+        else burgIds.add(d.burgId);
+        break;
+      }
+      case "burg.set": {
+        const f = d.fields || {};
+        const err = finiteOrReject([
+          ["burgId", d.burgId],
+          ["food", f.food],
+          ["wealth", f.wealth],
+          ["unrest", f.unrest],
+          ["health", f.health],
+          ["crime_rate", f.crime_rate],
+          ["raw_materials", f.raw_materials],
+          ["pop_null", f.pop_null],
+          ["pop_attuned", f.pop_attuned],
+          ["urban_tier", f.urban_tier],
+        ]);
+        if (err) structuralErrors.set(i, err);
+        else {
+          burgIds.add(d.burgId);
+          if (typeof f.occupier_faction_id === "number" && f.occupier_faction_id > 0) {
+            factionIds.add(f.occupier_faction_id);
+          }
+        }
+        break;
+      }
+      case "cell.adjust": {
+        const err = finiteOrReject([
+          ["cellId", d.cellId],
+          ["ecoHealth", d.ecoHealth],
+          ["ecoMax", d.ecoMax],
+          ["ecoPlants", d.ecoPlants],
+          ["ecoPrey", d.ecoPrey],
+          ["ecoPredators", d.ecoPredators],
+          ["ecoApex", d.ecoApex],
+          ["ecoBlight", d.ecoBlight],
+          ["currentTemp", d.currentTemp],
+        ]);
+        if (err) structuralErrors.set(i, err);
+        else cellIds.add(d.cellId);
+        break;
+      }
+      case "cell.set": {
+        const f = d.fields || {};
+        const err = finiteOrReject([
+          ["cellId", d.cellId],
+          ["current_temp", f.current_temp],
+          ["eco_plants", f.eco_plants],
+          ["eco_prey", f.eco_prey],
+          ["eco_predators", f.eco_predators],
+          ["eco_apex", f.eco_apex],
+          ["eco_blight", f.eco_blight],
+          ["eco_health", f.eco_health],
+          ["eco_max", f.eco_max],
+          ["culture_id", f.culture_id],
+          ["religion_id", f.religion_id],
+        ]);
+        if (err) structuralErrors.set(i, err);
+        else cellIds.add(d.cellId);
+        break;
+      }
+      case "cell.setFaction": {
+        if (!Number.isFinite(d.cellId)) structuralErrors.set(i, "Non-finite cellId");
+        else {
+          cellIds.add(d.cellId);
+          if (typeof d.factionId === "number" && d.factionId > 0) factionIds.add(d.factionId);
+        }
+        break;
+      }
+      case "citizen.status": {
+        if (!Number.isFinite(d.citizenId) || !d.status) structuralErrors.set(i, "Invalid citizen.status");
+        else citizenIds.add(d.citizenId);
+        break;
+      }
+      case "citizen.move": {
+        const err = finiteOrReject([
+          ["citizenId", d.citizenId],
+          ["settlementId", d.settlementId],
+          ["homeCellId", d.homeCellId],
+        ]);
+        if (err) structuralErrors.set(i, err);
+        else {
+          citizenIds.add(d.citizenId);
+          burgIds.add(d.settlementId);
+          cellIds.add(d.homeCellId);
+        }
+        break;
+      }
+      case "citizen.tagBurg": {
+        const err = finiteOrReject([
+          ["burgId", d.burgId],
+          ["randomSeed", d.randomSeed],
+          ["limit", d.limit],
+        ]);
+        if (err) structuralErrors.set(i, err);
+        else if (!Array.isArray(d.tags) || d.tags.length === 0) structuralErrors.set(i, "Empty tags in citizen.tagBurg");
+        else burgIds.add(d.burgId);
+        break;
+      }
+      case "agent.update": {
+        const f = d.fields || {};
+        const err = finiteOrReject([
+          ["agentId", d.agentId],
+          ["location_cell_id", f.location_cell_id],
+          ["corruption", f.corruption],
+          ["drained_power", f.drained_power],
+          ["age_ticks", f.age_ticks],
+        ]);
+        if (err) structuralErrors.set(i, err);
+        else {
+          agentIds.add(d.agentId);
+          if (typeof f.location_cell_id === "number") cellIds.add(f.location_cell_id);
+          if (typeof f.target_cell_id === "number") cellIds.add(f.target_cell_id);
+        }
+        break;
+      }
+      case "agent.remove": {
+        if (!Number.isFinite(d.agentId)) structuralErrors.set(i, "Non-finite agentId");
+        else agentIds.add(d.agentId);
+        break;
+      }
+      case "tags.add": {
+        if (!Array.isArray(d.tags) || d.tags.length === 0) {
+          structuralErrors.set(i, "Empty tags in tags.add");
+        } else if (d.target.kind === "cell") {
+          if (!Number.isFinite(d.target.cellId)) structuralErrors.set(i, "Non-finite cellId");
+          else cellIds.add(d.target.cellId);
+        } else if (d.target.kind === "citizen") {
+          if (!Number.isFinite(d.target.citizenId)) structuralErrors.set(i, "Non-finite citizenId");
+          else citizenIds.add(d.target.citizenId);
+        } else {
+          structuralErrors.set(i, "Unknown tags.add target");
+        }
+        break;
+      }
+      case "event.log": {
+        const err = finiteOrReject([
+          ["tick", d.tick],
+          ["burgId", d.burgId],
+          ["cellId", d.cellId],
+          ["factionId", d.factionId],
+          ["outlawId", d.outlawId],
+        ]);
+        if (err || !d.type || !d.message) structuralErrors.set(i, err || "Missing type/message in event.log");
+        else {
+          if (d.burgId !== undefined && d.burgId > 0) burgIds.add(d.burgId);
+          if (d.cellId !== undefined && d.cellId > 0) cellIds.add(d.cellId);
+          if (d.factionId !== undefined && d.factionId > 0) factionIds.add(d.factionId);
+        }
+        break;
+      }
+      case "thread.open": {
+        if (!d.spec || !d.spec.question || !Number.isFinite(d.spec.cell_id)) {
+          structuralErrors.set(i, "Invalid thread.open spec");
+        } else if (d.spec.cell_id > 0) {
+          cellIds.add(d.spec.cell_id);
+        }
+        break;
+      }
+      case "scheduled.add": {
+        if (!d.at || !Number.isFinite(d.at.tick) || !d.event?.kind) {
+          structuralErrors.set(i, "Invalid scheduled.add");
+        }
+        break;
+      }
+      case "weatherFront.update": {
+        const err = finiteOrReject([["frontId", d.frontId], ["x", d.x], ["y", d.y], ["lifetime", d.lifetime]]);
+        if (err) structuralErrors.set(i, err);
+        break;
+      }
+      case "weatherFront.create": {
+        const err = finiteOrReject([
+          ["x", d.x], ["y", d.y], ["dx", d.dx], ["dy", d.dy], ["radius", d.radius], ["lifetime", d.lifetime],
+        ]);
+        if (err || !d.type) structuralErrors.set(i, err || "Missing weatherFront type");
+        break;
+      }
+      case "weatherFront.remove": {
+        if (!Number.isFinite(d.frontId)) structuralErrors.set(i, "Non-finite frontId");
+        break;
+      }
+      case "chaosZone.upsert": {
+        const err = finiteOrReject([["cellId", d.cellId], ["intensity", d.intensity]]);
+        if (err || !d.type) structuralErrors.set(i, err || "Invalid chaosZone.upsert");
+        else cellIds.add(d.cellId);
+        break;
+      }
+      case "chaosZone.adjust": {
+        const err = finiteOrReject([["cellId", d.cellId], ["intensityDelta", d.intensityDelta]]);
+        if (err) structuralErrors.set(i, err);
+        else if (d.cellId !== undefined) cellIds.add(d.cellId);
+        break;
+      }
+      case "calendar.set": {
+        const err = finiteOrReject([
+          ["id", d.id], ["tick", d.tick], ["year", d.year], ["month", d.month], ["dayOfMonth", d.dayOfMonth], ["dayOfYear", d.dayOfYear],
+        ]);
+        if (err) structuralErrors.set(i, err);
+        break;
+      }
+    }
+  }
+
+  const validBurgs = new Set<number>();
+  if (burgIds.size > 0) {
+    const res = await db.query(`SELECT burg_id FROM sim_burg_economy WHERE burg_id = ANY($1::int[])`, [Array.from(burgIds)]);
+    for (const r of res.rows) validBurgs.add(Number(r.burg_id));
+  }
+
+  const validCells = new Set<number>();
+  if (cellIds.size > 0) {
+    const res = await db.query(`SELECT id FROM sim_cells WHERE id = ANY($1::int[])`, [Array.from(cellIds)]);
+    for (const r of res.rows) validCells.add(Number(r.id));
+  }
+
+  const validCitizens = new Set<number>();
+  if (citizenIds.size > 0) {
+    const res = await db.query(`SELECT citizen_id FROM population_demographics WHERE citizen_id = ANY($1::int[])`, [Array.from(citizenIds)]);
+    for (const r of res.rows) validCitizens.add(Number(r.citizen_id));
+  }
+
+  const validAgents = new Set<number>();
+  if (agentIds.size > 0) {
+    const res = await db.query(`SELECT id FROM sim_agents WHERE id = ANY($1::int[])`, [Array.from(agentIds)]);
+    for (const r of res.rows) validAgents.add(Number(r.id));
+  }
+
+  const validFactions = new Set<number>();
+  if (factionIds.size > 0) {
+    const res = await db.query(`SELECT id FROM sim_factions WHERE id = ANY($1::int[])`, [Array.from(factionIds)]);
+    for (const r of res.rows) validFactions.add(Number(r.id));
+  }
+
+  const ok: Delta[] = [];
+  const rejected: RejectedDelta[] = [];
+
+  for (let i = 0; i < deltas.length; i++) {
+    const d = deltas[i]!;
+    const structErr = structuralErrors.get(i);
+    if (structErr) {
+      rejected.push({ delta: d, reason: structErr });
+      continue;
+    }
+
+    switch (d.kind) {
+      case "burg.adjust":
+        if (!validBurgs.has(d.burgId)) { rejected.push({ delta: d, reason: `Unknown burgId ${d.burgId}` }); break; }
+        ok.push(d);
+        break;
+
+      case "burg.set": {
+        if (!validBurgs.has(d.burgId)) { rejected.push({ delta: d, reason: `Unknown burgId ${d.burgId}` }); break; }
+        const f = { ...d.fields };
+        if (typeof f.occupier_faction_id === "number" && f.occupier_faction_id > 0 && !validFactions.has(f.occupier_faction_id)) {
+          rejected.push({ delta: d, reason: `Unknown occupier_faction_id ${f.occupier_faction_id}` });
+          break;
+        }
+        if (f.food !== undefined) f.food = Math.max(0, Math.round(f.food));
+        if (f.wealth !== undefined) f.wealth = Math.max(0, Math.round(f.wealth));
+        if (f.unrest !== undefined) f.unrest = clamp(Math.round(f.unrest), 0, 100);
+        if (f.health !== undefined) f.health = clamp(Math.round(f.health), 0, 100);
+        if (f.crime_rate !== undefined) f.crime_rate = clamp(f.crime_rate, 0, 100);
+        if (f.raw_materials !== undefined) f.raw_materials = Math.max(0, Math.round(f.raw_materials));
+        if (f.pop_null !== undefined) f.pop_null = Math.max(0, Math.round(f.pop_null));
+        if (f.pop_attuned !== undefined) f.pop_attuned = Math.max(0, Math.round(f.pop_attuned));
+        if (f.urban_tier !== undefined) f.urban_tier = Math.max(0, Math.round(f.urban_tier));
+        ok.push({ kind: "burg.set", burgId: d.burgId, fields: f });
+        break;
+      }
+
+      case "cell.adjust":
+        if (!validCells.has(d.cellId)) { rejected.push({ delta: d, reason: `Unknown cellId ${d.cellId}` }); break; }
+        ok.push(d);
+        break;
+
+      case "cell.set": {
+        if (!validCells.has(d.cellId)) { rejected.push({ delta: d, reason: `Unknown cellId ${d.cellId}` }); break; }
+        const f = { ...d.fields };
+        if (f.eco_max !== undefined) f.eco_max = Math.max(10, f.eco_max);
+        if (f.eco_health !== undefined) f.eco_health = clamp(f.eco_health, 0, f.eco_max ?? 200);
+        if (f.eco_plants !== undefined) f.eco_plants = clamp(f.eco_plants, 0, 200);
+        if (f.eco_prey !== undefined) f.eco_prey = clamp(f.eco_prey, 0, 100);
+        if (f.eco_predators !== undefined) f.eco_predators = clamp(f.eco_predators, 0, 60);
+        if (f.eco_apex !== undefined) f.eco_apex = clamp(f.eco_apex, 0, 100);
+        if (f.eco_blight !== undefined) f.eco_blight = clamp(f.eco_blight, 0, 100);
+        ok.push({ kind: "cell.set", cellId: d.cellId, fields: f });
+        break;
+      }
+
+      case "cell.setFaction":
+        if (!validCells.has(d.cellId)) { rejected.push({ delta: d, reason: `Unknown cellId ${d.cellId}` }); break; }
+        if (typeof d.factionId === "number" && d.factionId > 0 && !validFactions.has(d.factionId)) {
+          rejected.push({ delta: d, reason: `Unknown factionId ${d.factionId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "citizen.status":
+        if (!validCitizens.has(d.citizenId)) { rejected.push({ delta: d, reason: `Unknown citizenId ${d.citizenId}` }); break; }
+        ok.push(d);
+        break;
+
+      case "citizen.move":
+        if (!validCitizens.has(d.citizenId)) { rejected.push({ delta: d, reason: `Unknown citizenId ${d.citizenId}` }); break; }
+        if (!validBurgs.has(d.settlementId)) { rejected.push({ delta: d, reason: `Unknown settlementId ${d.settlementId}` }); break; }
+        if (!validCells.has(d.homeCellId)) { rejected.push({ delta: d, reason: `Unknown homeCellId ${d.homeCellId}` }); break; }
+        ok.push(d);
+        break;
+
+      case "citizen.tagBurg":
+        if (!validBurgs.has(d.burgId)) { rejected.push({ delta: d, reason: `Unknown burgId ${d.burgId}` }); break; }
+        ok.push(d);
+        break;
+
+      case "agent.update": {
+        if (!validAgents.has(d.agentId)) { rejected.push({ delta: d, reason: `Unknown agentId ${d.agentId}` }); break; }
+        const f = { ...d.fields };
+        if (typeof f.location_cell_id === "number" && !validCells.has(f.location_cell_id)) {
+          rejected.push({ delta: d, reason: `Unknown location_cell_id ${f.location_cell_id}` });
+          break;
+        }
+        if (typeof f.target_cell_id === "number" && !validCells.has(f.target_cell_id)) {
+          rejected.push({ delta: d, reason: `Unknown target_cell_id ${f.target_cell_id}` });
+          break;
+        }
+        if (f.corruption !== undefined) f.corruption = clamp(Math.round(f.corruption), 0, 100);
+        ok.push({ kind: "agent.update", agentId: d.agentId, fields: f });
+        break;
+      }
+
+      case "agent.remove":
+        if (!validAgents.has(d.agentId)) { rejected.push({ delta: d, reason: `Unknown agentId ${d.agentId}` }); break; }
+        ok.push(d);
+        break;
+
+      case "tags.add":
+        if (d.target.kind === "cell" && !validCells.has(d.target.cellId)) {
+          rejected.push({ delta: d, reason: `Unknown cellId ${d.target.cellId}` });
+          break;
+        }
+        if (d.target.kind === "citizen" && !validCitizens.has(d.target.citizenId)) {
+          rejected.push({ delta: d, reason: `Unknown citizenId ${d.target.citizenId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "event.log":
+        if (d.burgId !== undefined && d.burgId > 0 && !validBurgs.has(d.burgId)) {
+          rejected.push({ delta: d, reason: `Unknown burgId ${d.burgId}` });
+          break;
+        }
+        if (d.cellId !== undefined && d.cellId > 0 && !validCells.has(d.cellId)) {
+          rejected.push({ delta: d, reason: `Unknown cellId ${d.cellId}` });
+          break;
+        }
+        if (d.factionId !== undefined && d.factionId > 0 && !validFactions.has(d.factionId)) {
+          rejected.push({ delta: d, reason: `Unknown factionId ${d.factionId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "thread.open":
+        if (d.spec.cell_id > 0 && !validCells.has(d.spec.cell_id)) {
+          rejected.push({ delta: d, reason: `Unknown thread cell_id ${d.spec.cell_id}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "chaosZone.upsert":
+        if (!validCells.has(d.cellId)) { rejected.push({ delta: d, reason: `Unknown cellId ${d.cellId}` }); break; }
+        ok.push({ ...d, intensity: clamp(d.intensity, 0, 100) });
+        break;
+
+      case "chaosZone.adjust":
+        if (d.cellId !== undefined && !validCells.has(d.cellId)) {
+          rejected.push({ delta: d, reason: `Unknown cellId ${d.cellId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      default:
+        ok.push(d);
+        break;
+    }
+  }
+
+  return { ok, rejected };
+}

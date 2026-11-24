@@ -12,6 +12,7 @@ import zlib from "zlib";
 
 const DDL = `
 -- Drop only simulation tables, strictly preserving player character sheets, game saves, and memorials
+DROP TABLE IF EXISTS world_deltas CASCADE;
 DROP TABLE IF EXISTS schema_version CASCADE;
 DROP TABLE IF EXISTS sim_active_projects CASCADE;
 DROP TABLE IF EXISTS sim_faction_units CASCADE;
