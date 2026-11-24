@@ -3,6 +3,7 @@ import { FACTION_ACTIONS, FactionState, FactionAction } from '../ai/factionActio
 import { tagBurgCitizens } from "./citizenPersonaHelper";
 import { DAYS_PER_MONTH } from "../canon/calendar.js";
 import { loadCellTagMap } from "../cellTags.js";
+import { extractBurgCivicFlags, computeSiegeDefenseMultiplier } from "../maps/civicFlags.js";
 
 /**
  * Extracts uppercase trait strings from a paragon's traits column
@@ -144,7 +145,7 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
     const factionRes = await client.query("SELECT * FROM sim_factions ORDER BY id");
     const burgRes = await client.query(`
         SELECT b.burg_id, b.pop_null, COALESCE(b.pop_attuned, 0)::int AS pop_attuned, c.faction_id, b.unrest, b.crime_rate, b.food, b.health, 
-               b.military_forces, b.wealth, c.id as cell_id 
+               b.military_forces, b.wealth, b.port, b.citadel, b.walls, b.plaza, b.temple, b.shanty, b.is_capital, c.id as cell_id 
         FROM sim_burg_economy b 
         JOIN sim_cells c ON b.cell_id = c.id 
         WHERE c.faction_id IS NOT NULL
@@ -285,7 +286,7 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
             }
         }
 
-        // Calculate authentic military combat squads across all garrisons in the faction
+        // Calculate authentic military combat squads & fortifications across all garrisons in the faction
         let totalCombatSquads = 0;
         for (const b of myBurgs) {
             let forces: any = {};
@@ -293,10 +294,13 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
                 if (typeof b.military_forces === 'string') forces = JSON.parse(b.military_forces || '{}');
                 else if (b.military_forces) forces = b.military_forces;
             } catch (e) { }
+            let squads = 0;
             for (const count of Object.values(forces)) {
-                totalCombatSquads += (Number(count) || 0);
+                squads += (Number(count) || 0);
             }
-            totalCombatSquads += Math.max(2, Math.floor((b.pop_null || 1000) / 1000));
+            squads += Math.max(2, Math.floor((b.pop_null || 1000) / 1000));
+            const fortMult = computeSiegeDefenseMultiplier(extractBurgCivicFlags(b));
+            totalCombatSquads += Math.round(squads * fortMult);
         }
 
         let perceivedEconomy = netIncome * avgSurv;
@@ -564,7 +568,8 @@ export async function runFactionPlanningAgent(client: any, tick: number, loreDat
             const result = resolveCombat(strikeForce, defenderForces, {
                 attackerName: aggState.name,
                 defenderName: defState.name,
-                tick
+                tick,
+                defenderFortifications: extractBurgCivicFlags(targetBurg),
             });
 
             if ((result as any).evadedClash) {

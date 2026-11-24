@@ -6,6 +6,7 @@ import { applySiteVariation } from "./SiteVariation.js";
 import { getFactionSpecialty } from "../economy/factionSpecialties.js";
 import { computeDonjonSettlementCensus, DonjonBusiness, DonjonSettlementCensus } from "../procgen/DonjonSettlementEngine.js";
 import { deriveCitizenMotives } from "../rpg/paragonMotives.js";
+import { extractBurgCivicFlags } from "./civicFlags.js";
 import {
   generateProceduralLoggingSurface,
   generateProceduralLoggingSubterranean,
@@ -223,8 +224,9 @@ export function generateBurgSectorLayers(
   const burgNoise = new SimplexNoise(burg.burg_id * 1000 + cellId);
   const burgName = burg.name || `Burg #${burg.burg_id}`;
   const tier = Number(burg.urban_tier) || (Number(burg.pop_null) > 12000 ? 3 : Number(burg.pop_null) > 1200 ? 2 : 1);
-  const isPort = Boolean(burg.port);
-  const hasWalls = tier >= 2;
+  const civicFlags = extractBurgCivicFlags(burg, tier);
+  const isPort = civicFlags.port;
+  const hasWalls = civicFlags.walls;
   const CENTER = 128;
 
   // 0. Resolve Biome, Culture, and Architecture Materials
@@ -309,7 +311,9 @@ export function generateBurgSectorLayers(
   // 2. Market Square Focal Point (Anchored at Main Crossroads / Waterfront)
   const marketCX = CENTER + Math.floor(burgNoise.noise2D(cellId * 2, 0) * 12);
   const marketCY = hasRiver ? Math.floor(CENTER * 0.82) : CENTER + Math.floor(burgNoise.noise2D(0, cellId * 2) * 12);
-  const marketRad = tier >= 3 ? 16 : tier === 2 ? 12 : 9;
+  const marketRad = civicFlags.plaza
+    ? (tier >= 3 ? 16 : 12)
+    : (tier >= 3 ? 9 : 6);
 
   // 3. Fortified Gates & Organic Wall Envelope
   const wallRadius = tier >= 3 ? 92 : tier === 2 ? 74 : 54;
@@ -1065,6 +1069,15 @@ export function generateBurgSectorLayers(
   if (hasWalls) {
     props0.push(
       {
+        id: `prop_civic_walls_${burg.burg_id}`,
+        name: `${burgName} Perimeter Curtain Wall & Bastions`,
+        pos: [WALL_LEFT + 2, CENTER],
+        tags: ["type:structure", "material:stone", "walls", "defensive", "fortified"],
+        hp: 450,
+        maxHp: 450,
+        description: `Heavy fortified perimeter curtain walls and flanking watchtowers guarding ${burgName}.`
+      },
+      {
         id: `prop_wall_stairs_north_${burg.burg_id}`,
         name: "North Curtain Wall Stairs Up",
         pos: [WALL_LEFT + 4, WALL_TOP + 3],
@@ -1083,6 +1096,104 @@ export function generateBurgSectorLayers(
         description: "Stone staircase rising to the south wall parapet walkway."
       }
     );
+  }
+
+  if (civicFlags.citadel) {
+    for (let dy = -7; dy <= 7; dy++) {
+      for (let dx = -7; dx <= 7; dx++) {
+        const px = citadelCX + dx, py = citadelCY + dy;
+        if (px >= 1 && px < SIZE - 1 && py >= 1 && py < SIZE - 1) {
+          grid0[py * SIZE + px] = (Math.abs(dx) === 7 || Math.abs(dy) === 7) ? 5 : 4;
+        }
+      }
+    }
+    props0.push({
+      id: `prop_civic_citadel_${burg.burg_id}`,
+      name: `${burgName} Keep & Inner Citadel`,
+      pos: [citadelCX, citadelCY],
+      tags: ["type:structure", "material:stone", "citadel", "fortified", "military", "defensive"],
+      hp: 600,
+      maxHp: 600,
+      description: `An inner ashlar keep anchoring the garrison command and siege defense of ${burgName}.`
+    });
+  }
+
+  if (civicFlags.plaza) {
+    props0.push({
+      id: `prop_civic_plaza_${burg.burg_id}`,
+      name: `${burgName} Grand Civic Plaza & Exchange`,
+      pos: [marketCX + 4, marketCY - 4],
+      tags: ["type:structure", "material:stone", "plaza", "commerce", "meeting_point"],
+      hp: 240,
+      maxHp: 240,
+      description: `Paved broad civic square where guild merchants and municipal criers gather in ${burgName}.`
+    });
+  }
+
+  if (civicFlags.temple) {
+    for (let dy = -4; dy <= 4; dy++) {
+      for (let dx = -4; dx <= 4; dx++) {
+        const px = templeCX + dx, py = templeCY + dy;
+        if (px >= 1 && px < SIZE - 1 && py >= 1 && py < SIZE - 1) {
+          grid0[py * SIZE + px] = (Math.abs(dx) === 4 || Math.abs(dy) === 4) ? 5 : (dx === 0 && dy === 0 ? 10 : 4);
+        }
+      }
+    }
+    props0.push({
+      id: `prop_civic_temple_${burg.burg_id}`,
+      name: `${burgName} High Temple Sanctuary`,
+      pos: [templeCX, templeCY],
+      tags: ["type:altar", "material:stone", "temple", "sacred", "hallowed"],
+      hp: 320,
+      maxHp: 320,
+      description: `A consecrated stone sanctuary consecrated to Ostraka's rites inside ${burgName}.`
+    });
+  }
+
+  if (civicFlags.port) {
+    props0.push({
+      id: `prop_civic_port_wharf_${burg.burg_id}`,
+      name: `${burgName} Deep-Water Harbor Quay & Cranes`,
+      pos: [waterfrontCX, Math.min(SIZE - 8, waterfrontCY)],
+      tags: ["type:structure", "material:wood", "port", "dock", "commerce", "water"],
+      hp: 260,
+      maxHp: 260,
+      description: `Timber piers, mooring bollards, and heavy gantry cranes loading maritime cargo in ${burgName}.`
+    });
+  }
+
+  if (civicFlags.shanty) {
+    const sx = Math.min(SIZE - 14, marketCX + Math.round(wallRadius * 0.72));
+    const sy = Math.min(SIZE - 14, marketCY + Math.round(wallRadius * 0.52));
+    for (let dy = -3; dy <= 3; dy += 3) {
+      for (let dx = -3; dx <= 3; dx += 3) {
+        const hx = sx + dx, hy = sy + dy;
+        if (hx >= 2 && hx < SIZE - 2 && hy >= 2 && hy < SIZE - 2) {
+          grid0[hy * SIZE + hx] = 7;
+        }
+      }
+    }
+    props0.push({
+      id: `prop_civic_shanty_${burg.burg_id}`,
+      name: `${burgName} Outer Lean-To Shantytown`,
+      pos: [sx, sy],
+      tags: ["type:structure", "material:wood", "shanty", "flammable", "crowded"],
+      hp: 90,
+      maxHp: 90,
+      description: `Tightly packed scrap-timber shacks and tarred canvas shelters spilling beyond ${burgName}'s core.`
+    });
+  }
+
+  if (civicFlags.isCapital) {
+    props0.push({
+      id: `prop_civic_capital_seat_${burg.burg_id}`,
+      name: `${burgName} Sovereign Seat & Heraldic Standard`,
+      pos: [marketCX - 4, marketCY - 4],
+      tags: ["type:structure", "material:stone", "capital", "sovereign", "landmark"],
+      hp: 400,
+      maxHp: 400,
+      description: `Monumental sovereign seat housing ${factionName}'s state archives and gilded banner.`
+    });
   }
 
   if (tier >= 3) {
@@ -1110,6 +1221,7 @@ export function generateBurgSectorLayers(
       burgId: burg.burg_id,
       urbanTier: tier,
       isPort,
+      civicFlags,
       wealth: burg.wealth,
       unrest: burg.unrest,
       factionName,
@@ -1300,6 +1412,7 @@ export function generateBurgSectorLayers(
       burgId: burg.burg_id,
       urbanTier: tier,
       isPort,
+      civicFlags,
       wealth: burg.wealth,
       unrest: burg.unrest,
       factionName,
@@ -1450,6 +1563,7 @@ export function generateBurgSectorLayers(
       burgId: burg.burg_id,
       urbanTier: tier,
       isPort,
+      civicFlags,
       wealth: burg.wealth,
       unrest: burg.unrest,
       factionName,

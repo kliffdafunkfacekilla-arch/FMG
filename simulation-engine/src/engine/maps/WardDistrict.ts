@@ -18,6 +18,7 @@ import { paintTacticalTerrain, RegionalNeighborhood, TERRAIN_VERSION, TILE } fro
 import type { SectorMapResult } from "./SectorMapGenerator";
 import { dressSite, TownKind } from "./SiteVariation.js";
 import { deriveCitizenMotives } from "../rpg/paragonMotives.js";
+import { extractBurgCivicFlags } from "./civicFlags.js";
 
 const SIZE = 256;
 type Ward = "RESIDENTIAL" | "MARKET" | "ARTISAN" | "CITADEL";
@@ -109,6 +110,7 @@ export function generateWardDistrictMap(input: WardDistrictInput): SectorMapResu
   const rand = seeded(`ward_${cellId}_${rx}_${ry}`);
   const burgName = burg?.name || `Burg #${burg?.burg_id}`;
   const tier = Number(burg?.urban_tier) || 1;
+  const civicFlags = extractBurgCivicFlags(burg, tier);
   const streetTile = tier >= 2 ? TILE.COBBLE : TILE.DIRT;
   const grid = new Uint8Array(SIZE * SIZE);
 
@@ -179,21 +181,23 @@ export function generateWardDistrictMap(input: WardDistrictInput): SectorMapResu
     lay(from, [Math.max(14, Math.min(SIZE - 15, Math.round(hub[0] + Math.cos(a) * d))), Math.max(14, Math.min(SIZE - 15, Math.round(hub[1] + Math.sin(a) * d)))], 3, 6);
   }
 
-  // Town wall along countryside sides, towers every ~48px, a gate where a street crosses it
-  for (const s of sides) {
-    if (isTown(s.t)) continue;
-    for (let i = 0; i < SIZE; i++) for (let w = 0; w < 4; w++) {
-      const along = i, depth = WALL_IN - 2 + w;
-      const [x, y] = s.key === "N" ? [along, depth] : s.key === "S" ? [along, SIZE - 1 - depth] : s.key === "W" ? [depth, along] : [SIZE - 1 - depth, along];
-      const k = y * SIZE + x;
-      if (street[k]) continue; // gate gap
-      if (!isWater(grid[k]!)) grid[k] = TILE.ROCK;
-    }
-    for (let i = 24; i < SIZE - 10; i += 48) {
-      for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
-        const along = i + dx, depth = WALL_IN + dy;
+  // Town wall along countryside sides when `walls` flag is set, towers every ~48px, a gate where a street crosses it
+  if (civicFlags.walls) {
+    for (const s of sides) {
+      if (isTown(s.t)) continue;
+      for (let i = 0; i < SIZE; i++) for (let w = 0; w < 4; w++) {
+        const along = i, depth = WALL_IN - 2 + w;
         const [x, y] = s.key === "N" ? [along, depth] : s.key === "S" ? [along, SIZE - 1 - depth] : s.key === "W" ? [depth, along] : [SIZE - 1 - depth, along];
-        if (x >= 0 && y >= 0 && x < SIZE && y < SIZE && !street[y * SIZE + x]) grid[y * SIZE + x] = TILE.ROCK;
+        const k = y * SIZE + x;
+        if (street[k]) continue; // gate gap
+        if (!isWater(grid[k]!)) grid[k] = TILE.ROCK;
+      }
+      for (let i = 24; i < SIZE - 10; i += 48) {
+        for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+          const along = i + dx, depth = WALL_IN + dy;
+          const [x, y] = s.key === "N" ? [along, depth] : s.key === "S" ? [along, SIZE - 1 - depth] : s.key === "W" ? [depth, along] : [SIZE - 1 - depth, along];
+          if (x >= 0 && y >= 0 && x < SIZE && y < SIZE && !street[y * SIZE + x]) grid[y * SIZE + x] = TILE.ROCK;
+        }
       }
     }
   }
@@ -254,13 +258,14 @@ export function generateWardDistrictMap(input: WardDistrictInput): SectorMapResu
 
   let title = "";
   if (ward === "MARKET") {
-    // Plaza at the hub, stalls in rows, shops ringing it
-    const pr = 18 + Math.floor(rand() * 10);
+    // Grand cobble plaza if `plaza` is true; narrower dirt exchange otherwise
+    const pr = civicFlags.plaza ? 18 + Math.floor(rand() * 10) : 9 + Math.floor(rand() * 4);
+    const plazaFloor = civicFlags.plaza ? TILE.COBBLE : TILE.DIRT;
     for (let dy = -pr; dy <= pr; dy++) for (let dx = -pr; dx <= pr; dx++) {
       const x = hub[0] + dx, y = hub[1] + dy;
       if (x < 0 || y < 0 || x >= SIZE || y >= SIZE || Math.hypot(dx, dy) > pr) continue;
       const k = y * SIZE + x;
-      if (!isWater(grid[k]!)) { grid[k] = TILE.COBBLE; street[k] = 1; }
+      if (!isWater(grid[k]!)) { grid[k] = plazaFloor; street[k] = 1; }
     }
     for (let dy = -pr + 6; dy <= pr - 6; dy += 7) for (let dx = -pr + 6; dx <= pr - 6; dx += 6) {
       if (Math.hypot(dx, dy) > pr - 5 || rand() < 0.25) continue;
@@ -271,6 +276,9 @@ export function generateWardDistrictMap(input: WardDistrictInput): SectorMapResu
     addProp("market_cross", `${burgName} Market Cross`, hub, ["type:structure", "material:stone", "landmark", "meeting_point"], "A weathered stone cross where proclamations are read and debts are settled.");
     addProp("stalls", "Canopied Trade Stalls", [hub[0] + 6, hub[1] + 6], ["type:container", "material:wood", "material:cloth", "market", "commerce"], "Rows of canvas-roofed stalls heaped with produce, cloth, tools and gossip.");
     addProp("weighhouse", "Town Weigh-House & Scales", [hub[0] - pr + 4, hub[1]], ["type:structure", "material:iron", "commerce", "law"], "Iron beam scales under a tiled roof where the reeve's clerk checks every measure.");
+    if (civicFlags.plaza) {
+      addProp("civic_plaza", `${burgName} Paved Civic Plaza`, [hub[0] + 2, hub[1] - 6], ["type:structure", "material:stone", "plaza", "commerce"], "A broad flagged plaza bordered by guild notice boards and municipal banners.");
+    }
     title = "Market Ward";
   } else if (ward === "ARTISAN") {
     fill(650, 9, 14, 7, 10, 7, "workshop", b => {
@@ -285,31 +293,38 @@ export function generateWardDistrictMap(input: WardDistrictInput): SectorMapResu
     addProp("kiln", "Potter's Kiln", [hub[0] - 18, hub[1] + 16], ["type:workstation", "material:clay", "fire", "crafting"], "A beehive brick kiln, still warm, stacked pots cooling beside it.");
     title = "Artisan Ward";
   } else if (ward === "CITADEL") {
-    // Keep compound at the hub
-    const ks = 30 + Math.floor(rand() * 12);
-    const kx = Math.max(16, Math.min(SIZE - ks - 16, hub[0] - Math.floor(ks / 2))), ky = Math.max(16, Math.min(SIZE - ks - 16, hub[1] - Math.floor(ks / 2)));
-    for (let y = ky - 8; y < ky + ks + 8; y++) for (let x = kx - 8; x < kx + ks + 8; x++) {
-      if (x < 0 || y < 0 || x >= SIZE || y >= SIZE) continue;
-      const k = y * SIZE + x;
-      if (!isWater(grid[k]!)) { grid[k] = TILE.COBBLE; street[k] = 1; } // bailey
+    if (civicFlags.citadel) {
+      // Full fortified stone keep compound at the hub
+      const ks = 30 + Math.floor(rand() * 12);
+      const kx = Math.max(16, Math.min(SIZE - ks - 16, hub[0] - Math.floor(ks / 2))), ky = Math.max(16, Math.min(SIZE - ks - 16, hub[1] - Math.floor(ks / 2)));
+      for (let y = ky - 8; y < ky + ks + 8; y++) for (let x = kx - 8; x < kx + ks + 8; x++) {
+        if (x < 0 || y < 0 || x >= SIZE || y >= SIZE) continue;
+        const k = y * SIZE + x;
+        if (!isWater(grid[k]!)) { grid[k] = TILE.COBBLE; street[k] = 1; } // bailey
+      }
+      for (let y = ky; y < ky + ks; y++) for (let x = kx; x < kx + ks; x++) {
+        const edge = x - kx < 3 || y - ky < 3 || kx + ks - 1 - x < 3 || ky + ks - 1 - y < 3;
+        grid[y * SIZE + x] = edge ? TILE.ROCK : TILE.ROOF;
+      }
+      for (const [cx, cy] of [[kx, ky], [kx + ks - 1, ky], [kx, ky + ks - 1], [kx + ks - 1, ky + ks - 1]] as const) {
+        for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) grid[(cy + dy) * SIZE + cx + dx] = TILE.ROCK;
+      }
+      grid[(ky + ks - 1) * SIZE + kx + Math.floor(ks / 2)] = TILE.COBBLE; // keep gate
+      fill(300, 16, 22, 6, 8, 10, "barracks");
+      fill(250, 7, 10, 6, 8, 8, "house");
+      addProp("civic_citadel", `${burgName} Stone Keep & Citadel`, [kx + Math.floor(ks / 2), ky + Math.floor(ks / 2)], ["type:structure", "material:stone", "citadel", "fortified", "military"], "The towering stone keep anchoring the citadel defenses.", 500);
+      addProp("keep_gate", `${burgName} Keep Gate & Portcullis`, [kx + Math.floor(ks / 2), ky + ks], ["type:portal", "material:iron", "material:stone", "defensive", "openable"], "An iron-shod portcullis under a murder-hole arch, guards lounging in its shade.");
+      addProp("armory", "Garrison Armory", [kx + 6, ky + 6], ["type:container", "material:iron", "weapons", "locked"], "Racks of spears, crossbows and dented helms behind a barred door.");
+      const barracks = lots.find(l => l.kind === "barracks");
+      if (barracks) addProp("barracks", "Garrison Barracks", [barracks.x + Math.floor(barracks.w / 2), barracks.y + barracks.h], ["type:structure", "material:wood", "military", "enterable"], "A long timber barracks smelling of boot grease and stew.");
+    } else {
+      fill(250, 10, 14, 6, 8, 9, "barracks");
+      fill(300, 6, 9, 5, 7, 8, "house");
+      addProp("watchhouse", `${burgName} Timber Watchhouse`, hub, ["type:structure", "material:wood", "military", "defensive"], "A reinforced timber watchhouse serving the local militia in place of a stone keep.");
     }
-    for (let y = ky; y < ky + ks; y++) for (let x = kx; x < kx + ks; x++) {
-      const edge = x - kx < 3 || y - ky < 3 || kx + ks - 1 - x < 3 || ky + ks - 1 - y < 3;
-      grid[y * SIZE + x] = edge ? TILE.ROCK : TILE.ROOF;
-    }
-    for (const [cx, cy] of [[kx, ky], [kx + ks - 1, ky], [kx, ky + ks - 1], [kx + ks - 1, ky + ks - 1]] as const) {
-      for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) grid[(cy + dy) * SIZE + cx + dx] = TILE.ROCK;
-    }
-    grid[(ky + ks - 1) * SIZE + kx + Math.floor(ks / 2)] = TILE.COBBLE; // keep gate
-    fill(300, 16, 22, 6, 8, 10, "barracks");
-    fill(250, 7, 10, 6, 8, 8, "house");
-    addProp("keep_gate", `${burgName} Keep Gate & Portcullis`, [kx + Math.floor(ks / 2), ky + ks], ["type:portal", "material:iron", "material:stone", "defensive", "openable"], "An iron-shod portcullis under a murder-hole arch, guards lounging in its shade.");
-    addProp("armory", "Garrison Armory", [kx + 6, ky + 6], ["type:container", "material:iron", "weapons", "locked"], "Racks of spears, crossbows and dented helms behind a barred door.");
-    const barracks = lots.find(l => l.kind === "barracks");
-    if (barracks) addProp("barracks", "Garrison Barracks", [barracks.x + Math.floor(barracks.w / 2), barracks.y + barracks.h], ["type:structure", "material:wood", "military", "enterable"], "A long timber barracks smelling of boot grease and stew.");
     title = "Citadel Ward";
   } else {
-    fill(1100, 6, 10, 5, 8, 9, "house", b => {
+    fill(civicFlags.shanty ? 1350 : 1100, civicFlags.shanty ? 4 : 6, civicFlags.shanty ? 8 : 10, civicFlags.shanty ? 4 : 5, civicFlags.shanty ? 7 : 8, 9, "house", b => {
       if (rand() < 0.45) { // back garden
         const gy = b.y + b.h + 1, gh = 3 + Math.floor(rand() * 4);
         if (free(b.x, gy, b.w, gh, 0)) for (let y = gy; y < gy + gh; y++) for (let x = b.x; x < b.x + b.w; x++) grid[y * SIZE + x] = (y - gy) % 2 === 0 ? TILE.TALL_GRASS : TILE.BARE_EARTH;
@@ -317,7 +332,20 @@ export function generateWardDistrictMap(input: WardDistrictInput): SectorMapResu
     });
     addProp("well", "Neighbourhood Well", [hub[0] + 3, hub[1] + 3], ["type:waterway", "material:stone", "water", "drinkable", "meeting_point"], "A shared well with a worn stone lip, where the street's news is traded.");
     addProp("shrine_niche", "Street-Corner Shrine Niche", [hub[0] - 10, hub[1] + 8], ["type:structure", "material:stone", "sacred"], "A candle-blackened niche with a small carved figure and fresh flowers.");
+    if (civicFlags.shanty) {
+      addProp("civic_shanty", `${burgName} Packed Timber Shanties`, [hub[0] - 12, hub[1] - 10], ["type:structure", "material:wood", "shanty", "flammable", "crowded"], "Tightly packed timber lean-tos and plank walkways sheltering day-laborers.");
+    }
     title = "Residential Ward";
+  }
+
+  if (civicFlags.temple) {
+    addProp("civic_temple", `${burgName} Consecrated Temple`, [hub[0] + 10, hub[1] - 10], ["type:altar", "material:stone", "temple", "sacred", "hallowed"], "A stone sanctuary where clergy tend votive braziers and keep parish rolls.");
+  }
+  if (civicFlags.port) {
+    addProp("civic_port", `${burgName} Quayside & Harbor Works`, [hub[0] - 12, hub[1] + 12], ["type:structure", "material:wood", "port", "dock", "commerce"], "Timber jetties, tackle hoists, and customs bonded sheds along the anchorage.");
+  }
+  if (civicFlags.isCapital && (ward === "CITADEL" || ward === "MARKET")) {
+    addProp("civic_capital_banner", `${burgName} Sovereign Chancellery`, [hub[0], hub[1] - 8], ["type:structure", "material:stone", "capital", "sovereign", "landmark"], `Marble steps and heraldic standards denoting ${factionName}'s seat of realm law.`);
   }
 
   // Seeded street-life details, so two districts of the same ward don't carry the same props
@@ -325,11 +353,13 @@ export function generateWardDistrictMap(input: WardDistrictInput): SectorMapResu
 
   // A drain or cellar way down to the under-level
   addProp("drain", "Iron Drain Grate (Subterranean Entry)", [hub[0] - 4, hub[1] - 4], ["type:portal", "material:iron", "openable", "stairs_down"], "A rusted grate over a dripping culvert that leads under the streets.", 200);
-  // A gate on the town wall, if this tile has one
-  for (const s of sides) if (!isTown(s.t) && (isRoadT(s.t))) {
-    const [ex, ey] = crossing(s.key);
-    const gx = s.key === "W" ? WALL_IN : s.key === "E" ? SIZE - 1 - WALL_IN : ex, gy = s.key === "N" ? WALL_IN : s.key === "S" ? SIZE - 1 - WALL_IN : ey;
-    addProp(`gate_${s.key}`, `${burgName} ${({ N: "North", S: "South", W: "West", E: "East" } as Record<string, string>)[s.key]} Gate`, [gx, gy], ["type:portal", "material:stone", "material:wood", "defensive", "openable"], "A gatehouse in the town wall, its doors open by day under the watch's eye.", 400);
+  // A gate on the town wall, if this tile has walls and a road crossing
+  if (civicFlags.walls) {
+    for (const s of sides) if (!isTown(s.t) && (isRoadT(s.t))) {
+      const [ex, ey] = crossing(s.key);
+      const gx = s.key === "W" ? WALL_IN : s.key === "E" ? SIZE - 1 - WALL_IN : ex, gy = s.key === "N" ? WALL_IN : s.key === "S" ? SIZE - 1 - WALL_IN : ey;
+      addProp(`gate_${s.key}`, `${burgName} ${({ N: "North", S: "South", W: "West", E: "East" } as Record<string, string>)[s.key]} Gate`, [gx, gy], ["type:portal", "material:stone", "material:wood", "defensive", "openable"], "A gatehouse in the town wall, its doors open by day under the watch's eye.", 400);
+    }
   }
 
   // People: residents of this town, rotated through by tile so neighbouring districts show different faces
@@ -399,7 +429,7 @@ export function generateWardDistrictMap(input: WardDistrictInput): SectorMapResu
     poiType: `WARD_${ward}`,
     name: `${burgName} - ${title} (Surface r[${rx}, ${ry}])`,
     features: {
-      cellId, rx, ry, z: 0, ward, burgId: burg?.burg_id, urbanTier: tier, factionName,
+      cellId, rx, ry, z: 0, ward, burgId: burg?.burg_id, urbanTier: tier, factionName, civicFlags,
       buildings: lots.length, terrainType: 4, terrainVersion: TERRAIN_VERSION,
     },
   };

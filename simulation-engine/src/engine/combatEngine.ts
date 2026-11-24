@@ -8,6 +8,7 @@
         resolveClashTie
     } from './combatResolutionEngine.js';
     export type { ReadyDeclaration, ReadyReactionResult } from './combatResolutionEngine.js';
+    import { BurgCivicFlags, computeSiegeDefenseMultiplier } from './maps/civicFlags.js';
 
     export interface CombatOptions {
         attackerName?: string;
@@ -15,6 +16,7 @@
         tick?: number;
         attackerTraits?: string[];
         defenderTraits?: string[];
+        defenderFortifications?: Partial<BurgCivicFlags>;
     }
 
     export function resolveCombat(attackerForces: any, defenderForces: any, options: CombatOptions = {}) {
@@ -130,6 +132,10 @@
         if (aName.includes('canopy') || aName.includes('flower')) attackerTotal *= 1.20;
         if (bName.includes('canopy') || bName.includes('flower')) defenderTotal *= 1.20;
 
+        // Burg siege fortifications (`walls`, `citadel`, `is_capital`, `port`, `shanty`)
+        const fortMult = options.defenderFortifications ? computeSiegeDefenseMultiplier(options.defenderFortifications) : 1.0;
+        defenderTotal = Math.round(defenderTotal * fortMult);
+
         const difference = Math.abs(attackerTotal - defenderTotal);
         const aWon = attackerTotal > defenderTotal;
         const losingArmy = aWon ? defenderForces : attackerForces;
@@ -142,6 +148,9 @@
         // Base casualty calculation
         let winCasRate = 0.05;
         let loseCasRate = 0.20;
+        if (aWon && (options.defenderFortifications?.walls || options.defenderFortifications?.citadel)) {
+            loseCasRate *= 0.75;
+        }
 
         // Asymmetric casualty shielding:
         // Hive: Chitinous casualty shielding
