@@ -226,8 +226,22 @@ async function runTick(): Promise<TickResult> {
                 for (const table of ["sim_paragons", "sim_infrastructure", "sim_fringe_lairs", "sim_industrial_stockpiles"]) {
                     await client.query(`DELETE FROM ${table} WHERE burg_id = ANY($1)`, [ids]);
                 }
-                // Ruins revert to neutral territory
-                await client.query("UPDATE sim_burg_economy SET occupier_faction_id = NULL WHERE burg_id = ANY($1) AND occupier_faction_id IS NOT NULL", [ids]);
+                await client.query(
+                    `UPDATE population_demographics SET allegiance_status = 'DEPARTED', motivation = 'Abandoned a ruined settlement.'
+                     WHERE settlement_id = ANY($1) AND allegiance_status = 'CIVILIAN'`,
+                    [ids]
+                );
+                // Ruins stay on the map as neutral, uninhabited shells
+                await client.query(
+                    `UPDATE sim_burg_economy
+                     SET occupier_faction_id = NULL,
+                         urban_tier = 0,
+                         workforce = '{}'::jsonb,
+                         name = CASE WHEN name LIKE '[Ruin] %' THEN name ELSE '[Ruin] ' || name END
+                     WHERE burg_id = ANY($1)
+                       AND (occupier_faction_id IS NOT NULL OR COALESCE(urban_tier, 0) > 0 OR name NOT LIKE '[Ruin] %')`,
+                    [ids]
+                );
             });
 
             // 12. Once a month keep a rolling buffer of ~25,000 MINOR and ~25,000 MAJOR events; CRITICAL lore stays forever

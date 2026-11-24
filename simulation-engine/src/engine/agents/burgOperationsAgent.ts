@@ -384,6 +384,8 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
     const activeProjectsSet = new Set(activeProjectsRes.rows.map((p: any) => `${p.burg_id}_${p.project_type}`));
 
     for (const burg of burgRes.rows) {
+        const totalPop = (Number(burg.pop_null) || 0) + (Number(burg.pop_attuned) || 0);
+        if (totalPop <= 0) continue;
         const pop = burg.pop_null || 0;
         const ledger = ledgerFor(burg);
         let departedDead = 0, departedLeft = 0;
@@ -651,7 +653,7 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
             }
 
             if (shortfall > 0) {
-                starvationDeaths = Math.min(burg.pop_null || 0, Math.floor(shortfall * 0.001));
+                starvationDeaths = Math.min(totalPop, Math.max(1, Math.floor(shortfall * 0.001)));
                 banditDefectors = Math.min(Math.floor((burg.pop_null || 0) * 0.04), Math.max(0, Math.floor(shortfall * 0.004)));
             }
         }
@@ -1392,6 +1394,19 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
                 }
             }
 
+            if (totalPop > 0 && totalPop < ledger.unit && growthPool <= -totalPop) {
+                popNullDelta = -(Number(burg.pop_null) || 0);
+                popAttunedDelta = -(Number(burg.pop_attuned) || 0);
+                growthPool = 0;
+                await client.query(`
+                    UPDATE population_demographics
+                    SET allegiance_status = 'DECEASED', cause_of_death = 'FAMINE_OR_PLAGUE',
+                        motivation = $2
+                    WHERE settlement_id = $1 AND allegiance_status = 'CIVILIAN'
+                `, [burg.burg_id, `Perished in the famine that emptied ${burg.name}.`]);
+                workforceDirtyBurgs.add(Number(burg.burg_id));
+            }
+
             // Executions, riots, bandits and refugees already left the counters above. Their records follow
             // one per full unit: the dead are marked DECEASED, the rest DEPARTED (kept as history).
             let departurePool = (Number(burg.pop_departure_pool) || 0) + departedDead + departedLeft;
@@ -1405,11 +1420,20 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
                 workforceDirtyBurgs.add(Number(burg.burg_id));
             }
 
-            const newPopNull = Math.floor(Math.max(12, (burg.pop_null || 0) + popNullDelta));
-            const newPopAttuned = Math.floor(Math.max(12, (burg.pop_attuned || 0) + popAttunedDelta));
+            const newPopNull = Math.floor(Math.max(0, (burg.pop_null || 0) + popNullDelta));
+            const newPopAttuned = Math.floor(Math.max(0, (burg.pop_attuned || 0) + popAttunedDelta));
+            if (newPopNull <= 0 && newPopAttuned <= 0) {
+                departurePool = 0;
+                await client.query(`
+                    UPDATE population_demographics
+                    SET allegiance_status = 'DEPARTED', motivation = $2
+                    WHERE settlement_id = $1 AND allegiance_status = 'CIVILIAN'
+                `, [burg.burg_id, `Abandoned the ruined settlement of ${burg.name}.`]);
+                workforceDirtyBurgs.add(Number(burg.burg_id));
+            }
             const sparkbornTotal = newPopAttuned;
             const dormantSparks = Math.round(sparkbornTotal * 0.50);
-            const adepts = Math.max(1, Math.round(sparkbornTotal * 0.01));
+            const adepts = sparkbornTotal > 0 ? Math.max(1, Math.round(sparkbornTotal * 0.01)) : 0;
             const sensitives = Math.max(0, sparkbornTotal - dormantSparks - adepts);
             const demoJson = JSON.stringify({
                 nulls: newPopNull,

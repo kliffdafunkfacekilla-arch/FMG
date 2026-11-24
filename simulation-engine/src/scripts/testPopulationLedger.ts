@@ -50,6 +50,51 @@ async function main() {
   check(pool2 < unit, `the departure pool kept ${pool2}, a full unit (${unit}) or more`);
   console.log(`3. ${unit * 3 + 1} people gone at ${unit} per record retired ${departedAfter - departedBefore} records, ${pool2} left in the pool... PASSED`);
 
+  // 4. Famine-struck burgs can empty to 0 and stay on the map as ruins stripped by the Reaper
+  await pool.query("SAVEPOINT ruin_reaper_test");
+  const targetRes = await pool.query(`
+    SELECT b.burg_id, b.name
+    FROM sim_burg_economy b
+    WHERE b.burg_id > 1
+      AND (b.pop_null + COALESCE(b.pop_attuned, 0)) > 0
+      AND EXISTS (SELECT 1 FROM sim_paragons p WHERE p.burg_id = b.burg_id)
+      AND EXISTS (SELECT 1 FROM sim_industrial_stockpiles s WHERE s.burg_id = b.burg_id)
+    ORDER BY b.burg_id ASC
+    LIMIT 1
+  `);
+  const targetBurg = targetRes.rows[0];
+  check(targetBurg, "no burg with paragon and stockpile found for ruin test");
+  const tid = Number(targetBurg.burg_id);
+  await pool.query(
+    `UPDATE sim_burg_economy
+     SET pop_null = 3, pop_attuned = 2, food = 0, pop_growth_pool = -5, urban_tier = 1, workforce = '{}'::jsonb
+     WHERE burg_id = $1`,
+    [tid]
+  );
+  await pool.query(`UPDATE sim_industrial_stockpiles SET complex_inventory = '{}'::jsonb WHERE burg_id = $1`, [tid]);
+
+  const ruinTick = await executeMasterTick();
+  check(ruinTick.status === "success", `ruin tick did not commit: ${JSON.stringify(ruinTick.failedAgents)}`);
+
+  const ruinBurgRes = await pool.query(
+    `SELECT burg_id, name, pop_null, pop_attuned, urban_tier, occupier_faction_id FROM sim_burg_economy WHERE burg_id = $1`,
+    [tid]
+  );
+  check(ruinBurgRes.rows.length === 1, "ruined burg row was deleted instead of staying on the map");
+  const rb = ruinBurgRes.rows[0];
+  check(Number(rb.pop_null) === 0 && Number(rb.pop_attuned) === 0, `expected burg ${tid} at 0 pop, got null=${rb.pop_null}, attuned=${rb.pop_attuned}`);
+  check(Number(rb.urban_tier) === 0 && rb.occupier_faction_id === null, `expected urban_tier 0 and neutral occupier, got tier=${rb.urban_tier}, occ=${rb.occupier_faction_id}`);
+  check(String(rb.name).startsWith("[Ruin] "), `expected [Ruin] prefix on ${rb.name}`);
+
+  for (const tbl of ["sim_paragons", "sim_infrastructure", "sim_fringe_lairs", "sim_industrial_stockpiles"]) {
+    const cntRes = await pool.query(`SELECT COUNT(*)::int AS n FROM ${tbl} WHERE burg_id = $1`, [tid]);
+    check(Number(cntRes.rows[0].n) === 0, `reaper left ${cntRes.rows[0].n} rows in ${tbl} for ruin burg ${tid}`);
+  }
+  const remCivs = await pool.query(`SELECT COUNT(*)::int AS n FROM population_demographics WHERE settlement_id = $1 AND allegiance_status = 'CIVILIAN'`, [tid]);
+  check(Number(remCivs.rows[0].n) === 0, `expected 0 living civilians left in ruined burg ${tid}, got ${remCivs.rows[0].n}`);
+  await pool.query("ROLLBACK TO SAVEPOINT ruin_reaper_test");
+  console.log(`4. Famine-emptied burg ${tid} (${targetBurg.name}) drops to 0 and becomes a stripped [Ruin]... PASSED`);
+
   console.log("\nALL POPULATION LEDGER TESTS PASSED");
 }
 
