@@ -18,13 +18,14 @@ async function main() {
   await applySchemaPatches(pool);
   const runs = Math.max(2, Number(process.argv[2]) || 3);
   const baseCitizenId = Number((await pool.query(`SELECT COALESCE(MAX(citizen_id), 0) m FROM population_demographics`)).rows[0].m);
+  const baseAgentId = Number((await pool.query(`SELECT COALESCE(MAX(id), 0) m FROM sim_agents`)).rows[0].m);
   const results: TickResult[] = [];
   const prints: Record<string, string>[] = [];
   for (let i = 0; i < runs; i++) {
     await pool.query("SAVEPOINT bench_run");
     const r = await executeMasterTick();
     results.push(r);
-    prints.push(await worldFingerprint(r.currentTick, baseCitizenId).catch(e => ({ error: String(e.message) })));
+    prints.push(await worldFingerprint(r.currentTick, baseCitizenId, baseAgentId));
     await pool.query("ROLLBACK TO SAVEPOINT bench_run");
     console.log(`run ${i + 1}: tick ${r.currentTick}, ${r.totalMs} ms, ${r.status}${r.failedAgents.length ? " " + JSON.stringify(r.failedAgents) : ""}`);
   }

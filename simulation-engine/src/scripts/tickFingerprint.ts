@@ -4,7 +4,7 @@
 import pool from "../db/pool.js";
 
 /** Hashes of what a day changes: burgs, cells, agents, people, threads and that day's events. */
-export async function worldFingerprint(tick: number, baseCitizenId: number, baseAgentId: number = Number.MAX_SAFE_INTEGER): Promise<Record<string, string>> {
+export async function worldFingerprint(tick: number, baseCitizenId: number, baseAgentId: number = 2147483647): Promise<Record<string, string>> {
   const q = async (sql: string, args: any[] = []) => String((await pool.query(sql, args)).rows[0]?.h ?? "");
   return {
     burgs: await q(`SELECT md5(string_agg(b::text, '|' ORDER BY burg_id)) h FROM sim_burg_economy b`),
