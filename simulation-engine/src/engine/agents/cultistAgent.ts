@@ -1,4 +1,5 @@
 import { dateForTick } from "../canon/calendar.js";
+import { upsertEntity } from "../entities/registry.js";
 /**
  * cultistAgent.ts - Autonomous Cultist lifecycle, burg infiltration, and seal siege engine
  *
@@ -104,7 +105,7 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
         );
       }
 
-      await client.query(`
+      const insCultist = await client.query(`
         INSERT INTO sim_agents (
           name, citizen_name, profession, species, spark_tier,
           personality_temper, personality_instinct, motivation,
@@ -115,7 +116,7 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
           $6, $7, $8,
           'Cultist', 'Cultist_Infiltrator', $9, $10,
           'INFILTRATING', 5, 0, $11
-        )
+        ) RETURNING id
       `, [
         `${citizen.citizenName} (${citizen.profession})`,
         citizen.citizenName,
@@ -129,6 +130,19 @@ export async function runCultistAgent(client: any, tick: number, loreDate: strin
         burg.cell_id,
         `Infiltrating ${burg.name} [${citizen.temper}]: ${citizen.motivation}`
       ]);
+      if (insCultist.rows[0]?.id) {
+        await upsertEntity(client, {
+          ref: `agent:${insCultist.rows[0].id}`,
+          kind: "person",
+          name: `${citizen.citizenName} (${citizen.profession})`,
+          alive: true,
+          lod: "macro",
+          cellId: Number(burg.cell_id),
+          sourceTable: "sim_agents",
+          sourceId: String(insCultist.rows[0].id),
+          createdTick: tick,
+        });
+      }
 
       if (Math.random() < 0.20) {
         await client.query(`

@@ -1,4 +1,5 @@
 import { addCellTagsBatch } from "../cellTags.js";
+import { markEntitiesDeadBatch, upsertEntitiesBatch, type UpsertEntityInput } from "../entities/registry.js";
 import { createThread } from "../threads/threadEngine.js";
 import type { AgentUpdateFields, Db, Delta } from "./types.js";
 
@@ -116,6 +117,8 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   const frontRemoves = new Set<number>();
   const chaosUpserts: Array<Extract<Delta, { kind: "chaosZone.upsert" }>> = [];
   const chaosAdjusts: Array<Extract<Delta, { kind: "chaosZone.adjust" }>> = [];
+  const entityCreates: UpsertEntityInput[] = [];
+  const entityDeaths: Array<{ ref: string; diedTick: number }> = [];
   let lastCalendar: Extract<Delta, { kind: "calendar.set" }> | null = null;
 
   for (const d of deltas) {
@@ -248,6 +251,27 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         break;
       case "calendar.set":
         lastCalendar = d;
+        break;
+      case "entity.create":
+        entityCreates.push({
+          ref: d.ref,
+          kind: d.entityKind,
+          name: d.name,
+          alive: d.alive,
+          lod: d.lod,
+          cellId: d.cellId,
+          rx: d.rx,
+          ry: d.ry,
+          z: d.z,
+          x: d.x,
+          y: d.y,
+          sourceTable: d.sourceTable,
+          sourceId: d.sourceId,
+          createdTick: d.createdTick,
+        });
+        break;
+      case "entity.die":
+        entityDeaths.push({ ref: d.ref, diedTick: d.diedTick });
         break;
     }
   }
@@ -568,6 +592,10 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
       ]
     );
     counts.population_demographics = (counts.population_demographics || 0) + (res.rowCount || 0);
+    const deceasedRefs = ids.filter((id) => citizenStatuses.get(id)!.status === "DECEASED").map((id) => `citizen:${id}`);
+    if (deceasedRefs.length > 0) {
+      await markEntitiesDeadBatch(db, deceasedRefs, 0);
+    }
   }
 
   if (citizenMoves.size > 0) {
@@ -711,11 +739,13 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
     counts.sim_agents = (counts.sim_agents || 0) + (res.rowCount || 0);
   }
   if (agentRemovals.size > 0) {
+    const rmIds = Array.from(agentRemovals).sort((a, b) => a - b);
     const res = await db.query(
       `DELETE FROM sim_agents WHERE id = ANY($1::int[])`,
-      [Array.from(agentRemovals).sort((a, b) => a - b)]
+      [rmIds]
     );
     counts.sim_agents = (counts.sim_agents || 0) + (res.rowCount || 0);
+    await markEntitiesDeadBatch(db, rmIds.map((id) => `agent:${id}`), 0);
   }
 
   // 8. sim_cell_tags
@@ -773,6 +803,27 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
       ]
     );
     counts.scheduled_events = res.rowCount || scheduled.length;
+  }
+
+  // 12. entities registry
+  if (entityCreates.length > 0) {
+    counts.entities = (counts.entities || 0) + (await upsertEntitiesBatch(db, entityCreates));
+  }
+  if (entityDeaths.length > 0) {
+    const byTick = new Map<number, string[]>();
+    for (const d of entityDeaths) {
+      let arr = byTick.get(d.diedTick);
+      if (!arr) {
+        arr = [];
+        byTick.set(d.diedTick, arr);
+      }
+      arr.push(d.ref);
+    }
+    const ticks = Array.from(byTick.keys()).sort((a, b) => a - b);
+    for (const dt of ticks) {
+      const refs = byTick.get(dt)!;
+      counts.entities = (counts.entities || 0) + (await markEntitiesDeadBatch(db, refs, dt));
+    }
   }
 
   return counts;

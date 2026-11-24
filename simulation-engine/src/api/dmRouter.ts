@@ -18,6 +18,7 @@ import { resolveThreadByParty, ResolveThreadByPartyResult } from '../engine/ques
 import { evaluateSectorReactions } from '../engine/rpg/narrativeReactionEngine.js';
 import { BLEED_TAG } from '../engine/agents/backgroundDirector.js';
 import { isChaosPeak } from '../engine/canon/calendar.js';
+import { syncLayerEntities } from '../engine/entities/registry.js';
 
 dotenv.config({ override: true });
 
@@ -848,6 +849,9 @@ router.post('/sector_load', async (req, res) => {
               layers.layerPlus1.name, layers.layerPlus1.compressed, JSON.stringify(layers.layerPlus1.props), JSON.stringify(layers.layerPlus1.npcs), JSON.stringify(layers.layerPlus1.features)
             ]
           );
+          await syncLayerEntities(pool, targetCellId, targetRx, targetRy, 0, layers.layer0.npcs);
+          await syncLayerEntities(pool, targetCellId, targetRx, targetRy, -1, layers.layerMinus1.npcs);
+          await syncLayerEntities(pool, targetCellId, targetRx, targetRy, 1, layers.layerPlus1.npcs);
 
           preRenderedMap = {
             name: layers.layer0.name,
@@ -931,6 +935,7 @@ router.post('/sector_load', async (req, res) => {
                 JSON.stringify(tacticalMap.features)
               ]
             );
+            await syncLayerEntities(pool, targetCellId, targetRx, targetRy, 0, tacticalMap.npcs);
 
             preRenderedMap = {
               name: tacticalMap.name,
@@ -1458,6 +1463,9 @@ router.get('/sector_layer', async (req, res) => {
           layers.layerPlus1.name, layers.layerPlus1.compressed, JSON.stringify(layers.layerPlus1.props), JSON.stringify(layers.layerPlus1.npcs), JSON.stringify(layers.layerPlus1.features)
         ]
       );
+      await syncLayerEntities(pool, targetCellId, targetRx, targetRy, 0, layers.layer0.npcs);
+      await syncLayerEntities(pool, targetCellId, targetRx, targetRy, -1, layers.layerMinus1.npcs);
+      await syncLayerEntities(pool, targetCellId, targetRx, targetRy, 1, layers.layerPlus1.npcs);
 
       const chosen = targetZ === -1 ? layers.layerMinus1 : targetZ === 1 ? layers.layerPlus1 : layers.layer0;
       if (openThreads.length === 0) {
@@ -1599,6 +1607,7 @@ router.get('/sector_layer', async (req, res) => {
         JSON.stringify(tacticalMap.features)
       ]
     );
+    await syncLayerEntities(pool, targetCellId, targetRx, targetRy, targetZ, tacticalMap.npcs);
 
     if (openThreads.length === 0) {
       openThreads = await ensureLocalSectorTrouble(

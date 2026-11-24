@@ -7,6 +7,7 @@ import { getFactionSpecialty } from "../economy/factionSpecialties.js";
 import { computeDonjonSettlementCensus, DonjonBusiness, DonjonSettlementCensus } from "../procgen/DonjonSettlementEngine.js";
 import { deriveCitizenMotives } from "../rpg/paragonMotives.js";
 import { extractBurgCivicFlags } from "./civicFlags.js";
+import { stampEntityRefsOnNpcs } from "../entities/refs.js";
 import {
   generateProceduralLoggingSurface,
   generateProceduralLoggingSubterranean,
@@ -33,6 +34,7 @@ export interface SectorMapResult {
   }>;
   npcs: Array<{
     id: string;
+    entity_ref?: string;
     name: string;
     role: string;
     pos: [number, number];
@@ -1549,6 +1551,11 @@ export function generateBurgSectorLayers(
       description: "Counterweighted timber crane and concealed landing platform for high-altitude contraband drops."
     });
   }
+
+  const loc = { cellId, rx: contextConfig?.rx ?? 50, ry: contextConfig?.ry ?? 50 };
+  stampEntityRefsOnNpcs(npcs0, loc);
+  stampEntityRefsOnNpcs(npcsMinus1, loc);
+  stampEntityRefsOnNpcs(npcsPlus1, loc);
 
   const layerPlus1: SectorMapResult = {
     grid: gridPlus1,
@@ -3337,6 +3344,8 @@ export function generateTacticalRegionalSectorMap(config: TacticalRegionalSector
     }
   }
 
+  stampEntityRefsOnNpcs(npcs, { cellId, rx, ry });
+
   return {
     grid,
     compressed: zlib.gzipSync(Buffer.from(grid)),
@@ -3553,6 +3562,8 @@ export function generateTheVergeSectorMap(cellId: number = 26707): SectorMapResu
     }
   ];
 
+  stampEntityRefsOnNpcs(npcs, { cellId, rx: 50, ry: 50 });
+
   return {
     grid,
     compressed: zlib.gzipSync(Buffer.from(grid)),
@@ -3732,6 +3743,8 @@ export function generateDragonPrisonSectorMap(config: DragonPrisonConfig): Secto
     }
   ];
 
+  stampEntityRefsOnNpcs(npcs, { cellId: config.cellId, rx: 50, ry: 50 });
+
   return {
     grid,
     compressed: zlib.gzipSync(Buffer.from(grid)),
@@ -3824,6 +3837,8 @@ export function generateCoralCrownSectorMap(cellId: number = 16777): SectorMapRe
       memoryNotes: ["Rules the Coral Crown and commands the abyssal currents."]
     }
   ];
+
+  stampEntityRefsOnNpcs(npcs, { cellId, rx: 50, ry: 50 });
 
   return {
     grid,
@@ -3998,6 +4013,8 @@ export function generateGrindCanyonSectorMap(
       ]
     }
   ];
+
+  stampEntityRefsOnNpcs(npcs, { cellId, rx: 50, ry: 50 });
 
   return {
     grid,

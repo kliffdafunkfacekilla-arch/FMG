@@ -9,6 +9,7 @@
 
 import { stepTowardCell, getNearestSacredGrove, persistAgentStates, AgentStateRow } from "./agentMovementHelper.js";
 import { recruitMandatePersona } from "./citizenPersonaHelper.js";
+import { upsertEntity } from "../entities/registry.js";
 import { sqlShuffle } from "../rng.js";
 
 export async function runMandateAgent(client: any, tick: number, loreDate: string) {
@@ -58,7 +59,7 @@ export async function runMandateAgent(client: any, tick: number, loreDate: strin
         );
       }
 
-      await client.query(`
+      const insZealot = await client.query(`
         INSERT INTO sim_agents (
           name, citizen_name, profession, species, spark_tier,
           personality_temper, personality_instinct, motivation,
@@ -69,7 +70,7 @@ export async function runMandateAgent(client: any, tick: number, loreDate: strin
           $6, $7, $8,
           'Chain_Zealot', 'Chain_Inquisitor', $9, $10,
           'WITCH_HUNTING', 0, 0, $11
-        )
+        ) RETURNING id
       `, [
         `Inquisitor ${citizen.citizenName} (${citizen.profession})`,
         citizen.citizenName,
@@ -83,6 +84,19 @@ export async function runMandateAgent(client: any, tick: number, loreDate: strin
         burg.cell_id,
         `Null crusade outside ${burg.name} [${citizen.temper}]: ${citizen.motivation}`
       ]);
+      if (insZealot.rows[0]?.id) {
+        await upsertEntity(client, {
+          ref: `agent:${insZealot.rows[0].id}`,
+          kind: "person",
+          name: `Inquisitor ${citizen.citizenName} (${citizen.profession})`,
+          alive: true,
+          lod: "macro",
+          cellId: Number(burg.cell_id),
+          sourceTable: "sim_agents",
+          sourceId: String(insZealot.rows[0].id),
+          createdTick: tick,
+        });
+      }
 
       if (Math.random() < 0.3) {
         await client.query(`

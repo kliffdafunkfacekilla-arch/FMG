@@ -75,6 +75,13 @@ export async function settleSatellite(
   }
   // The satellite's records stand for as many people each as its parent's do
   await client.query(`UPDATE sim_burg_economy SET record_unit = $1 WHERE burg_id = $2`, [Math.min(40, Math.max(3, Math.round(perRecord))), satellite.burg_id]);
+  const movedRefs = [
+    ...adults.rows.map((a: any) => `citizen:${a.citizen_id}`),
+    ...children.rows.map((c: any) => `citizen:${c.citizen_id}`),
+  ];
+  if (movedRefs.length > 0) {
+    await client.query(`UPDATE entities SET cell_id = $1 WHERE ref = ANY($2::text[])`, [satellite.cell_id, movedRefs]);
+  }
   return adults.rows.length + children.rows.length;
 }
 

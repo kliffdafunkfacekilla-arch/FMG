@@ -3,6 +3,7 @@ import { migrate } from "../db/migrate";
 import { ingestHolgalandMap } from "../db/ingestHolgalandMap";
 import { buildSupplyChainHierarchy } from "../db/buildSupplyChainHierarchy";
 import { ensureParagonMotivesPopulated, ensureCitizenMotivesPopulated } from "./rpg/paragonMotives";
+import { backfillEntities } from "./entities/registry.js";
 import { recordLedger } from "./agents/burgOperationsAgent";
 import { executeMasterTick } from "./masterOrchestrator";
 import { generateBurgSectorLayers } from "./maps/SectorMapGenerator";
@@ -13,6 +14,7 @@ import zlib from "zlib";
 const DDL = `
 -- Drop only simulation tables, strictly preserving player character sheets, game saves, and memorials
 DROP TABLE IF EXISTS scheduled_events, sim_commands, world_clock CASCADE;
+DROP TABLE IF EXISTS entities CASCADE;
 DROP TABLE IF EXISTS world_deltas CASCADE;
 DROP TABLE IF EXISTS schema_version CASCADE;
 DROP TABLE IF EXISTS sim_active_projects CASCADE;
@@ -998,6 +1000,9 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
         ]
       );
     }
+
+    console.log("[resetWorld] Backfilling unified entity registry...");
+    await backfillEntities(pool, 1);
 
     console.log("[resetWorld] Running initial Tick 1...");
     const tick1 = await executeMasterTick();

@@ -35,6 +35,7 @@ import { runMarketAgent } from "./economy/marketAgent.js";
 import { runFactionCollapse } from "./agents/factionCollapse.js";
 import { migrate } from "../db/migrate.js";
 import { flushStepDeltas, type Delta, type DeltaEmitter } from "./deltas/index.js";
+import { markEntitiesDeadBatch } from "./entities/registry.js";
 import { runSeeded, seedSql, tickSeed } from "./rng.js";
 import { runAutonomousDramaAgent } from "./agents/autonomousDramaAgent.js";
 import { advanceThreadClocks } from "./threads/threadEngine.js";
@@ -263,7 +264,11 @@ async function runTick(): Promise<TickResult> {
                     );
                 }
 
-                for (const table of ["sim_paragons", "sim_infrastructure", "sim_fringe_lairs", "sim_industrial_stockpiles"]) {
+                const delParagons = await client.query(`DELETE FROM sim_paragons WHERE burg_id = ANY($1) RETURNING id`, [ids]);
+                if (delParagons.rows.length > 0) {
+                    await markEntitiesDeadBatch(client, delParagons.rows.map((r: any) => `paragon:${r.id}`), tick);
+                }
+                for (const table of ["sim_infrastructure", "sim_fringe_lairs", "sim_industrial_stockpiles"]) {
                     await client.query(`DELETE FROM ${table} WHERE burg_id = ANY($1)`, [ids]);
                 }
                 await client.query(

@@ -1,4 +1,5 @@
 import type { CreateThreadInput } from "../threads/threadEngine.js";
+import type { EntityKind, EntityLod } from "../entities/refs.js";
 
 export interface Db {
   query: (text: string, params?: any[]) => Promise<any>;
@@ -201,6 +202,28 @@ export type Delta =
       activeFlow: string;
       dragonDomain: string;
       isShadowWeek: boolean;
+    }
+  | {
+      kind: "entity.create";
+      ref: string;
+      entityKind: EntityKind;
+      name: string;
+      alive?: boolean | undefined;
+      lod?: EntityLod | undefined;
+      cellId?: number | null | undefined;
+      rx?: number | null | undefined;
+      ry?: number | null | undefined;
+      z?: number | null | undefined;
+      x?: number | null | undefined;
+      y?: number | null | undefined;
+      sourceTable: string;
+      sourceId: string;
+      createdTick?: number | undefined;
+    }
+  | {
+      kind: "entity.die";
+      ref: string;
+      diedTick: number;
     };
 
 export type DeltaEmitter = (delta: Delta) => void;

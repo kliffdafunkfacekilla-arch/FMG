@@ -1,6 +1,7 @@
 import { DAYS_PER_WEEK, MERCY_ALIGNMENT, NIGHTMARE_ALIGNMENT } from "../canon/calendar.js";
 import { PoolClient, Pool } from "pg";
 import { addCellTagsBatch, removeCellTags } from "../cellTags.js";
+import { upsertEntity } from "../entities/registry.js";
 
 /** One flow's fixed identity and endpoints, as seeded into sim_chaos_flows by the map ingest. */
 export interface ChaosFlowAnchor {
@@ -344,31 +345,43 @@ export async function runChaosFlowAgent(
                   const cCount = await client.query("SELECT COUNT(*) as cnt FROM sim_agents WHERE role = 'Cultist'");
                   if (parseInt(cCount.rows[0].cnt) < 288) {
                     // Bound for this flow's own prison (flow_id is the prison/grove id)
-                    await client.query(
+                    const insC = await client.query(
                       `INSERT INTO sim_agents (name, role, sub_role, location_cell_id, target_grove_id, state, corruption, age_ticks, active_plot)
-                       VALUES ($1, 'Cultist', 'Cultist_Pilgrim', $2, $3, 'TRAVELING_TO_SEAL', 20, 0, 'Communing with chaotic aether along flow banks')`,
+                       VALUES ($1, 'Cultist', 'Cultist_Pilgrim', $2, $3, 'TRAVELING_TO_SEAL', 20, 0, 'Communing with chaotic aether along flow banks')
+                       RETURNING id`,
                       [`Flow Cabal of ${flow.dragonName}`, cell.id, flow.flowId]
                     );
+                    if (insC.rows[0]?.id) {
+                      await upsertEntity(client, { ref: `agent:${insC.rows[0].id}`, kind: "person", name: `Flow Cabal of ${flow.dragonName}`, alive: true, lod: "macro", cellId: Number(cell.id), sourceTable: "sim_agents", sourceId: String(insC.rows[0].id), createdTick: tick });
+                    }
                   }
                 } else if (roll < 0.80) {
                   const wCount = await client.query("SELECT COUNT(*) as cnt FROM sim_agents WHERE role = 'Warden'");
                   if (parseInt(wCount.rows[0].cnt) < 72) {
                     // A warden state the warden agent handles (it has no TRAVELING_TO_SEAL: that is a cultist state,
                     // and wardens spawned with it stood frozen forever), patrolling this flow's prison.
-                    await client.query(
+                    const insW = await client.query(
                       `INSERT INTO sim_agents (name, role, sub_role, location_cell_id, target_grove_id, state, corruption, age_ticks, active_plot)
-                       VALUES ($1, 'Warden', 'Warden_Sentinel', $2, $3, 'PATROLLING_FLOW', 5, 0, 'Patrolling primordial flow perimeter')`,
+                       VALUES ($1, 'Warden', 'Warden_Sentinel', $2, $3, 'PATROLLING_FLOW', 5, 0, 'Patrolling primordial flow perimeter')
+                       RETURNING id`,
                       [`Grey Warden Flow-Patrol`, cell.id, flow.flowId]
                     );
+                    if (insW.rows[0]?.id) {
+                      await upsertEntity(client, { ref: `agent:${insW.rows[0].id}`, kind: "person", name: "Grey Warden Flow-Patrol", alive: true, lod: "macro", cellId: Number(cell.id), sourceTable: "sim_agents", sourceId: String(insW.rows[0].id), createdTick: tick });
+                    }
                   }
                 } else {
                   const zCount = await client.query("SELECT COUNT(*) as cnt FROM sim_agents WHERE role = 'Chain_Zealot'");
                   if (parseInt(zCount.rows[0].cnt) < 20) {
-                    await client.query(
+                    const insZ = await client.query(
                       `INSERT INTO sim_agents (name, role, sub_role, location_cell_id, state, drained_power, age_ticks, active_plot)
-                       VALUES ($1, 'Chain_Zealot', 'Chain_Inquisitor', $2, 'WITCH_HUNTING', 15, 0, 'Hunting wild sparks drawn to the flow')`,
+                       VALUES ($1, 'Chain_Zealot', 'Chain_Inquisitor', $2, 'WITCH_HUNTING', 15, 0, 'Hunting wild sparks drawn to the flow')
+                       RETURNING id`,
                       [`Null-Chain Outriders`, cell.id]
                     );
+                    if (insZ.rows[0]?.id) {
+                      await upsertEntity(client, { ref: `agent:${insZ.rows[0].id}`, kind: "person", name: "Null-Chain Outriders", alive: true, lod: "macro", cellId: Number(cell.id), sourceTable: "sim_agents", sourceId: String(insZ.rows[0].id), createdTick: tick });
+                    }
                   }
                 }
               }

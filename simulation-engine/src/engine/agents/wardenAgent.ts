@@ -1,4 +1,5 @@
 import { isYearEnd } from "../canon/calendar.js";
+import { markEntitiesDeadBatch, upsertEntity } from "../entities/registry.js";
 /**
  * wardenAgent.ts - Autonomous Grey Warden Lifecycle, Aether-Tech Sigil Magic,
  * Ancient Ward Awakenings, Eyeless Flow-Seers, and Spire Crypt Alcoves.
@@ -133,7 +134,7 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
           );
         }
 
-        await client.query(`
+        const insWarden = await client.query(`
           INSERT INTO sim_agents (
             name, citizen_name, profession, species, spark_tier,
             personality_temper, personality_instinct, motivation,
@@ -144,7 +145,7 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
             $6, $7, $8,
             'Warden', 'Warden_Pilgrim', $9, $10, $11, 'PILGRIMAGE_TO_SPIRE',
             0, 0, $12
-          )
+          ) RETURNING id
         `, [
           `Pilgrim ${citizen.name} (${citizen.profession})`,
           citizen.name,
@@ -159,6 +160,19 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
           ward.flow_id,
           `Compelled by cosmic vision of the 12 Dragon Prisons and Chaos Flows to journey to the Sacred Spire`
         ]);
+        if (insWarden.rows[0]?.id) {
+          await upsertEntity(client, {
+            ref: `agent:${insWarden.rows[0].id}`,
+            kind: "person",
+            name: `Pilgrim ${citizen.name} (${citizen.profession})`,
+            alive: true,
+            lod: "macro",
+            cellId: Number(ward.cell_id),
+            sourceTable: "sim_agents",
+            sourceId: String(insWarden.rows[0].id),
+            createdTick: tick,
+          });
+        }
 
         await client.query(`
           INSERT INTO sim_events (tick, type, message, tier, cell_id, lore_date)
@@ -180,7 +194,7 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
           );
         }
 
-        await client.query(`
+        const insHermit = await client.query(`
           INSERT INTO sim_agents (
             name, citizen_name, profession, species, spark_tier,
             personality_temper, personality_instinct, motivation,
@@ -191,7 +205,7 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
             $6, $7, 'Muttering cryptic prophecies of Shlaar and the dragons',
             'Mad_Hermit', 'Mad_Hermit', $8, 'WANDERING_WILDS',
             20, 0, 'Mind shattered by the cosmic horror of the 12 Chaos Dragons and Shlaar'
-          )
+          ) RETURNING id
         `, [
           `Mad Hermit ${citizen.name}`,
           citizen.name,
@@ -202,6 +216,19 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
           citizen.instinct,
           ward.cell_id
         ]);
+        if (insHermit.rows[0]?.id) {
+          await upsertEntity(client, {
+            ref: `agent:${insHermit.rows[0].id}`,
+            kind: "person",
+            name: `Mad Hermit ${citizen.name}`,
+            alive: true,
+            lod: "macro",
+            cellId: Number(ward.cell_id),
+            sourceTable: "sim_agents",
+            sourceId: String(insHermit.rows[0].id),
+            createdTick: tick,
+          });
+        }
 
         await client.query(`
           INSERT INTO sim_events (tick, type, message, tier, cell_id, lore_date)
@@ -472,9 +499,12 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
 
           if (cultsHere.rowCount > 0) {
             const slayCount = Math.min(cultsHere.rowCount, isEyelessElder ? 3 : 2);
+            const slainIds: number[] = [];
             for (let k = 0; k < slayCount; k++) {
+              slainIds.push(Number(cultsHere.rows[k].id));
               await client.query("DELETE FROM sim_agents WHERE id = $1", [cultsHere.rows[k].id]);
             }
+            await markEntitiesDeadBatch(client, slainIds.map((id) => `agent:${id}`), tick);
             const weaponDesc = isEyelessElder ? "carved curved-blade sweeps" : "aether-sigil charges";
             await client.query(`
               INSERT INTO sim_events (tick, type, message, tier, cell_id, lore_date)
@@ -540,6 +570,11 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
               );
               await client.query("UPDATE sim_cells SET eco_blight = 0.0 WHERE id = $1", [locCellId]);
               await client.query("DELETE FROM sim_agents WHERE id = $1", [w.id]);
+              await markEntitiesDeadBatch(
+                client,
+                [...purged.rows.map((r: any) => `agent:${r.id}`), `agent:${w.id}`],
+                tick
+              );
 
               await client.query(`
                 INSERT INTO sim_events (tick, type, message, tier, cell_id, lore_date)
@@ -563,6 +598,7 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
               for (let k = 0; k < killCount; k++) {
                 const targetCultist = cultsHere.rows[k];
                 await client.query("DELETE FROM sim_agents WHERE id = $1", [targetCultist.id]);
+                await markEntitiesDeadBatch(client, [`agent:${targetCultist.id}`], tick);
 
                 const weaponDesc = isEyelessElder ? "swung their signature curved blade with uncanny flow-sight" : "discharged their aether-tech sigils and halberd";
                 await client.query(`

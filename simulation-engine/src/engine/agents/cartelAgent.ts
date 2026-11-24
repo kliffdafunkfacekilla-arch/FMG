@@ -1,5 +1,6 @@
 import { dateForTick } from "../canon/calendar.js";
 import { PoolClient } from "pg";
+import { upsertEntity } from "../entities/registry.js";
 import { getCartelLairType, ensureLairResidents } from "./outlawSyndicates";
 import { recruitInsideMan, tagBurgCitizens, tagSectorEnvironment } from "./citizenPersonaHelper";import { sqlShuffle } from "../rng.js";
 
@@ -73,6 +74,19 @@ export async function runCartelAgent(client: PoolClient, tick: number, loreDate:
                 [cartel.id, originBurgId, `${cartel.name} Boss`, traits]
             );
             paragon = newP.rows[0];
+            if (paragon?.id) {
+                await upsertEntity(client, {
+                    ref: `paragon:${paragon.id}`,
+                    kind: "person",
+                    name: `${paragon.name} (${paragon.title || "Syndicate Boss"})`,
+                    alive: true,
+                    lod: "macro",
+                    cellId: Number(cartel.origin_cell_id || 0) || null,
+                    sourceTable: "sim_paragons",
+                    sourceId: String(paragon.id),
+                    createdTick: tick,
+                });
+            }
         }
         cartel.paragon = paragon;
     }

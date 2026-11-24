@@ -19,6 +19,7 @@ import type { SectorMapResult } from "./SectorMapGenerator";
 import { dressSite, TownKind } from "./SiteVariation.js";
 import { deriveCitizenMotives } from "../rpg/paragonMotives.js";
 import { extractBurgCivicFlags } from "./civicFlags.js";
+import { stampEntityRefsOnNpcs } from "../entities/refs.js";
 
 const SIZE = 256;
 type Ward = "RESIDENTIAL" | "MARKET" | "ARTISAN" | "CITADEL";
@@ -419,6 +420,8 @@ export function generateWardDistrictMap(input: WardDistrictInput): SectorMapResu
       memoryNotes: [`${office.title || "Paragon"} of ${burgName}.`],
     });
   }
+
+  stampEntityRefsOnNpcs(npcs, { cellId, rx, ry });
 
   lastStreetMask = street;
   return {

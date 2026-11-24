@@ -21,6 +21,8 @@ const KNOWN_KINDS = new Set<string>([
   "chaosZone.upsert",
   "chaosZone.adjust",
   "calendar.set",
+  "entity.create",
+  "entity.die",
 ]);
 
 function clamp(v: number, min: number, max: number): number {
@@ -270,6 +272,18 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
           ["id", d.id], ["tick", d.tick], ["year", d.year], ["month", d.month], ["dayOfMonth", d.dayOfMonth], ["dayOfYear", d.dayOfYear],
         ]);
         if (err) structuralErrors.set(i, err);
+        break;
+      }
+      case "entity.create": {
+        if (!d.ref || !d.name || !d.sourceTable || !d.sourceId) {
+          structuralErrors.set(i, "Invalid entity.create");
+        }
+        break;
+      }
+      case "entity.die": {
+        if (!d.ref || !Number.isFinite(d.diedTick)) {
+          structuralErrors.set(i, "Invalid entity.die");
+        }
         break;
       }
     }

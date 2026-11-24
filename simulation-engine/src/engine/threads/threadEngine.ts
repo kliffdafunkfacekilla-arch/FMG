@@ -1,4 +1,6 @@
 import { Pool, PoolClient } from "pg";
+import { npcMatchesRef } from "../entities/refs.js";
+import { resolveActorRef } from "../entities/resolve.js";
 
 export type ThreadState = "open" | "escalated" | "resolved";
 export type ThreadOrigin = "reaction" | "beat" | "arc" | "world";
@@ -90,12 +92,7 @@ export async function ensureThreadTable(client: Pool | PoolClient): Promise<void
 }
 
 /**
- * Validates that every actor ID exists in one of the authoritative DB tables:
- * - sim_agents (by id or name)
- * - sim_paragons (by id or name)
- * - population_demographics (by id or citizen_name)
- * - sim_factions (by id or name)
- * - sim_sector_layers (inside npcs jsonb array)
+ * Validates that every actor ID resolves through the unified entity registry (Rule 7).
  */
 export async function validateActorIds(
   client: Pool | PoolClient,
@@ -110,34 +107,8 @@ export async function validateActorIds(
   for (const id of actorIds) {
     const cleanId = String(id).trim();
     if (!cleanId) continue;
-
-    // Typed ids name one record exactly: paragon:<id>, citizen:<citizen_id>, agent:<id>, faction:<id>
-    const typed = cleanId.match(/^(paragon|citizen|agent|faction):(\d+)$/);
-    if (typed) {
-      const table = { paragon: "sim_paragons WHERE id", citizen: "population_demographics WHERE citizen_id", agent: "sim_agents WHERE id", faction: "sim_factions WHERE id" }[typed[1] as "paragon" | "citizen" | "agent" | "faction"];
-      const r = await client.query(`SELECT 1 FROM ${table} = $1 LIMIT 1`, [Number(typed[2])]);
-      if (r.rowCount === 0) invalidIds.push(cleanId);
-      continue;
-    }
-
-    const checkRes = await client.query(
-      `
-      SELECT 1 FROM sim_agents WHERE id::text = $1 OR name = $1
-      UNION
-      SELECT 1 FROM sim_paragons WHERE id::text = $1 OR name = $1
-      UNION
-      SELECT 1 FROM population_demographics WHERE citizen_id::text = $1 OR name = $1
-      UNION
-      SELECT 1 FROM sim_factions WHERE id::text = $1 OR name = $1
-      UNION
-      SELECT 1 FROM sim_sector_layers, jsonb_array_elements(npcs::jsonb) elem 
-      WHERE elem->>'id' = $1 OR elem->>'name' = $1
-      LIMIT 1
-      `,
-      [cleanId]
-    );
-
-    if (checkRes.rowCount === 0) {
+    const entity = await resolveActorRef(client, cleanId);
+    if (!entity) {
       invalidIds.push(cleanId);
     }
   }
@@ -149,18 +120,10 @@ export async function validateActorIds(
 }
 
 /**
- * True when a map NPC is one of the thread's actors: by its own id, or by the record its id names
- * (npc_paragon_12 is paragon:12; npc_ward_345 / npc_demographic_345 / npc_citizen_345 are citizen:345).
+ * True when a map NPC matches one of the thread's actors via entity_ref or legacy id mapping.
  */
 export function npcIsActor(npc: any, actorIds: Iterable<string>): boolean {
-  const set = actorIds instanceof Set ? actorIds as Set<string> : new Set(Array.from(actorIds, String));
-  const id = String(npc?.id ?? "");
-  if (set.has(id)) return true;
-  const paragon = id.match(/^npc_paragon_(\d+)$/);
-  if (paragon && set.has(`paragon:${paragon[1]}`)) return true;
-  const citizen = id.match(/^npc_(?:ward|demographic|citizen)_(\d+)$/);
-  if (citizen && set.has(`citizen:${citizen[1]}`)) return true;
-  return false;
+  return npcMatchesRef(npc, actorIds);
 }
 
 /**
