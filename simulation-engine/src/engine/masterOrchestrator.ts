@@ -1,6 +1,10 @@
 import pool from "../db/pool";
 import { runCalendarAgent } from "./agents/calendarAgent";
+import { loadCalendar } from "./macro/calendar/load.js";
+import { stepCalendar } from "./macro/calendar/step.js";
 import { runWeatherAgent } from "./agents/weatherAgent";
+import { loadWeather } from "./macro/weather/load.js";
+import { stepWeather } from "./macro/weather/step.js";
 import { runBurgOperationsAgent } from "./agents/burgOperationsAgent";
 import { runLocalParagonAgent } from "./agents/paragonPlanningAgent";
 import { runFactionPlanningAgent } from "./agents/factionPlanningAgent";
@@ -8,12 +12,16 @@ import { runWardenAgent } from "./agents/wardenAgent";
 import { runCultistAgent } from "./agents/cultistAgent";
 import { runMandateAgent } from "./agents/mandateAgent";
 import { runEncounterAgent } from "./agents/encounterAgent";
+import { loadEncounter } from "./macro/encounter/load.js";
+import { stepEncounter } from "./macro/encounter/step.js";
 import { runChroniclerAgent } from "./agents/chroniclerAgent";
 import { runCartelAgent } from "./agents/cartelAgent";
 import { runGrindCanyonAgent } from "./agents/grindCanyonAgent";
 import { runBurgExpansionAgent } from "./agents/burgExpansionAgent";
 import { runInterFactionTradeEngine } from "./economy/interFactionTradeEngine";
 import { runTrophicEcologyAgent } from "./agents/trophicEcologyAgent";
+import { loadEcology } from "./macro/ecology/load.js";
+import { stepEcology } from "./macro/ecology/step.js";
 import { runNPCRoutineAgent } from "./agents/npcRoutineAgent";
 import { runChaosFlowAgent } from "./agents/chaosFlowAgent";
 import { runCultureReligionAgent } from "./agents/cultureReligionAgent";
@@ -144,19 +152,30 @@ async function runTick(): Promise<TickResult> {
 
             // 1. Calendar
             let cal: any;
-            await step('calendar', async () => { cal = await runCalendarAgent(client, tick); }, true);
+            await step('calendar', async (emit) => {
+                const snap = await loadCalendar(client, tick);
+                const out = stepCalendar(snap);
+                cal = out.calendar;
+                for (const d of out.deltas) emit(d);
+            }, true);
             const loreDate = cal.loreDate;
 
             // 2. Weather, ecology and the twelve chaos flows
-            await step('weather', () => runWeatherAgent(client, tick, cal.season, cal.dayOfMonth, loreDate, cal.isShadowWeek));
-            await step('ecology', () => runTrophicEcologyAgent(client, tick, cal.season, loreDate, {
-                month: cal.month,
-                monthName: cal.monthName,
-                activeDragon: cal.activeFlow?.dragon,
-                activeDomain: cal.activeFlow?.domain,
-                cruorbusPhase: cal.cruorbusPhase,
-                isShadowWeek: cal.isShadowWeek
-            }));
+            await step('weather', async (emit) => {
+                const snap = await loadWeather(client, tick, cal.season, cal.dayOfMonth, loreDate, cal.isShadowWeek);
+                for (const d of stepWeather(snap, { random: Math.random })) emit(d);
+            });
+            await step('ecology', async (emit) => {
+                const snap = await loadEcology(client, tick, cal.season, loreDate, {
+                    month: cal.month,
+                    monthName: cal.monthName,
+                    activeDragon: cal.activeFlow?.dragon,
+                    activeDomain: cal.activeFlow?.domain,
+                    cruorbusPhase: cal.cruorbusPhase,
+                    isShadowWeek: cal.isShadowWeek
+                });
+                for (const d of stepEcology(snap, { random: Math.random })) emit(d);
+            });
             await step('chaosFlows', () => runChaosFlowAgent(client, tick, {
                 active_flow: cal.activeFlow.domain,
                 dragon_domain: cal.activeFlow.dragon,
@@ -189,7 +208,10 @@ async function runTick(): Promise<TickResult> {
             await step('grindCanyon', () => runGrindCanyonAgent(client, tick, loreDate));
 
             // 9. Encounters, NPC routines, the background story director & autonomous clashes
-            await step('encounters', () => runEncounterAgent(client, tick));
+            await step('encounters', async (emit) => {
+                const snap = await loadEncounter(client);
+                for (const d of stepEncounter(snap, { tick, random: Math.random })) emit(d);
+            });
             await step('npcRoutines', () => runNPCRoutineAgent(client, tick, loreDate));
             await step('backgroundDirector', () => runBackgroundDirectorAgent(client, tick, loreDate));
             await step('autonomousDrama', () => runAutonomousDramaAgent(client, tick, loreDate));
