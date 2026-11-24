@@ -1171,6 +1171,7 @@ export function Dashboard() {
   const [threadStateFilter, setThreadStateFilter] = useState<string>("ALL");
   const [metaphysicsData, setMetaphysicsData] = useState<any>(null);
   const [storyDeskData, setStoryDeskData] = useState<{ cellId: number; proposals: any[]; openStorylines: any[] } | null>(null);
+  const [storyMetricsData, setStoryMetricsData] = useState<any | null>(null);
   const [deskBusyId, setDeskBusyId] = useState<number | null>(null);
 
   // ── Data loading ──────────────────────────────────────────────────────────
@@ -1388,6 +1389,7 @@ export function Dashboard() {
       getJson("/api/observer/metaphysics").then(d => setMetaphysicsData(d)).catch(fail("Metaphysics"));
       const deskCell = focusedCellId || burgs[0]?.cell_id || 30627;
       getJson(`/api/story/desk?cellId=${deskCell}`).then(d => setStoryDeskData(d)).catch(fail("Story Desk"));
+      getJson("/api/story/metrics").then(d => setStoryMetricsData(d?.metrics || d)).catch(fail("Story Metrics"));
     }
   }, [activeTab, state?.calendar?.tick, focusedCellId]);
 
@@ -3175,12 +3177,14 @@ export function Dashboard() {
                           headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({ cellId: cid }),
                         }).catch(() => null);
-                        const [deskNext, thNext] = await Promise.all([
+                        const [deskNext, thNext, mNext] = await Promise.all([
                           getJson(`/api/story/desk?cellId=${cid}`).catch(() => null),
                           getJson("/api/observer/threads").catch(() => null),
+                          getJson("/api/story/metrics").catch(() => null),
                         ]);
                         if (deskNext) setStoryDeskData(deskNext);
                         if (thNext) setThreadsData(thNext);
+                        if (mNext) setStoryMetricsData(mNext?.metrics || mNext);
                       }}
                       style={{ background: "#0369a1", color: "#fff", border: "none", borderRadius: 4, padding: "4px 8px", fontSize: 10, fontWeight: 700, cursor: "pointer" }}
                     >
@@ -3212,12 +3216,14 @@ export function Dashboard() {
                                   headers: { "Content-Type": "application/json" },
                                   body: JSON.stringify({ decision: "accept" }),
                                 }).catch(() => null);
-                                const [deskNext, thNext] = await Promise.all([
+                                const [deskNext, thNext, mNext] = await Promise.all([
                                   getJson(`/api/story/desk?cellId=${cid}`).catch(() => null),
                                   getJson("/api/observer/threads").catch(() => null),
+                                  getJson("/api/story/metrics").catch(() => null),
                                 ]);
                                 if (deskNext) setStoryDeskData(deskNext);
                                 if (thNext) setThreadsData(thNext);
+                                if (mNext) setStoryMetricsData(mNext?.metrics || mNext);
                                 setDeskBusyId(null);
                               }}
                               style={{ background: "#15803d", color: "#fff", border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 10, fontWeight: 700, cursor: "pointer" }}
@@ -3234,8 +3240,12 @@ export function Dashboard() {
                                   headers: { "Content-Type": "application/json" },
                                   body: JSON.stringify({ decision: "reject" }),
                                 }).catch(() => null);
-                                const deskNext = await getJson(`/api/story/desk?cellId=${cid}`).catch(() => null);
+                                const [deskNext, mNext] = await Promise.all([
+                                  getJson(`/api/story/desk?cellId=${cid}`).catch(() => null),
+                                  getJson("/api/story/metrics").catch(() => null),
+                                ]);
                                 if (deskNext) setStoryDeskData(deskNext);
+                                if (mNext) setStoryMetricsData(mNext?.metrics || mNext);
                                 setDeskBusyId(null);
                               }}
                               style={{ background: "#991b1b", color: "#fff", border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 10, fontWeight: 700, cursor: "pointer" }}
@@ -3248,6 +3258,63 @@ export function Dashboard() {
                     </div>
                   )}
                 </div>
+
+                {/* Story Health Metrics Panel (Phase 13.1) */}
+                {storyMetricsData && (
+                  <div style={{ background: "#0b111a", border: "1px solid #1e293b", borderRadius: 8, padding: 12, marginBottom: 4 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#a855f7" }}>
+                        📊 Story Health Metrics (Tick {storyMetricsData.tick ?? 0})
+                      </div>
+                      <div style={{ fontSize: 10, color: "#94a3b8" }}>
+                        Rule-7 Rejection: <strong style={{ color: (storyMetricsData.rule7?.rejectedCount || 0) > 0 ? "#f59e0b" : "#10b981" }}>
+                          {((storyMetricsData.rule7?.rejectionRate || 0) * 100).toFixed(2)}%
+                        </strong> ({storyMetricsData.rule7?.rejectedCount ?? 0}/{storyMetricsData.rule7?.totalChecked ?? 0})
+                      </div>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 8 }}>
+                      <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 6, padding: 8 }}>
+                        <div style={{ fontSize: 9, color: "#64748b", fontWeight: 700 }}>RESOLVED vs EXPIRED</div>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: "#10b981", marginTop: 2 }}>
+                          {storyMetricsData.outcomes?.resolved ?? 0} / {storyMetricsData.outcomes?.expired ?? 0}
+                        </div>
+                        <div style={{ fontSize: 9, color: "#94a3b8" }}>
+                          {((storyMetricsData.outcomes?.resolvedRatio || 0) * 100).toFixed(1)}% resolved · {storyMetricsData.outcomes?.active ?? 0} active
+                        </div>
+                      </div>
+                      <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 6, padding: 8 }}>
+                        <div style={{ fontSize: 9, color: "#64748b", fontWeight: 700 }}>PEOPLE vs PLACES</div>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: "#38bdf8", marginTop: 2 }}>
+                          {Math.round((storyMetricsData.actorOriginShare?.peopleShare || 0) * 100)}% / {Math.round((storyMetricsData.actorOriginShare?.placesShare || 0) * 100)}%
+                        </div>
+                        <div style={{ fontSize: 9, color: "#94a3b8" }}>
+                          {storyMetricsData.actorOriginShare?.peopleCount ?? 0} people · {storyMetricsData.actorOriginShare?.placesCount ?? 0} places
+                        </div>
+                      </div>
+                      <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 6, padding: 8 }}>
+                        <div style={{ fontSize: 9, color: "#64748b", fontWeight: 700 }}>PARTY ENGAGEMENT</div>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: "#c084fc", marginTop: 2 }}>
+                          {storyMetricsData.partyEngagement?.engagedStorylines ?? 0} / {storyMetricsData.partyEngagement?.totalStorylines ?? 0}
+                        </div>
+                        <div style={{ fontSize: 9, color: "#94a3b8" }}>
+                          {storyMetricsData.partyEngagement?.actionsLinkedToStoryline ?? 0}/{storyMetricsData.partyEngagement?.totalActions ?? 0} actions linked
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+                      {(["scene", "thread", "arc", "saga"] as const).map((sc) => {
+                        const row = storyMetricsData.byScale?.[sc] || {};
+                        return (
+                          <div key={sc} style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 5, padding: "6px 8px", fontSize: 10 }}>
+                            <div style={{ fontWeight: 700, color: "#e2e8f0", textTransform: "uppercase", marginBottom: 2 }}>{sc}</div>
+                            <div style={{ color: "#94a3b8" }}>Acc: <strong style={{ color: "#10b981" }}>{row.accepted ?? 0}</strong> · Rej: <strong style={{ color: "#ef4444" }}>{row.rejected ?? 0}</strong></div>
+                            <div style={{ color: "#94a3b8" }}>Auto: <strong style={{ color: "#38bdf8" }}>{row.autoOpened ?? 0}</strong> · Res: <strong style={{ color: "#c084fc" }}>{row.resolved ?? 0}</strong></div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {(() => {
                   const list = (threadsData?.threads || []).filter((t: any) => threadStateFilter === "ALL" || t.state === threadStateFilter);
