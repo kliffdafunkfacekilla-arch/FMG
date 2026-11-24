@@ -18,6 +18,8 @@ import { runGrindCanyonAgent } from "./agents/grindCanyonAgent";
 import { runBurgExpansionAgent } from "./agents/burgExpansionAgent";
 import { runInterFactionTradeEngine } from "./economy/interFactionTradeEngine";
 import { runTrophicEcologyAgent } from "./agents/trophicEcologyAgent";
+import { loadEcology } from "./macro/ecology/load.js";
+import { stepEcology } from "./macro/ecology/step.js";
 import { runNPCRoutineAgent } from "./agents/npcRoutineAgent";
 import { runChaosFlowAgent } from "./agents/chaosFlowAgent";
 import { runCultureReligionAgent } from "./agents/cultureReligionAgent";
@@ -156,14 +158,17 @@ async function runTick(): Promise<TickResult> {
                 const snap = await loadWeather(client, tick, cal.season, cal.dayOfMonth, loreDate, cal.isShadowWeek);
                 for (const d of stepWeather(snap, { random: Math.random })) emit(d);
             });
-            await step('ecology', () => runTrophicEcologyAgent(client, tick, cal.season, loreDate, {
-                month: cal.month,
-                monthName: cal.monthName,
-                activeDragon: cal.activeFlow?.dragon,
-                activeDomain: cal.activeFlow?.domain,
-                cruorbusPhase: cal.cruorbusPhase,
-                isShadowWeek: cal.isShadowWeek
-            }));
+            await step('ecology', async (emit) => {
+                const snap = await loadEcology(client, tick, cal.season, loreDate, {
+                    month: cal.month,
+                    monthName: cal.monthName,
+                    activeDragon: cal.activeFlow?.dragon,
+                    activeDomain: cal.activeFlow?.domain,
+                    cruorbusPhase: cal.cruorbusPhase,
+                    isShadowWeek: cal.isShadowWeek
+                });
+                for (const d of stepEcology(snap, { random: Math.random })) emit(d);
+            });
             await step('chaosFlows', () => runChaosFlowAgent(client, tick, {
                 active_flow: cal.activeFlow.domain,
                 dragon_domain: cal.activeFlow.dragon,

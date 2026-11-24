@@ -6,6 +6,8 @@ import { mulberry32 } from "../engine/rng.js";
 import { stepEncounter } from "../engine/macro/encounter/step.js";
 import { stepWeather } from "../engine/macro/weather/step.js";
 import type { WeatherBurgRow, WeatherSnapshot } from "../engine/macro/weather/load.js";
+import { stepEcology } from "../engine/macro/ecology/step.js";
+import type { EcologySnapshot } from "../engine/macro/ecology/load.js";
 
 function testEncounterUnit() {
   const emptyDeltas = stepEncounter({ agents: [], cellIds: [10, 20, 30] }, { tick: 2, random: mulberry32(42) });
@@ -135,10 +137,65 @@ function testWeatherUnit() {
   console.log("2. stepWeather (no DB) wildfire, drought irrigation, river flood, MERCY... PASSED");
 }
 
+function testEcologyUnit() {
+  const skipped = stepEcology(
+    {
+      active: false,
+      tick: 2,
+      season: "Shadowburn",
+      loreDate: "Day 2",
+      dragonDomain: "Flux",
+      dragonName: "Ulex",
+      moonPhase: "The Mercy Alignment",
+      isPeakChaos: false,
+      cells: [],
+      burgs: [],
+      chaosZones: [],
+      groves: [],
+    },
+    { random: mulberry32(7) }
+  );
+  assert.equal(skipped.length, 0);
+
+  // Active weekly tick (tick 12, % 4 === 0, % 6 === 0): lush growth, starving predators, weak/strong grove blight, lush & ruined burgs
+  const ecoSnap: EcologySnapshot = {
+    active: true,
+    tick: 12,
+    season: "Greenspan",
+    loreDate: "Day 12",
+    dragonDomain: "Vita",
+    dragonName: "Gavusrix",
+    moonPhase: "The Leering",
+    isPeakChaos: false,
+    cells: [
+      { id: 1, center_x: 100, center_y: 100, eco_plants: 70, eco_prey: 50, eco_predators: 10, eco_apex: 5, eco_blight: 0, eco_max: 100 },
+      { id: 2, center_x: 120, center_y: 100, eco_plants: 20, eco_prey: 10, eco_predators: 20, eco_apex: 5, eco_blight: 55, eco_max: 100 },
+    ],
+    burgs: [
+      { burg_id: 1, name: "Greenshore", cell_id: 1, pop_null: 100, food: 500, unrest: 10, wealth: 100 },
+      { burg_id: 2, name: "Blightwatch", cell_id: 2, pop_null: 80, food: 200, unrest: 20, wealth: 50 },
+    ],
+    chaosZones: [{ id: 1, cell_id: 2, intensity: 60, type: "VOID_RIFT" }],
+    groves: [{ id: 1, cell_id: 2, seal_strength: 20 }],
+  };
+  const deltas = stepEcology(ecoSnap, { random: mulberry32(99) });
+  const cell1 = deltas.find((d) => d.kind === "cell.set" && d.cellId === 1) as any;
+  const cell2 = deltas.find((d) => d.kind === "cell.set" && d.cellId === 2) as any;
+  assert.ok(cell1?.fields.eco_plants > 70, "Greenspan should boost plants on healthy cell 1");
+  assert.ok(cell2?.fields.eco_blight > 55, "Weak grove seal (< 30) must increase blight on cell 2");
+  assert.ok(cell2?.fields.eco_predators < 20, "Starving predators must lose population on prey-poor cell 2");
+  const lushFood = deltas.filter((d) => d.kind === "burg.adjust" && d.burgId === 1 && (d.food ?? 0) > 0);
+  const starveFood = deltas.filter((d) => d.kind === "burg.adjust" && d.burgId === 2 && (d.food ?? 0) < 0);
+  assert.ok(lushFood.length >= 1, "Lush flora cell 1 must award +25 food to burg 1");
+  assert.ok(starveFood.length >= 1, "Blighted cell 2 must drain food from burg 2");
+  console.log("3. stepEcology (no DB) growth, predators, grove blight & foraging feedback... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
   testWeatherUnit();
+  testEcologyUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 
