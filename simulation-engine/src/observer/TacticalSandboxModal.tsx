@@ -1286,7 +1286,7 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
                       🔍 Search Clues
                     </button>
                     <button
-                      onClick={() => executeGMAction("Strike hostile with Osmium Greatsword")}
+                      onClick={() => executeGMAction("Strike hostile with Iron Greatsword")}
                       disabled={actionLoading}
                       style={{
                         background: '#1e293b',

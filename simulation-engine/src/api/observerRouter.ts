@@ -7,6 +7,45 @@ import { VERGE_COORD } from "../engine/canon/dragonPrisons.js";
 import { addCellTags, loadCellTagMap } from "../engine/cellTags.js";
 
 const observerRouter = Router();
+type Db = { query: (text: string, params?: any[]) => Promise<any> };
+
+function safeParseJson<T>(raw: any, fallback: T): T {
+    if (raw === null || raw === undefined) return fallback;
+    if (typeof raw === "string") {
+        try { return (JSON.parse(raw) ?? fallback) as T; } catch { return fallback; }
+    }
+    return raw as T;
+}
+
+export async function resolveBorderWarPair(
+    db: Db,
+    cellId: number
+): Promise<{ myFactionId: number; enemyFactionId: number }> {
+    const cellRes = await db.query("SELECT faction_id FROM sim_cells WHERE id = $1", [cellId]);
+    let myFactionId = Number(cellRes.rows[0]?.faction_id || 0);
+    if (myFactionId <= 0) {
+        const firstFacRes = await db.query("SELECT id FROM sim_factions WHERE id > 0 ORDER BY id ASC LIMIT 1");
+        myFactionId = Number(firstFacRes.rows[0]?.id || 29);
+    }
+
+    const borderRes = await db.query(
+        `SELECT CASE WHEN faction_a = $1 THEN faction_b ELSE faction_a END AS enemy_id
+         FROM sim_faction_borders
+         WHERE (faction_a = $1 AND faction_b > 0) OR (faction_b = $1 AND faction_a > 0)
+         ORDER BY id ASC
+         LIMIT 1`,
+        [myFactionId]
+    );
+    let enemyFactionId = Number(borderRes.rows[0]?.enemy_id || 0);
+    if (enemyFactionId <= 0 || enemyFactionId === myFactionId) {
+        const altRes = await db.query(
+            "SELECT id FROM sim_factions WHERE id > 0 AND id <> $1 ORDER BY id ASC LIMIT 1",
+            [myFactionId]
+        );
+        enemyFactionId = Number(altRes.rows[0]?.id || (myFactionId === 29 ? 30 : 29));
+    }
+    return { myFactionId, enemyFactionId };
+}
 
 observerRouter.get("/economy/specialties", async (req, res) => {
     try {
@@ -21,18 +60,189 @@ observerRouter.get("/economy/specialties", async (req, res) => {
         `);
 
         const tradeEventsRes = await pool.query(`
-            SELECT id, tick, type, message, tier, lore_date, burg_id, faction_id
+            SELECT id, tick, type, message, tier, lore_date, burg_id, faction_id, outlaw_id
             FROM sim_events
-            WHERE type IN ('CARAVAN_DISPATCH', 'TRADE_EMBARGO_CHOKEPOINT')
-            ORDER BY id DESC LIMIT 25
+            WHERE type IN ('CARAVAN_DISPATCH', 'INTER_FACTION_TRADE', 'CARAVAN_RAIDED', 'TRADE_EMBARGO_CHOKEPOINT')
+            ORDER BY id DESC LIMIT 40
         `);
+
+        const [shipmentsRes, countsRes, marketsRes, goodsRes, commodityRes] = await Promise.all([
+            pool.query(`
+                SELECT s.id, s.source_burg_id, sb.name AS source_burg_name,
+                       s.dest_burg_id, db.name AS dest_burg_name,
+                       s.source_faction_id, s.dest_faction_id,
+                       s.transport_mode, s.good_id, s.good_key, s.good_name,
+                       s.quantity, s.unit_price, s.total_gold, s.tariff_gold,
+                       s.guard_count, s.current_cell_id, s.path_index,
+                       jsonb_array_length(COALESCE(s.path_cells, '[]'::jsonb))::int AS path_length,
+                       s.status, s.dispatched_tick, s.eta_ticks, s.resolved_tick,
+                       s.merchant_citizen_id, p.name AS merchant_name
+                FROM sim_trade_shipments s
+                LEFT JOIN sim_burg_economy sb ON sb.burg_id = s.source_burg_id
+                LEFT JOIN sim_burg_economy db ON db.burg_id = s.dest_burg_id
+                LEFT JOIN population_demographics p ON p.citizen_id = s.merchant_citizen_id
+                ORDER BY CASE WHEN s.status = 'IN_TRANSIT' THEN 0 ELSE 1 END, s.id DESC
+                LIMIT 80
+            `).catch(() => ({ rows: [] })),
+            pool.query(`SELECT status, COUNT(*)::int AS count FROM sim_trade_shipments GROUP BY status`)
+                .catch(() => ({ rows: [] })),
+            pool.query(`
+                SELECT m.id, m.center_burg_id, b.name AS center_burg_name, m.fee_paid, m.goods
+                FROM sim_markets m
+                LEFT JOIN sim_burg_economy b ON b.burg_id = m.center_burg_id
+                ORDER BY m.id ASC
+            `).catch(() => ({ rows: [] })),
+            pool.query(`SELECT id, name, value FROM sim_goods ORDER BY id ASC`).catch(() => ({ rows: [] })),
+            pool.query(`
+                SELECT commodity, base_price, current_price, global_supply, global_demand, last_updated_tick
+                FROM sim_commodity_prices
+                ORDER BY commodity ASC
+            `).catch(() => ({ rows: [] }))
+        ]);
+
+        const shipmentCounts: Record<string, number> = { IN_TRANSIT: 0, DELIVERED: 0, INTERCEPTED: 0, ABORTED: 0 };
+        for (const r of countsRes.rows) {
+            shipmentCounts[String(r.status || "IN_TRANSIT")] = Number(r.count || 0);
+        }
+
+        const goodMetaById = new Map<number, { name: string; value: number }>();
+        for (const g of goodsRes.rows) {
+            goodMetaById.set(Number(g.id), { name: String(g.name || `Good #${g.id}`), value: Number(g.value || 1) });
+        }
+
+        const markets = marketsRes.rows.map((m: any) => {
+            const goodsObj = safeParseJson<Record<string, { price?: number; stock?: number }>>(m.goods, {});
+            const entries = Object.entries(goodsObj).map(([gidStr, info]) => {
+                const gid = Number(gidStr);
+                const meta = goodMetaById.get(gid) || { name: `Good #${gid}`, value: 1 };
+                const price = Number(info?.price || meta.value);
+                const stock = Number(info?.stock || 0);
+                return {
+                    goodId: gid,
+                    name: meta.name,
+                    price: Math.round(price * 100) / 100,
+                    baseValue: meta.value,
+                    stock: Math.round(stock * 10) / 10,
+                    ratio: price / Math.max(0.1, meta.value)
+                };
+            });
+            const totalStock = Math.round(entries.reduce((s, e) => s + e.stock, 0));
+            const topGoods = entries
+                .filter((e) => e.stock > 0 || e.ratio > 1.05)
+                .sort((a, b) => (b.stock > 0 ? 1 : 0) - (a.stock > 0 ? 1 : 0) || b.ratio - a.ratio || b.stock - a.stock || a.goodId - b.goodId)
+                .slice(0, 4);
+            return {
+                id: Number(m.id),
+                center_burg_id: Number(m.center_burg_id || 0),
+                center_burg_name: String(m.center_burg_name || `Market #${m.id}`),
+                fee_paid: Number(m.fee_paid || 0),
+                trackedGoodsCount: entries.length,
+                totalStock,
+                topGoods
+            };
+        });
 
         res.json({
             status: "ok",
             specialties: Object.values(FACTION_SPECIALTIES),
             activeEmbargoes: embargoesRes.rows,
-            recentTradeEvents: tradeEventsRes.rows
+            recentTradeEvents: tradeEventsRes.rows,
+            shipments: shipmentsRes.rows,
+            shipmentCounts,
+            markets,
+            commodityPrices: commodityRes.rows
         });
+    } catch (e: any) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Active physical trade convoys for 2D map overlay
+observerRouter.get("/shipments", async (req, res) => {
+    try {
+        const rowsRes = await pool.query(`
+            SELECT s.id, s.source_burg_id, sb.name AS source_burg_name, sb.cell_id AS source_cell_id,
+                   s.dest_burg_id, db.name AS dest_burg_name, db.cell_id AS dest_cell_id,
+                   s.transport_mode, s.good_key, s.good_name, s.quantity,
+                   s.total_gold, s.tariff_gold, s.guard_count,
+                   s.current_cell_id, s.path_cells, s.path_index, s.eta_ticks, s.dispatched_tick,
+                   p.name AS merchant_name
+            FROM sim_trade_shipments s
+            LEFT JOIN sim_burg_economy sb ON sb.burg_id = s.source_burg_id
+            LEFT JOIN sim_burg_economy db ON db.burg_id = s.dest_burg_id
+            LEFT JOIN population_demographics p ON p.citizen_id = s.merchant_citizen_id
+            WHERE s.status = 'IN_TRANSIT'
+            ORDER BY s.id ASC
+            LIMIT 150
+        `).catch(() => ({ rows: [] }));
+
+        res.json({
+            shipments: rowsRes.rows.map((r: any) => ({
+                ...r,
+                path_cells: safeParseJson<number[]>(r.path_cells, [])
+            }))
+        });
+    } catch (e: any) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// World trouble threads feed across all cells
+observerRouter.get("/threads", async (req, res) => {
+    try {
+        const threadsRes = await pool.query(`
+            SELECT t.*, b.burg_id, b.name AS burg_name
+            FROM sim_threads t
+            LEFT JOIN LATERAL (
+                SELECT burg_id, name FROM sim_burg_economy WHERE cell_id = t.cell_id ORDER BY burg_id ASC LIMIT 1
+            ) b ON true
+            ORDER BY CASE WHEN t.state = 'escalated' THEN 0 WHEN t.state = 'open' THEN 1 ELSE 2 END, t.id DESC
+            LIMIT 100
+        `).catch(() => ({ rows: [] }));
+
+        const countsRes = await pool.query(`SELECT state, COUNT(*)::int AS c FROM sim_threads GROUP BY state`)
+            .catch(() => ({ rows: [] }));
+        const counts: Record<string, number> = { open: 0, escalated: 0, resolved: 0, expired: 0 };
+        for (const r of countsRes.rows) counts[String(r.state || "open")] = Number(r.c || 0);
+
+        const paragonIds = new Set<number>();
+        const citizenIds = new Set<number>();
+        const agentIds = new Set<number>();
+        for (const t of threadsRes.rows) {
+            const list: string[] = Array.isArray(t.actor_ids) ? t.actor_ids : [];
+            for (const raw of list) {
+                const [prefix, idStr] = String(raw).split(":");
+                const n = Number(idStr);
+                if (!Number.isInteger(n) || n <= 0) continue;
+                if (prefix === "paragon") paragonIds.add(n);
+                else if (prefix === "citizen") citizenIds.add(n);
+                else if (prefix === "agent") agentIds.add(n);
+            }
+        }
+
+        const actorNames = new Map<string, string>();
+        if (paragonIds.size > 0) {
+            const pr = await pool.query(`SELECT id, name, title FROM sim_paragons WHERE id = ANY($1::int[])`, [Array.from(paragonIds)]);
+            for (const r of pr.rows) actorNames.set(`paragon:${r.id}`, `${r.title ? `${r.title} ` : ""}${r.name}`);
+        }
+        if (citizenIds.size > 0) {
+            const cr = await pool.query(`SELECT citizen_id, name, profession FROM population_demographics WHERE citizen_id = ANY($1::int[])`, [Array.from(citizenIds)]);
+            for (const r of cr.rows) actorNames.set(`citizen:${r.citizen_id}`, `${r.name}${r.profession ? ` (${r.profession})` : ""}`);
+        }
+        if (agentIds.size > 0) {
+            const ar = await pool.query(`SELECT id, name, role FROM sim_agents WHERE id = ANY($1::int[])`, [Array.from(agentIds)]);
+            for (const r of ar.rows) actorNames.set(`agent:${r.id}`, `${r.name}${r.role ? ` (${r.role})` : ""}`);
+        }
+
+        const threads = threadsRes.rows.map((t: any) => ({
+            ...t,
+            actors: (Array.isArray(t.actor_ids) ? t.actor_ids : []).map((aid: string) => ({
+                id: aid,
+                label: actorNames.get(aid) || aid
+            }))
+        }));
+
+        res.json({ threads, counts });
     } catch (e: any) {
         res.status(500).json({ error: e.message });
     }
@@ -203,7 +413,10 @@ observerRouter.post("/batch_ticks", async (req, res) => {
 observerRouter.get("/sectors", async (req, res) => {
   try {
     const burgsRes = await pool.query(`
-      SELECT b.burg_id, b.name, b.cell_id, b.food, b.wealth, b.unrest, b.urban_tier, b.pop_null, b.crime_rate, b.occupier_faction_id,
+      SELECT b.burg_id, b.name, b.cell_id, b.food, b.wealth, b.unrest, b.urban_tier,
+             b.pop_null, COALESCE(b.pop_attuned, 0)::int AS pop_attuned,
+             (COALESCE(b.pop_null, 0) + COALESCE(b.pop_attuned, 0))::int AS total_pop,
+             b.crime_rate, b.occupier_faction_id,
              c.faction_id, f.name as faction_name, f.color as faction_color
       FROM sim_burg_economy b
       LEFT JOIN sim_cells c ON b.cell_id = c.id
@@ -233,9 +446,11 @@ observerRouter.get("/sectors", async (req, res) => {
     }
 
     const grovesRes = await pool.query(`
-      SELECT id, cell_id, dragon_name, power_domain, seal_strength
-      FROM sim_sacred_groves
-      ORDER BY id ASC
+      SELECT g.id, g.cell_id, g.dragon_name, g.power_domain, g.seal_strength,
+             COALESCE((SELECT COUNT(*)::int FROM sim_agents a WHERE a.role = 'Warden' AND a.target_grove_id = g.id), 0) AS warden_count,
+             COALESCE((SELECT COUNT(*)::int FROM sim_agents a WHERE a.role = 'Cultist' AND a.target_grove_id = g.id), 0) AS cultist_count
+      FROM sim_sacred_groves g
+      ORDER BY g.id ASC
     `);
 
     // The Verge: where all twelve flows meet and drain (Canon/03 §1 item 5).
@@ -435,13 +650,14 @@ observerRouter.get("/chaos_flows", async (req, res) => {
   }
 });
 
-// Get notable citizens in a burg, highlighting their active narrative tags and emotional states
+// Get notable citizens in a burg, highlighting their active narrative tags, stockpile & workforce
 observerRouter.get("/burg_citizens", async (req, res) => {
   try {
     const { burg_id, limit = 20 } = req.query;
     if (!burg_id) {
       return res.status(400).json({ error: "burg_id is required" });
     }
+    const burgIdNum = Number(burg_id);
     const citizensRes = await pool.query(`
       SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation, traits, life_stage, age
       FROM population_demographics
@@ -450,18 +666,42 @@ observerRouter.get("/burg_citizens", async (req, res) => {
         CASE WHEN traits::text LIKE '%#%' THEN 0 ELSE 1 END,
         citizen_id ASC
       LIMIT $2
-    `, [Number(burg_id), Math.min(Number(limit), 50)]);
+    `, [burgIdNum, Math.min(Number(limit), 50)]);
 
     const paragonsRes = await pool.query(`
       SELECT id, name, title, traits, corruption_score
       FROM sim_paragons
       WHERE burg_id = $1
-    `, [Number(burg_id)]);
+    `, [burgIdNum]);
 
+    const stockpileRes = await pool.query(`
+      SELECT s.complex_inventory, b.resource_profile
+      FROM sim_burg_economy b
+      LEFT JOIN sim_industrial_stockpiles s ON s.burg_id = b.burg_id
+      WHERE b.burg_id = $1
+    `, [burgIdNum]);
+
+    const workforceRes = await pool.query(`
+      SELECT COALESCE(profession, 'Unassigned') AS profession,
+             COUNT(*) FILTER (WHERE allegiance_status = 'CIVILIAN')::int AS active_records,
+             COUNT(*) FILTER (WHERE allegiance_status = 'ON_CARAVAN')::int AS on_caravan_records,
+             COALESCE(SUM(unit_size), 0)::int AS people
+      FROM population_demographics
+      WHERE settlement_id = $1
+        AND life_stage = 'ADULT'
+        AND allegiance_status IN ('CIVILIAN', 'ON_CARAVAN')
+      GROUP BY profession
+      ORDER BY active_records DESC, on_caravan_records DESC, profession ASC
+    `, [burgIdNum]);
+
+    const sRow = stockpileRes.rows[0];
     res.json({
-      burg_id: Number(burg_id),
+      burg_id: burgIdNum,
       citizens: citizensRes.rows,
-      paragons: paragonsRes.rows
+      paragons: paragonsRes.rows,
+      stockpile: safeParseJson<Record<string, number>>(sRow?.complex_inventory, {}),
+      resourceProfile: safeParseJson<any>(sRow?.resource_profile, {}),
+      workforce: workforceRes.rows
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -669,18 +909,8 @@ observerRouter.post("/trigger_crisis", async (req, res) => {
       case "BORDER_WAR": {
         eventType = "DECLARE_WAR";
         eventTier = "CRITICAL";
-        // 1. Find cell faction and adjacent rival faction
-        const cellRes = await pool.query("SELECT faction_id FROM sim_cells WHERE id = $1", [cellId]);
-        const myFactionId = Number(cellRes.rows[0]?.faction_id || 1);
-
-        const borderRes = await pool.query(`
-          SELECT CASE WHEN faction_a = $1 THEN faction_b ELSE faction_a END AS enemy_id
-          FROM sim_faction_borders
-          WHERE faction_a = $1 OR faction_b = $1
-          LIMIT 1
-        `, [myFactionId]);
-
-        const enemyFactionId = Number(borderRes.rows[0]?.enemy_id || (myFactionId === 1 ? 2 : 1));
+        // 1. Resolve real Ostraka sovereign factions (no dead Holgaland 1/2 fallback)
+        const { myFactionId, enemyFactionId } = await resolveBorderWarPair(pool, cellId);
         const fA = Math.min(myFactionId, enemyFactionId);
         const fB = Math.max(myFactionId, enemyFactionId);
 

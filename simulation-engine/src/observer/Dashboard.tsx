@@ -37,6 +37,7 @@ interface FringeLair {
   lair_type: string;
   manpower: number;
   heat: number;
+  inventory?: Record<string, number> | string;
 }
 
 interface Cell {
@@ -73,12 +74,17 @@ interface BurgItem {
   unrest: number;
   urban_tier: number;
   pop_null: number;
+  pop_attuned?: number;
+  total_pop?: number;
   crime_rate: number;
   occupier_faction_id: number | null;
   faction_id: number | null;
   faction_name?: string;
   faction_color?: string;
 }
+
+const burgPop = (b: BurgItem): number =>
+  Number(b.total_pop ?? ((b.pop_null || 0) + (b.pop_attuned || 0)));
 
 interface ParagonItem {
   id: number;
@@ -95,6 +101,38 @@ interface PrisonItem {
   dragon_name: string;
   power_domain: string;
   seal_strength: number;
+  warden_count?: number;
+  cultist_count?: number;
+}
+
+interface ShipmentOverlayItem {
+  id: number;
+  source_burg_id: number;
+  source_burg_name?: string;
+  source_cell_id?: number;
+  dest_burg_id: number;
+  dest_burg_name?: string;
+  dest_cell_id?: number;
+  transport_mode: "LAND" | "SEA" | "AIR" | string;
+  good_key: string;
+  good_name: string;
+  quantity: number;
+  total_gold: number;
+  tariff_gold: number;
+  guard_count: number;
+  current_cell_id: number;
+  path_cells: number[];
+  path_index: number;
+  eta_ticks: number;
+  dispatched_tick: number;
+  merchant_name?: string;
+}
+
+interface WorkforceItem {
+  profession: string;
+  active_records: number;
+  on_caravan_records: number;
+  people: number;
 }
 
 interface ObserverState {
@@ -114,7 +152,7 @@ async function getJson(url: string, init?: RequestInit): Promise<any> {
   return body;
 }
 
-type MainTab = "MAP" | "SECTORS" | "FRINGE" | "ECOLOGY_CHAOS" | "EVENTS" | "ECONOMY" | "RULES_LAB";
+type MainTab = "MAP" | "SECTORS" | "FRINGE" | "ECOLOGY_CHAOS" | "EVENTS" | "ECONOMY" | "THREADS" | "RULES_LAB";
 type ViewMode = "Political" | "Biome" | "Ecology" | "Unrest";
 type SectorCategory = "ALL_BURGS" | "PRISONS" | "VERGE";
 // One poll per POLL_MS: a tiny /status call. Everything else is refetched only when the tick changes.
@@ -138,6 +176,7 @@ function MapCanvas({
   economy,
   burgs = [],
   prisons = [],
+  shipments = [],
   verge,
   onCellClick,
   selectedCellId,
@@ -155,11 +194,12 @@ function MapCanvas({
   // POI Filter & Display Controls
   const [showBurgs, setShowBurgs] = useState<"all" | "cities" | "none">("all");
   const [showPrisons, setShowPrisons] = useState<boolean>(true);
+  const [showConvoys, setShowConvoys] = useState<boolean>(true);
   const [showLabels, setShowLabels] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [isSearchFocused, setIsSearchFocused] = useState<boolean>(false);
   const [hoveredMarker, setHoveredMarker] = useState<{
-    type: "BURG" | "PRISON" | "VERGE";
+    type: "BURG" | "PRISON" | "VERGE" | "CONVOY";
     item: any;
     screenX: number;
     screenY: number;
@@ -418,8 +458,8 @@ function MapCanvas({
         const coord = cellCoordMap.get(b.cell_id);
         if (!coord) continue;
 
-        const isCity = (b.urban_tier || 1) >= 3 || (b.pop_null || 0) > 10000;
-        const isTown = (b.urban_tier || 1) === 2 || (b.pop_null || 0) > 1200;
+        const isCity = (b.urban_tier || 1) >= 3 || burgPop(b) > 10000;
+        const isTown = (b.urban_tier || 1) === 2 || burgPop(b) > 1200;
 
         // Level of detail gating
         if (showBurgs === "cities" && !isCity) continue;
@@ -497,6 +537,48 @@ function MapCanvas({
       }
     }
 
+    // 4b. Render Active Physical Trade Convoys (sim_trade_shipments IN_TRANSIT)
+    if (showConvoys && shipments.length > 0) {
+      for (const s of shipments as ShipmentOverlayItem[]) {
+        const coord = cellCoordMap.get(s.current_cell_id);
+        if (!coord) continue;
+        const px = coord.cx * baseScale + bounds.current.baseOffX;
+        const py = coord.cy * baseScale + bounds.current.baseOffY;
+        const isHovered = hoveredMarker?.type === "CONVOY" && hoveredMarker.item.id === s.id;
+        const isFocusedEndpoint = selectedCellId !== null && (s.source_cell_id === selectedCellId || s.dest_cell_id === selectedCellId || s.current_cell_id === selectedCellId);
+        const modeColor = s.transport_mode === "AIR" ? "#c084fc" : s.transport_mode === "SEA" ? "#06b6d4" : "#f59e0b";
+
+        if ((isHovered || isFocusedEndpoint) && Array.isArray(s.path_cells) && s.path_cells.length > 1) {
+          ctx.save();
+          ctx.beginPath();
+          let started = false;
+          for (const cid of s.path_cells) {
+            const pc = cellCoordMap.get(cid);
+            if (!pc) continue;
+            const lx = pc.cx * baseScale + bounds.current.baseOffX;
+            const ly = pc.cy * baseScale + bounds.current.baseOffY;
+            if (!started) { ctx.moveTo(lx, ly); started = true; } else { ctx.lineTo(lx, ly); }
+          }
+          ctx.strokeStyle = modeColor;
+          ctx.lineWidth = (isHovered ? 2.4 : 1.4) / zoom;
+          ctx.setLineDash([4 / zoom, 3 / zoom]);
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        const sz = Math.max(3.8, (isHovered ? 7.5 : 5.2) / zoom);
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(s.transport_mode === "AIR" ? 0 : Math.PI / 4);
+        ctx.fillStyle = modeColor;
+        ctx.fillRect(-sz / 2, -sz / 2, sz, sz);
+        ctx.strokeStyle = isHovered ? "#ffffff" : "#020617";
+        ctx.lineWidth = (isHovered ? 2 : 1.2) / zoom;
+        ctx.strokeRect(-sz / 2, -sz / 2, sz, sz);
+        ctx.restore();
+      }
+    }
+
     // 5. High-visibility beacon on selected cell
     if (selectedCellRef && bounds.current.baseScale) {
       const coord = cellCoordMap.get((selectedCellRef as any).id);
@@ -520,7 +602,7 @@ function MapCanvas({
     }
 
     ctx.restore();
-  }, [cells, factions, viewMode, economy, zoom, offset, canvasSize, selectedCellId, selectedFactionId, showBurgs, showPrisons, showLabels, hoveredMarker, burgs, prisons, verge]);
+  }, [cells, factions, viewMode, economy, zoom, offset, canvasSize, selectedCellId, selectedFactionId, showBurgs, showPrisons, showConvoys, showLabels, hoveredMarker, burgs, prisons, shipments, verge]);
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
@@ -587,6 +669,17 @@ function MapCanvas({
       }
     }
 
+    // Check Active Convoys
+    if (!hitMarker && showConvoys) {
+      for (const s of shipments as ShipmentOverlayItem[]) {
+        const coord = cellCoordMap.get(s.current_cell_id);
+        if (coord && Math.hypot(coord.cx - mapX, coord.cy - mapY) < Math.max(7, 13 / zoom)) {
+          hitMarker = { type: "CONVOY", item: s, screenX: mouseX, screenY: mouseY };
+          break;
+        }
+      }
+    }
+
     setHoveredMarker(hitMarker);
     canvas.style.cursor = hitMarker ? "pointer" : "grab";
   };
@@ -598,7 +691,8 @@ function MapCanvas({
     // Detect click if mouse barely moved
     if (moved < 6 && onCellClick && canvasRef.current && bounds.current.baseScale) {
       if (hoveredMarker) {
-        onCellClick(hoveredMarker.item.cell_id);
+        const targetCid = hoveredMarker.item.cell_id ?? hoveredMarker.item.current_cell_id;
+        if (targetCid) onCellClick(targetCid);
         return;
       }
 
@@ -686,7 +780,7 @@ function MapCanvas({
           type: "BURG",
           name: b.name,
           cell_id: b.cell_id,
-          subtitle: `${b.urban_tier >= 3 ? "Major City" : b.urban_tier === 2 ? "Town" : "Settlement"} • ${b.faction_name || "Independent"} (Pop: ${b.pop_null?.toLocaleString()})`
+          subtitle: `${b.urban_tier >= 3 ? "Major City" : b.urban_tier === 2 ? "Town" : "Settlement"} • ${b.faction_name || "Independent"} (Pop: ${burgPop(b).toLocaleString()})`
         });
         if (res.length >= 8) break;
       }
@@ -823,6 +917,23 @@ function MapCanvas({
           </button>
 
           <button
+            onClick={() => setShowConvoys(!showConvoys)}
+            style={{
+              padding: "4px 8px",
+              background: showConvoys ? "rgba(217, 119, 6, 0.85)" : "rgba(15, 23, 42, 0.85)",
+              border: `1px solid ${showConvoys ? "#fbbf24" : "#334155"}`,
+              borderRadius: 4,
+              color: "#fff",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: "pointer",
+              backdropFilter: "blur(6px)"
+            }}
+          >
+            🚚 Convoys: {showConvoys ? `Active (${shipments.length})` : "Off"}
+          </button>
+
+          <button
             onClick={() => setShowLabels(!showLabels)}
             style={{
               padding: "4px 8px",
@@ -890,7 +1001,7 @@ function MapCanvas({
                 Sovereignty: <strong style={{ color: hoveredMarker.item.faction_color || "#facc15" }}>{hoveredMarker.item.faction_name || "Independent"}</strong>
               </div>
               <div style={{ fontSize: 11, color: "#94a3b8", display: "flex", justifyContent: "space-between", marginTop: 2 }}>
-                <span>Pop: <strong style={{ color: "#fff" }}>{hoveredMarker.item.pop_null?.toLocaleString()}</strong></span>
+                <span>Pop: <strong style={{ color: "#fff" }}>{burgPop(hoveredMarker.item).toLocaleString()}</strong></span>
                 <span>Wealth: <strong style={{ color: "#facc15" }}>{hoveredMarker.item.wealth}g</strong></span>
               </div>
               <div style={{ fontSize: 11, color: "#94a3b8", display: "flex", justifyContent: "space-between", marginTop: 2 }}>
@@ -938,6 +1049,32 @@ function MapCanvas({
               </div>
             </div>
           )}
+
+          {hoveredMarker.type === "CONVOY" && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontWeight: 800, fontSize: 13, color: hoveredMarker.item.transport_mode === "AIR" ? "#c084fc" : hoveredMarker.item.transport_mode === "SEA" ? "#22d3ee" : "#fbbf24" }}>
+                  🚚 {hoveredMarker.item.transport_mode} Convoy #{hoveredMarker.item.id}
+                </span>
+                <span style={{ fontSize: 10, color: "#94a3b8", fontWeight: 700 }}>
+                  ETA {hoveredMarker.item.eta_ticks}d
+                </span>
+              </div>
+              <div style={{ fontSize: 12, color: "#f8fafc", fontWeight: 700, marginTop: 4 }}>
+                {hoveredMarker.item.quantity} × {hoveredMarker.item.good_name}
+              </div>
+              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
+                Route: <strong style={{ color: "#cbd5e1" }}>{hoveredMarker.item.source_burg_name || `#${hoveredMarker.item.source_burg_id}`} → {hoveredMarker.item.dest_burg_name || `#${hoveredMarker.item.dest_burg_id}`}</strong>
+              </div>
+              <div style={{ fontSize: 11, color: "#94a3b8", display: "flex", justifyContent: "space-between", marginTop: 3 }}>
+                <span>Factor: <strong style={{ color: "#e2e8f0" }}>{hoveredMarker.item.merchant_name || "Citizen Crew"}</strong></span>
+                <span>Tariff: <strong style={{ color: "#facc15" }}>{hoveredMarker.item.tariff_gold}g</strong></span>
+              </div>
+              <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>
+                Cell #{hoveredMarker.item.current_cell_id} • Escort Guards: {hoveredMarker.item.guard_count || 0}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -965,7 +1102,7 @@ export function Dashboard() {
   const [selectedFactionId, setSelectedFactionId] = useState<number | null>(null);
 
   // Regional Meso LOD Floating Window State (10,000 Cells)
-  const [focusedCellId, setFocusedCellId] = useState<number | null>(19861);
+  const [focusedCellId, setFocusedCellId] = useState<number | null>(30627);
   const [showRegionalWindow, setShowRegionalWindow] = useState<boolean>(true);
   const [cellSearchInput, setCellSearchInput] = useState<string>("");
   const [tacticalModalTarget, setTacticalModalTarget] = useState<{ cellId: number; rx: number; ry: number } | null>(null);
@@ -995,6 +1132,12 @@ export function Dashboard() {
   const [fringeEvents, setFringeEvents] = useState<SimEvent[]>([]);
   const [tierFilter, setTierFilter] = useState<string>("ALL");
   const [burgCitizens, setBurgCitizens] = useState<any[]>([]);
+  const [burgStockpile, setBurgStockpile] = useState<Record<string, number>>({});
+  const [burgProfile, setBurgProfile] = useState<any>(null);
+  const [burgWorkforce, setBurgWorkforce] = useState<WorkforceItem[]>([]);
+
+  // Active Convoys Map Overlay State
+  const [activeShipments, setActiveShipments] = useState<ShipmentOverlayItem[]>([]);
 
   // Ecology & Chaos Flows State
   const [ecologyData, setEcologyData] = useState<any>(null);
@@ -1006,9 +1149,18 @@ export function Dashboard() {
     specialties: any[];
     activeEmbargoes: any[];
     recentTradeEvents: any[];
+    shipments?: any[];
+    shipmentCounts?: Record<string, number>;
+    markets?: any[];
+    commodityPrices?: any[];
   } | null>(null);
   const [economyCategoryFilter, setEconomyCategoryFilter] = useState<string>("ALL");
   const [economySearch, setEconomySearch] = useState<string>("");
+
+  // Threads & Cosmic Metaphysics State
+  const [threadsData, setThreadsData] = useState<{ threads: any[]; counts: Record<string, number> } | null>(null);
+  const [threadStateFilter, setThreadStateFilter] = useState<string>("ALL");
+  const [metaphysicsData, setMetaphysicsData] = useState<any>(null);
 
   // ── Data loading ──────────────────────────────────────────────────────────
   // 1. /map (cell geometry, ~11 MB) loads ONCE per page.
@@ -1068,8 +1220,8 @@ export function Dashboard() {
         // Keep the selection, but point it at this tick's row so its numbers are current.
         setSelectedBurg(prev => {
           if (prev) return list.find(b => b.burg_id === prev.burg_id) ?? prev;
-          const first = list.find(b => b.burg_id === 25) || list[0] || null;
-          if (first) setFocusedCellId(f => f ?? first.cell_id);
+          const first = list.find(b => b.burg_id === 1) || list[0] || null;
+          if (first) setFocusedCellId(first.cell_id);
           return first;
         });
         setSelectedPrison(prev => (prev ? prisonList.find(p => p.id === prev.id) ?? prev : prev));
@@ -1081,6 +1233,9 @@ export function Dashboard() {
           if (prev) return list.find(f => f.id === prev.id) ?? prev;
           return list[0] || null;
         });
+      }),
+      load("Convoys", "/api/observer/shipments", (data) => {
+        setActiveShipments(data.shipments || []);
       }),
       // Only once the geometry is in: map_live is merged into it.
       cellsLoaded.current ? load("Map overlays", "/api/observer/map_live?z=0", applyMapLive) : Promise.resolve(),
@@ -1163,16 +1318,22 @@ export function Dashboard() {
     // Keyed on ids: each refresh swaps in a new row object for the same selection.
   }, [selectedBurg?.burg_id, selectedPrison?.id, isVergeSelected, tierFilter, state?.calendar?.tick]);
 
-  // Fetch sampled living citizens with active narrative tags when a burg is selected
+  // Fetch sampled living citizens, stockpile & workforce when a burg is selected
   useEffect(() => {
     if (!selectedBurg) {
       setBurgCitizens([]);
+      setBurgStockpile({});
+      setBurgProfile(null);
+      setBurgWorkforce([]);
       return;
     }
     fetch(`/api/observer/burg_citizens?burg_id=${selectedBurg.burg_id}&limit=8`)
       .then(r => r.json())
       .then(d => {
         setBurgCitizens(d.citizens || []);
+        setBurgStockpile(d.stockpile || {});
+        setBurgProfile(d.resourceProfile || null);
+        setBurgWorkforce(d.workforce || []);
       })
       .catch(() => {});
   }, [selectedBurg?.burg_id, state?.calendar?.tick]);
@@ -1194,7 +1355,7 @@ export function Dashboard() {
     loadFringeEvents();
   }, [selectedFringe?.id, state?.calendar?.tick]);
 
-  // Fetch Ecology and Chaos Flows telemetry
+  // Fetch Ecology, Chaos Flows, Economy, or Threads & Metaphysics telemetry
   useEffect(() => {
     const fail = (what: string) => (e: any) => setLoadError(`${what}: ${e.message}`);
     if (activeTab === "ECOLOGY_CHAOS") {
@@ -1208,6 +1369,10 @@ export function Dashboard() {
     }
     if (activeTab === "ECONOMY") {
       getJson("/api/observer/economy/specialties").then(d => setEconomyData(d)).catch(fail("Economy"));
+    }
+    if (activeTab === "THREADS") {
+      getJson("/api/observer/threads").then(d => setThreadsData(d)).catch(fail("Threads"));
+      getJson("/api/observer/metaphysics").then(d => setMetaphysicsData(d)).catch(fail("Metaphysics"));
     }
   }, [activeTab, state?.calendar?.tick]);
 
@@ -1327,6 +1492,12 @@ export function Dashboard() {
             style={{ padding: "6px 14px", border: "none", borderRadius: 6, background: activeTab === "ECONOMY" ? "#1e293b" : "transparent", color: activeTab === "ECONOMY" ? "#eab308" : "#94a3b8", cursor: "pointer", fontWeight: 600, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}
           >
             <span>⚖️</span> Economy & Trade
+          </button>
+          <button
+            onClick={() => setActiveTab("THREADS")}
+            style={{ padding: "6px 14px", border: "none", borderRadius: 6, background: activeTab === "THREADS" ? "#1e293b" : "transparent", color: activeTab === "THREADS" ? "#c084fc" : "#94a3b8", cursor: "pointer", fontWeight: 600, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}
+          >
+            <span>🧵</span> Threads & Seals
           </button>
           <button
             onClick={() => setActiveTab("RULES_LAB")}
@@ -1457,7 +1628,7 @@ export function Dashboard() {
                           <span style={{ fontSize: 10, color: "#64748b" }}>#{b.burg_id}</span>
                         </div>
                         <div style={{ display: "flex", gap: 10, fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
-                          <span>Pop: <strong style={{ color: "#cbd5e1" }}>{b.pop_null?.toLocaleString()}</strong></span>
+                          <span>Pop: <strong style={{ color: "#cbd5e1" }}>{burgPop(b).toLocaleString()}</strong></span>
                           <span>Food: <strong style={{ color: b.food < 1000 ? "#ef4444" : "#10b981" }}>{b.food?.toLocaleString()}</strong></span>
                           <span>Unrest: <strong style={{ color: hasUnrest ? "#ef4444" : "#cbd5e1" }}>{b.unrest}</strong></span>
                         </div>
@@ -1565,7 +1736,8 @@ export function Dashboard() {
                     <div style={{ display: "flex", gap: 18, fontSize: 12, marginTop: 8, alignItems: "center" }}>
                       <div>Cell ID: <strong>{selectedPrison.cell_id}</strong></div>
                       <div>Cosmic Seal: <strong style={{ color: selectedPrison.seal_strength < 90 ? "#ef4444" : "#22c55e" }}>{selectedPrison.seal_strength}%</strong></div>
-                      <div>Wardens Stationed: <strong>Active</strong></div>
+                      <div>Wardens Stationed: <strong style={{ color: (selectedPrison.warden_count ?? 0) > 0 ? "#38bdf8" : "#f87171" }}>{selectedPrison.warden_count ?? 0}</strong></div>
+                      <div>Cultists Sighted: <strong style={{ color: (selectedPrison.cultist_count ?? 0) > 0 ? "#f43f5e" : "#94a3b8" }}>{selectedPrison.cultist_count ?? 0}</strong></div>
                       <button
                         onClick={() => {
                           setFocusedCellId(selectedPrison.cell_id);
@@ -1636,7 +1808,7 @@ export function Dashboard() {
                           </button>
                         </div>
                         <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>
-                          Faction: <strong style={{ color: selectedBurg.faction_color || "#38bdf8" }}>{selectedBurg.faction_name || "Sovereign Scute"}</strong> • Tier: <strong>{selectedBurg.urban_tier || 1}</strong>
+                          Faction: <strong style={{ color: selectedBurg.faction_color || "#38bdf8" }}>{selectedBurg.faction_name || "Independent"}</strong> • Tier: <strong>{selectedBurg.urban_tier || 1}</strong>
                         </div>
                       </div>
 
@@ -1644,7 +1816,8 @@ export function Dashboard() {
                       <div style={{ display: "flex", gap: 14, fontSize: 11 }}>
                         <div style={{ background: "#0f172a", padding: "6px 10px", borderRadius: 6, border: "1px solid #1e293b" }}>
                           <div style={{ color: "#64748b" }}>Population</div>
-                          <div style={{ fontWeight: 700, fontSize: 13, color: "#f8fafc" }}>{selectedBurg.pop_null?.toLocaleString()}</div>
+                          <div style={{ fontWeight: 700, fontSize: 13, color: "#f8fafc" }}>{burgPop(selectedBurg).toLocaleString()}</div>
+                          <div style={{ fontSize: 9, color: "#64748b" }}>{(selectedBurg.pop_null || 0).toLocaleString()}N / {(selectedBurg.pop_attuned || 0).toLocaleString()}A</div>
                         </div>
                         <div style={{ background: "#0f172a", padding: "6px 10px", borderRadius: 6, border: "1px solid #1e293b" }}>
                           <div style={{ color: "#64748b" }}>Food Reserve</div>
@@ -1696,6 +1869,52 @@ export function Dashboard() {
                             {p.corruption_score > 0 && <span style={{ color: "#f59e0b", fontSize: 10 }}>[Corr: {p.corruption_score}]</span>}
                           </div>
                         ))}
+                      </div>
+                    )}
+
+                    {/* Industrial Stockpile & Living Citizen Workforce */}
+                    {(Object.keys(burgStockpile).length > 0 || burgWorkforce.length > 0) && (
+                      <div style={{ marginTop: 12, borderTop: "1px solid #1e293b", paddingTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                        <div style={{ background: "#090f1a", border: "1px solid #1e293b", borderRadius: 6, padding: "8px 10px" }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: "#fbbf24", marginBottom: 6, display: "flex", justifyContent: "space-between" }}>
+                            <span>📦 Industrial Stockpile</span>
+                            {Array.isArray(burgProfile?.crafted) && burgProfile.crafted.length > 0 && (
+                              <span style={{ fontSize: 10, color: "#38bdf8", fontWeight: 600 }}>
+                                Crafts: {burgProfile.crafted.map((c: any) => c.key).join(", ")}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                            {Object.entries(burgStockpile)
+                              .filter(([, q]) => Number(q) > 0)
+                              .sort(([, a], [, b]) => Number(b) - Number(a))
+                              .slice(0, 14)
+                              .map(([k, q]) => (
+                                <span key={k} style={{ fontSize: 10, background: "#0f172a", border: "1px solid #1e293b", padding: "2px 6px", borderRadius: 4, color: "#e2e8f0" }}>
+                                  {k.replace(/_/g, " ")}: <strong style={{ color: "#fbbf24" }}>{Number(q)}</strong>
+                                </span>
+                              ))}
+                            {Object.entries(burgStockpile).filter(([, q]) => Number(q) > 0).length === 0 && (
+                              <span style={{ fontSize: 10, color: "#64748b", fontStyle: "italic" }}>Empty warehouse.</span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div style={{ background: "#090f1a", border: "1px solid #1e293b", borderRadius: 6, padding: "8px 10px" }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: "#34d399", marginBottom: 6 }}>
+                            👷 Living Workforce ({burgWorkforce.reduce((s, w) => s + Number(w.active_records || 0) + Number(w.on_caravan_records || 0), 0)} units)
+                          </div>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                            {burgWorkforce.slice(0, 14).map((w) => (
+                              <span key={w.profession} style={{ fontSize: 10, background: "#0f172a", border: "1px solid #1e293b", padding: "2px 6px", borderRadius: 4, color: "#cbd5e1" }}>
+                                {w.profession}: <strong style={{ color: "#34d399" }}>{w.active_records}</strong>
+                                {w.on_caravan_records > 0 && (
+                                  <span style={{ color: "#fbbf24", marginLeft: 3 }}>(+{w.on_caravan_records} caravan)</span>
+                                )}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     )}
 
@@ -1903,11 +2122,22 @@ export function Dashboard() {
                         Active Established Lairs in Burgs ({fringeDetail.lairs.filter(l => l.faction_id === selectedFringe.id).length}):
                       </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        {fringeDetail.lairs.filter(l => l.faction_id === selectedFringe.id).map(l => (
-                          <div key={l.id} style={{ background: "#0f172a", border: "1px solid #1e293b", padding: "4px 8px", borderRadius: 4, fontSize: 11 }}>
-                            <span style={{ color: "#f43f5e", fontWeight: 700 }}>{l.lair_type}</span> in <strong>{l.burg_name || `Burg #${l.burg_id}`}</strong> (Manpower: {l.manpower})
-                          </div>
-                        ))}
+                        {fringeDetail.lairs.filter(l => l.faction_id === selectedFringe.id).map(l => {
+                          const lInv = typeof l.inventory === "string"
+                            ? (() => { try { return JSON.parse(l.inventory); } catch { return {}; } })()
+                            : (l.inventory || {});
+                          const lootEntries = Object.entries(lInv).filter(([, v]) => Number(v) > 0);
+                          return (
+                            <div key={l.id} style={{ background: "#0f172a", border: "1px solid #1e293b", padding: "4px 8px", borderRadius: 4, fontSize: 11 }}>
+                              <span style={{ color: "#f43f5e", fontWeight: 700 }}>{l.lair_type}</span> in <strong>{l.burg_name || `Burg #${l.burg_id}`}</strong> (Manpower: {l.manpower})
+                              {lootEntries.length > 0 && (
+                                <span style={{ color: "#fbbf24", marginLeft: 6, fontSize: 10 }}>
+                                  • Loot: {lootEntries.map(([gk, q]) => `${q} ${gk.replace(/_/g, " ")}`).join(", ")}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
                         {fringeDetail.lairs.filter(l => l.faction_id === selectedFringe.id).length === 0 && (
                           <span style={{ fontSize: 11, color: "#64748b", fontStyle: "italic" }}>No established lairs yet. Siphoning unrest to establish initial dens.</span>
                         )}
@@ -2335,7 +2565,7 @@ export function Dashboard() {
                 const isSelected = f.id === selectedFactionId;
                 const factionBurgs = burgs.filter(b => (b.occupier_faction_id ?? b.faction_id) === f.id);
                 const sortedFactionBurgs = [...factionBurgs].sort(
-                  (a, b) => (b.urban_tier || 1) - (a.urban_tier || 1) || (b.pop_null || 0) - (a.pop_null || 0)
+                  (a, b) => (b.urban_tier || 1) - (a.urban_tier || 1) || burgPop(b) - burgPop(a)
                 );
                 return (
                   <div
@@ -2411,6 +2641,7 @@ export function Dashboard() {
                 economy={economyMap}
                 burgs={burgs}
                 prisons={prisons}
+                shipments={activeShipments}
                 verge={verge}
                 selectedFactionId={selectedFactionId}
                 onCellClick={(id: number) => {
@@ -2562,8 +2793,128 @@ export function Dashboard() {
               })}
             </div>
 
-            {/* Main Content Area: Split Logistics & Specialties Grid */}
+            {/* Main Content Area: Live Convoys, Markets, Embargoes & Specialties Grid */}
             <div style={{ flex: 1, overflowY: "auto", padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
+              {/* Logistics Summary Strip */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+                {[
+                  { label: "Convoys In Transit", val: economyData?.shipmentCounts?.IN_TRANSIT ?? 0, color: "#fbbf24" },
+                  { label: "Delivered Shipments", val: economyData?.shipmentCounts?.DELIVERED ?? 0, color: "#10b981" },
+                  { label: "Syndicate Intercepts", val: economyData?.shipmentCounts?.INTERCEPTED ?? 0, color: "#f43f5e" },
+                  { label: "Embargo Aborts", val: economyData?.shipmentCounts?.ABORTED ?? 0, color: "#f97316" },
+                ].map(kpi => (
+                  <div key={kpi.label} style={{ background: "#0b111a", border: "1px solid #1e293b", borderRadius: 8, padding: "10px 14px" }}>
+                    <div style={{ fontSize: 10, color: "#64748b", fontWeight: 700, textTransform: "uppercase" }}>{kpi.label}</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: kpi.color, marginTop: 2 }}>{kpi.val}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Active Physical Convoys Table */}
+              <div style={{ background: "#0b111a", border: "1px solid #1e293b", borderRadius: 8, padding: 14 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#fbbf24", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>🚚 Active & Recent Physical Convoys (sim_trade_shipments)</span>
+                  <span style={{ fontSize: 10, color: "#64748b", fontWeight: 500 }}>Citizen-crewed over sim_route_graph &amp; air lanes</span>
+                </div>
+                {(!economyData?.shipments || economyData.shipments.length === 0) ? (
+                  <div style={{ fontSize: 11, color: "#64748b", fontStyle: "italic" }}>
+                    No physical convoys recorded yet. Advance +1 Tick to dispatch citizen-crewed trade shipments.
+                  </div>
+                ) : (
+                  <div style={{ maxHeight: 200, overflowY: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                      <thead>
+                        <tr style={{ textAlign: "left", color: "#64748b", borderBottom: "1px solid #1e293b", fontSize: 10 }}>
+                          <th style={{ padding: "4px 6px" }}>Status</th>
+                          <th style={{ padding: "4px 6px" }}>Mode</th>
+                          <th style={{ padding: "4px 6px" }}>Route</th>
+                          <th style={{ padding: "4px 6px" }}>Cargo</th>
+                          <th style={{ padding: "4px 6px" }}>Factor</th>
+                          <th style={{ padding: "4px 6px" }}>Gold / Tariff</th>
+                          <th style={{ padding: "4px 6px" }}>Progress</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {economyData.shipments.slice(0, 30).map((s: any) => {
+                          const stColor = s.status === "IN_TRANSIT" ? "#fbbf24" : s.status === "DELIVERED" ? "#10b981" : "#f43f5e";
+                          return (
+                            <tr key={s.id} style={{ borderBottom: "1px solid #0f172a" }}>
+                              <td style={{ padding: "5px 6px", fontWeight: 700, color: stColor }}>{s.status}</td>
+                              <td style={{ padding: "5px 6px", color: s.transport_mode === "AIR" ? "#c084fc" : s.transport_mode === "SEA" ? "#22d3ee" : "#e2e8f0" }}>{s.transport_mode}</td>
+                              <td style={{ padding: "5px 6px", color: "#cbd5e1" }}>{s.source_burg_name || `#${s.source_burg_id}`} → {s.dest_burg_name || `#${s.dest_burg_id}`}</td>
+                              <td style={{ padding: "5px 6px", fontWeight: 600, color: "#f8fafc" }}>{s.quantity} × {s.good_name}</td>
+                              <td style={{ padding: "5px 6px", color: "#94a3b8" }}>{s.merchant_name || `#${s.merchant_citizen_id}`}</td>
+                              <td style={{ padding: "5px 6px", color: "#facc15" }}>{s.total_gold}g <span style={{ color: "#64748b" }}>({s.tariff_gold}g tax)</span></td>
+                              <td style={{ padding: "5px 6px", color: "#94a3b8" }}>
+                                {s.status === "IN_TRANSIT" ? `${(Number(s.path_index) || 0) + 1}/${s.path_length || 1} (ETA ${s.eta_ticks}d)` : `Tick ${s.resolved_tick ?? s.dispatched_tick}`}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* 31 Regional Markets & Continental Commodity Prices */}
+              <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 16 }}>
+                <div style={{ background: "#0b111a", border: "1px solid #1e293b", borderRadius: 8, padding: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#10b981", marginBottom: 8 }}>
+                    🏪 31 Regional Trade Markets (sim_markets)
+                  </div>
+                  <div style={{ maxHeight: 200, overflowY: "auto", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 8 }}>
+                    {(economyData?.markets || []).map((m: any) => (
+                      <div key={m.id} style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 6, padding: 8, fontSize: 10 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, color: "#f8fafc" }}>
+                          <span>{m.center_burg_name}</span>
+                          <span style={{ color: "#64748b" }}>Stock: {Number(m.totalStock || 0).toLocaleString()}</span>
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+                          {(m.topGoods || []).map((g: any) => (
+                            <span key={g.goodId} style={{ background: "#090d16", border: "1px solid #1e293b", padding: "1px 5px", borderRadius: 3, color: "#cbd5e1" }}>
+                              {g.name}: <strong style={{ color: g.price > g.baseValue ? "#fbbf24" : "#34d399" }}>{g.price}g</strong>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ background: "#0b111a", border: "1px solid #1e293b", borderRadius: 8, padding: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#38bdf8", marginBottom: 8 }}>
+                    📈 Continental Commodity Index (sim_commodity_prices)
+                  </div>
+                  <div style={{ maxHeight: 200, overflowY: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+                      <thead>
+                        <tr style={{ textAlign: "left", color: "#64748b", borderBottom: "1px solid #1e293b" }}>
+                          <th style={{ padding: "3px 4px" }}>Commodity</th>
+                          <th style={{ padding: "3px 4px" }}>Price</th>
+                          <th style={{ padding: "3px 4px" }}>Base</th>
+                          <th style={{ padding: "3px 4px" }}>Supply</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(economyData?.commodityPrices || []).map((cp: any) => {
+                          const cur = Number(cp.current_price || 0);
+                          const base = Number(cp.base_price || 1);
+                          return (
+                            <tr key={cp.commodity} style={{ borderBottom: "1px solid #0f172a" }}>
+                              <td style={{ padding: "4px", fontWeight: 600, color: "#e2e8f0" }}>{String(cp.commodity).replace(/_/g, " ")}</td>
+                              <td style={{ padding: "4px", fontWeight: 700, color: cur > base * 1.1 ? "#f87171" : cur < base * 0.9 ? "#34d399" : "#facc15" }}>{cur.toFixed(2)}g</td>
+                              <td style={{ padding: "4px", color: "#64748b" }}>{base.toFixed(2)}g</td>
+                              <td style={{ padding: "4px", color: "#94a3b8" }}>{Number(cp.global_supply || 0).toLocaleString()}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
               {/* Wartime Embargoes & Caravan Feed Row */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                 {/* Active Embargoes */}
@@ -2592,7 +2943,7 @@ export function Dashboard() {
                 {/* Recent Trade Caravan Events */}
                 <div style={{ background: "#0b111a", border: "1px solid #1e293b", borderRadius: 8, padding: 14 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: "#38bdf8", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                    <span>🐪</span> Live Inter-Faction Caravan Logistics
+                    <span>🐪</span> Live Inter-Faction Caravan Events
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 120, overflowY: "auto" }}>
                     {(!economyData?.recentTradeEvents || economyData.recentTradeEvents.length === 0) ? (
@@ -2600,10 +2951,10 @@ export function Dashboard() {
                         Awaiting next trade caravan dispatched along roads...
                       </div>
                     ) : (
-                      economyData.recentTradeEvents.slice(0, 5).map((ev: any) => (
+                      economyData.recentTradeEvents.slice(0, 8).map((ev: any) => (
                         <div key={ev.id} style={{ background: "#08101a", border: "1px solid #1e293b", borderRadius: 4, padding: "4px 8px", fontSize: 10 }}>
                           <span style={{ color: "#38bdf8", fontWeight: 700 }}>Tick {ev.tick}:</span>{" "}
-                          <span style={{ color: ev.type === "TRADE_EMBARGO_CHOKEPOINT" ? "#f43f5e" : "#e2e8f0" }}>{ev.message}</span>
+                          <span style={{ color: ev.type === "TRADE_EMBARGO_CHOKEPOINT" || ev.type === "CARAVAN_RAIDED" ? "#f43f5e" : ev.type === "INTER_FACTION_TRADE" ? "#34d399" : "#e2e8f0" }}>{ev.message}</span>
                         </div>
                       ))
                     )}
@@ -2707,6 +3058,178 @@ export function Dashboard() {
                     );
                   })}
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ------------------------------------------------------------- */}
+        {/* TAB 6: WORLD TROUBLE THREADS & COSMIC METAPHYSICS             */}
+        {/* ------------------------------------------------------------- */}
+        {activeTab === "THREADS" && (
+          <div style={{ flex: 1, display: "flex", overflow: "hidden", background: "#070b10" }}>
+            {/* Left/Main: sim_threads browser */}
+            <div style={{ flex: 1.4, display: "flex", flexDirection: "column", borderRight: "1px solid #1e293b", overflow: "hidden" }}>
+              <div style={{ padding: "12px 18px", background: "#0b111a", borderBottom: "1px solid #1e293b", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#c084fc" }}>
+                    🧵 Emergent World Trouble Threads (sim_threads)
+                  </h3>
+                  <div style={{ fontSize: 11, color: "#64748b" }}>
+                    Open threads grow out of world ticks; jump directly to any location to play or resolve in Tactical Sandbox.
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {["ALL", "open", "escalated", "resolved", "expired"].map(st => (
+                    <button
+                      key={st}
+                      onClick={() => setThreadStateFilter(st)}
+                      style={{
+                        padding: "4px 9px",
+                        borderRadius: 4,
+                        border: "none",
+                        fontSize: 10,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        background: threadStateFilter === st ? "#7c3aed" : "#1e293b",
+                        color: threadStateFilter === st ? "#fff" : "#94a3b8"
+                      }}
+                    >
+                      {st.toUpperCase()} {st !== "ALL" ? `(${threadsData?.counts?.[st] ?? 0})` : ""}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+                {(() => {
+                  const list = (threadsData?.threads || []).filter((t: any) => threadStateFilter === "ALL" || t.state === threadStateFilter);
+                  if (list.length === 0) {
+                    return (
+                      <div style={{ textAlign: "center", padding: 40, color: "#64748b", fontSize: 12 }}>
+                        No threads matching "{threadStateFilter}". Advance world ticks to let emergent crises spark threads.
+                      </div>
+                    );
+                  }
+                  return list.map((t: any) => {
+                    const isEsc = t.state === "escalated";
+                    const isRes = t.state === "resolved";
+                    const stColor = isEsc ? "#ef4444" : isRes ? "#10b981" : t.state === "expired" ? "#f97316" : "#a855f7";
+                    const clockPct = Math.min(100, Math.round(((Number(t.clock) || 0) / Math.max(1, Number(t.clock_max) || 6)) * 100));
+                    return (
+                      <div key={t.id} style={{ background: "#0b111a", border: `1px solid ${stColor}55`, borderLeft: `4px solid ${stColor}`, borderRadius: 8, padding: 12 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                          <div style={{ fontWeight: 700, fontSize: 13, color: "#f8fafc" }}>{t.question}</div>
+                          <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 7px", borderRadius: 4, background: `${stColor}33`, color: stColor, textTransform: "uppercase", flexShrink: 0 }}>
+                            {t.state}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 11, color: "#cbd5e1", marginTop: 4 }}>{t.stakes}</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginTop: 8, fontSize: 10, color: "#94a3b8" }}>
+                          <span>Location: <strong style={{ color: "#38bdf8" }}>{t.burg_name || `Cell #${t.cell_id}`}</strong> ({t.rx},{t.ry})</span>
+                          <span>Rule: <strong>{t.rule_id || t.origin}</strong></span>
+                          <span>Tick {t.created_tick}</span>
+                          <span>Clock: <strong style={{ color: "#facc15" }}>{t.clock}/{t.clock_max}</strong></span>
+                          <div style={{ width: 70, height: 5, background: "#1e293b", borderRadius: 3, overflow: "hidden" }}>
+                            <div style={{ width: `${clockPct}%`, height: "100%", background: stColor }} />
+                          </div>
+                        </div>
+                        {(t.actors || []).length > 0 && (
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                            {t.actors.map((a: any) => (
+                              <span key={a.id} style={{ fontSize: 10, background: "#0f172a", border: "1px solid #1e293b", padding: "2px 6px", borderRadius: 4, color: "#cbd5e1" }}>
+                                👤 {a.label}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <div style={{ marginTop: 8, display: "flex", justifyContent: "flex-end" }}>
+                          <button
+                            onClick={() => setTacticalModalTarget({ cellId: Number(t.cell_id), rx: Number(t.rx || 50), ry: Number(t.ry || 50) })}
+                            style={{ background: "linear-gradient(135deg, #0284c7, #7c3aed)", color: "#fff", border: "none", borderRadius: 4, padding: "4px 10px", fontSize: 10, fontWeight: 700, cursor: "pointer" }}
+                          >
+                            ⚔️ Open in Tactical Sandbox
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+
+            {/* Right: Cosmic Metaphysics & Wardens/Cultists (/api/observer/metaphysics) */}
+            <div style={{ width: 420, display: "flex", flexDirection: "column", background: "#0b111a", overflowY: "auto", padding: 16, gap: 14 }}>
+              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#38bdf8" }}>
+                🔮 Cosmic Metaphysics &amp; Seals (/metaphysics)
+              </h3>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 6, padding: 10 }}>
+                  <div style={{ fontSize: 10, color: "#64748b", fontWeight: 700 }}>ANCIENT WARDS</div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: "#38bdf8", marginTop: 2 }}>
+                    {metaphysicsData?.ancient_wards?.charged_wards ?? 0} / {metaphysicsData?.ancient_wards?.total_wards ?? 0}
+                  </div>
+                  <div style={{ fontSize: 9, color: "#94a3b8" }}>Recharging: {metaphysicsData?.ancient_wards?.recharging_wards ?? 0}</div>
+                </div>
+                <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 6, padding: 10 }}>
+                  <div style={{ fontSize: 10, color: "#64748b", fontWeight: 700 }}>MAD HERMITS</div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: "#ec4899", marginTop: 2 }}>
+                    {metaphysicsData?.mad_hermits ?? 0}
+                  </div>
+                  <div style={{ fontSize: 9, color: "#94a3b8" }}>Spark-driven wanderers</div>
+                </div>
+              </div>
+
+              <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 6, padding: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#c084fc", marginBottom: 6 }}>🐉 12 Dragon Prison Seals</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                  {(metaphysicsData?.dragon_groves || []).map((g: any) => {
+                    const sPct = Number(g.seal_strength ?? 100);
+                    const sCol = sPct > 75 ? "#10b981" : sPct > 40 ? "#f59e0b" : "#ef4444";
+                    return (
+                      <div key={g.id} style={{ fontSize: 10 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between" }}>
+                          <span style={{ color: "#e2e8f0" }}>{g.dragon_name} <span style={{ color: "#64748b" }}>({g.power_domain})</span></span>
+                          <strong style={{ color: sCol }}>{sPct}%</strong>
+                        </div>
+                        <div style={{ height: 4, background: "#1e293b", borderRadius: 2, marginTop: 2 }}>
+                          <div style={{ width: `${Math.max(0, Math.min(100, sPct))}%`, height: "100%", background: sCol, borderRadius: 2 }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 6, padding: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#34d399", marginBottom: 6 }}>🛡️ Grey Wardens &amp; Cult Activity</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 10 }}>
+                  {(metaphysicsData?.wardens || []).map((w: any, i: number) => (
+                    <div key={`w-${i}`} style={{ display: "flex", justifyContent: "space-between", color: "#cbd5e1" }}>
+                      <span>Warden ({w.sub_role || "Patrol"} • {w.state})</span>
+                      <strong>{w.count} (corr {w.avg_corruption ?? 0})</strong>
+                    </div>
+                  ))}
+                  {(metaphysicsData?.cultists || []).map((c: any, i: number) => (
+                    <div key={`c-${i}`} style={{ display: "flex", justifyContent: "space-between", color: "#fca5a5" }}>
+                      <span>Cultist ({c.sub_role || "Initiate"} • {c.state})</span>
+                      <strong>{c.count} (corr {c.avg_corruption ?? 0})</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {(metaphysicsData?.recent_events || []).length > 0 && (
+                <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 6, padding: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#fbbf24", marginBottom: 6 }}>📜 Recent Metaphysics Events</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {metaphysicsData.recent_events.slice(0, 6).map((ev: any, idx: number) => (
+                      <div key={idx} style={{ fontSize: 10, color: "#cbd5e1", borderBottom: "1px solid #1e293b", paddingBottom: 4 }}>
+                        <strong style={{ color: "#a855f7" }}>T{ev.tick} [{ev.type}]:</strong> {ev.message}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
