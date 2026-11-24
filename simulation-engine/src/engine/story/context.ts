@@ -3,6 +3,7 @@ import { mapNpcIdToEntityRef } from "../entities/refs.js";
 import { ensureEntity, getEntityByRef } from "../entities/registry.js";
 import { factTags } from "../facts/facts.js";
 import { deriveCitizenMotives, deriveParagonMotives } from "../rpg/paragonMotives.js";
+import { listRecentActionsForParty, listStandingForParty } from "./actions.js";
 
 export const STORY_CONTEXT_WEIGHTS = {
   wDist: 3.0,
@@ -813,10 +814,35 @@ async function loadPartySection(
     gmMemories = memRes.rows.map((r: any) => cleanLine(r.summary, 140)).filter(Boolean);
   }
 
+  let recentActions: StoryContext["party"]["recentActions"] = [];
+  let standing: StoryContext["party"]["standing"] = [];
+  const partyRefs = characters.map((c) => c.ref);
+  if (partyRefs.length > 0) {
+    const tblRes = await db.query(
+      `SELECT to_regclass('actions') IS NOT NULL AS has_actions, to_regclass('standing') IS NOT NULL AS has_standing`
+    );
+    if (tblRes.rows[0]?.has_actions) {
+      const acts = await listRecentActionsForParty(db, partyRefs, 8);
+      recentActions = acts.map((a) => ({
+        verb: a.verb,
+        targetRef: a.target_ref ?? undefined,
+        result: a.result,
+        tick: a.tick,
+      }));
+    }
+    if (tblRes.rows[0]?.has_standing) {
+      const sts = await listStandingForParty(db, partyRefs, 12);
+      standing = sts.map((s) => ({
+        subjectRef: s.subject_ref,
+        value: s.value,
+      }));
+    }
+  }
+
   return {
     characters,
-    recentActions: [],
-    standing: [],
+    recentActions,
+    standing,
     gmMemories,
   };
 }
@@ -841,6 +867,7 @@ export function renderStoryContext(ctx: StoryContext): string {
     lines.push(
       `- Entity [${e.ref}] ${e.name} (${e.role})` +
         (e.tags.length > 0 ? ` tags=${e.tags.join(",")}` : "") +
+        (e.relationshipsToParty.length > 0 ? ` rel=${e.relationshipsToParty.join(",")}` : "") +
         (motive ? ` | ${motive}` : "")
     );
   }
@@ -854,13 +881,27 @@ export function renderStoryContext(ctx: StoryContext): string {
     lines.push(`- Overlay #${ov.id} ${ov.change} on ${ov.objectRef || "tile"} (tick ${ov.tick}, ${ov.source})`);
   }
 
-  if (ctx.party.characters.length > 0 || ctx.party.gmMemories.length > 0) {
+  if (
+    ctx.party.characters.length > 0 ||
+    ctx.party.recentActions.length > 0 ||
+    ctx.party.standing.length > 0 ||
+    ctx.party.gmMemories.length > 0
+  ) {
     lines.push("[PARTY]");
     for (const c of ctx.party.characters) {
       lines.push(
         `- PC [${c.ref}] ${c.name} (${c.species}, ${c.institution})` +
           (c.inventory.length > 0 ? ` | Gear: ${c.inventory.join(", ")}` : "")
       );
+    }
+    for (const act of ctx.party.recentActions) {
+      lines.push(
+        `- Action (tick ${act.tick}): ${act.verb}${act.targetRef ? ` -> ${act.targetRef}` : ""} (${act.result})`
+      );
+    }
+    for (const st of ctx.party.standing) {
+      const sign = st.value >= 0 ? `+${st.value}` : String(st.value);
+      lines.push(`- Standing [${st.subjectRef}]: ${sign}`);
     }
     for (const mem of ctx.party.gmMemories) {
       lines.push(`- Memory: ${mem}`);
@@ -947,6 +988,8 @@ function applyTokenBudget(ctx: StoryContext, budget: number): void {
     { section: "region.borders", tryDrop: () => Boolean(ctx.region.borders.length > 2 && ctx.region.borders.pop()) },
     { section: "region.convoys", tryDrop: () => Boolean(ctx.region.convoys.length > 2 && ctx.region.convoys.pop()) },
     { section: "region.burgs", tryDrop: () => Boolean(ctx.region.burgs.length > 3 && ctx.region.burgs.pop()) },
+    { section: "party.recentActions", tryDrop: () => Boolean(ctx.party.recentActions.length > 3 && ctx.party.recentActions.pop()) },
+    { section: "party.standing", tryDrop: () => Boolean(ctx.party.standing.length > 4 && ctx.party.standing.pop()) },
     { section: "party.gmMemories", tryDrop: () => Boolean(ctx.party.gmMemories.length > 3 && ctx.party.gmMemories.pop()) },
   ];
 
@@ -974,6 +1017,8 @@ function applyTokenBudget(ctx: StoryContext, budget: number): void {
     { section: "region.openStorylines", tryDrop: () => Boolean(ctx.region.openStorylines.pop()) },
     { section: "region.burgs", tryDrop: () => Boolean(ctx.region.burgs.pop()) },
     { section: "party.gmMemories", tryDrop: () => Boolean(ctx.party.gmMemories.pop()) },
+    { section: "party.recentActions", tryDrop: () => Boolean(ctx.party.recentActions.pop()) },
+    { section: "party.standing", tryDrop: () => Boolean(ctx.party.standing.pop()) },
     { section: "party.characters", tryDrop: () => Boolean(ctx.party.characters.pop()) },
     { section: "focus.overlays", tryDrop: () => Boolean(ctx.focus.overlays.pop()) },
     { section: "focus.objects", tryDrop: () => Boolean(ctx.focus.objects.pop()) },
@@ -1030,6 +1075,18 @@ export async function buildStoryContext(
   const currentTick = world.tick;
   const focusSec = await loadFocusSection(db, cellId, rx, ry, z, currentTick);
   const partySec = await loadPartySection(db, party, currentTick);
+
+  const standingMap = new Map<string, number>();
+  for (const st of partySec.standing) {
+    standingMap.set(st.subjectRef, st.value);
+  }
+  for (const ent of focusSec.entities) {
+    const val = standingMap.get(ent.ref);
+    if (val !== undefined) {
+      const sign = val >= 0 ? `+${val}` : String(val);
+      ent.relationshipsToParty.push(`standing:${sign}`);
+    }
+  }
 
   const importantActors = new Set<string>([
     ...focusSec.entities.map((e) => e.ref),

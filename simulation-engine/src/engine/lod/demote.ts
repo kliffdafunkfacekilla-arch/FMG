@@ -57,6 +57,15 @@ export async function isPromotedCitizenProtected(
   );
   if (shipRes.rows.length > 0) return true;
 
+  const actTableRes = await db.query(`SELECT to_regclass('actions') IS NOT NULL AS ready`);
+  if (actTableRes.rows[0]?.ready) {
+    const actRes = await db.query(
+      `SELECT 1 FROM actions WHERE target_ref = $1 OR $1 = ANY(witnesses) LIMIT 1`,
+      [entityRef]
+    );
+    if (actRes.rows.length > 0) return true;
+  }
+
   if (name) {
     const evRes = await db.query(
       `SELECT 1 FROM sim_events WHERE message ILIKE '%' || $1 || '%' LIMIT 1`,

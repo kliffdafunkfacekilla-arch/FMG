@@ -59,6 +59,8 @@ import { recruitCultistPersona, recruitWardenPersona, recruitMandatePersona } fr
 import { getOpenThreads } from "../threads/threadEngine.js";
 import { writeBackNpcDeath, writeBackPropChange } from "../micro/writeBack.js";
 import { buildStoryContext, renderStoryContext } from "../story/context.js";
+import { recordAction, normalizeActionVerb } from "../story/actions.js";
+import { mapNpcIdToEntityRef } from "../entities/refs.js";
 
 export interface ActionInput {
   actionText: string;
@@ -2568,6 +2570,56 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
       burgId: stampRes.rows[0]?.burg_id ?? null,
       factionId: stampRes.rows[0]?.faction_id ?? null,
     };
+
+    // Record structured party action into the action ledger with nearby witnesses (Phase 11.1)
+    try {
+      const targetRef = targetNPC
+        ? (targetNPC.entity_ref || mapNpcIdToEntityRef(String(targetNPC.id), { cellId, rx, ry }))
+        : targetProp
+          ? String(targetProp.id)
+          : null;
+      const originPos: [number, number] = targetNPC?.pos || targetProp?.pos || input.playerPos;
+      const witnesses: string[] = [];
+      for (const npc of this.activeNPCs.values()) {
+        if (!npc.alive || (npc.hp !== undefined && npc.hp <= 0)) continue;
+        if (targetNPC && String(npc.id) === String(targetNPC.id)) continue;
+        const dx = (npc.pos?.[0] ?? 128) - originPos[0];
+        const dy = (npc.pos?.[1] ?? 128) - originPos[1];
+        if (Math.hypot(dx, dy) <= 40) {
+          witnesses.push(npc.entity_ref || mapNpcIdToEntityRef(String(npc.id), { cellId, rx, ry }));
+        }
+      }
+      const clockRes = await this.pool.query(`SELECT minute_of_day FROM world_clock WHERE id = 1 LIMIT 1`).catch(() => ({ rows: [] as any[] }));
+      const minute = Number(clockRes.rows[0]?.minute_of_day || 0);
+      const stRes = await this.pool.query(
+        `SELECT id, actor_ids FROM storylines
+         WHERE scale IN ('scene', 'thread', 'arc')
+           AND state IN ('open', 'escalated')
+           AND ($1 = cell_id OR $1 = ANY(scope_cells))
+         ORDER BY id ASC
+         LIMIT 5`,
+        [cellId]
+      ).catch(() => ({ rows: [] as any[] }));
+      const matchedStoryline =
+        (targetRef && stRes.rows.find((r: any) => Array.isArray(r.actor_ids) && r.actor_ids.includes(targetRef))) ||
+        stRes.rows[0] ||
+        null;
+      const outcomeLabel = hit ? `success:margin=${difference}` : `fail:margin=${difference}`;
+      await recordAction(this.pool, {
+        tick: stamp.tick,
+        minute,
+        actorRef: `player:${playerId}`,
+        verb: normalizeActionVerb(intent.verb, intent.category),
+        targetRef,
+        location: { cellId, rx: ctxRx, ry: ctxRy, z: ctxZ, x: input.playerPos[0], y: input.playerPos[1] },
+        method: intent.statUsed || intent.category,
+        result: outcomeLabel,
+        storylineId: matchedStoryline ? Number(matchedStoryline.id) : null,
+        witnesses,
+      });
+    } catch {
+      // Action ledger is best-effort in minimal mock-DB unit tests
+    }
 
     // A. Outlaw / Raider Defeated -> Decrease Crime Rate & Unrest in Province + Sovereign Rep
     if (targetNPC && !targetNPC.alive && (targetNPC.tags.includes("outlaw") || targetNPC.tags.includes("bandit") || targetNPC.tags.includes("cannibal") || targetNPC.role.toLowerCase().includes("outlaw") || targetNPC.role.toLowerCase().includes("marauder"))) {
