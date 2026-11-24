@@ -230,7 +230,7 @@ async function runCanonMandateTests() {
   }
 
   // -------------------------------------------------------------
-  // TEST 6: B.R.U.T.A.L. MATH WORKED EXAMPLES (Rules Digest v4.8)
+  // TEST 6: B.R.U.T.A.L. MATH WORKED EXAMPLES (Rulebook Draft v5.0, §5.0)
   // "A d12 roll against a Guard matches the rulebook's worked examples."
   // Calls BrutalGM's real resolution function.
   // -------------------------------------------------------------

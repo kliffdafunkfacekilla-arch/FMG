@@ -2,7 +2,7 @@
 
 **This file replaces every `RULES_PORT_v4.x` / `v5.0` note.** Those were a chain of patches written while the rules changed under them. Nobody built them, and later ones deleted what earlier ones asked for. **Ignore them. Build only this.**
 
-**Where the code is now:** the engine is at **v4.9**. See the headers of `simulation-engine/src/engine/combatResolutionEngine.ts` and `injuryEngine.ts`.
+**Where the code is now:** the engine is at **Draft v5.0 (complete)** (`simulation-engine/src/engine/combatResolutionEngine.ts`, `injuryEngine.ts`, `rpg/BrutalGM.ts`, `rpg/foeStack.ts`, `socialCombat.ts`, `customRulesEngine.ts`).
 **Where it should be:** Draft **v5.0**. The source of truth is `C:\Users\krazy\Desktop\Shatterlands\Rules\BRUTAL_Rulebook_v3.md`, and **§5.0 "The fight on one page"** is the whole combat loop. If this file and the rulebook disagree, the rulebook wins.
 
 Follow `AGENT_RULES.md`. **Change the existing files. Don't build parallel ones.** One commit per numbered step. Each step comes with its tests in `scripts/testTTRPGRules.ts`.
@@ -88,7 +88,7 @@ Follow `AGENT_RULES.md`. **Change the existing files. Don't build parallel ones.
 - **Techniques are paid by what they do:** strikes, shots, physical defenses and moves cost Stamina; social attacks and Mind defenses cost Focus.
 
 ## Done when
-- `npm test` (or `node run-tests.cjs`) passes with all the tests above.
-- The headers of the changed files say **v5.0**.
-- `AGENT_RULES.md` and `GEMINI.md` point at Draft v5.0.
-- A worked example of one full round, run through the engine, matches rulebook §5.0.
+- [x] `npm test` (or `node run-tests.cjs`) passes with all Steps 1–12 tests in `simulation-engine/src/scripts/testTTRPGRules.ts`.
+- [x] The headers of the changed files say **v5.0**.
+- [x] `AGENT_RULES.md` and `GEMINI.md` point at Draft v5.0.
+- [x] A worked example of one full round (§5.0 + §13.2 Stoat Cutthroat), run through `BrutalGameMaster` and `combatResolutionEngine`, matches rulebook §5.0 (`testTTRPGRules.ts` and `testCanonMandates.ts`).

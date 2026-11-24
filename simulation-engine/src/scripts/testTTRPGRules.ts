@@ -52,6 +52,8 @@ import {
   SocialCombatant
 } from '../engine/socialCombat.js';
 import { buildOstrakaCustomCharacter } from '../engine/rpg/CharacterGenerator.js';
+import { BrutalGameMaster } from '../engine/rpg/BrutalGM.js';
+import pool from '../db/pool.js';
 
 let checksPassed = 0;
 
@@ -722,6 +724,106 @@ console.log('\n--- Running Full Round Worked Example (§5.0 On One Page) ---');
   assertEq(kestrelState.composure, 5, 'Worked Example: Kestrel takes shakes after Shock injury (7 -> 5)');
 }
 console.log('✓ Full-round §5.0 Worked Example verified end-to-end');
+
+// RULEBOOK §5.0 + §13.2 STOAT CUTTHROAT WORKED ROUND VIA BrutalGameMaster
+console.log('\n--- Running Rulebook §5.0 + §13.2 Stoat Cutthroat Round via BrutalGM ---');
+{
+  const gm = new BrutalGameMaster(pool, '');
+
+  // §13.2 Stoat Cutthroat canonical stats & gear
+  const stoatBody = { finesse: 6, reflex: 6, fortitude: 4, might: 4, vitality: 4 };
+  const stoatNerve = { intuition: 5, willpower: 4, logic: 4 };
+  const stoatSpeed = stoatBody.reflex + Math.min(stoatBody.finesse, stoatBody.vitality) + stoatNerve.logic;
+  assertEq(stoatSpeed, 14, '§13.2 Stoat Cutthroat Speed = Reflex 6 + lowest Body 4 + lowest Nerve 4 = 14');
+  const stoatGuard = stoatBody.fortitude + 2; // Forge Leathers +2
+  const stoatMindGuard = stoatNerve.willpower + 1; // Light Anchor +1
+  assertEq(stoatGuard, 6, '§13.2 Stoat Forge Leathers Guard = Fortitude 4 + 2 = 6');
+  assertEq(stoatMindGuard, 5, '§13.2 Stoat Mind Guard = Willpower 4 + Light Anchor 1 = 5');
+
+  const stoatCards = [
+    { name: 'Finesse (hands)', kind: 'core' as const, copies: 2 },
+    { name: 'Reflex (legs)', kind: 'core' as const, copies: 2 },
+    { name: 'Intuition (Ambusher)', kind: 'trait' as const, copies: 2, visible: false },
+    { name: 'Quick Blades', kind: 'ability' as const, copies: 1 },
+  ];
+  let stoat1 = createFoeStack({ id: 'stoat_1', name: 'Stoat Cutthroat #1', stake: 'rank-and-file', cards: stoatCards });
+  let stoat2 = createFoeStack({ id: 'stoat_2', name: 'Stoat Cutthroat #2', stake: 'rank-and-file', cards: stoatCards });
+  assertEq(getTotalFoeCards(stoat1), 7, '§13.2 Stoat stack size = 7 cards');
+  assertEq(stoat1.resolve, 4, 'Rank-and-file Stoat Resolve = 4');
+
+  // Round order: lowest Perception declares first, highest Speed (Stoat 14 > Harrow 10) executes first
+  const harrowInRound = { name: 'Harrow Grist', health: 13, maxHealth: 13, composure: 10, maxComposure: 10, stamina: 14, focus: 11, activeWounds: [] } as EntityInjuryState;
+
+  // 1. Stoat #1 strikes with Dueling Blade (d12 + 6 + 2) vs Harrow's 1/round Active Defense (d12 + 5 + 2)
+  const attack1 = gm.resolveContestedAttack(
+    { attackerStat: stoatBody.finesse, weaponValue: 2, fixedRoll: 5 }, // 5 + 6 + 2 = 13
+    { defenseStat: 5, armorValue: 2, fixedRoll: 6, useGuard: false }     // 6 + 5 + 2 = 13 -> margin 0
+  );
+  assertEq(attack1.outcome, 'CLASH_TIED', '§5.0: Exact margin 0 in reach triggers Clash');
+  const clash = resolveClashTie('PRESS', 'finesse', stoatBody.finesse, 'FEINT', 'might', harrowAttr.might, {
+    attackerFixedRoll: 7,
+    defenderFixedRoll: [3, 10], // FEINT beats PRESS -> Advantage keeps 10 + 7 = 17 vs 13
+  });
+  assertEq(clash.attackerHasAdvantage, false, '§5.8: PRESS does not get Advantage vs FEINT');
+  assertEq(clash.defenderHasAdvantage, true, '§5.8: FEINT beats PRESS and rolls with Advantage');
+  assertEq(clash.attackerTotal, 13, 'Stoat Clash total = 7 + best stat 6 = 13');
+  assertEq(clash.defenderTotal, 17, 'Harrow Clash total = 10 + best stat 7 = 17');
+  assertEq(clash.result, 'DEFENDER_WINS_CLASH', 'Harrow wins Clash');
+
+  // 2. Stoat #2 attacks Harrow's Guard (Fortitude 5 + Armor 2 = Guard 7) with active defense already spent
+  const attack2 = gm.resolveContestedAttack(
+    { attackerStat: stoatBody.finesse, weaponValue: 2, fixedRoll: 5 }, // 13
+    { defenseStat: harrowAttr.fortitude, armorValue: 2, useGuard: true } // Guard 7 -> margin +6 MAJOR
+  );
+  assertEq(attack2.margin, 6, '§5.4: 13 vs Guard 7 = Net Margin +6');
+  assertEq(attack2.tier, 'MAJOR', '§5.4: Margin 6 is MAJOR');
+  assertEq(attack2.capacityLost, 8, '§5.4: MAJOR loses 8 capacity');
+  assertEq(attack2.energyShredded, 4, '§5.4: MAJOR owes 4 energy');
+
+  // Harrow uses 1 own reduction (Hide Trait) + 1 ally Mend the Blow (free for patient) -> Major drops to Graze
+  const reduced = reduceInjuryTier(attack2.tier, {
+    ownReductions: ['Hide Trait'],
+    allyReductions: ['Mend the Blow'],
+    isMendFromAlly: true,
+  });
+  assertEq(reduced.finalTier, 'GRAZE', '§5.0 #3: 1 own + 1 ally drops Major -> Graze');
+  assertEq(reduced.patientStaminaCost, 0, '§5.0 #3: Ally Mend costs patient 0 Stamina');
+  let harrowAfterHit = applyBrutalInjury(harrowInRound, reduced.finalTier, 'HEALTH', 'Stoat Dueling Blade').updatedState;
+  assertEq(harrowAfterHit.stamina, 14, '§5.0 #4: In-fight Stamina remains 14 (1 owed at Come-Down)');
+  assertEq(harrowAfterHit.owed?.stamina, 1, '§5.4: Graze owes 1 Stamina');
+  assertEq(harrowAfterHit.maxHealth, 13, '§5.4: Graze loses 0 Health capacity');
+  assertEq(harrowAfterHit.composure, 8, '§5.4: Graze near miss drops Composure 10 -> 8');
+
+  // 3. Harrow strikes Stoat #1 Guard (4 + 2 = 6): Might 7 + Heavy Weapon 3 + fixedRoll 2 = 12 -> +6 MAJOR
+  const harrowStrike = gm.resolveContestedAttack(
+    { attackerStat: harrowAttr.might, weaponValue: 3, fixedRoll: 2 },
+    { defenseStat: stoatBody.fortitude, armorValue: 2, useGuard: true }
+  );
+  assertEq(harrowStrike.margin, 6, 'Harrow 12 vs Stoat Guard 6 = +6');
+  assertEq(harrowStrike.tier, 'MAJOR', 'Harrow lands MAJOR on Stoat #1');
+  const stoat1Hit = applyHitToFoe(stoat1, harrowStrike.tier, { squad: [stoat2] });
+  stoat1 = stoat1Hit.foe;
+  assertEq(getTotalFoeCards(stoat1), 3, 'Stoat #1 Major shreds 4 cards (7 -> 3)');
+  assertEq(stoat1.resolve, 2, 'Stoat #1 Resolve drops 4 -> 2 (wavering)');
+
+  // Harrow finishes Stoat #1 with a Major; adjacent ally Stoat #2 loses -2 Resolve when ally drops, then -2 on its own Major
+  const stoat1Finish = applyHitToFoe(stoat1, 'MAJOR', { squad: [stoat2] });
+  stoat1 = stoat1Finish.foe;
+  stoat2 = stoat1Finish.squad[0]!;
+  assertEq(stoat1.status, 'down', 'Stoat #1 out of cards -> down');
+  stoat2 = applyFoeResolveLoss(stoat2, 'ADJACENT_ALLY_DROPPED').foe;
+  assertEq(stoat2.resolve, 2, '§13.2: Adjacent Stoat #1 drop costs Stoat #2 -2 Resolve (4 -> 2)');
+  const stoat2Major = applyHitToFoe(stoat2, 'MAJOR'); // Resolve drops 2 -> 0 after Major
+  stoat2 = stoat2Major.foe;
+  assertEq(stoat2.resolve, 0, '§13.2: Rank-and-file Stoat #2 drops from Resolve 2 -> 0 on Major');
+  assertEq(stoat2.status, 'seeking_exit', 'Stoat #2 at 0 Resolve seeks exit and accepts quarter');
+
+  // 4. Come-Down settles owed energy and shakes
+  harrowAfterHit = payAtComeDown(harrowAfterHit);
+  assertEq(harrowAfterHit.stamina, 13, '§5.0 #10: Come-Down collects 1 owed Stamina (14 -> 13)');
+  assertEq(harrowAfterHit.composure, 6, '§5.0 #10: Come-Down shakes cost -2 Composure (8 -> 6)');
+}
+console.log('✓ Rulebook §5.0 + §13.2 Stoat Cutthroat full round via BrutalGM verified');
 
 console.log(`\n================================================================`);
 console.log(`   ALL ${checksPassed} B.R.U.T.A.L. v5.0 RULE ASSERTIONS PASSED 100%     `);
