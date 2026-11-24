@@ -5,6 +5,7 @@ import {
   setClockRunning,
   setClockSpeed,
 } from "../engine/clock/clock.js";
+import { focusRegion, unfocusRegion } from "../engine/meso/region.js";
 import type { Db } from "../engine/deltas/types.js";
 
 export const WORKER_LOCK_KEY = 424242;
@@ -154,9 +155,24 @@ export async function processPendingCommands(
           result = { ok: true, ...out };
           break;
         }
-        case "focus":
+        case "focus": {
+          const cid = Number(payload.cellId ?? payload.focusCellId ?? 0);
+          if (cid > 0) {
+            const focused = await focusRegion(db, cid, { seed: payload.seed, maxCells: payload.maxCells });
+            result = { ok: true, command: "focus", focusCellId: cid, cellIds: focused.record.cell_ids, agentsCount: focused.agentsCount };
+          } else {
+            result = { ok: true, command: kind, payload };
+          }
+          break;
+        }
         case "unfocus": {
-          result = { ok: true, command: kind, payload };
+          const cid = Number(payload.cellId ?? payload.focusCellId ?? 0);
+          if (cid > 0) {
+            const unfocused = await unfocusRegion(db, cid);
+            result = { ok: true, command: "unfocus", focusCellId: cid, ...unfocused };
+          } else {
+            result = { ok: true, command: kind, payload };
+          }
           break;
         }
         default: {

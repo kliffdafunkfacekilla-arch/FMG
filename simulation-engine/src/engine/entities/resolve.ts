@@ -14,7 +14,7 @@ export async function resolveActorRef(db: Db, rawId: string): Promise<EntityRow 
   if (/^(paragon|citizen|agent|player|faction|burg):(\d+)$/.test(cleanId)) {
     return ensureEntity(db, cleanId);
   }
-  if (/^(squad|creature|npcinst|object|place):/.test(cleanId)) {
+  if (/^(squad|convoy|wildlife|creature|npcinst|object|place):/.test(cleanId)) {
     const found = await getEntityByRef(db, cleanId);
     if (found) return found;
     if (cleanId.startsWith("npcinst:")) return ensureEntity(db, cleanId);

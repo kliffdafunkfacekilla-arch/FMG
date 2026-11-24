@@ -1,4 +1,5 @@
 import { SimplexNoise } from "./SimplexNoise";
+import { hashSeed, mulberry32 } from "../engine/rng.js";
 
 export interface CellNeighbor {
   id: number;
@@ -844,16 +845,34 @@ export class RegionalInstance {
   }
 
   private spawnAgents() {
+    if (Array.isArray(this.globalData?.entityAgents) && this.globalData.entityAgents.length > 0) {
+      this.agents = this.globalData.entityAgents.map((a: any, idx: number) => ({
+        id: Number(a.id ?? idx + 1),
+        type: String(a.type || "Resident"),
+        speciesName: String(a.speciesName || a.role || "Citizen"),
+        category: String(a.category || "Entity"),
+        color: String(a.color || "#38bdf8"),
+        speed: Number(a.speed ?? 1),
+        disposition: Number(a.disposition ?? 0),
+        rx: Number(a.rx ?? 50),
+        ry: Number(a.ry ?? 50),
+        targetRx: Number(a.targetRx ?? a.rx ?? 50),
+        targetRy: Number(a.targetRy ?? a.ry ?? 50),
+        x: Number(a.rx ?? 50),
+        y: Number(a.ry ?? 50),
+        tx: Number(a.targetRx ?? a.rx ?? 50),
+        ty: Number(a.targetRy ?? a.ry ?? 50),
+      }));
+      this.agentIdCounter = this.agents.length;
+      return;
+    }
+
     const centerEle = Number(this.globalData.terrain?.elevation) || 50;
     const bIdNum = Number(this.globalData.terrain?.biome) || 4;
     const isGlobalWater = centerEle < 20 || [0, 13, 14, 15, 16, 17, 19].includes(bIdNum);
     if (isGlobalWater) return;
 
-    let rngState = ((this.cellId * 2654435761) ^ 0x9e3779b9) >>> 0;
-    const nextRand = () => {
-      rngState = (Math.imul(rngState, 1664525) + 1013904223) >>> 0;
-      return rngState / 4294967296;
-    };
+    const nextRand = mulberry32(hashSeed(`reg-spawn:${this.cellId}:${this.globalData?.seed || "ostraka"}`));
 
     const pickLandCoord = () => {
       let rx = Math.floor(nextRand() * 88) + 6;
@@ -1023,6 +1042,7 @@ export class RegionalInstance {
    * Discrete Simulation Step: Moves agents cell-by-cell in exact lockstep with master ticks (1 Tick = 1 Day).
    */
   public stepTick(currentTick: number) {
+    const stepRng = mulberry32(hashSeed(`reg-step:${this.cellId}:${currentTick}`));
     for (const a of this.agents) {
       const dx = a.targetRx - a.rx;
       const dy = a.targetRy - a.ry;
@@ -1032,13 +1052,13 @@ export class RegionalInstance {
         // Destination cell reached: pick new target cell based on role
         if (a.type === 'Merchant' || a.type === 'DraftBeast') {
           // Travel north/south along highway (center 50)
-          a.targetRx = 50 + (Math.floor(Math.random() * 3) - 1);
+          a.targetRx = 50 + (Math.floor(stepRng() * 3) - 1);
           a.targetRy = a.ry < 50 ? 92 : 8;
         } else if (a.type === 'Patrol') {
           // Patrol perimeter around burg
           const cx = 50, cy = 50;
-          const angle = Math.random() * Math.PI * 2;
-          const radius = 12 + Math.floor(Math.random() * 6);
+          const angle = stepRng() * Math.PI * 2;
+          const radius = 12 + Math.floor(stepRng() * 6);
           a.targetRx = Math.max(5, Math.min(95, Math.round(cx + Math.cos(angle) * radius)));
           a.targetRy = Math.max(5, Math.min(95, Math.round(cy + Math.sin(angle) * radius)));
         } else if (a.type === 'Predator') {
@@ -1055,8 +1075,8 @@ export class RegionalInstance {
             a.targetRx = nearestPrey.rx;
             a.targetRy = nearestPrey.ry;
           } else {
-            a.targetRx = Math.max(5, Math.min(95, a.rx + Math.floor(Math.random() * 21 - 10)));
-            a.targetRy = Math.max(5, Math.min(95, a.ry + Math.floor(Math.random() * 21 - 10)));
+            a.targetRx = Math.max(5, Math.min(95, a.rx + Math.floor(stepRng() * 21 - 10)));
+            a.targetRy = Math.max(5, Math.min(95, a.ry + Math.floor(stepRng() * 21 - 10)));
           }
         } else if (a.type === 'Prey') {
           // Flee if predator within 8 cells, otherwise graze nearby
@@ -1075,28 +1095,28 @@ export class RegionalInstance {
             a.targetRy = Math.max(5, Math.min(95, fY));
           } else {
             // Graze in local grazing pocket
-            a.targetRx = Math.max(5, Math.min(95, a.rx + Math.floor(Math.random() * 11 - 5)));
-            a.targetRy = Math.max(5, Math.min(95, a.ry + Math.floor(Math.random() * 11 - 5)));
+            a.targetRx = Math.max(5, Math.min(95, a.rx + Math.floor(stepRng() * 11 - 5)));
+            a.targetRy = Math.max(5, Math.min(95, a.ry + Math.floor(stepRng() * 11 - 5)));
           }
         } else if (a.type === "Farmer") {
           // Wander within 2 cells of farmstead tending crops
-          a.targetRx = Math.max(2, Math.min(97, a.rx + Math.floor(Math.random() * 5 - 2)));
-          a.targetRy = Math.max(2, Math.min(97, a.ry + Math.floor(Math.random() * 5 - 2)));
+          a.targetRx = Math.max(2, Math.min(97, a.rx + Math.floor(stepRng() * 5 - 2)));
+          a.targetRy = Math.max(2, Math.min(97, a.ry + Math.floor(stepRng() * 5 - 2)));
         } else if (a.type === "Woodsman") {
           // Wander within 2 cells of logging camp
-          a.targetRx = Math.max(2, Math.min(97, a.rx + Math.floor(Math.random() * 5 - 2)));
-          a.targetRy = Math.max(2, Math.min(97, a.ry + Math.floor(Math.random() * 5 - 2)));
+          a.targetRx = Math.max(2, Math.min(97, a.rx + Math.floor(stepRng() * 5 - 2)));
+          a.targetRy = Math.max(2, Math.min(97, a.ry + Math.floor(stepRng() * 5 - 2)));
         } else if (a.type === "Miner") {
           // Wander within 2 cells of quarry
-          a.targetRx = Math.max(2, Math.min(97, a.rx + Math.floor(Math.random() * 5 - 2)));
-          a.targetRy = Math.max(2, Math.min(97, a.ry + Math.floor(Math.random() * 5 - 2)));
+          a.targetRx = Math.max(2, Math.min(97, a.rx + Math.floor(stepRng() * 5 - 2)));
+          a.targetRy = Math.max(2, Math.min(97, a.ry + Math.floor(stepRng() * 5 - 2)));
         } else if (a.type === "WatchGuard") {
           // Sentry patrol between watchtower and road gate
-          a.targetRx = Math.max(2, Math.min(97, a.rx + Math.floor(Math.random() * 7 - 3)));
-          a.targetRy = Math.max(2, Math.min(97, a.ry + Math.floor(Math.random() * 7 - 3)));
+          a.targetRx = Math.max(2, Math.min(97, a.rx + Math.floor(stepRng() * 7 - 3)));
+          a.targetRy = Math.max(2, Math.min(97, a.ry + Math.floor(stepRng() * 7 - 3)));
         } else {
-          a.targetRx = Math.max(5, Math.min(95, a.rx + Math.floor(Math.random() * 17 - 8)));
-          a.targetRy = Math.max(5, Math.min(95, a.ry + Math.floor(Math.random() * 17 - 8)));
+          a.targetRx = Math.max(5, Math.min(95, a.rx + Math.floor(stepRng() * 17 - 8)));
+          a.targetRy = Math.max(5, Math.min(95, a.ry + Math.floor(stepRng() * 17 - 8)));
         }
       } else {
         // Step discrete cells toward target

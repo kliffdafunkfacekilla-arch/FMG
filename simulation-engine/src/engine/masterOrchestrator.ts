@@ -40,6 +40,8 @@ import { runSeeded, seedSql, tickSeed } from "./rng.js";
 import { runAutonomousDramaAgent } from "./agents/autonomousDramaAgent.js";
 import { advanceThreadClocks } from "./threads/threadEngine.js";
 import { checkStoryEscalations } from "./story/storylines.js";
+import { getFocusedCellIds } from "./meso/region.js";
+import { runFocusedMesoDay } from "./meso/runMesoDay.js";
 
 let schemaMigrated = false;
 
@@ -174,6 +176,7 @@ async function runTick(): Promise<TickResult> {
                 const snap = await loadWeather(client, tick, cal.season, cal.dayOfMonth, loreDate, cal.isShadowWeek);
                 for (const d of stepWeather(snap, { random: Math.random })) emit(d);
             });
+            const focusedCells = await getFocusedCellIds(client);
             await step('ecology', async (emit) => {
                 const snap = await loadEcology(client, tick, cal.season, loreDate, {
                     month: cal.month,
@@ -183,8 +186,16 @@ async function runTick(): Promise<TickResult> {
                     cruorbusPhase: cal.cruorbusPhase,
                     isShadowWeek: cal.isShadowWeek
                 });
-                for (const d of stepEcology(snap, { random: Math.random })) emit(d);
+                for (const d of stepEcology(snap, {
+                    random: Math.random,
+                    skipCellIds: focusedCells.size > 0 ? focusedCells : undefined,
+                })) emit(d);
             });
+            if (focusedCells.size > 0) {
+                await step('mesoRegions', async (emit) => {
+                    await runFocusedMesoDay(client, tick, cal.season, loreDate, emit);
+                });
+            }
             await step('chaosFlows', () => runChaosFlowAgent(client, tick, {
                 active_flow: cal.activeFlow.domain,
                 dragon_domain: cal.activeFlow.dragon,
