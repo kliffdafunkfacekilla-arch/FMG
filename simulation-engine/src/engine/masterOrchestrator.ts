@@ -2,6 +2,7 @@ import pool from "../db/pool";
 import { runCalendarAgent } from "./agents/calendarAgent";
 import { loadCalendar } from "./macro/calendar/load.js";
 import { stepCalendar } from "./macro/calendar/step.js";
+import { fireDueScheduledEvents } from "./clock/scheduler.js";
 import { runWeatherAgent } from "./agents/weatherAgent";
 import { loadWeather } from "./macro/weather/load.js";
 import { stepWeather } from "./macro/weather/step.js";
@@ -159,6 +160,12 @@ async function runTick(): Promise<TickResult> {
                 for (const d of out.deltas) emit(d);
             }, true);
             const loreDate = cal.loreDate;
+
+            // 1b. Scheduled future consequences due on or before this day
+            await step('scheduledEvents', async (emit) => {
+                const { deltas } = await fireDueScheduledEvents(client, tick, 1440);
+                for (const d of deltas) emit(d);
+            });
 
             // 2. Weather, ecology and the twelve chaos flows
             await step('weather', async (emit) => {

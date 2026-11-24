@@ -282,6 +282,12 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         ]
       );
     }
+    await db.query(
+      `INSERT INTO world_clock (id, tick, minute_of_day, running, speed_ms, mode)
+       VALUES (1, $1, 0, false, 1500, 'live')
+       ON CONFLICT (id) DO UPDATE SET tick = EXCLUDED.tick, updated_at = now()`,
+      [lastCalendar.tick]
+    );
     counts.sim_calendar = 1;
   }
 
@@ -753,23 +759,20 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
     counts.sim_threads = (counts.sim_threads || 0) + 1;
   }
 
-  // 11. scheduled_events (active once Phase 3 adds the table)
+  // 11. scheduled_events
   if (scheduled.length > 0) {
-    const reg = await db.query(`SELECT to_regclass('public.scheduled_events') AS t`);
-    if (reg.rows[0]?.t) {
-      const res = await db.query(
-        `INSERT INTO scheduled_events (due_tick, due_minute, kind, payload, created_tick)
-         SELECT unnest($1::int[]), unnest($2::int[]), unnest($3::text[]), unnest($4::jsonb[]), unnest($5::int[])`,
-        [
-          scheduled.map((s) => s.at.tick),
-          scheduled.map((s) => s.at.minute ?? 0),
-          scheduled.map((s) => s.event.kind),
-          scheduled.map((s) => JSON.stringify(s.event.payload ?? {})),
-          scheduled.map((s) => s.at.tick),
-        ]
-      );
-      counts.scheduled_events = res.rowCount || scheduled.length;
-    }
+    const res = await db.query(
+      `INSERT INTO scheduled_events (due_tick, due_minute, kind, payload, created_tick)
+       SELECT unnest($1::int[]), unnest($2::int[]), unnest($3::text[]), unnest($4::jsonb[]), unnest($5::int[])`,
+      [
+        scheduled.map((s) => s.at.tick),
+        scheduled.map((s) => s.at.minute ?? 0),
+        scheduled.map((s) => s.event.kind),
+        scheduled.map((s) => JSON.stringify(s.event.payload ?? {})),
+        scheduled.map((s) => s.at.tick),
+      ]
+    );
+    counts.scheduled_events = res.rowCount || scheduled.length;
   }
 
   return counts;

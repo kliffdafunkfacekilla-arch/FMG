@@ -16,5 +16,6 @@ export async function worldFingerprint(tick: number, baseCitizenId: number, base
     events: await q(`SELECT md5(string_agg(concat_ws(',', type, burg_id, message), '|' ORDER BY type, burg_id, message)) h FROM sim_events WHERE tick = $1`, [tick]),
     // Exclude SERIAL shipment id so rolled-back sequences never cause false diffs across replays
     shipments: await q(`SELECT COALESCE(md5(string_agg(concat_ws(',', source_burg_id, dest_burg_id, transport_mode, good_key, quantity, status, current_cell_id, path_index, merchant_citizen_id, tariff_gold), '|' ORDER BY source_burg_id, dest_burg_id, transport_mode, good_key, dispatched_tick, merchant_citizen_id)), '') h FROM sim_trade_shipments`),
+    scheduled: await q(`SELECT COALESCE(md5(string_agg(concat_ws(',', due_tick, due_minute, kind, payload::text, fired_tick), '|' ORDER BY due_tick, due_minute, kind, payload::text)), '') h FROM scheduled_events`),
   };
 }

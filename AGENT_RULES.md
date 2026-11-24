@@ -66,6 +66,12 @@ Widening is allowed again, but every change must:
 
 **Still parked:** the items in `PARKING_LOT.md` ("Parked Items") and the parked story designs in `STORY_AUDIT.md` ("Still open"). Unpark one at a time, only when the user chooses it, and record the choice here as the new current focus.
 
+## Session time policy
+
+- The single `world_clock` row owned by the simulation worker is the only authoritative world clock (`tick` and `minute_of_day`).
+- Opening a party play session pauses background macro ticks (`mode = 'session'`), holding the map steady while scenes advance `minute_of_day` (minutes, hours, or 6-second encounter rounds).
+- Every time accumulated `minute_of_day` crosses `1,440`, the clock runs one macro day (firing any accumulated scheduled events for that day) before continuing. Closing the session restores `mode = 'live'`.
+
 ## Known contradictions to resolve (don't paper over them)
 
 - ~~**Database:**~~ **Resolved 2026-11-11: PostgreSQL is the only database.** The old SQLite file, the sqlite migration scripts and `better-sqlite3` are removed.
