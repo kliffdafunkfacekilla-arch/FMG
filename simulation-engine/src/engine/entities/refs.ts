@@ -12,7 +12,7 @@ export interface ParsedEntityRef {
   numericId?: number | undefined;
 }
 
-const TYPED_PREFIX_RE = /^(citizen|paragon|agent|player|faction|burg|squad|creature|npcinst|object|place):(.+)$/;
+const TYPED_PREFIX_RE = /^(citizen|paragon|agent|player|faction|burg|squad|convoy|wildlife|creature|npcinst|object|place):(.+)$/;
 
 export function parseEntityRef(ref: string): ParsedEntityRef {
   const clean = String(ref || "").trim();
@@ -73,6 +73,12 @@ export function inferEntityKindAndSource(
     case "squad": {
       const burgId = parsed.rawId.split(":")[0] || "0";
       return { kind: "group", sourceTable: "sim_burg_economy", sourceId: burgId };
+    }
+    case "convoy":
+      return { kind: "group", sourceTable: "sim_trade_shipments", sourceId: parsed.rawId };
+    case "wildlife": {
+      const cellPart = parsed.rawId.split(":").pop() || parsed.rawId;
+      return { kind: "group", sourceTable: "sim_cells", sourceId: cellPart };
     }
     case "creature":
       return { kind: "creature", sourceTable: "sim_sector_layers", sourceId: ref };

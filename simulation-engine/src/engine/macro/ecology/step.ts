@@ -5,6 +5,7 @@ import type { EcologyBurgRow, EcologyCellRow, EcologySnapshot } from "./load.js"
 
 export interface EcologyStepContext {
   random: () => number;
+  skipCellIds?: ReadonlySet<number> | undefined;
 }
 
 const DOMAIN_FLORA_TAGS: Record<string, { tags: string[]; name: string; desc: string }> = {
@@ -110,7 +111,10 @@ export function stepEcology(snap: EcologySnapshot, ctx: EcologyStepContext): Del
   const { tick, season, loreDate, dragonDomain, dragonName, moonPhase, isPeakChaos } = snap;
   const intervalDays = DAYS_PER_WEEK;
 
-  const cells: EcologyCellRow[] = snap.cells.map((c) => ({ ...c }));
+  const skip = ctx.skipCellIds;
+  const cells: EcologyCellRow[] = snap.cells
+    .filter((c) => !skip || !skip.has(c.id))
+    .map((c) => ({ ...c }));
   const cellMap = new Map<number, EcologyCellRow>();
   for (const c of cells) cellMap.set(c.id, c);
   const dirtyCells = new Set<number>();

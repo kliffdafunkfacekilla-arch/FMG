@@ -3,6 +3,8 @@ import zlib from "zlib";
 import pool from "../db/pool";
 import { RegionalInstance } from "../regional/RegionalInstance";
 import { getActiveChaosFlows, evaluatePointChaosFlowProximity } from "../engine/agents/chaosFlowAgent.js";
+import { buildRegion, focusRegion, unfocusRegion } from "../engine/meso/region.js";
+import { enqueueCommand, isWorkerActive, waitForCommand } from "../worker/commands.js";
 
 export const regionalRouter = Router();
 
@@ -225,14 +227,18 @@ regionalRouter.get("/agents/:cell_id", async (req, res) => {
 regionalRouter.post("/start/:cell_id", async (req, res) => {
   const cellId = parseInt(req.params.cell_id);
   if (isNaN(cellId)) return res.status(400).json({ error: "Invalid cell ID" });
-  if (activeRegions.has(cellId)) {
-    return res.json({ status: "already_running", cellId });
-  }
 
   try {
+    if (await isWorkerActive(pool)) {
+      const cmdId = await enqueueCommand(pool, "focus", { cellId });
+      await waitForCommand(pool, cmdId);
+    } else {
+      await focusRegion(pool, cellId);
+    }
     const instance = await getOrCreateRegionalInstance(cellId);
     if (!instance) return res.status(404).json({ error: "Cell not found" });
-    res.json({ status: "started", cellId });
+    const built = await buildRegion(pool, cellId).catch(() => null);
+    res.json({ status: "started", cellId, ringCellIds: built?.cellIds ?? [cellId] });
   } catch (err: any) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -431,15 +437,33 @@ regionalRouter.get("/nearest", async (req, res) => {
   }
 });
 
-regionalRouter.post("/stop/:cell_id", (req, res) => {
+regionalRouter.post("/stop/:cell_id", async (req, res) => {
   const cellId = parseInt(req.params.cell_id);
-  const instance = activeRegions.get(cellId);
-  if (instance) {
-    instance.destroy();
-    activeRegions.delete(cellId);
-    res.json({ status: "stopped", cellId });
-  } else {
+  if (isNaN(cellId)) return res.status(400).json({ error: "Invalid cell ID" });
+
+  try {
+    let unfocused = false;
+    if (await isWorkerActive(pool)) {
+      const cmdId = await enqueueCommand(pool, "unfocus", { cellId });
+      const out = await waitForCommand(pool, cmdId);
+      unfocused = Boolean(out?.unfocused);
+    } else {
+      const out = await unfocusRegion(pool, cellId);
+      unfocused = out.unfocused;
+    }
+
+    const instance = activeRegions.get(cellId);
+    if (instance) {
+      instance.destroy();
+      activeRegions.delete(cellId);
+      return res.json({ status: "stopped", cellId, unfocused });
+    }
+    if (unfocused) {
+      return res.json({ status: "stopped", cellId, unfocused: true });
+    }
     res.status(404).json({ error: "Region not active" });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 
