@@ -13,7 +13,7 @@ const path = require("path");
 const SUITES = [
   "testCalendar", "testCanonMandates", "testTagMatrixFull", "testBrutalGMVisual", "testChaosFlows",
   "testThreadActors", "testThreadReactions", "testThreadClocks", "testQuestChainResolution", "testSystemicOutcomes",
-  "testTacticalInteractions", "testStoryPipeline", "testSettlement", "testTickReplay", "testGoldenDay", "testMigrations", "testDeltas", "testMacroAgentsUnit", "testWorker", "testEntityRegistry", "testMicroWriteBack", "testTagRegistry", "testPopulationLedger",
+  "testTacticalInteractions", "testStoryPipeline", "testStoryContext", "testSettlement", "testTickReplay", "testGoldenDay", "testMigrations", "testDeltas", "testMacroAgentsUnit", "testWorker", "testEntityRegistry", "testMicroWriteBack", "testTagRegistry", "testPopulationLedger",
   "testTTRPGRules", "testVerticalSlice", "testAutonomousDrama", "testStrictPartyLlm", "testOstrakaMapParser", "testCitizenEconomy", "testCitizenLogistics", "testObserverApi", "testWeatherHealth", "testFactionFinances", "testCivicFlags", "testRiversAndClimate", "testCultureReligion",
 ];
 const root = __dirname;

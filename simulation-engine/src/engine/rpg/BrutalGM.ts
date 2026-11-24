@@ -58,6 +58,7 @@ import { generateChaosSurge } from "./chaosSurgeEngine.js";
 import { recruitCultistPersona, recruitWardenPersona, recruitMandatePersona } from "../agents/citizenPersonaHelper.js";
 import { getOpenThreads } from "../threads/threadEngine.js";
 import { writeBackNpcDeath, writeBackPropChange } from "../micro/writeBack.js";
+import { buildStoryContext, renderStoryContext } from "../story/context.js";
 
 export interface ActionInput {
   actionText: string;
@@ -2905,15 +2906,31 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
       systemLog += simDeltaNotice;
     }
 
-    // 7. Grounded Sensory Narrative Synthesis (local model) with Persistent Memory Retrieval
+    // 7. Grounded Sensory Narrative Synthesis (local model) via budgeted StoryContext pack
     let recentMemoriesContext = "";
     try {
-      const memRes = await this.pool.query(
-        `SELECT summary FROM sim_gm_memories WHERE player_id = $1 ORDER BY id DESC LIMIT 3`,
-        [playerId]
-      );
-      if (memRes.rows.length > 0) {
-        recentMemoriesContext = `Recent Historical Memory Traces:\n${memRes.rows.map((r: any) => `- ${r.summary}`).reverse().join("\n")}\n`;
+      const narrCellId = Number(this.activeContext?.cellId || 0);
+      if (narrCellId > 0) {
+        const storyCtx = await buildStoryContext(
+          this.pool,
+          {
+            cellId: narrCellId,
+            rx: Number(this.activeContext?.rx ?? 50),
+            ry: Number(this.activeContext?.ry ?? 50),
+            z: Number(input.zLayer ?? this.activeContext?.z ?? 0),
+          },
+          { playerId },
+          { tokenBudget: 1200 }
+        );
+        recentMemoriesContext = `WORLD & STORY CONTEXT:\n${renderStoryContext(storyCtx)}\n`;
+      } else {
+        const memRes = await this.pool.query(
+          `SELECT summary FROM sim_gm_memories WHERE player_id = $1 ORDER BY id DESC LIMIT 3`,
+          [playerId]
+        );
+        if (memRes.rows.length > 0) {
+          recentMemoriesContext = `Recent Historical Memory Traces:\n${memRes.rows.map((r: any) => `- ${r.summary}`).reverse().join("\n")}\n`;
+        }
       }
     } catch (err) {}
 
