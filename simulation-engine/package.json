@@ -9,7 +9,8 @@
     "build:server": "tsc",
     "build:observer": "vite build",
     "start": "node dist/server.js",
-    "test": "node run-tests.cjs"
+    "test": "node run-tests.cjs",
+    "db:backup": "node scripts/backup.cjs"
   },
   "keywords": [],
   "author": "",
