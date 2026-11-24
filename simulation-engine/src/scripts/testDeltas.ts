@@ -101,6 +101,25 @@ async function main() {
   await pool.query("ROLLBACK TO SAVEPOINT delta_xmin_log");
   console.log("4. Full-health xmin preservation & world_deltas logging verified... PASSED");
 
+  // 5. Per-step flush visibility & savepoint rollback atomicity
+  await pool.query("SAVEPOINT step_order");
+  await pool.query(`UPDATE sim_burg_economy SET food = 200 WHERE burg_id = $1`, [burgId]);
+  await pool.query("SAVEPOINT step_1");
+  await flushStepDeltas(pool, "agent:step1", 120, [{ kind: "burg.adjust", burgId, food: 35 }]);
+  await pool.query("RELEASE SAVEPOINT step_1");
+  const seenByStep2 = (await pool.query(`SELECT food FROM sim_burg_economy WHERE burg_id = $1`, [burgId])).rows[0];
+  assert.equal(Number(seenByStep2.food), 235, "Next step must immediately see earlier step's flushed delta");
+
+  await pool.query("SAVEPOINT step_2_fail");
+  await flushStepDeltas(pool, "agent:step2", 120, [{ kind: "burg.adjust", burgId, food: 99 }]);
+  await pool.query("ROLLBACK TO SAVEPOINT step_2_fail");
+  const afterRollback = (await pool.query(`SELECT food FROM sim_burg_economy WHERE burg_id = $1`, [burgId])).rows[0];
+  assert.equal(Number(afterRollback.food), 235, "Savepoint rollback must revert failed step's deltas");
+  const logCountAfter = Number((await pool.query(`SELECT COUNT(*)::int AS c FROM world_deltas WHERE tick = 120`)).rows[0].c);
+  assert.equal(logCountAfter, 1, "Savepoint rollback must also revert world_deltas row from failed step");
+  await pool.query("ROLLBACK TO SAVEPOINT step_order");
+  console.log("5. Per-step visibility and savepoint rollback atomicity verified... PASSED");
+
   console.log("\nALL DELTA TESTS PASSED");
 }
 
