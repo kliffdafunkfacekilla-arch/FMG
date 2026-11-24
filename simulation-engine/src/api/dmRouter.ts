@@ -19,6 +19,10 @@ import { evaluateSectorReactions } from '../engine/rpg/narrativeReactionEngine.j
 import { BLEED_TAG } from '../engine/agents/backgroundDirector.js';
 import { isChaosPeak } from '../engine/canon/calendar.js';
 import { syncLayerEntities } from '../engine/entities/registry.js';
+import { executeMasterTick } from '../engine/masterOrchestrator.js';
+import { setClockMode, advanceSessionMinutes } from '../engine/clock/clock.js';
+import { applyMapOverlays, loadTileOverlays } from '../engine/micro/overlays.js';
+import { resyncMapCast } from '../engine/micro/mapCast.js';
 
 dotenv.config({ override: true });
 
@@ -1318,14 +1322,32 @@ router.get('/sector_layer', async (req, res) => {
       const row = layerRes.rows[0];
       const unzipped = zlib.gunzipSync(row.compressed_terrain);
       const grid = new Uint8Array(unzipped.buffer, unzipped.byteOffset, unzipped.byteLength);
+      const encounterActive = Boolean(
+        livePartySessionState.active &&
+        livePartySessionState.cellId === targetCellId &&
+        livePartySessionState.rx === targetRx &&
+        livePartySessionState.ry === targetRy &&
+        livePartySessionState.z === targetZ
+      );
+      const synced = await resyncMapCast(pool, {
+        cellId: targetCellId,
+        rx: targetRx,
+        ry: targetRy,
+        z: targetZ,
+        npcs: row.npcs || [],
+        props: row.props || [],
+        burgId: cached?.burgId ? Number(cached.burgId) : null,
+        encounterActive,
+        persistLayer: true,
+      });
       if (openThreads.length === 0) {
         openThreads = await ensureLocalSectorTrouble(
           targetCellId,
           targetRx,
           targetRy,
           targetZ,
-          row.npcs || [],
-          row.props || [],
+          synced.npcs,
+          synced.props,
           row.features || {}
         );
       }
@@ -1337,8 +1359,8 @@ router.get('/sector_layer', async (req, res) => {
         z: targetZ,
         name: row.layer_name,
         grid: Array.from(grid),
-        props: row.props || [],
-        npcs: row.npcs || [],
+        props: synced.props,
+        npcs: synced.npcs,
         features: row.features || {},
         openThreads
       });
@@ -1468,6 +1490,8 @@ router.get('/sector_layer', async (req, res) => {
       await syncLayerEntities(pool, targetCellId, targetRx, targetRy, 1, layers.layerPlus1.npcs);
 
       const chosen = targetZ === -1 ? layers.layerMinus1 : targetZ === 1 ? layers.layerPlus1 : layers.layer0;
+      const tileOverlays = await loadTileOverlays(pool, targetCellId, targetRx, targetRy, targetZ);
+      const overlaidProps = applyMapOverlays(chosen.props, tileOverlays);
       if (openThreads.length === 0) {
         openThreads = await ensureLocalSectorTrouble(
           targetCellId,
@@ -1475,7 +1499,7 @@ router.get('/sector_layer', async (req, res) => {
           targetRy,
           targetZ,
           layers.layer0.npcs,
-          layers.layer0.props,
+          targetZ === 0 ? overlaidProps : layers.layer0.props,
           layers.layer0.features
         );
       }
@@ -1487,7 +1511,7 @@ router.get('/sector_layer', async (req, res) => {
         z: targetZ,
         name: chosen.name,
         grid: Array.from(chosen.grid),
-        props: chosen.props,
+        props: overlaidProps,
         npcs: chosen.npcs,
         features: chosen.features,
         openThreads
@@ -1609,6 +1633,9 @@ router.get('/sector_layer', async (req, res) => {
     );
     await syncLayerEntities(pool, targetCellId, targetRx, targetRy, targetZ, tacticalMap.npcs);
 
+    const regionalOverlays = await loadTileOverlays(pool, targetCellId, targetRx, targetRy, targetZ);
+    const overlaidRegionalProps = applyMapOverlays(tacticalMap.props, regionalOverlays);
+
     if (openThreads.length === 0) {
       openThreads = await ensureLocalSectorTrouble(
         targetCellId,
@@ -1616,7 +1643,7 @@ router.get('/sector_layer', async (req, res) => {
         targetRy,
         targetZ,
         tacticalMap.npcs,
-        tacticalMap.props,
+        overlaidRegionalProps,
         tacticalMap.features
       );
     }
@@ -1629,7 +1656,7 @@ router.get('/sector_layer', async (req, res) => {
       z: targetZ,
       name: tacticalMap.name,
       grid: Array.from(tacticalMap.grid),
-      props: tacticalMap.props,
+      props: overlaidRegionalProps,
       npcs: tacticalMap.npcs,
       features: tacticalMap.features,
       openThreads
@@ -2726,11 +2753,13 @@ router.post('/party_session/init', async (req, res) => {
     }
 
     brutalGM.clearPlayerInjuryStates();
+    brutalGM.setTileContext(targetCellId, targetRx, targetRy, targetZ);
     brutalGM.activeNPCs.clear();
     const rawNPCs = realLayer?.npcs || [];
     for (const n of rawNPCs) {
       brutalGM.activeNPCs.set(n.id, {
         id: n.id,
+        entity_ref: n.entity_ref,
         name: n.name,
         role: n.role || "Citizen",
         pos: n.pos || [128, 128],
@@ -2794,6 +2823,7 @@ router.post('/party_session/init', async (req, res) => {
     }
 
     // 4. Initialize session state with real thread or peaceful baseline
+    const worldClock = await setClockMode(pool, "session");
     livePartySessionState = {
       active: true,
       cellId: targetCellId,
@@ -2812,7 +2842,8 @@ router.post('/party_session/init', async (req, res) => {
       message: "Party session initialized with live AI Director story arc and real sector assets.",
       sessionState: livePartySessionState,
       propsLoaded: brutalGM.activeProps.size,
-      npcsLoaded: brutalGM.activeNPCs.size
+      npcsLoaded: brutalGM.activeNPCs.size,
+      worldClock
     });
   } catch (err: any) {
     const status = err instanceof LlmError ? err.statusCode : (Number(err?.statusCode) || 500);
@@ -3065,18 +3096,22 @@ router.post('/party_session/step', async (req, res) => {
       livePartySessionState.history = livePartySessionState.history.slice(-20);
     }
 
-    // Advance turn
+    // Advance turn & session clock
     livePartySessionState.turnIndex = (livePartySessionState.turnIndex + 1) % livePartySessionState.members.length;
     if (livePartySessionState.turnIndex === 0) {
       livePartySessionState.round += 1;
     }
+
+    const sessionMinutes = Math.max(1, Number(req.body?.minutes) || 1);
+    const worldClock = await advanceSessionMinutes(pool, sessionMinutes, () => executeMasterTick());
 
     res.json({
       success: true,
       turnResult: historyEntry,
       sessionState: livePartySessionState,
       gmOutput: gmResult,
-      threadResolution: threadResolutionResult
+      threadResolution: threadResolutionResult,
+      worldClock
     });
   } catch (err: any) {
     const status = err instanceof LlmError ? err.statusCode : (Number(err?.statusCode) || 500);
@@ -3120,5 +3155,17 @@ router.post('/party_session/resolve_thread', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/dm/party_session/close - Close active party session and return clock to live mode
+ */
+router.post('/party_session/close', async (_req, res) => {
+  try {
+    livePartySessionState.active = false;
+    const worldClock = await setClockMode(pool, "live");
+    res.json({ success: true, worldClock });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || "Failed to close party session" });
+  }
+});
 
 export default router;

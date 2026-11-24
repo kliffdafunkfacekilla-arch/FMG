@@ -23,6 +23,11 @@ const KNOWN_KINDS = new Set<string>([
   "calendar.set",
   "entity.create",
   "entity.die",
+  "citizen.killOne",
+  "paragon.die",
+  "burg.militaryAdjust",
+  "infrastructure.adjust",
+  "overlay.add",
 ]);
 
 function clamp(v: number, min: number, max: number): number {
@@ -48,6 +53,7 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   const burgIds = new Set<number>();
   const cellIds = new Set<number>();
   const citizenIds = new Set<number>();
+  const paragonIds = new Set<number>();
   const agentIds = new Set<number>();
   const factionIds = new Set<number>();
 
@@ -286,6 +292,46 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         }
         break;
       }
+      case "citizen.killOne": {
+        const err = finiteOrReject([["citizenId", d.citizenId], ["diedTick", d.diedTick]]);
+        if (err || !d.cause) structuralErrors.set(i, err || "Missing cause in citizen.killOne");
+        else citizenIds.add(d.citizenId);
+        break;
+      }
+      case "paragon.die": {
+        const err = finiteOrReject([["paragonId", d.paragonId], ["diedTick", d.diedTick]]);
+        if (err) structuralErrors.set(i, err);
+        else paragonIds.add(d.paragonId);
+        break;
+      }
+      case "burg.militaryAdjust": {
+        const err = finiteOrReject([["burgId", d.burgId], ["delta", d.delta]]);
+        if (err || !d.unitType) structuralErrors.set(i, err || "Missing unitType in burg.militaryAdjust");
+        else burgIds.add(d.burgId);
+        break;
+      }
+      case "infrastructure.adjust": {
+        const err = finiteOrReject([["burgId", d.burgId], ["levelDelta", d.levelDelta]]);
+        if (err || !d.infraType) structuralErrors.set(i, err || "Missing infraType in infrastructure.adjust");
+        else burgIds.add(d.burgId);
+        break;
+      }
+      case "overlay.add": {
+        const err = finiteOrReject([
+          ["cellId", d.cellId],
+          ["rx", d.rx],
+          ["ry", d.ry],
+          ["z", d.z],
+          ["tick", d.tick],
+          ["minute", d.minute],
+        ]);
+        if (err || !d.change || !d.source) {
+          structuralErrors.set(i, err || "Missing change/source in overlay.add");
+        } else if (d.cellId > 0) {
+          cellIds.add(d.cellId);
+        }
+        break;
+      }
     }
   }
 
@@ -305,6 +351,12 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   if (citizenIds.size > 0) {
     const res = await db.query(`SELECT citizen_id FROM population_demographics WHERE citizen_id = ANY($1::int[])`, [Array.from(citizenIds)]);
     for (const r of res.rows) validCitizens.add(Number(r.citizen_id));
+  }
+
+  const validParagons = new Set<number>();
+  if (paragonIds.size > 0) {
+    const res = await db.query(`SELECT id FROM sim_paragons WHERE id = ANY($1::int[])`, [Array.from(paragonIds)]);
+    for (const r of res.rows) validParagons.add(Number(r.id));
   }
 
   const validAgents = new Set<number>();
@@ -466,6 +518,46 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
       case "chaosZone.adjust":
         if (d.cellId !== undefined && !validCells.has(d.cellId)) {
           rejected.push({ delta: d, reason: `Unknown cellId ${d.cellId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "citizen.killOne":
+        if (!validCitizens.has(d.citizenId)) {
+          rejected.push({ delta: d, reason: `Unknown citizenId ${d.citizenId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "paragon.die":
+        if (!validParagons.has(d.paragonId)) {
+          rejected.push({ delta: d, reason: `Unknown paragonId ${d.paragonId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "burg.militaryAdjust":
+        if (!validBurgs.has(d.burgId)) {
+          rejected.push({ delta: d, reason: `Unknown burgId ${d.burgId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "infrastructure.adjust":
+        if (!validBurgs.has(d.burgId)) {
+          rejected.push({ delta: d, reason: `Unknown burgId ${d.burgId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "overlay.add":
+        if (d.cellId > 0 && !validCells.has(d.cellId)) {
+          rejected.push({ delta: d, reason: `Unknown overlay cellId ${d.cellId}` });
           break;
         }
         ok.push(d);

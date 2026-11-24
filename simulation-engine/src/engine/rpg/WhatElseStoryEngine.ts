@@ -60,6 +60,7 @@ export interface StoryBeat {
 
 export interface InjectedNPC {
   id: string;
+  entity_ref?: string | undefined;
   name: string;
   role: string;
   pos: [number, number];
@@ -103,6 +104,7 @@ export interface SectorContext {
   cellId: number;
   rx?: number;
   ry?: number;
+  z?: number;
   biomeName: string;
   isWarzone: boolean;
   isFamine: boolean;

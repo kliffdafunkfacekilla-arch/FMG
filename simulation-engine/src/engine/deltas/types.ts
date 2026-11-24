@@ -56,6 +56,8 @@ export interface ScheduledEventSpec {
   payload: Record<string, any>;
 }
 
+export type OverlayChange = "destroyed" | "burnt" | "opened" | "moved" | "looted" | "placed";
+
 export type Delta =
   | {
       kind: "burg.adjust";
@@ -224,6 +226,46 @@ export type Delta =
       kind: "entity.die";
       ref: string;
       diedTick: number;
+    }
+  | {
+      kind: "citizen.killOne";
+      citizenId: number;
+      cause: string;
+      diedTick: number;
+    }
+  | {
+      kind: "paragon.die";
+      paragonId: number;
+      diedTick: number;
+      cause?: string | undefined;
+    }
+  | {
+      kind: "burg.militaryAdjust";
+      burgId: number;
+      unitType: string;
+      delta: number;
+    }
+  | {
+      kind: "infrastructure.adjust";
+      burgId: number;
+      infraType: string;
+      levelDelta?: number | undefined;
+      status?: string | undefined;
+    }
+  | {
+      kind: "overlay.add";
+      cellId: number;
+      rx: number;
+      ry: number;
+      z: number;
+      x?: number | null | undefined;
+      y?: number | null | undefined;
+      objectRef?: string | null | undefined;
+      change: OverlayChange;
+      payload?: Record<string, any> | undefined;
+      tick: number;
+      minute?: number | undefined;
+      source: string;
     };
 
 export type DeltaEmitter = (delta: Delta) => void;
