@@ -119,6 +119,11 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   const chaosAdjusts: Array<Extract<Delta, { kind: "chaosZone.adjust" }>> = [];
   const entityCreates: UpsertEntityInput[] = [];
   const entityDeaths: Array<{ ref: string; diedTick: number }> = [];
+  const citizenKillOnes: Array<Extract<Delta, { kind: "citizen.killOne" }>> = [];
+  const paragonDies: Array<Extract<Delta, { kind: "paragon.die" }>> = [];
+  const burgMilAdjusts: Array<Extract<Delta, { kind: "burg.militaryAdjust" }>> = [];
+  const infraAdjusts: Array<Extract<Delta, { kind: "infrastructure.adjust" }>> = [];
+  const overlayAdds: Array<Extract<Delta, { kind: "overlay.add" }>> = [];
   let lastCalendar: Extract<Delta, { kind: "calendar.set" }> | null = null;
 
   for (const d of deltas) {
@@ -272,6 +277,22 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         break;
       case "entity.die":
         entityDeaths.push({ ref: d.ref, diedTick: d.diedTick });
+        break;
+      case "citizen.killOne":
+        citizenKillOnes.push(d);
+        break;
+      case "paragon.die":
+        paragonDies.push(d);
+        entityDeaths.push({ ref: `paragon:${d.paragonId}`, diedTick: d.diedTick });
+        break;
+      case "burg.militaryAdjust":
+        burgMilAdjusts.push(d);
+        break;
+      case "infrastructure.adjust":
+        infraAdjusts.push(d);
+        break;
+      case "overlay.add":
+        overlayAdds.push(d);
         break;
     }
   }
@@ -805,7 +826,206 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
     counts.scheduled_events = res.rowCount || scheduled.length;
   }
 
-  // 12. entities registry
+  // 12. citizen.killOne (decrement unit_size > 1 & burg pop; or mark DECEASED when unit_size <= 1)
+  if (citizenKillOnes.length > 0) {
+    const cids = Array.from(new Set(citizenKillOnes.map((k) => k.citizenId))).sort((a, b) => a - b);
+    const curRes = await db.query(
+      `SELECT citizen_id, settlement_id, unit_size, is_null, allegiance_status
+       FROM population_demographics
+       WHERE citizen_id = ANY($1::int[])
+       ORDER BY citizen_id`,
+      [cids]
+    );
+    const state = new Map<number, {
+      unitSize: number;
+      settlementId: number | null;
+      isNull: boolean;
+      status: string;
+      cause: string | null;
+      diedTick: number;
+    }>();
+    for (const r of curRes.rows) {
+      state.set(Number(r.citizen_id), {
+        unitSize: Math.max(1, Number(r.unit_size || 1)),
+        settlementId: r.settlement_id !== null && r.settlement_id !== undefined ? Number(r.settlement_id) : null,
+        isNull: Boolean(r.is_null),
+        status: String(r.allegiance_status || "").toUpperCase(),
+        cause: null,
+        diedTick: 0,
+      });
+    }
+
+    const sizeChanged = new Set<number>();
+    const newlyDeceased = new Set<number>();
+    const burgPopDecr = new Map<number, { dn: number; da: number }>();
+
+    for (const k of citizenKillOnes) {
+      const st = state.get(k.citizenId);
+      if (!st || st.status === "DECEASED") continue;
+      if (st.unitSize > 1) {
+        st.unitSize -= 1;
+        sizeChanged.add(k.citizenId);
+      } else {
+        st.status = "DECEASED";
+        st.cause = k.cause;
+        st.diedTick = k.diedTick;
+        newlyDeceased.add(k.citizenId);
+      }
+      if (st.settlementId && st.settlementId > 0) {
+        let bDecr = burgPopDecr.get(st.settlementId);
+        if (!bDecr) {
+          bDecr = { dn: 0, da: 0 };
+          burgPopDecr.set(st.settlementId, bDecr);
+        }
+        if (st.isNull) bDecr.dn += 1;
+        else bDecr.da += 1;
+      }
+    }
+
+    const sizeOnlyIds = Array.from(sizeChanged).filter((id) => !newlyDeceased.has(id)).sort((a, b) => a - b);
+    if (sizeOnlyIds.length > 0) {
+      const res = await db.query(
+        `UPDATE population_demographics p SET unit_size = v.unit_size
+         FROM (SELECT unnest($1::int[]) AS citizen_id, unnest($2::int[]) AS unit_size) v
+         WHERE p.citizen_id = v.citizen_id`,
+        [sizeOnlyIds, sizeOnlyIds.map((id) => state.get(id)!.unitSize)]
+      );
+      counts.population_demographics = (counts.population_demographics || 0) + (res.rowCount || 0);
+    }
+
+    const deadIds = Array.from(newlyDeceased).sort((a, b) => a - b);
+    if (deadIds.length > 0) {
+      const res = await db.query(
+        `UPDATE population_demographics p SET
+           allegiance_status = 'DECEASED',
+           cause_of_death = COALESCE(v.cause, p.cause_of_death)
+         FROM (SELECT unnest($1::int[]) AS citizen_id, unnest($2::text[]) AS cause) v
+         WHERE p.citizen_id = v.citizen_id`,
+        [deadIds, deadIds.map((id) => state.get(id)!.cause)]
+      );
+      counts.population_demographics = (counts.population_demographics || 0) + (res.rowCount || 0);
+      for (const id of deadIds) {
+        entityDeaths.push({ ref: `citizen:${id}`, diedTick: state.get(id)!.diedTick });
+      }
+    }
+
+    if (burgPopDecr.size > 0) {
+      const bids = Array.from(burgPopDecr.keys()).sort((a, b) => a - b);
+      const res = await db.query(
+        `UPDATE sim_burg_economy b SET
+           pop_null = GREATEST(0, COALESCE(b.pop_null, 0) - v.dn),
+           pop_attuned = GREATEST(0, COALESCE(b.pop_attuned, 0) - v.da)
+         FROM (SELECT unnest($1::int[]) AS burg_id, unnest($2::int[]) AS dn, unnest($3::int[]) AS da) v
+         WHERE b.burg_id = v.burg_id`,
+        [bids, bids.map((id) => burgPopDecr.get(id)!.dn), bids.map((id) => burgPopDecr.get(id)!.da)]
+      );
+      counts.sim_burg_economy = (counts.sim_burg_economy || 0) + (res.rowCount || 0);
+    }
+  }
+
+  // 13. paragon.die
+  if (paragonDies.length > 0) {
+    const pids = Array.from(new Set(paragonDies.map((p) => p.paragonId))).sort((a, b) => a - b);
+    const res = await db.query(`DELETE FROM sim_paragons WHERE id = ANY($1::int[])`, [pids]);
+    counts.sim_paragons = (counts.sim_paragons || 0) + (res.rowCount || 0);
+  }
+
+  // 14. burg.militaryAdjust (military_forces is TEXT storing JSON)
+  if (burgMilAdjusts.length > 0) {
+    const mergedMil = new Map<string, { burgId: number; unitType: string; delta: number }>();
+    for (const m of burgMilAdjusts) {
+      const key = `${m.burgId}:${m.unitType}`;
+      const cur = mergedMil.get(key);
+      if (cur) cur.delta += m.delta;
+      else mergedMil.set(key, { burgId: m.burgId, unitType: m.unitType, delta: m.delta });
+    }
+    const keys = Array.from(mergedMil.keys()).sort();
+    for (const k of keys) {
+      const item = mergedMil.get(k)!;
+      if (item.delta === 0) continue;
+      const res = await db.query(
+        `UPDATE sim_burg_economy
+         SET military_forces = jsonb_set(
+           CASE WHEN military_forces IS NULL OR btrim(military_forces) = '' THEN '{}'::jsonb ELSE military_forces::jsonb END,
+           ARRAY[$2::text],
+           to_jsonb(GREATEST(0, COALESCE(((CASE WHEN military_forces IS NULL OR btrim(military_forces) = '' THEN '{}'::jsonb ELSE military_forces::jsonb END) ->> $2::text)::int, 0) + $3::int)),
+           true
+         )::text
+         WHERE burg_id = $1::int`,
+        [item.burgId, item.unitType, item.delta]
+      );
+      counts.sim_burg_economy = (counts.sim_burg_economy || 0) + (res.rowCount || 0);
+    }
+  }
+
+  // 15. infrastructure.adjust
+  if (infraAdjusts.length > 0) {
+    const mergedInf = new Map<string, { burgId: number; infraType: string; levelDelta: number; status: string | null }>();
+    for (const inf of infraAdjusts) {
+      const upperType = inf.infraType.toUpperCase();
+      const key = `${inf.burgId}:${upperType}`;
+      const cur = mergedInf.get(key);
+      if (cur) {
+        cur.levelDelta += inf.levelDelta ?? 0;
+        if (inf.status !== undefined) cur.status = inf.status;
+      } else {
+        mergedInf.set(key, {
+          burgId: inf.burgId,
+          infraType: upperType,
+          levelDelta: inf.levelDelta ?? 0,
+          status: inf.status ?? null,
+        });
+      }
+    }
+    for (const k of Array.from(mergedInf.keys()).sort()) {
+      const item = mergedInf.get(k)!;
+      const res = await db.query(
+        `UPDATE sim_infrastructure
+         SET level = GREATEST(0, COALESCE(level, 1) + $3::int),
+             status = COALESCE($4::text, CASE WHEN GREATEST(0, COALESCE(level, 1) + $3::int) = 0 THEN 'DAMAGED' ELSE status END)
+         WHERE burg_id = $1::int AND UPPER(type) = UPPER($2::text)`,
+        [item.burgId, item.infraType, item.levelDelta, item.status]
+      );
+      counts.sim_infrastructure = (counts.sim_infrastructure || 0) + (res.rowCount || 0);
+    }
+  }
+
+  // 16. map_overlays
+  if (overlayAdds.length > 0) {
+    const res = await db.query(
+      `INSERT INTO map_overlays (cell_id, rx, ry, z, x, y, object_ref, change, payload, tick, minute, source)
+       SELECT
+         unnest($1::int[]),
+         unnest($2::int[]),
+         unnest($3::int[]),
+         unnest($4::int[]),
+         unnest($5::int[]),
+         unnest($6::int[]),
+         unnest($7::text[]),
+         unnest($8::text[]),
+         unnest($9::jsonb[]),
+         unnest($10::int[]),
+         unnest($11::int[]),
+         unnest($12::text[])`,
+      [
+        overlayAdds.map((o) => o.cellId),
+        overlayAdds.map((o) => o.rx),
+        overlayAdds.map((o) => o.ry),
+        overlayAdds.map((o) => o.z),
+        overlayAdds.map((o) => o.x ?? null),
+        overlayAdds.map((o) => o.y ?? null),
+        overlayAdds.map((o) => o.objectRef ?? null),
+        overlayAdds.map((o) => o.change),
+        overlayAdds.map((o) => JSON.stringify(o.payload ?? {})),
+        overlayAdds.map((o) => o.tick),
+        overlayAdds.map((o) => o.minute ?? 0),
+        overlayAdds.map((o) => o.source),
+      ]
+    );
+    counts.map_overlays = (counts.map_overlays || 0) + (res.rowCount || overlayAdds.length);
+  }
+
+  // 17. entities registry
   if (entityCreates.length > 0) {
     counts.entities = (counts.entities || 0) + (await upsertEntitiesBatch(db, entityCreates));
   }

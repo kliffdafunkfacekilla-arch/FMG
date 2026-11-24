@@ -57,6 +57,7 @@ import { getActiveChaosFlows, evaluatePointChaosFlowProximity, applyPlayerChaosM
 import { generateChaosSurge } from "./chaosSurgeEngine.js";
 import { recruitCultistPersona, recruitWardenPersona, recruitMandatePersona } from "../agents/citizenPersonaHelper.js";
 import { getOpenThreads } from "../threads/threadEngine.js";
+import { writeBackNpcDeath, writeBackPropChange } from "../micro/writeBack.js";
 
 export interface ActionInput {
   actionText: string;
@@ -314,6 +315,27 @@ export class BrutalGameMaster {
     const settled = payAtComeDown(existing);
     this.playerInjuryStates.set(playerId, settled);
     return settled;
+  }
+
+  public setTileContext(cellId: number, rx: number, ry: number, z: number = 0): void {
+    if (this.activeContext) {
+      this.activeContext.cellId = cellId;
+      this.activeContext.rx = rx;
+      this.activeContext.ry = ry;
+      this.activeContext.z = z;
+    } else {
+      this.activeContext = {
+        cellId,
+        rx,
+        ry,
+        z,
+        biomeName: "Wilderness",
+        isWarzone: false,
+        isFamine: false,
+        chaosRadiation: 0,
+        infrastructureMask: 0,
+      };
+    }
   }
 
   public clearPlayerInjuryStates(): void {
@@ -1439,6 +1461,7 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
     let tagResult: TagInteractionResult | undefined;
     let inCharacterDialogue: string | undefined;
     let lootAwarded: { gold: number; item?: string } | undefined;
+    let propLooted = false;
     let xpGained = 0;
     let systemLog = "";
     let customNarrative: string | undefined;
@@ -1786,6 +1809,7 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
         inv.push(foundItem);
         player.inventory = inv;
         lootAwarded = { gold: foundGold, item: foundItem };
+        propLooted = true;
         xpGained += 35;
         systemLog = `[${intent.statUsed.toUpperCase()} CHECK${toolBonusNotice}: ${totalSubterfugeRoll} vs DC ${dynamicDC} | SUCCESS: Lock bypassed! Found ${foundGold} Gold & ${foundItem}]`;
       } else if (hit) {
@@ -2014,11 +2038,13 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
           if (corpseInv.length > 0) {
             corpseInv.forEach((it: string) => player.inventory.push(it));
             lootAwarded = { gold: foundGold, item: corpseInv.join(", ") };
+            propLooted = true;
             targetProp.inventory = [];
             targetProp.tags.delete("lootable");
             systemLog = `[${intent.statUsed.toUpperCase()} SEARCH${toolBonusNotice}: ${totalRoll} vs DC ${dynamicDC} | SUCCESS: Looted ${targetProp.name}! Found ${foundGold} Gold & [${corpseInv.join(", ")}]]`;
           } else {
             lootAwarded = { gold: foundGold };
+            propLooted = true;
             targetProp.tags.delete("lootable");
             systemLog = `[${intent.statUsed.toUpperCase()} SEARCH${toolBonusNotice}: ${totalRoll} vs DC ${dynamicDC} | SUCCESS: Searched ${targetProp.name}, found ${foundGold} Gold]`;
           }
@@ -2041,6 +2067,7 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
           }
           player.inventory.push(dynamicItem);
           lootAwarded = { gold: foundGold, item: dynamicItem };
+          propLooted = true;
           targetProp.tags.delete("container");
           targetProp.tags.add("opened");
           systemLog = `[${intent.statUsed.toUpperCase()} INSPECT${toolBonusNotice}: ${totalRoll} vs DC ${dynamicDC} | SUCCESS: Discovered cache inside ${targetProp.name}! Found ${foundGold} Gold & ${dynamicItem}]`;
@@ -2363,10 +2390,44 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
     // 5. State Mutation & PostgreSQL Backfeed (story progression lives in sim_threads via questChainEngine)
     const propsDestroyed: string[] = [];
     const npcsDefeated: string[] = [];
+    const ctxCellId = Number(this.activeContext?.cellId || 0);
+    const ctxRx = Number(this.activeContext?.rx ?? 50);
+    const ctxRy = Number(this.activeContext?.ry ?? 50);
+    const ctxZ = Number(input.zLayer ?? this.activeContext?.z ?? 0);
 
-    if (targetProp && targetProp.isDestroyed) {
-      propsDestroyed.push(targetProp.name);
-      this.activeProps.delete(targetProp.id);
+    if (targetProp && (targetProp.isDestroyed || targetProp.tags.has("burning") || targetProp.tags.has("burnt"))) {
+      const isBurnt = targetProp.tags.has("burning") || targetProp.tags.has("burnt");
+      if (targetProp.isDestroyed) {
+        propsDestroyed.push(targetProp.name);
+        this.activeProps.delete(targetProp.id);
+      }
+      if (ctxCellId > 0) {
+        try {
+          await writeBackPropChange(this.pool, {
+            prop: targetProp,
+            change: isBurnt ? "burnt" : "destroyed",
+            cellId: ctxCellId,
+            rx: ctxRx,
+            ry: ctxRy,
+            z: ctxZ,
+          });
+        } catch (err) {
+          console.error("Error writing back prop destruction/burn overlay:", err);
+        }
+      }
+    } else if (targetProp && propLooted && ctxCellId > 0) {
+      try {
+        await writeBackPropChange(this.pool, {
+          prop: targetProp,
+          change: "looted",
+          cellId: ctxCellId,
+          rx: ctxRx,
+          ry: ctxRy,
+          z: ctxZ,
+        });
+      } catch (err) {
+        console.error("Error writing back prop loot overlay:", err);
+      }
     }
     if (targetNPC && (!targetNPC.alive || targetNPC.hp <= 0)) {
       targetNPC.alive = false;
@@ -2386,6 +2447,21 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
         );
         corpseProp.inventory = Array.isArray(targetNPC.inventory) ? [...targetNPC.inventory] : [];
         this.activeProps.set(corpsePropId, corpseProp);
+      }
+
+      if (ctxCellId > 0) {
+        try {
+          await writeBackNpcDeath(this.pool, {
+            npc: targetNPC,
+            cellId: ctxCellId,
+            rx: ctxRx,
+            ry: ctxRy,
+            z: ctxZ,
+            cause: `Slain by ${player.name || "party"} (${intent.verb})`,
+          });
+        } catch (err) {
+          console.error("Error writing back micro NPC death to macro state:", err);
+        }
       }
     }
 
