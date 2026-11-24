@@ -1,5 +1,26 @@
 import type { Delta, OverlayChange } from "../deltas/types.js";
 
+const NOTABLE_PROP_RE =
+  /\b(granary|food[\s_-]*store|silo|grain|mill|treasury|vault|bank|coffer|tax[\s_-]*chest|forge|smithy|foundry|kiln|smelter|quarry|mine|gate|portcullis|altar|shrine|temple|cage|prison|cell|warehouse|market|dock|storehouse)\b/i;
+
+/**
+ * Pure classification distinguishing economically/story-relevant objects from decorative props (Phase 12.1).
+ */
+export function isNotableEconomicProp(propName: string, propTags: string[] = []): boolean {
+  const combined = `${propName} ${propTags.join(" ")}`.toLowerCase();
+  return NOTABLE_PROP_RE.test(combined);
+}
+
+export function makeObjectEntityRef(
+  cellId: number,
+  rx: number,
+  ry: number,
+  z: number,
+  propId: string
+): string {
+  return `object:${cellId}:${rx}:${ry}:${z}:${propId}`;
+}
+
 /**
  * Pure mapping from burnt/destroyed/looted tactical map props to macro burg & infrastructure deltas.
  * Zero DB or UI imports (Rule 8).

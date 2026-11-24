@@ -1,8 +1,9 @@
 import { hashSeed, mulberry32 } from "../rng.js";
 import type { Db } from "../deltas/types.js";
 import { mapNpcIdToEntityRef, parseEntityRef } from "../entities/refs.js";
-import { markEntitiesDeadBatch, syncLayerEntities } from "../entities/registry.js";
+import { markEntitiesDeadBatch, syncLayerEntities, upsertEntitiesBatch, type UpsertEntityInput } from "../entities/registry.js";
 import { applyMapOverlays, loadTileOverlays } from "./overlays.js";
+import { isNotableEconomicProp, makeObjectEntityRef } from "./propEconomy.js";
 
 export interface ResyncMapCastResult {
   npcs: any[];
@@ -209,7 +210,36 @@ export async function resyncMapCast(
 
   const overlays = await loadTileOverlays(db, cellId, rx, ry, z);
   const resyncedProps = applyMapOverlays(origProps, overlays);
-  const castChanged = removedRefs.length > 0 || addedRefs.length > 0;
+
+  // Sync economically/story-relevant objects into the unified entities registry (Phase 12.1)
+  const notableObjectEntries: UpsertEntityInput[] = [];
+  for (const p of resyncedProps) {
+    if (!p || !p.id) continue;
+    const pTags = Array.isArray(p.tags) ? p.tags.map(String) : [];
+    if (!isNotableEconomicProp(String(p.name || ""), pTags)) continue;
+    const objRef = p.entity_ref || makeObjectEntityRef(cellId, rx, ry, z, String(p.id));
+    p.entity_ref = objRef;
+    notableObjectEntries.push({
+      ref: objRef,
+      kind: "object",
+      name: String(p.name || p.id),
+      alive: !p.isDestroyed && !pTags.includes("burnt") && !pTags.includes("destroyed"),
+      lod: "micro",
+      cellId,
+      rx,
+      ry,
+      z,
+      x: Array.isArray(p.pos) && Number.isFinite(Number(p.pos[0])) ? Math.round(Number(p.pos[0])) : null,
+      y: Array.isArray(p.pos) && Number.isFinite(Number(p.pos[1])) ? Math.round(Number(p.pos[1])) : null,
+      sourceTable: "sim_sector_layers",
+      sourceId: String(p.id),
+    });
+  }
+  if (notableObjectEntries.length > 0) {
+    await upsertEntitiesBatch(db, notableObjectEntries);
+  }
+
+  const castChanged = removedRefs.length > 0 || addedRefs.length > 0 || notableObjectEntries.length > 0;
 
   if (castChanged && opts.persistLayer) {
     await db.query(

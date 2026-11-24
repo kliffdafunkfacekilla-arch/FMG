@@ -21,6 +21,7 @@ import { isChaosPeak } from '../engine/canon/calendar.js';
 import { syncLayerEntities } from '../engine/entities/registry.js';
 import { executeMasterTick } from '../engine/masterOrchestrator.js';
 import { setClockMode, advanceSessionMinutes } from '../engine/clock/clock.js';
+import { advanceEncounterRound } from '../engine/clock/encounterClock.js';
 import { applyMapOverlays, loadTileOverlays } from '../engine/micro/overlays.js';
 import { resyncMapCast } from '../engine/micro/mapCast.js';
 
@@ -2460,6 +2461,8 @@ export interface PartySessionState {
   ry: number;
   z: number;
   round: number;
+  encounterRound?: number | undefined;
+  encounterSeconds?: number | undefined;
   turnIndex: number;
   members: PartySessionMember[];
   activeStoryArc?: {
@@ -2588,6 +2591,8 @@ let livePartySessionState: PartySessionState = {
   ry: 50,
   z: 0,
   round: 1,
+  encounterRound: 0,
+  encounterSeconds: 0,
   turnIndex: 0,
   members: JSON.parse(JSON.stringify(INITIAL_MEMBERS)),
   history: []
@@ -2831,6 +2836,8 @@ router.post('/party_session/init', async (req, res) => {
       ry: targetRy,
       z: targetZ,
       round: 1,
+      encounterRound: 0,
+      encounterSeconds: 0,
       turnIndex: 0,
       members: JSON.parse(JSON.stringify(INITIAL_MEMBERS)),
       activeStoryArc,
@@ -3096,14 +3103,33 @@ router.post('/party_session/step', async (req, res) => {
       livePartySessionState.history = livePartySessionState.history.slice(-20);
     }
 
-    // Advance turn & session clock
+    // Advance turn & encounter/session clock (Phase 12.2: 6s encounter round + meso triggers)
     livePartySessionState.turnIndex = (livePartySessionState.turnIndex + 1) % livePartySessionState.members.length;
     if (livePartySessionState.turnIndex === 0) {
       livePartySessionState.round += 1;
     }
 
-    const sessionMinutes = Math.max(1, Number(req.body?.minutes) || 1);
-    const worldClock = await advanceSessionMinutes(pool, sessionMinutes, () => executeMasterTick());
+    let worldClock: any;
+    if (req.body?.minutes !== undefined) {
+      const sessionMinutes = Math.max(1, Number(req.body.minutes) || 1);
+      worldClock = await advanceSessionMinutes(pool, sessionMinutes, () => executeMasterTick());
+    } else {
+      const nextRound = (livePartySessionState.encounterRound ?? 0) + 1;
+      const comb = gmResult?.intent?.isCombat === true || gmResult?.intent?.category === "COMBAT";
+      const encClock = await advanceEncounterRound(pool, {
+        round: nextRound,
+        accumulatedSeconds: livePartySessionState.encounterSeconds ?? 0,
+        cellId: livePartySessionState.cellId,
+        rx: livePartySessionState.rx,
+        ry: livePartySessionState.ry,
+        z: livePartySessionState.z,
+        combatLoud: comb,
+        runMacroTick: () => executeMasterTick(),
+      });
+      livePartySessionState.encounterRound = encClock.round;
+      livePartySessionState.encounterSeconds = encClock.accumulatedSeconds;
+      worldClock = encClock;
+    }
 
     res.json({
       success: true,
@@ -3161,6 +3187,8 @@ router.post('/party_session/resolve_thread', async (req, res) => {
 router.post('/party_session/close', async (_req, res) => {
   try {
     livePartySessionState.active = false;
+    livePartySessionState.encounterRound = 0;
+    livePartySessionState.encounterSeconds = 0;
     const worldClock = await setClockMode(pool, "live");
     res.json({ success: true, worldClock });
   } catch (err: any) {
