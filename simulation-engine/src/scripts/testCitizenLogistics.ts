@@ -13,6 +13,7 @@ import { runInterFactionTradeEngine } from "../engine/economy/interFactionTradeE
 import { openWorldEventThreads } from "../engine/threads/worldThreads.js";
 import { validateActorIds } from "../engine/threads/threadEngine.js";
 import { runSeeded, tickSeed } from "../engine/rng.js";
+import { addCellTags } from "../engine/cellTags.js";
 
 async function getInv(burgId: number): Promise<Record<string, number>> {
   const r = await pool.query(`SELECT complex_inventory FROM sim_industrial_stockpiles WHERE burg_id = $1`, [burgId]);
@@ -357,6 +358,152 @@ async function main() {
   assert.ok(raidActorCheck.valid, `WORLD_CARAVAN_RAID failed Rule 7 actor check: ${JSON.stringify(raidActorCheck)}`);
   await pool.query("ROLLBACK TO SAVEPOINT logistics_raid");
   console.log("6. Syndicate lair interception seizes cargo & opens Rule 7 WORLD_CARAVAN_RAID thread... PASSED");
+
+  // ---------------------------------------------------------------------------
+  // 7. Intermediate blockade closes graph edge & reroutes convoy along bypass
+  // ---------------------------------------------------------------------------
+  await pool.query("SAVEPOINT logistics_reroute");
+  await pool.query(`DELETE FROM sim_trade_shipments`);
+  await pool.query(`DELETE FROM sim_fringe_lairs`);
+  await pool.query(`DELETE FROM sim_events WHERE tick = $1`, [baseTick + 1]);
+
+  let rerouteSrc: any = null;
+  let rerouteBase: Awaited<ReturnType<typeof findTradeRoute>> = null;
+  let blockCellId = 0;
+  let blockCellIdx = -1;
+  let rerouteCrew: { merchantId: number; crewId: number } | null = null;
+
+  const rerouteCands = await pool.query(
+    `SELECT b.burg_id, b.cell_id, COALESCE(c.faction_id, 0)::int AS faction_id
+     FROM sim_burg_economy b
+     JOIN sim_cells c ON c.id = b.cell_id
+     WHERE b.burg_id != 1 AND COALESCE(c.faction_id, 0) > 0 AND c.faction_id != 29
+     ORDER BY b.burg_id ASC LIMIT 25`
+  );
+  for (const cand of rerouteCands.rows) {
+    const cr = await pickCrew(Number(cand.burg_id), "Caravan Drover");
+    if (!cr) continue;
+    const base = await findTradeRoute(pool, { fromCellId: Number(cand.cell_id), toCellId: 30627, allowedModes: ["LAND"] });
+    if (!base || base.pathCells.length < 5) continue;
+    for (let bi = 1; bi < base.pathCells.length - 1; bi++) {
+      const candidateBlock = base.pathCells[bi]!;
+      const curCell = base.pathCells[bi - 1]!;
+      const alt = await findTradeRoute(pool, {
+        fromCellId: curCell,
+        toCellId: 30627,
+        allowedModes: ["LAND"],
+        blockedCells: new Set([candidateBlock]),
+      });
+      if (alt && alt.pathCells.length > 1 && !alt.pathCells.includes(candidateBlock)) {
+        rerouteSrc = cand;
+        rerouteBase = base;
+        blockCellId = candidateBlock;
+        blockCellIdx = bi;
+        rerouteCrew = cr;
+        break;
+      }
+    }
+    if (rerouteSrc) break;
+  }
+  assert.ok(rerouteSrc && rerouteBase && blockCellId > 0 && rerouteCrew, "Failed to find a LAND corridor with a clean bypass edge");
+
+  await addCellTags(pool, blockCellId, ["#TradeBlockade"]);
+  await pool.query(`UPDATE population_demographics SET allegiance_status = 'ON_CARAVAN' WHERE citizen_id IN ($1, $2)`, [rerouteCrew.merchantId, rerouteCrew.crewId]);
+  const preIdx = blockCellIdx - 1;
+  const rerouteIns = await pool.query(
+    `INSERT INTO sim_trade_shipments (
+       source_burg_id, dest_burg_id, source_faction_id, dest_faction_id,
+       transport_mode, good_id, good_key, good_name, quantity, unit_price,
+       total_gold, tariff_gold, carriage_weight, merchant_citizen_id,
+       crew_citizen_ids, guard_count, path_cells, path_index, current_cell_id,
+       status, dispatched_tick, eta_ticks
+     ) VALUES ($1, 1, $2, 29, 'LAND', 34, 'coal', 'Coal', 8, 8, 68, 4, 4.8, $3, $4::jsonb, 1, $5::jsonb, $6, $7, 'IN_TRANSIT', $8, $9)
+     RETURNING id`,
+    [
+      rerouteSrc.burg_id,
+      rerouteSrc.faction_id,
+      rerouteCrew.merchantId,
+      JSON.stringify([rerouteCrew.crewId]),
+      JSON.stringify(rerouteBase.pathCells),
+      preIdx,
+      rerouteBase.pathCells[preIdx],
+      baseTick,
+      rerouteBase.etaTicks,
+    ]
+  );
+  const rerouteShipId = Number(rerouteIns.rows[0].id);
+
+  await runSeeded(tickSeed(baseTick + 1), () => runInterFactionTradeEngine(pool, baseTick + 1, "Blockade Reroute"));
+
+  const reroutedRow = (await pool.query(`SELECT status, path_cells, current_cell_id FROM sim_trade_shipments WHERE id = $1`, [rerouteShipId])).rows[0];
+  assert.ok(
+    reroutedRow.status === "IN_TRANSIT" || reroutedRow.status === "DELIVERED",
+    `Expected convoy to reroute around blockaded cell ${blockCellId}, got status ${reroutedRow.status}`
+  );
+  const storedPath: number[] = Array.isArray(reroutedRow.path_cells) ? reroutedRow.path_cells.map(Number) : [];
+  assert.ok(!storedPath.includes(blockCellId), `Rerouted path still includes blockaded cell ${blockCellId}`);
+  const rerouteEv = await pool.query(
+    `SELECT COUNT(*)::int AS c FROM sim_events WHERE tick = $1 AND type = 'TRADE_ROUTE_REROUTED' AND burg_id = 1`,
+    [baseTick + 1]
+  );
+  assert.ok(Number(rerouteEv.rows[0].c) >= 1, "Expected TRADE_ROUTE_REROUTED event on blockade bypass");
+  await pool.query("ROLLBACK TO SAVEPOINT logistics_reroute");
+  console.log(`7. Intermediate #TradeBlockade closes edge #${blockCellId} & reroutes convoy along bypass... PASSED`);
+
+  // ---------------------------------------------------------------------------
+  // 8. Destination blockade closes routes, blocks new dispatches, and aborts inbound
+  // ---------------------------------------------------------------------------
+  await pool.query("SAVEPOINT logistics_dest_blockade");
+  await pool.query(`DELETE FROM sim_trade_shipments`);
+  await pool.query(`DELETE FROM sim_events WHERE tick = $1`, [baseTick + 1]);
+  await addCellTags(pool, 30627, ["#CompassEmbargo"]);
+
+  const closedRoute = await findTradeRoute(pool, {
+    fromCellId: Number(rerouteSrc.cell_id),
+    toCellId: 30627,
+    allowedModes: ["LAND", "SEA"],
+    blockedCells: new Set([30627]),
+  });
+  assert.equal(closedRoute, null, "Expected destination blockade on 30627 to close LAND/SEA route graph");
+
+  await pool.query(`UPDATE population_demographics SET allegiance_status = 'ON_CARAVAN' WHERE citizen_id IN ($1, $2)`, [rerouteCrew.merchantId, rerouteCrew.crewId]);
+  const inboundBlocked = await pool.query(
+    `INSERT INTO sim_trade_shipments (
+       source_burg_id, dest_burg_id, source_faction_id, dest_faction_id,
+       transport_mode, good_id, good_key, good_name, quantity, unit_price,
+       total_gold, tariff_gold, carriage_weight, merchant_citizen_id,
+       crew_citizen_ids, guard_count, path_cells, path_index, current_cell_id,
+       status, dispatched_tick, eta_ticks
+     ) VALUES ($1, 1, $2, 29, 'LAND', 34, 'coal', 'Coal', 8, 8, 68, 4, 4.8, $3, $4::jsonb, 0, $5::jsonb, 0, $6, 'IN_TRANSIT', $7, $8)
+     RETURNING id`,
+    [
+      rerouteSrc.burg_id,
+      rerouteSrc.faction_id,
+      rerouteCrew.merchantId,
+      JSON.stringify([rerouteCrew.crewId]),
+      JSON.stringify(rerouteBase.pathCells),
+      rerouteBase.pathCells[0],
+      baseTick,
+      rerouteBase.etaTicks,
+    ]
+  );
+  const blockedShipId = Number(inboundBlocked.rows[0].id);
+
+  await runSeeded(tickSeed(baseTick + 1), () => runInterFactionTradeEngine(pool, baseTick + 1, "Dest Blockade"));
+
+  const blockedStatus = (await pool.query(`SELECT status FROM sim_trade_shipments WHERE id = $1`, [blockedShipId])).rows[0].status;
+  assert.equal(blockedStatus, "ABORTED", `Expected destination #CompassEmbargo to ABORT inbound convoy, got ${blockedStatus}`);
+  const dispatchedToExcelsis = (await pool.query(
+    `SELECT COUNT(*)::int AS c FROM sim_trade_shipments WHERE dest_burg_id = 1 AND status = 'IN_TRANSIT'`
+  )).rows[0].c;
+  assert.equal(Number(dispatchedToExcelsis), 0, "Expected zero new convoys dispatched into blockaded Excelsis");
+  const embargoEv = await pool.query(
+    `SELECT COUNT(*)::int AS c FROM sim_events WHERE tick = $1 AND type = 'TRADE_EMBARGO_CHOKEPOINT' AND burg_id = 1`,
+    [baseTick + 1]
+  );
+  assert.ok(Number(embargoEv.rows[0].c) >= 1, "Expected TRADE_EMBARGO_CHOKEPOINT event on closed destination");
+  await pool.query("ROLLBACK TO SAVEPOINT logistics_dest_blockade");
+  console.log("8. Destination blockade closes routes, blocks new dispatches & aborts inbound convoy... PASSED");
 
   console.log("\nALL CITIZEN LOGISTICS TESTS PASSED");
 }

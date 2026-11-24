@@ -590,6 +590,21 @@ function summarizePath(mode: TransportMode, pathCells: number[]): RoutePlan {
   };
 }
 
+/** Returns true when a graph node cannot be traversed due to a blockade or wartime border. */
+export function isCellBlockedOrHostile(
+  cellId: number,
+  blockedCells?: Set<number>,
+  avoidFactionIds?: Set<number>,
+  cellFactionMap?: Map<number, number>
+): boolean {
+  if (blockedCells?.has(cellId)) return true;
+  if (avoidFactionIds?.size && cellFactionMap) {
+    const fid = cellFactionMap.get(cellId) || 0;
+    if (fid > 0 && avoidFactionIds.has(fid)) return true;
+  }
+  return false;
+}
+
 /**
  * Finds the best legal trade route across requested transport modes.
  * Returns null if all allowed modes are blocked by geography, war borders, or embargoes.
@@ -611,24 +626,20 @@ export async function findTradeRoute(client: Db, opts: FindRouteOptions): Promis
       continue;
     }
 
+    if (blockedCells?.has(fromCellId) || blockedCells?.has(toCellId)) {
+      continue;
+    }
+
     const fromSnap = snapToGraphNode(fromCellId);
     const toSnap = snapToGraphNode(toCellId);
     if (!fromSnap || !toSnap) continue;
 
     // Ensure a snapped entry/exit node does not force trespass through a hostile wartorn faction or blockaded chokepoint
-    if (fromSnap.node !== fromCellId) {
-      if (blockedCells?.has(fromSnap.node)) continue;
-      if (avoidFactionIds?.size && cellFactionMap) {
-        const nf = cellFactionMap.get(fromSnap.node) || 0;
-        if (nf > 0 && avoidFactionIds.has(nf)) continue;
-      }
+    if (fromSnap.node !== fromCellId && isCellBlockedOrHostile(fromSnap.node, blockedCells, avoidFactionIds, cellFactionMap)) {
+      continue;
     }
-    if (toSnap.node !== toCellId) {
-      if (blockedCells?.has(toSnap.node)) continue;
-      if (avoidFactionIds?.size && cellFactionMap) {
-        const nf = cellFactionMap.get(toSnap.node) || 0;
-        if (nf > 0 && avoidFactionIds.has(nf)) continue;
-      }
+    if (toSnap.node !== toCellId && isCellBlockedOrHostile(toSnap.node, blockedCells, avoidFactionIds, cellFactionMap)) {
+      continue;
     }
 
     const corePath = runGraphAStar(

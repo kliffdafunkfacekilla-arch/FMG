@@ -287,7 +287,7 @@ export async function runInterFactionTradeEngine(
   const tagMap = await loadCellTagMap(client, 0);
   const blockedCells = new Set<number>();
   for (const [cid, tags] of tagMap.entries()) {
-    if (tags.some((t) => t.includes("TradeBlockade") || t.includes("CompassBlockaded"))) {
+    if (tags.some((t) => t.includes("TradeBlockade") || t.includes("CompassBlockaded") || t.includes("CompassEmbargo"))) {
       blockedCells.add(cid);
     }
   }
@@ -423,8 +423,9 @@ export async function runInterFactionTradeEngine(
     }
   }
 
+  const routeMemo = createRouteSearchMemo();
   const activeLaneKeys = new Set<string>();
-  const shipmentUpdates: Array<{ id: number; status: string; pathIndex: number; currentCellId: number; etaTicks: number; resolvedTick: number | null }> = [];
+  const shipmentUpdates: Array<{ id: number; status: string; pathIndex: number; currentCellId: number; etaTicks: number; resolvedTick: number | null; pathCellsJson?: string | null }> = [];
 
   for (const s of inTransitRes.rows) {
     shipmentsStepped++;
@@ -441,7 +442,7 @@ export async function runInterFactionTradeEngine(
     const totalGold = Math.max(0, Number(s.total_gold) || 0);
     const tariffGold = Math.max(0, Number(s.tariff_gold) || 0);
     const guardCount = Math.max(0, Number(s.guard_count) || 0);
-    const pathCells = parseJson<number[]>(s.path_cells, []).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+    let pathCells = parseJson<number[]>(s.path_cells, []).map(Number).filter((n) => Number.isInteger(n) && n > 0);
     const curIdx = Number(s.path_index) || 0;
     const allCrew = collectCrewIdsFromRow(s);
 
@@ -454,11 +455,18 @@ export async function runInterFactionTradeEngine(
       continue;
     }
 
-    const step = advanceAlongPath(pathCells, curIdx, mode);
+    let step = advanceAlongPath(pathCells, curIdx, mode);
+    let reroutedPathJson: string | null = null;
+    let reroutedEtaTicks: number | null = null;
 
     // 1. Check active war, hostile border traversal, or #TradeBlockade on visited cells
     const directWar = warMap.has(`${sourceFactionId}_${destFactionId}`);
-    let disruptedCell: number | null = directWar ? step.nextCellId : null;
+    const hardClosed = directWar || blockedCells.has(importer.cell_id) || blockedCells.has(seller.cell_id);
+    let disruptedCell: number | null = directWar
+      ? step.nextCellId
+      : blockedCells.has(importer.cell_id)
+        ? importer.cell_id
+        : null;
 
     if (!disruptedCell) {
       for (let i = 0; i < step.visitedCells.length; i++) {
@@ -479,6 +487,48 @@ export async function runInterFactionTradeEngine(
             disruptedCell = cid;
             break;
           }
+        }
+      }
+    }
+
+    if (disruptedCell !== null && !hardClosed && mode !== "AIR") {
+      const curCellId = Number(pathCells[curIdx] || s.current_cell_id || seller.cell_id);
+      const convoyAvoid = new Set<number>();
+      const sEnemies = warEnemiesByFaction.get(sourceFactionId);
+      if (sEnemies) for (const eid of sEnemies) convoyAvoid.add(eid);
+      const dEnemies = warEnemiesByFaction.get(destFactionId);
+      if (dEnemies) for (const eid of dEnemies) convoyAvoid.add(eid);
+
+      if (!blockedCells.has(curCellId)) {
+        const reroute = await findTradeRoute(client, {
+          fromCellId: curCellId,
+          toCellId: importer.cell_id,
+          allowedModes: [mode],
+          blockedCells,
+          avoidFactionIds: convoyAvoid,
+          cellFactionMap,
+          memo: routeMemo,
+        });
+        const interiorClean =
+          reroute &&
+          reroute.pathCells.length > 1 &&
+          reroute.pathCells.slice(1, -1).every((cid) => !blockedCells.has(cid));
+        if (reroute && interiorClean) {
+          pathCells = reroute.pathCells;
+          step = advanceAlongPath(pathCells, 0, mode);
+          reroutedPathJson = JSON.stringify(pathCells);
+          reroutedEtaTicks = Math.max(1, reroute.etaTicks - 1);
+          disruptedCell = null;
+          pendingEvents.push({
+            tick,
+            type: "TRADE_ROUTE_REROUTED",
+            message: `🧭 CONVOY REROUTED: ${mode} convoy from ${seller.name} bypassed blockaded sector #${curCellId} on alternate corridor toward ${importer.name} (${pathCells.length} hops, ETA ${reroutedEtaTicks} days).`,
+            tier: "MINOR",
+            factionId: destFactionId || null,
+            outlawId: null,
+            burgId: importer.burg_id,
+            cellId: step.nextCellId,
+          });
         }
       }
     }
@@ -585,6 +635,7 @@ export async function runInterFactionTradeEngine(
           currentCellId: hitCell,
           etaTicks: 0,
           resolvedTick: tick,
+          pathCellsJson: reroutedPathJson,
         });
         shipmentsIntercepted++;
         pendingEvents.push({
@@ -631,6 +682,7 @@ export async function runInterFactionTradeEngine(
         currentCellId: pathCells[pathCells.length - 1]!,
         etaTicks: 0,
         resolvedTick: tick,
+        pathCellsJson: reroutedPathJson,
       });
 
       tradesExecuted++;
@@ -659,8 +711,9 @@ export async function runInterFactionTradeEngine(
       status: "IN_TRANSIT",
       pathIndex: step.nextIndex,
       currentCellId: step.nextCellId,
-      etaTicks: Math.max(1, Number(s.eta_ticks || 1) - 1),
+      etaTicks: reroutedEtaTicks ?? Math.max(1, Number(s.eta_ticks || 1) - 1),
       resolvedTick: null,
+      pathCellsJson: reroutedPathJson,
     });
   }
 
@@ -672,14 +725,16 @@ export async function runInterFactionTradeEngine(
          path_index = v.path_index,
          current_cell_id = v.current_cell_id,
          eta_ticks = v.eta_ticks,
-         resolved_tick = v.resolved_tick
+         resolved_tick = v.resolved_tick,
+         path_cells = COALESCE(v.path_cells, sh.path_cells)
        FROM (
          SELECT unnest($1::int[]) AS id,
                 unnest($2::text[]) AS status,
                 unnest($3::int[]) AS path_index,
                 unnest($4::int[]) AS current_cell_id,
                 unnest($5::int[]) AS eta_ticks,
-                unnest($6::int[]) AS resolved_tick
+                unnest($6::int[]) AS resolved_tick,
+                unnest($7::jsonb[]) AS path_cells
        ) AS v
        WHERE sh.id = v.id`,
       [
@@ -689,6 +744,7 @@ export async function runInterFactionTradeEngine(
         shipmentUpdates.map((u) => u.currentCellId),
         shipmentUpdates.map((u) => u.etaTicks),
         shipmentUpdates.map((u) => u.resolvedTick),
+        shipmentUpdates.map((u) => u.pathCellsJson ?? null),
       ]
     );
   }
@@ -764,7 +820,7 @@ export async function runInterFactionTradeEngine(
 
     // 3. Load canonical Azgaar trade deal corridors (sim_trade_deals)
     const dealsRes = await client.query(`
-      SELECT from_burg_id, to_market_id, good_id
+      SELECT from_burg_id, to_market_id, good_id, COALESCE(transport_cost, 0)::real AS transport_cost
       FROM sim_trade_deals
       ORDER BY id ASC
     `);
@@ -810,7 +866,6 @@ export async function runInterFactionTradeEngine(
       etaTicks: number;
     }> = [];
 
-    const routeMemo = createRouteSearchMemo();
     const embargoedBurgsThisTick = new Set<number>();
     let dispatchEventsEmitted = 0;
 
@@ -890,6 +945,37 @@ export async function runInterFactionTradeEngine(
 
       if (demands.length === 0) continue;
 
+      if (blockedCells.has(importer.cell_id)) {
+        const crit = demands.find((d) => d.critical) || demands[0]!;
+        if (!embargoedBurgsThisTick.has(importer.burg_id)) {
+          embargoedBurgsThisTick.add(importer.burg_id);
+          embargoStalls.push({
+            burgId: importer.burg_id,
+            burgName: importer.name,
+            factionId: impFactionId,
+            neededGoodKey: crit.goodKey,
+            neededGoodName: crit.goodName,
+            category: crit.category,
+            stalledProject: impTier === 1 ? "Town Charter" : impTier === 2 ? "City Walls" : "Workshops",
+          });
+          if (tick % 3 === 0) {
+            importer.unrest = Math.min(100, importer.unrest + 1);
+            modifiedBurgStats.add(importer.burg_id);
+            pendingEvents.push({
+              tick,
+              type: "TRADE_EMBARGO_CHOKEPOINT",
+              message: `⚠️ TRADE EMBARGO CHOKEPOINT: Workshops in ${importer.name} stalled! Harbor & road approaches blockaded, halting ${crit.goodName} imports.`,
+              tier: "MAJOR",
+              factionId: impFactionId || null,
+              outlawId: null,
+              burgId: importer.burg_id,
+              cellId: importer.cell_id,
+            });
+          }
+        }
+        continue;
+      }
+
       const impEnemies = warEnemiesByFaction.get(impFactionId);
       const impMarketGoods = marketGoodsById.get(importer.market_id);
 
@@ -915,6 +1001,11 @@ export async function runInterFactionTradeEngine(
           if (sq < 16) continue;
           if (activeLaneKeys.has(`${cand.burg_id}:${importer.burg_id}:${demand.goodKey}`)) continue;
 
+          if (blockedCells.has(cand.cell_id)) {
+            embargoEncountered = true;
+            embargoingFactionName = cand.faction_name || "Blockaded Origin";
+            continue;
+          }
           if (warMap.has(`${impFactionId}_${cand.faction_id}`)) {
             embargoEncountered = true;
             embargoingFactionName = cand.faction_name || "Hostile Faction";
@@ -956,10 +1047,10 @@ export async function runInterFactionTradeEngine(
           );
           if (tradeQty < 3) continue;
 
-          const grossGold = Math.max(3, Math.round(tradeQty * unitPrice));
+          let grossGold = Math.max(3, Math.round(tradeQty * unitPrice));
           const tariffRate = getTariffRate(factionMap.get(impFactionId), seller.faction_id, demand.goodId);
           const tariffGold = tariffRate > 0 ? Math.max(1, Math.round(grossGold * tariffRate)) : 0;
-          const totalGold = grossGold + tariffGold;
+          let totalGold = grossGold + tariffGold;
           if (importer.wealth < totalGold) continue;
 
           // Determine legal transport modes backed by living crew at seller
@@ -1007,6 +1098,13 @@ export async function runInterFactionTradeEngine(
           }
 
           if (!route || route.pathCells.length === 0) continue;
+
+          if (route.mode !== "AIR" && (blockedCells.size > 0 || avoidFactions.size > 0) && straightDist > 0 && route.totalDist > straightDist * 1.35) {
+            const surcharge = Math.min(0.35, (route.totalDist / straightDist - 1.35) * 0.25);
+            grossGold = Math.round(grossGold * (1 + surcharge));
+            totalGold = grossGold + tariffGold;
+            if (importer.wealth < totalGold) continue;
+          }
 
           const crewAlloc = allocateCrew(sellerQueues, route.mode, tradeQty, totalGold);
           if (!crewAlloc) continue;
