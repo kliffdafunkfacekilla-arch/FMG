@@ -32,6 +32,8 @@ export async function applySchemaPatches(db: Db): Promise<void> {
   await db.query(`CREATE INDEX IF NOT EXISTS idx_sim_agents_role_home ON sim_agents(role, home_burg_id)`);
   await db.query(`CREATE INDEX IF NOT EXISTS idx_sim_events_tick ON sim_events(tick)`);
   await db.query(`CREATE INDEX IF NOT EXISTS idx_sim_events_type ON sim_events(type)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_sim_cells_coords ON sim_cells(center_x, center_y)`);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_sim_cells_pt ON sim_cells USING GIST (point(center_x, center_y))`);
   // A burg's living civilians in id order: tagBurgCitizens picks from a seeded point in this range
   await db.query(`CREATE INDEX IF NOT EXISTS idx_pop_civilians_by_burg ON population_demographics(settlement_id, citizen_id) WHERE allegiance_status = 'CIVILIAN'`);
   // Fast lookup of available living logistics crew per burg without scanning all 340k citizens

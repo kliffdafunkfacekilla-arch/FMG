@@ -1,7 +1,6 @@
 import { DAYS_PER_WEEK, MERCY_ALIGNMENT, NIGHTMARE_ALIGNMENT } from "../canon/calendar.js";
 import { PoolClient, Pool } from "pg";
-import { tagSectorEnvironment } from "./citizenPersonaHelper";
-import { removeCellTags } from "../cellTags.js";
+import { addCellTagsBatch, removeCellTags } from "../cellTags.js";
 
 /** One flow's fixed identity and endpoints, as seeded into sim_chaos_flows by the map ingest. */
 export interface ChaosFlowAnchor {
@@ -244,25 +243,42 @@ export async function runChaosFlowAgent(
   }
 
   const liveFlows: LiveChaosFlowState[] = [];
+  const flowUpdateRows: Array<{ flowId: number; surge: number; width: number; waypoints: string; narrowSpots: string }> = [];
 
   for (const anchor of anchors) {
     const flowState = computeChaosFlowState(anchor, tick, ctx);
     liveFlows.push(flowState);
+    flowUpdateRows.push({
+      flowId: anchor.flowId,
+      surge: flowState.currentSurge,
+      width: flowState.currentWidth,
+      waypoints: JSON.stringify(flowState.waypoints),
+      narrowSpots: JSON.stringify(flowState.narrowSpots),
+    });
+  }
 
+  if (flowUpdateRows.length > 0) {
     await client.query(
-      `UPDATE sim_chaos_flows SET
-         current_surge = $2,
-         current_width = $3,
-         waypoints = $4,
-         narrow_spots = $5,
+      `UPDATE sim_chaos_flows AS f SET
+         current_surge = v.surge,
+         current_width = v.width,
+         waypoints = v.waypoints,
+         narrow_spots = v.narrow_spots,
          updated_at = CURRENT_TIMESTAMP
-       WHERE flow_id = $1`,
+       FROM (
+         SELECT unnest($1::int[]) AS flow_id,
+                unnest($2::float[]) AS surge,
+                unnest($3::float[]) AS width,
+                unnest($4::jsonb[]) AS waypoints,
+                unnest($5::jsonb[]) AS narrow_spots
+       ) AS v
+       WHERE f.flow_id = v.flow_id`,
       [
-        anchor.flowId,
-        flowState.currentSurge,
-        flowState.currentWidth,
-        JSON.stringify(flowState.waypoints),
-        JSON.stringify(flowState.narrowSpots)
+        flowUpdateRows.map(r => r.flowId),
+        flowUpdateRows.map(r => r.surge),
+        flowUpdateRows.map(r => r.width),
+        flowUpdateRows.map(r => r.waypoints),
+        flowUpdateRows.map(r => r.narrowSpots),
       ]
     );
   }
@@ -288,14 +304,20 @@ export async function runChaosFlowAgent(
   // 4. Update Ambient Chaos & Attract Cultists / Wardens along Flow Banks
   if (tick % 2 === 0) {
     try {
+      const zoneUpserts = new Map<string, { cellId: number; intensity: number; type: string }>();
+      const blightDeltas = new Map<number, number>();
+      const pendingTagEntries: Array<{ cellId: number; tags: string[] }> = [];
+
       for (const flow of liveFlows) {
         const samplePts = [flow.waypoints[2], flow.waypoints[5], flow.waypoints[8]].filter(Boolean);
         for (const pt of samplePts) {
           if (!pt) continue;
           const nearbyCellsRes = await client.query(
-            `SELECT id, center_x, center_y, eco_blight FROM sim_cells
-             WHERE center_x BETWEEN $1 AND $2 AND center_y BETWEEN $3 AND $4 ORDER BY id
-             LIMIT 4`,
+            `WITH b AS MATERIALIZED (
+               SELECT id, center_x, center_y, eco_blight FROM sim_cells
+               WHERE point(center_x, center_y) <@ box(point($1, $3), point($2, $4))
+             )
+             SELECT id, center_x, center_y, eco_blight FROM b ORDER BY id LIMIT 4`,
             [pt.x - 70, pt.x + 70, pt.y - 70, pt.y + 70]
           );
 
@@ -303,19 +325,10 @@ export async function runChaosFlowAgent(
             const prox = evaluatePointChaosFlowProximity(cell.center_x, cell.center_y, [flow]);
             if (prox.intersected || prox.isAdjacent) {
               const zoneIntensity = Math.round(prox.ambientChaos * 100);
-              await client.query(
-                `INSERT INTO sim_chaos_zones (cell_id, intensity, type)
-                 VALUES ($1, $2, $3)
-                 ON CONFLICT (cell_id, type) DO UPDATE SET intensity = EXCLUDED.intensity`,
-                [cell.id, zoneIntensity, `${flow.elementalPower.toUpperCase()}_CHAOS_LEYS`]
-              ).catch(() => {});
-
-              await client.query(
-                `UPDATE sim_cells
-                 SET eco_blight = LEAST(100.0, COALESCE(eco_blight, 0) + 1.5)
-                 WHERE id = $1`,
-                [cell.id]
-              ).catch(() => {});
+              const zoneType = `${flow.elementalPower.toUpperCase()}_CHAOS_LEYS`;
+              const cid = Number(cell.id);
+              zoneUpserts.set(`${cid}:${zoneType}`, { cellId: cid, intensity: zoneIntensity, type: zoneType });
+              blightDeltas.set(cid, (blightDeltas.get(cid) || 0) + 1.5);
 
               // Apply primordial chaos environmental tags to the sector layer
               const flowTags = [
@@ -323,7 +336,7 @@ export async function runChaosFlowAgent(
                 `#DragonLeys_${flow.dragonName}`,
                 ...(FLOW_DOMAIN_TAGS[flow.elementalPower] || ["#PrimordialAether"])
               ];
-              await tagSectorEnvironment(client, cell.id, flowTags, 0);
+              pendingTagEntries.push({ cellId: cid, tags: flowTags });
 
               if (Math.random() < 0.10) {
                 const roll = Math.random();
@@ -362,6 +375,31 @@ export async function runChaosFlowAgent(
             }
           }
         }
+      }
+
+      if (zoneUpserts.size > 0) {
+        const zones = Array.from(zoneUpserts.values()).sort((a, b) => (a.cellId - b.cellId) || a.type.localeCompare(b.type));
+        await client.query(
+          `INSERT INTO sim_chaos_zones (cell_id, intensity, type)
+           SELECT unnest($1::int[]), unnest($2::real[]), unnest($3::text[])
+           ON CONFLICT (cell_id, type) DO UPDATE SET intensity = EXCLUDED.intensity`,
+          [zones.map(z => z.cellId), zones.map(z => z.intensity), zones.map(z => z.type)]
+        );
+      }
+
+      if (blightDeltas.size > 0) {
+        const entries = Array.from(blightDeltas.entries()).sort((a, b) => a[0] - b[0]);
+        await client.query(
+          `UPDATE sim_cells AS c
+           SET eco_blight = LEAST(100.0, COALESCE(c.eco_blight, 0) + v.delta)
+           FROM (SELECT unnest($1::int[]) AS id, unnest($2::float[]) AS delta) AS v
+           WHERE c.id = v.id`,
+          [entries.map(e => e[0]), entries.map(e => e[1])]
+        );
+      }
+
+      if (pendingTagEntries.length > 0) {
+        await addCellTagsBatch(client, pendingTagEntries, 0);
       }
     } catch (err) {
       console.warn("Error updating flow adjacent chaos cells:", err);

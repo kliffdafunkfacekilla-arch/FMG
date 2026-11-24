@@ -58,6 +58,52 @@ export async function addCellTags(db: Db, cellId: number, tags: string[], zLayer
   );
 }
 
+/** Adds tags to many cells in two bulk queries (deduplicated per cell). */
+export async function addCellTagsBatch(
+  db: Db,
+  entries: Array<{ cellId: number; tags: string[] }>,
+  zLayer = 0
+): Promise<void> {
+  if (!entries.length) return;
+  await ensureCellTagsTable(db);
+  const byCell = new Map<number, Set<string>>();
+  for (const e of entries) {
+    if (!e.tags.length) continue;
+    let set = byCell.get(e.cellId);
+    if (!set) {
+      set = new Set<string>();
+      byCell.set(e.cellId, set);
+    }
+    for (const t of e.tags) set.add(t);
+  }
+  if (byCell.size === 0) return;
+  const cellIds = Array.from(byCell.keys()).sort((a, b) => a - b);
+  const tagJsons = cellIds.map((cid) => JSON.stringify(Array.from(byCell.get(cid)!)));
+  await db.query(
+    `INSERT INTO sim_cell_tags (cell_id, z_layer, tags)
+     SELECT v.cell_id, $2::int, v.tags
+     FROM (SELECT unnest($1::int[]) AS cell_id, unnest($3::jsonb[]) AS tags) v
+     ON CONFLICT (cell_id, z_layer) DO UPDATE SET tags = (
+       SELECT COALESCE(jsonb_agg(DISTINCT e ORDER BY e), '[]'::jsonb) FROM (
+         SELECT jsonb_array_elements_text(sim_cell_tags.tags) AS e
+         UNION SELECT jsonb_array_elements_text(EXCLUDED.tags)
+       ) t
+     )`,
+    [cellIds, zLayer, tagJsons]
+  );
+  await db.query(
+    `UPDATE sim_sector_layers AS s SET features = jsonb_set(
+       COALESCE(s.features, '{}'::jsonb), '{environmental_tags}',
+       (SELECT COALESCE(jsonb_agg(DISTINCT e ORDER BY e), '[]'::jsonb) FROM (
+          SELECT jsonb_array_elements_text(COALESCE(s.features->'environmental_tags', '[]'::jsonb)) AS e
+          UNION SELECT jsonb_array_elements_text(v.tags)
+       ) t))
+     FROM (SELECT unnest($1::int[]) AS cell_id, unnest($3::jsonb[]) AS tags) v
+     WHERE s.cell_id = v.cell_id AND s.z_layer = $2::int`,
+    [cellIds, zLayer, tagJsons]
+  );
+}
+
 /** Removes tags from a cell. */
 export async function removeCellTags(db: Db, cellId: number, tags: string[], zLayer = 0): Promise<void> {
   if (!tags.length) return;

@@ -718,6 +718,7 @@ export async function ingestHolgalandMap() {
     console.log(`  - ${parsed.rivers.length} Rivers, ${parsed.routes.length} Routes, ${parsed.markers.length} Landmarks, 12 Dragon Prisons`);
 
     await pool.query("CREATE INDEX IF NOT EXISTS idx_sim_cells_coords ON sim_cells (center_x, center_y)");
+    await pool.query("CREATE INDEX IF NOT EXISTS idx_sim_cells_pt ON sim_cells USING GIST (point(center_x, center_y))");
     await pool.query("CREATE INDEX IF NOT EXISTS idx_sim_cells_faction ON sim_cells (faction_id)");
     await pool.query("CREATE INDEX IF NOT EXISTS idx_sim_burg_cell ON sim_burg_economy (cell_id)");
 
