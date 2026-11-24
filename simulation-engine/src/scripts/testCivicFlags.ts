@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import pool from "../db/pool.js";
-import { applySchemaPatches } from "../db/schemaPatches.js";
+import { migrate } from "../db/migrate.js";
 import { generateBurgSectorLayers } from "../engine/maps/SectorMapGenerator.js";
 import { generateWardDistrictMap } from "../engine/maps/WardDistrict.js";
 import { extractBurgCivicFlags, computeSiegeDefenseMultiplier } from "../engine/maps/civicFlags.js";
@@ -16,7 +16,7 @@ function countTiles(grid: Uint8Array, tileId: number): number {
 
 async function main() {
   console.log("=== Testing Civic Flags in Tactical Map Gen & Sieges (B6.3) ===");
-  await applySchemaPatches(pool);
+  await migrate(pool);
 
   // ---------------------------------------------------------------------------
   // 1. SectorMapGenerator places structures & props driven by all 7 flags

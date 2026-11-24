@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import pool from "../db/pool.js";
 import { isolateTest } from "./testIsolation.js";
-import { applySchemaPatches } from "../db/schemaPatches.js";
+import { migrate } from "../db/migrate.js";
 import {
   computeClimateHarvestModifier,
   runBurgOperationsAgent,
@@ -17,7 +17,7 @@ import { runSeeded, tickSeed } from "../engine/rng.js";
 
 async function main() {
   console.log("=== Testing Rivers, Hydrology Flux & Climate Variance (B6.4) ===");
-  await applySchemaPatches(pool);
+  await migrate(pool);
 
   const calRes = await pool.query(`SELECT COALESCE(MAX(tick), 1)::int AS t FROM sim_calendar`);
   const baseTick = Number(calRes.rows[0].t) || 1;

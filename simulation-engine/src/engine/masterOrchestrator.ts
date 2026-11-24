@@ -24,12 +24,12 @@ import { stepActiveRegions } from "../api/regionalRouter";
 import { DAYS_PER_MONTH } from "./canon/calendar.js";
 import { runMarketAgent } from "./economy/marketAgent.js";
 import { runFactionCollapse } from "./agents/factionCollapse.js";
-import { applySchemaPatches } from "../db/schemaPatches.js";
+import { migrate } from "../db/migrate.js";
 import { runSeeded, seedSql, tickSeed } from "./rng.js";
 import { runAutonomousDramaAgent } from "./agents/autonomousDramaAgent.js";
 import { advanceThreadClocks } from "./threads/threadEngine.js";
 
-let schemaPatched = false;
+let schemaMigrated = false;
 
 export interface TickResult {
     status: "success" | "partial";
@@ -117,8 +117,8 @@ async function runTick(): Promise<TickResult> {
     };
 
     try {
-        // Scripts tick without the server, so make sure added columns exist (once per process)
-        if (!schemaPatched) { await applySchemaPatches(client); schemaPatched = true; }
+        // Scripts tick without the server, so make sure numbered migrations have run (once per process)
+        if (!schemaMigrated) { await migrate(client); schemaMigrated = true; }
         await client.query('BEGIN');
 
         // The calendar is the only clock (an event stamped in the future used to make the world jump ahead)

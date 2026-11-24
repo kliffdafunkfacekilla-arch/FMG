@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import pool from "../db/pool.js";
 import { isolateTest } from "./testIsolation.js";
-import { applySchemaPatches } from "../db/schemaPatches.js";
+import { migrate } from "../db/migrate.js";
 import { runFactionPlanningAgent } from "../engine/agents/factionPlanningAgent.js";
 import { runSeeded, tickSeed } from "../engine/rng.js";
 
 async function main() {
   console.log("=== Testing Faction Finances, Troop Upkeep & Corruption Unrest (B6.2) ===");
-  await applySchemaPatches(pool);
+  await migrate(pool);
 
   // Pick a quiet tick where monthly grand-strategy (tick + f*7 % 48) and weekly war clashes (tick % 7) do not run
   let probeTick = 2;

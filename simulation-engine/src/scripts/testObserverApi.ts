@@ -3,14 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 import pool from "../db/pool.js";
 import { isolateTest } from "./testIsolation.js";
-import { applySchemaPatches } from "../db/schemaPatches.js";
+import { migrate } from "../db/migrate.js";
 import { resolveBorderWarPair, summarizeTickHealth } from "../api/observerRouter.js";
 import { runInterFactionTradeEngine } from "../engine/economy/interFactionTradeEngine.js";
 import { runSeeded, tickSeed } from "../engine/rng.js";
 
 async function main() {
   console.log("=== Testing Observer Dashboard API Parity & Hygiene ===");
-  await applySchemaPatches(pool);
+  await migrate(pool);
 
   // 1. Source hygiene: no retired Holgaland defaults, Sovereign Scute, or Osmium
   const observerDir = path.resolve(__dirname, "..", "..", "src", "observer");

@@ -11,14 +11,14 @@ import pool from "../db/pool.js";
 import { isolateTest } from "./testIsolation.js";
 import { recordLedger, splitByShare } from "../engine/agents/burgOperationsAgent.js";
 import { executeMasterTick } from "../engine/masterOrchestrator.js";
-import { applySchemaPatches } from "../db/schemaPatches.js";
+import { migrate } from "../db/migrate.js";
 
 function check(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
 }
 
 async function main() {
-  await applySchemaPatches(pool);
+  await migrate(pool);
   const l = recordLedger(6786, 7774, 1594);
   check(l.unit === 9, `14,560 people over 1,594 records should be 9 per record, got ${l.unit}`);
   check(Math.abs(l.attunedShare - 7774 / 14560) < 1e-9, "attuned share is not the burg's real mix");

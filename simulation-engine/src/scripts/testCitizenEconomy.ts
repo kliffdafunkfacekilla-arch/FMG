@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import pool from "../db/pool.js";
 import { isolateTest } from "./testIsolation.js";
-import { applySchemaPatches } from "../db/schemaPatches.js";
+import { migrate } from "../db/migrate.js";
 import { getFactionSpecialty } from "../engine/economy/factionSpecialties.js";
 import { runBurgOperationsAgent } from "../engine/agents/burgOperationsAgent.js";
 import { updateRegionalMarkets } from "../engine/economy/marketAgent.js";
@@ -24,7 +24,7 @@ async function setExcelsisStockpile(inv: Record<string, number>) {
 
 async function main() {
   console.log("=== Testing Citizen-Backed Economy, Recipes, Specialties & 31 Markets ===");
-  await applySchemaPatches(pool);
+  await migrate(pool);
 
   const tickRes = await pool.query(`SELECT COALESCE(MAX(tick), 1)::int AS tick FROM sim_calendar`);
   const baseTick = Number(tickRes.rows[0].tick) || 1;

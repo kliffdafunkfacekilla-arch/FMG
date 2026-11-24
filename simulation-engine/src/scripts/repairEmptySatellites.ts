@@ -15,13 +15,13 @@
  */
 import pool from "../db/pool.js";
 import { settleSatellite } from "../engine/agents/burgExpansionAgent.js";
-import { applySchemaPatches } from "../db/schemaPatches.js";
+import { migrate } from "../db/migrate.js";
 
 async function main() {
   const apply = process.argv.includes("--apply");
   const client = await pool.connect();
   try {
-    await applySchemaPatches(client); // settleSatellite writes record_unit
+    await migrate(client); // settleSatellite writes record_unit
     await client.query("BEGIN");
     const res = await client.query(`
       SELECT s.burg_id, s.cell_id, s.name, s.settlement_type, s.pop_null + COALESCE(s.pop_attuned, 0) AS pop,

@@ -10,7 +10,8 @@
     "build:observer": "vite build",
     "start": "node dist/server.js",
     "test": "node run-tests.cjs",
-    "db:backup": "node scripts/backup.cjs"
+    "db:backup": "node scripts/backup.cjs",
+    "db:migrate": "node dist/db/migrate.js"
   },
   "keywords": [],
   "author": "",

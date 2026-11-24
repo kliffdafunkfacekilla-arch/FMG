@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import pool from "../db/pool.js";
 import { isolateTest } from "./testIsolation.js";
-import { applySchemaPatches } from "../db/schemaPatches.js";
+import { migrate } from "../db/migrate.js";
 import { runWeatherAgent } from "../engine/agents/weatherAgent.js";
 import { runSeeded } from "../engine/rng.js";
 
 async function main() {
   console.log("=== Testing Weather Health Update Filter (A1) ===");
-  await applySchemaPatches(pool);
+  await migrate(pool);
 
   const cellsRes = await pool.query(`SELECT id FROM sim_cells ORDER BY id ASC LIMIT 2`);
   assert.equal(cellsRes.rows.length, 2, "Need at least 2 cells in sim_cells");

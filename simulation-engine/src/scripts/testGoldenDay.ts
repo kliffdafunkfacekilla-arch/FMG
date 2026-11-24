@@ -13,7 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import pool from "../db/pool.js";
 import { isolateTest } from "./testIsolation.js";
-import { applySchemaPatches } from "../db/schemaPatches.js";
+import { migrate } from "../db/migrate.js";
 import { executeMasterTick } from "../engine/masterOrchestrator.js";
 import { worldFingerprint } from "./tickFingerprint.js";
 
@@ -33,7 +33,7 @@ async function main() {
   const noteArg = process.argv.find((a) => a.startsWith("--note="));
   const note = noteArg ? noteArg.slice("--note=".length) : "baseline";
 
-  await applySchemaPatches(pool);
+  await migrate(pool);
 
   const startTick = Number((await pool.query(`SELECT COALESCE(MAX(tick), 0) AS t FROM sim_calendar`)).rows[0]?.t ?? 0);
   const seed = process.env.SIM_SEED || "ostraka";

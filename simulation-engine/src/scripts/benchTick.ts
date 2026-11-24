@@ -9,13 +9,13 @@
  */
 import pool from "../db/pool.js";
 import { isolateTest } from "./testIsolation.js";
-import { applySchemaPatches } from "../db/schemaPatches.js";
+import { migrate } from "../db/migrate.js";
 import { executeMasterTick, TickResult } from "../engine/masterOrchestrator.js";
 import { worldFingerprint } from "./tickFingerprint.js";
 
 async function main() {
-  // Before the first savepoint: a patch applied inside a run would be rolled back with it
-  await applySchemaPatches(pool);
+  // Before the first savepoint: a migration applied inside a run would be rolled back with it
+  await migrate(pool);
   const runs = Math.max(2, Number(process.argv[2]) || 3);
   const baseCitizenId = Number((await pool.query(`SELECT COALESCE(MAX(citizen_id), 0) m FROM population_demographics`)).rows[0].m);
   const baseAgentId = Number((await pool.query(`SELECT COALESCE(MAX(id), 0) m FROM sim_agents`)).rows[0].m);
