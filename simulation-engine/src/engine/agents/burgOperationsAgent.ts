@@ -229,6 +229,8 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
     const stockpileUpdates: any[] = [];
     const burgEvents: any[] = [];
     const workforceDirtyBurgs = new Set<number>();
+    const infraBuilds = new Map<string, { burgId: number; cellId: number; type: string; inc: number }>();
+    const ecoMaxReductions = new Map<number, number>();
 
     // Load canonical goods & recipes from sim_goods (Ostraka_full.map)
     const goodsRes = await client.query(`SELECT id, name, value, tags, recipes FROM sim_goods ORDER BY id`);
@@ -683,12 +685,14 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
         for (const [infraType, deficit] of requiredInfraBuilds.entries()) {
             if (deficit >= 10 && (inventory['wood'] || 0) >= 20 && (burg.wealth || 0) >= 20) {
                 inventory['wood'] = Math.max(0, (inventory['wood'] || 0) - 20);
-                await client.query(`
-                    INSERT INTO sim_infrastructure (burg_id, cell_id, type, level)
-                    VALUES ($1, $2, $3, 1)
-                    ON CONFLICT (burg_id, type) DO UPDATE SET level = sim_infrastructure.level + 1
-                `, [burg.burg_id, burg.cell_id, infraType]).catch(() => { });
-                await client.query("UPDATE sim_cells SET eco_max = GREATEST(10, eco_max - 1) WHERE id = $1", [burg.cell_id]).catch(() => { });
+                const k = `${burg.burg_id}:${infraType}`;
+                const existing = infraBuilds.get(k);
+                if (existing) existing.inc += 1;
+                else infraBuilds.set(k, { burgId: Number(burg.burg_id), cellId: Number(burg.cell_id), type: infraType, inc: 1 });
+                if (burg.cell_id) {
+                    const cid = Number(burg.cell_id);
+                    ecoMaxReductions.set(cid, (ecoMaxReductions.get(cid) || 0) + 1);
+                }
             }
         }
 
@@ -1520,26 +1524,53 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
             ]);
         }
 
-        // ── QUANTITATIVE ECOLOGY FLUSH & ECOLOGICAL COLLAPSE AUDIT ────────────────
-        if (cellEcoDeltas.size > 0) {
-            for (const [cellId, damage] of cellEcoDeltas.entries()) {
-                await client.query(`
-                UPDATE sim_cells 
-                SET eco_health = GREATEST(0, eco_health - $1)
-                WHERE id = $2
-            `, [damage, cellId]).catch(() => { });
+        // ── BATCH INFRASTRUCTURE BUILDS, ECO_MAX CAPS & ECOLOGICAL COLLAPSE AUDIT ──
+        if (infraBuilds.size > 0) {
+            const items = Array.from(infraBuilds.values()).sort((a, b) => (a.burgId - b.burgId) || a.type.localeCompare(b.type));
+            await client.query(`
+                INSERT INTO sim_infrastructure (burg_id, cell_id, type, level)
+                SELECT unnest($1::int[]), unnest($2::int[]), unnest($3::text[]), unnest($4::int[])
+                ON CONFLICT (burg_id, type) DO UPDATE SET level = sim_infrastructure.level + EXCLUDED.level
+            `, [
+                items.map(i => i.burgId),
+                items.map(i => i.cellId),
+                items.map(i => i.type),
+                items.map(i => i.inc)
+            ]);
+        }
 
-                const ecoCheck = await client.query("SELECT eco_health FROM sim_cells WHERE id = $1", [cellId]).catch(() => ({ rows: [] }));
-                if (ecoCheck.rows[0] && Number(ecoCheck.rows[0].eco_health) < 30) {
-                    await client.query(`
+        if (ecoMaxReductions.size > 0) {
+            const entries = Array.from(ecoMaxReductions.entries()).sort((a, b) => a[0] - b[0]);
+            await client.query(`
+                UPDATE sim_cells AS c
+                SET eco_max = GREATEST(10, c.eco_max - v.dec)
+                FROM (SELECT unnest($1::int[]) AS id, unnest($2::int[]) AS dec) AS v
+                WHERE c.id = v.id
+            `, [entries.map(e => e[0]), entries.map(e => e[1])]);
+        }
+
+        if (cellEcoDeltas.size > 0) {
+            const entries = Array.from(cellEcoDeltas.entries()).sort((a, b) => a[0] - b[0]);
+            const ecoRes = await client.query(`
+                UPDATE sim_cells AS c
+                SET eco_health = GREATEST(0, c.eco_health - v.dmg)
+                FROM (SELECT unnest($1::int[]) AS id, unnest($2::float[]) AS dmg) AS v
+                WHERE c.id = v.id
+                RETURNING c.id, c.eco_health
+            `, [entries.map(e => e[0]), entries.map(e => e[1])]);
+            const collapseRows = ecoRes.rows
+                .filter((r: any) => Number(r.eco_health) < 30)
+                .sort((a: any, b: any) => Number(a.id) - Number(b.id));
+            if (collapseRows.length > 0) {
+                await client.query(`
                     INSERT INTO sim_events (tick, type, message, tier, cell_id, lore_date)
-                    VALUES ($1, 'ECOLOGICAL_COLLAPSE', $2, 'MAJOR', $3, $4)
+                    SELECT $1::int, 'ECOLOGICAL_COLLAPSE', unnest($2::text[]), 'MAJOR', unnest($3::int[]), $4::text
                 `, [
-                        tick,
-                        `⚠️ ECOLOGICAL COLLAPSE: Cell ${cellId} suffering from severe deforestation and resource depletion (Eco-Health ${ecoCheck.rows[0].eco_health})! Flora and wildlife populations decimated.`,
-                        cellId, loreDate
-                    ]).catch(() => { });
-                }
+                    tick,
+                    collapseRows.map((r: any) => `⚠️ ECOLOGICAL COLLAPSE: Cell ${r.id} suffering from severe deforestation and resource depletion (Eco-Health ${r.eco_health})! Flora and wildlife populations decimated.`),
+                    collapseRows.map((r: any) => Number(r.id)),
+                    loreDate
+                ]);
             }
         }
     }
