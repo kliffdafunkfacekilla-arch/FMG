@@ -77,6 +77,7 @@ const graphBuckets = new Map<string, number[]>();
 const safePathCache = new Map<string, number[] | null>();
 const landComponentId = new Map<number, number>();
 const allComponentId = new Map<number, number>();
+const cellRiverMap = new Map<number, { riverId: number; width: number; discharge: number }>();
 
 function bucketKey(x: number, y: number): string {
   return `${Math.floor(x / BUCKET_SIZE)},${Math.floor(y / BUCKET_SIZE)}`;
@@ -104,6 +105,35 @@ export function resetRouteGraphCache(): void {
   safePathCache.clear();
   landComponentId.clear();
   allComponentId.clear();
+  cellRiverMap.clear();
+}
+
+/**
+ * Computes ferry/bridge river-crossing tolls for a LAND convoy crossing major `sim_rivers`.
+ */
+export function computeRiverTollForPath(
+  pathCells: number[],
+  mode: TransportMode
+): { crossings: number; riverTollGold: number } {
+  if (mode !== "LAND" || !Array.isArray(pathCells) || pathCells.length < 2) {
+    return { crossings: 0, riverTollGold: 0 };
+  }
+  const originRiver = cellRiverMap.get(pathCells[0]!)?.riverId || 0;
+  const destRiver = cellRiverMap.get(pathCells[pathCells.length - 1]!)?.riverId || 0;
+  const sameRiverBarge = originRiver > 0 && originRiver === destRiver;
+  const crossedRivers = new Set<number>();
+  let riverTollGold = 0;
+
+  for (const cid of pathCells) {
+    const r = cellRiverMap.get(cid);
+    if (!r || r.riverId <= 0) continue;
+    if (sameRiverBarge && r.riverId === originRiver) continue;
+    if ((r.width >= 0.15 || r.discharge >= 100) && !crossedRivers.has(r.riverId)) {
+      crossedRivers.add(r.riverId);
+      riverTollGold += Math.max(1, Math.min(5, Math.round(1 + r.width * 2 + r.discharge / 600)));
+    }
+  }
+  return { crossings: crossedRivers.size, riverTollGold };
 }
 
 export function getCachedCellCoords(cellId: number): { x: number; y: number } | null {
@@ -126,13 +156,31 @@ export async function ensureRouteGraphCache(client: Db): Promise<void> {
 
   await initSpatialCache(client);
 
-  const cellsRes = await client.query(`SELECT id, center_x, center_y FROM sim_cells ORDER BY id`);
+  const cellsRes = await client.query(`
+    SELECT c.id, c.center_x, c.center_y,
+           COALESCE(c.river_id, 0)::int AS river_id,
+           COALESCE(r.width, 0)::real AS river_width,
+           COALESCE(r.discharge, 0)::real AS river_discharge
+    FROM sim_cells c
+    LEFT JOIN sim_rivers r ON r.id = c.river_id
+    ORDER BY c.id
+  `);
   cellCoords.clear();
+  cellRiverMap.clear();
   for (const r of cellsRes.rows) {
-    cellCoords.set(Number(r.id), {
+    const cid = Number(r.id);
+    cellCoords.set(cid, {
       x: parseFloat(r.center_x) || 0,
       y: parseFloat(r.center_y) || 0,
     });
+    const riverId = Number(r.river_id) || 0;
+    if (riverId > 0) {
+      cellRiverMap.set(cid, {
+        riverId,
+        width: Number(r.river_width) || 0,
+        discharge: Number(r.river_discharge) || 0,
+      });
+    }
   }
 
   const roadsRes = await client.query(`SELECT id, road_group FROM sim_roads ORDER BY id`);

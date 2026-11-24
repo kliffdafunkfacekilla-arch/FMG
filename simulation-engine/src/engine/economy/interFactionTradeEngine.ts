@@ -31,6 +31,7 @@ import {
   advanceAlongPath,
   distBetweenCells,
   getCachedCellCoords,
+  computeRiverTollForPath,
 } from "./routeGraphRouter.js";
 import { loadCellTagMap } from "../cellTags.js";
 
@@ -1049,7 +1050,7 @@ export async function runInterFactionTradeEngine(
 
           let grossGold = Math.max(3, Math.round(tradeQty * unitPrice));
           const tariffRate = getTariffRate(factionMap.get(impFactionId), seller.faction_id, demand.goodId);
-          const tariffGold = tariffRate > 0 ? Math.max(1, Math.round(grossGold * tariffRate)) : 0;
+          let tariffGold = tariffRate > 0 ? Math.max(1, Math.round(grossGold * tariffRate)) : 0;
           let totalGold = grossGold + tariffGold;
           if (importer.wealth < totalGold) continue;
 
@@ -1102,6 +1103,13 @@ export async function runInterFactionTradeEngine(
           if (route.mode !== "AIR" && (blockedCells.size > 0 || avoidFactions.size > 0) && straightDist > 0 && route.totalDist > straightDist * 1.35) {
             const surcharge = Math.min(0.35, (route.totalDist / straightDist - 1.35) * 0.25);
             grossGold = Math.round(grossGold * (1 + surcharge));
+            totalGold = grossGold + tariffGold;
+            if (importer.wealth < totalGold) continue;
+          }
+
+          const riverToll = computeRiverTollForPath(route.pathCells, route.mode);
+          if (riverToll.riverTollGold > 0) {
+            tariffGold += riverToll.riverTollGold;
             totalGold = grossGold + tariffGold;
             if (importer.wealth < totalGold) continue;
           }

@@ -120,9 +120,16 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
     for (const front of fronts.rows) {
         const { fx, fy, radiusMap } = frontToMapCircle(front, bounds!);
         const affectedBurgs = await client.query(
-            `SELECT b.burg_id, b.name, b.cell_id, b.food, b.unrest, b.health, b.pop_null, b.architecture_type
+            `SELECT b.burg_id, b.name, b.cell_id, b.food, b.unrest, b.health, b.pop_null, b.architecture_type,
+                    COALESCE(c.river_id, 0)::int AS river_id,
+                    COALESCE(c.flux, 0)::int AS cell_flux,
+                    COALESCE(c.current_temp, c.base_temp, 15)::real AS current_temp,
+                    COALESCE(r.discharge, 0)::real AS river_discharge,
+                    COALESCE(r.width, 0)::real AS river_width,
+                    r.name AS river_name
              FROM sim_burg_economy b
              JOIN sim_cells c ON b.cell_id = c.id
+             LEFT JOIN sim_rivers r ON r.id = c.river_id
              WHERE (b.pop_null > 0 OR COALESCE(b.pop_attuned, 0) > 0)
                AND point(c.center_x, c.center_y) <@ box(
                  point($1::float8 - $3::float8, $2::float8 - $3::float8),
@@ -141,6 +148,11 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
             const isWood = arch === "WOOD" || arch.includes("TIMBER") || arch === "HALF_TIMBERED" || arch === "REED_STILT";
             const isStone = arch === "STONE" || arch.includes("ASHLAR") || arch.includes("DRYSTONE");
             const isClay = arch === "CLAY" || arch.includes("ADOBE");
+
+            const riverId = Number(burg.river_id) || 0;
+            const riverDischarge = Number(burg.river_discharge) || 0;
+            const cellFlux = Number(burg.cell_flux) || 0;
+            const hasMajorRiver = riverId > 0 && (riverDischarge >= 150 || cellFlux >= 35);
 
             if (front.type === "WILDFIRE") {
                 if (isWood) {
@@ -192,6 +204,14 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
                 healthDelta = -3;
                 unrestDelta = +5;
                 weatherTags = ["#DroughtStricken", "#BarrenHarvest"];
+                if (riverId > 0 && (riverDischarge >= 150 || cellFlux >= 30)) {
+                    foodDelta = Math.round(foodDelta * 0.5);
+                    unrestDelta = Math.max(1, unrestDelta - 2);
+                    weatherTags.push("#RiverIrrigated");
+                } else if (riverId === 0 && cellFlux <= 3) {
+                    foodDelta = Math.round(foodDelta * 1.5);
+                    unrestDelta += 3;
+                }
                 if (Math.random() < 0.22) {
                     eventMsg = `Parched drought has cracked the earth around ${burg.name}. Wellsprings ran dry and crops withered to ash.`;
                     await tagBurgCitizens(client, burg.burg_id, ['#ThirstyLaborer', '#DustBowlRefugee'], 'BITTER', `Enduring scorching heat and water rations in drought-stricken ${burg.name}.`, null, 3);
@@ -218,6 +238,14 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
                         await tagBurgCitizens(client, burg.burg_id, ['#StormDisplaced', '#FloodedSurvivor'], 'DESPERATE', `Rebuilding flooded homes and salvaging ruined timber after a hurricane struck ${burg.name}.`, null, 3);
                     }
                 }
+                if (hasMajorRiver) {
+                    const floodLoss = Math.min(400, Math.round(riverDischarge * 0.25 + cellFlux * 2));
+                    foodDelta -= floodLoss;
+                    unrestDelta += 4;
+                    weatherTags.push("#RiverFlooding");
+                    const rName = burg.river_name ? String(burg.river_name) : "the nearby river";
+                    eventMsg = `🌊 RIVER FLOOD: Hurricane stormwaters swelled ${rName} over its banks in ${burg.name}, drowning fields (-${floodLoss} food) and sweeping quays.`;
+                }
             } else if (front.type === "CHAOS_STORM") {
                 // Chaos storms: random, wild, terrifying
                 foodDelta   = -Math.floor(burg.pop_null * (0.3 + Math.random() * 0.7));
@@ -233,7 +261,16 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
                 foodDelta  = -Math.floor(burg.pop_null * 0.2);
                 unrestDelta = +3;
                 weatherTags = ["#HeavyRainfall", "#MuddyHighways"];
-                if (Math.random() < 0.12) eventMsg = `Violent rainstorms battered ${burg.name} for days, washing out roads and flooding cellars.`;
+                if (hasMajorRiver) {
+                    const floodLoss = Math.min(250, Math.round(riverDischarge * 0.15 + cellFlux * 1.5));
+                    foodDelta -= floodLoss;
+                    unrestDelta += 2;
+                    weatherTags.push("#RiverFlooding");
+                    const rName = burg.river_name ? String(burg.river_name) : "the nearby river";
+                    eventMsg = `🌊 RIVER FLOOD: Sustained downpours overflowed ${rName} through ${burg.name}, swamping low meadows and cellars (-${floodLoss} food).`;
+                } else if (Math.random() < 0.12) {
+                    eventMsg = `Violent rainstorms battered ${burg.name} for days, washing out roads and flooding cellars.`;
+                }
             }
 
             if (burg.cell_id && weatherTags.length > 0) {

@@ -192,6 +192,42 @@ async function spawnImmigrant(client: any, burg: any, ledger: RecordLedger) {
     ]);
 }
 
+/**
+ * Computes seasonal & hydrological crop modifier from cell climate, river discharge, and flood/drought tags.
+ */
+export function computeClimateHarvestModifier(opts: {
+    currentTemp: number;
+    cellFlux: number;
+    riverId: number;
+    riverDischarge: number;
+    isFlooded: boolean;
+    isDrought: boolean;
+}): number {
+    const tempFactor =
+        opts.currentTemp < 0
+            ? 0.55
+            : opts.currentTemp < 10
+              ? 0.85
+              : opts.currentTemp > 34
+                ? 0.65
+                : opts.currentTemp > 26
+                  ? 0.88
+                  : 1.0;
+
+    let hydroDelta = 0;
+    if (opts.isFlooded) {
+        hydroDelta = -0.30;
+    } else if (opts.riverId > 0 || opts.riverDischarge > 0) {
+        hydroDelta = opts.riverDischarge >= 400 ? 0.25 : 0.18;
+    } else if (opts.cellFlux >= 15) {
+        hydroDelta = 0.08;
+    } else if (opts.cellFlux <= 1) {
+        hydroDelta = opts.isDrought ? -0.25 : -0.12;
+    }
+
+    return Math.max(0.30, Math.min(1.40, tempFactor + hydroDelta));
+}
+
 export async function runBurgOperationsAgent(client: any, tick: number, loreDate: string = "") {
     if (isYearEnd(tick)) {
         // Natural annual maturation: advance all living citizen ages by 1 year (1 year = DAYS_PER_YEAR days)
@@ -201,9 +237,14 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
 
 
     const burgRes = await client.query(`
-        SELECT b.*, c.faction_id, s.complex_inventory as current_inventory 
+        SELECT b.*, c.faction_id, c.current_temp, c.base_temp,
+               COALESCE(c.flux, 0)::int AS cell_flux,
+               COALESCE(c.river_id, 0)::int AS river_id,
+               COALESCE(r.discharge, 0)::real AS river_discharge,
+               s.complex_inventory as current_inventory 
         FROM sim_burg_economy b
         LEFT JOIN sim_cells c ON b.cell_id = c.id
+        LEFT JOIN sim_rivers r ON r.id = c.river_id
         LEFT JOIN sim_industrial_stockpiles s ON b.burg_id = s.burg_id ORDER BY b.burg_id
     `);
 
@@ -347,10 +388,14 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
         chaosIntensityMap.set(Number(r.cell_id), Math.max(chaosIntensityMap.get(Number(r.cell_id)) || 0, Number(r.intensity) || 0));
     }
 
-    // Trade Blockades & Mercantile Embargoes (Gilded Compass sanctions)
+    // Trade Blockades & Mercantile Embargoes (Gilded Compass sanctions), plus Flood & Drought climate tags
     const sectorBlockadeMap = new Map<number, boolean>();
+    const floodedCellSet = new Set<number>();
+    const droughtCellSet = new Set<number>();
     for (const [cellId, tags] of await loadCellTagMap(client)) {
         if (tags.some((t: string) => t.includes("Blockade") || t.includes("Embargo"))) sectorBlockadeMap.set(cellId, true);
+        if (tags.some((t: string) => t.includes("RiverFlooding"))) floodedCellSet.add(cellId);
+        if (tags.some((t: string) => t.includes("DroughtStricken"))) droughtCellSet.add(cellId);
     }
 
     const infraRes = await client.query("SELECT burg_id, type, level FROM sim_infrastructure");
@@ -431,10 +476,18 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
         if (chaosIntensity >= 70) workEfficiency *= Math.max(0.25, 1 - (chaosIntensity / 100) * 0.50);
         workEfficiency = Math.max(0.1, Math.min(1.0, workEfficiency));
 
-        // Seasonal agricultural factor
+        // Seasonal agricultural factor + hydrology/climate harvest variance
         const isWinterFreeze = seasonKind(currentSeason) === "Winter" || currentSeason === SHADOWFALL || (burg.current_temp !== undefined && Number(burg.current_temp) < 0);
         const winterFloor = Math.min(0.85, 0.35 + (systemicEffects.winterResilience * 0.05));
         const seasonMod = isWinterFreeze ? winterFloor : (currentSeason === "Dryspell" ? 1.45 : (seasonKind(currentSeason) === "Spring" ? 1.20 : (currentSeason === "Cropfade" ? 0.8 : 1.0)));
+        const climateHarvestMod = computeClimateHarvestModifier({
+            currentTemp: Number(burg.current_temp ?? burg.base_temp ?? 15),
+            cellFlux: Number(burg.cell_flux) || 0,
+            riverId: Number(burg.river_id) || 0,
+            riverDischarge: Number(burg.river_discharge) || 0,
+            isFlooded: floodedCellSet.has(Number(burg.cell_id)),
+            isDrought: droughtCellSet.has(Number(burg.cell_id)),
+        });
 
         // Parse primary extraction & crafted workshop profile from Ostraka_full.map
         let profile: { primary?: Array<{ goodId: number; key: string; share: number }>; crafted?: Array<{ goodId: number; key: string; targetOutput: number }> } = {};
@@ -496,7 +549,7 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
                 const covered = Math.min(count, infraCap);
                 const uncovered = Math.max(0, count - infraCap);
 
-                const seasonFactor = (role.infraType === "FARM" || role.isFood) ? seasonMod : 1.0;
+                const seasonFactor = (role.infraType === "FARM" || role.isFood) ? seasonMod * climateHarvestMod : 1.0;
                 const basePerRecord = 1.0 + urbanTier * 0.5;
                 const yieldAmt = Math.floor((covered * 2 + uncovered) * workEfficiency * seasonFactor * basePerRecord);
                 if (yieldAmt > 0) {
@@ -515,7 +568,7 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
         // Millers & Bakers add provisioning efficiency only when living food gatherers produced food
         if (foodProduced > 0) {
             const foodProcessors = (profMap.get("Baker")?.records || 0) + (profMap.get("Grain Miller")?.records || 0);
-            foodProduced += Math.floor(foodProcessors * 12 * workEfficiency * seasonMod);
+            foodProduced += Math.floor(foodProcessors * 12 * workEfficiency * seasonMod * climateHarvestMod);
         }
 
         // Artisanal wealth calculation backed by living crafters & civic workers:
