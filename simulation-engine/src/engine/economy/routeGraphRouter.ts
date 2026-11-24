@@ -23,6 +23,18 @@ export interface RoutePlan {
   usesRoad: boolean;
 }
 
+export interface RouteSearchMemo {
+  goalReach: Map<string, { complete: boolean; reachable: Set<number> }>;
+  dynamicPaths: Map<string, number[] | null>;
+}
+
+export function createRouteSearchMemo(): RouteSearchMemo {
+  return {
+    goalReach: new Map(),
+    dynamicPaths: new Map(),
+  };
+}
+
 export interface FindRouteOptions {
   fromCellId: number;
   toCellId: number;
@@ -30,6 +42,7 @@ export interface FindRouteOptions {
   blockedCells?: Set<number>;
   avoidFactionIds?: Set<number>;
   cellFactionMap?: Map<number, number>;
+  memo?: RouteSearchMemo;
 }
 
 export interface PathStepResult {
@@ -59,8 +72,11 @@ const MAX_SAFE_PATH_CACHE = 4000;
 let cacheLoaded = false;
 const cellCoords = new Map<number, { x: number; y: number }>();
 const adjacency = new Map<number, RouteEdge[]>();
+const reverseAdjacency = new Map<number, RouteEdge[]>();
 const graphBuckets = new Map<string, number[]>();
 const safePathCache = new Map<string, number[] | null>();
+const landComponentId = new Map<number, number>();
+const allComponentId = new Map<number, number>();
 
 function bucketKey(x: number, y: number): string {
   return `${Math.floor(x / BUCKET_SIZE)},${Math.floor(y / BUCKET_SIZE)}`;
@@ -83,8 +99,11 @@ export function resetRouteGraphCache(): void {
   cacheLoaded = false;
   cellCoords.clear();
   adjacency.clear();
+  reverseAdjacency.clear();
   graphBuckets.clear();
   safePathCache.clear();
+  landComponentId.clear();
+  allComponentId.clear();
 }
 
 export function getCachedCellCoords(cellId: number): { x: number; y: number } | null {
@@ -124,8 +143,11 @@ export async function ensureRouteGraphCache(client: Db): Promise<void> {
 
   const graphRes = await client.query(`SELECT cell_id, links FROM sim_route_graph ORDER BY cell_id`);
   adjacency.clear();
+  reverseAdjacency.clear();
   graphBuckets.clear();
   safePathCache.clear();
+  landComponentId.clear();
+  allComponentId.clear();
 
   for (const row of graphRes.rows) {
     const cid = Number(row.cell_id);
@@ -162,6 +184,14 @@ export async function ensureRouteGraphCache(client: Db): Promise<void> {
     edges.sort((a, b) => a.to - b.to);
     if (edges.length > 0) {
       adjacency.set(cid, edges);
+      for (const e of edges) {
+        let revList = reverseAdjacency.get(e.to);
+        if (!revList) {
+          revList = [];
+          reverseAdjacency.set(e.to, revList);
+        }
+        revList.push({ to: cid, roadGroup: e.roadGroup, dist: e.dist, cost: e.cost });
+      }
       const key = bucketKey(c1.x, c1.y);
       const list = graphBuckets.get(key);
       if (list) list.push(cid);
@@ -169,8 +199,56 @@ export async function ensureRouteGraphCache(client: Db): Promise<void> {
     }
   }
 
+  for (const revList of reverseAdjacency.values()) {
+    revList.sort((a, b) => a.to - b.to);
+  }
+
   for (const list of graphBuckets.values()) {
     list.sort((a, b) => a - b);
+  }
+
+  const allNodesSet = new Set<number>([...adjacency.keys(), ...reverseAdjacency.keys()]);
+  const sortedNodes = Array.from(allNodesSet).sort((a, b) => a - b);
+
+  let compId = 0;
+  for (const start of sortedNodes) {
+    if (landComponentId.has(start)) continue;
+    compId++;
+    const queue: number[] = [start];
+    landComponentId.set(start, compId);
+    for (let qi = 0; qi < queue.length; qi++) {
+      const cur = queue[qi]!;
+      for (const edgeList of [adjacency.get(cur), reverseAdjacency.get(cur)]) {
+        if (!edgeList) continue;
+        for (const e of edgeList) {
+          if (e.roadGroup === "searoutes") continue;
+          if (!landComponentId.has(e.to)) {
+            landComponentId.set(e.to, compId);
+            queue.push(e.to);
+          }
+        }
+      }
+    }
+  }
+
+  let allCompId = 0;
+  for (const start of sortedNodes) {
+    if (allComponentId.has(start)) continue;
+    allCompId++;
+    const queue: number[] = [start];
+    allComponentId.set(start, allCompId);
+    for (let qi = 0; qi < queue.length; qi++) {
+      const cur = queue[qi]!;
+      for (const edgeList of [adjacency.get(cur), reverseAdjacency.get(cur)]) {
+        if (!edgeList) continue;
+        for (const e of edgeList) {
+          if (!allComponentId.has(e.to)) {
+            allComponentId.set(e.to, allCompId);
+            queue.push(e.to);
+          }
+        }
+      }
+    }
   }
 
   cacheLoaded = true;
@@ -263,17 +341,91 @@ function runGraphAStar(
   mode: "LAND" | "SEA",
   blockedCells?: Set<number>,
   avoidFactionIds?: Set<number>,
-  cellFactionMap?: Map<number, number>
+  cellFactionMap?: Map<number, number>,
+  memo?: RouteSearchMemo
 ): number[] | null {
   if (startNode === goalNode) return [startNode];
+  if (allComponentId.get(startNode) !== allComponentId.get(goalNode)) {
+    return null;
+  }
+  if (mode === "LAND" && landComponentId.get(startNode) !== landComponentId.get(goalNode)) {
+    return null;
+  }
 
   const isStaticQuery =
     (!blockedCells || blockedCells.size === 0) &&
     (!avoidFactionIds || avoidFactionIds.size === 0);
   const cacheKey = `${mode}:${startNode}:${goalNode}`;
-  if (isStaticQuery && safePathCache.has(cacheKey)) {
+  if (safePathCache.has(cacheKey)) {
     const cached = safePathCache.get(cacheKey);
-    return cached ? [...cached] : null;
+    if (cached === null || cached === undefined) return null;
+    if (isStaticQuery) return [...cached];
+    let stillValid = true;
+    for (let i = 1; i + 1 < cached.length; i++) {
+      const nid = cached[i]!;
+      if (blockedCells?.has(nid)) {
+        stillValid = false;
+        break;
+      }
+      if (avoidFactionIds?.size && cellFactionMap) {
+        const fid = cellFactionMap.get(nid) || 0;
+        if (fid > 0 && avoidFactionIds.has(fid)) {
+          stillValid = false;
+          break;
+        }
+      }
+    }
+    if (stillValid) return [...cached];
+  }
+
+  let dynKey: string | null = null;
+  if (!isStaticQuery && memo) {
+    const bKey = blockedCells?.size ? Array.from(blockedCells).sort((a, b) => a - b).join(",") : "";
+    const aKey = avoidFactionIds?.size ? Array.from(avoidFactionIds).sort((a, b) => a - b).join(",") : "";
+    const rSig = `${mode}|${bKey}|${aKey}`;
+    dynKey = `${rSig}|${startNode}|${goalNode}`;
+    if (memo.dynamicPaths.has(dynKey)) {
+      const cached = memo.dynamicPaths.get(dynKey);
+      return cached ? [...cached] : null;
+    }
+
+    const goalKey = `${rSig}|G:${goalNode}`;
+    let reachEntry = memo.goalReach.get(goalKey);
+    if (!reachEntry) {
+      const visitedInterior = new Set<number>([goalNode]);
+      const reachable = new Set<number>([goalNode]);
+      const queue: number[] = [goalNode];
+      let complete = true;
+      bfs: for (let qi = 0; qi < queue.length; qi++) {
+        const cur = queue[qi]!;
+        const inEdges = reverseAdjacency.get(cur);
+        if (!inEdges) continue;
+        for (const e of inEdges) {
+          if (mode === "LAND" && e.roadGroup === "searoutes") continue;
+          const prev = e.to;
+          reachable.add(prev);
+          if (blockedCells?.has(prev)) continue;
+          if (avoidFactionIds?.size && cellFactionMap) {
+            const fid = cellFactionMap.get(prev) || 0;
+            if (fid > 0 && avoidFactionIds.has(fid)) continue;
+          }
+          if (!visitedInterior.has(prev)) {
+            if (visitedInterior.size >= 512) {
+              complete = false;
+              break bfs;
+            }
+            visitedInterior.add(prev);
+            queue.push(prev);
+          }
+        }
+      }
+      reachEntry = { complete, reachable };
+      memo.goalReach.set(goalKey, reachEntry);
+    }
+    if (reachEntry.complete && !reachEntry.reachable.has(startNode)) {
+      memo.dynamicPaths.set(dynKey, null);
+      return null;
+    }
   }
 
   const goalCoord = cellCoords.get(goalNode);
@@ -352,6 +504,8 @@ function runGraphAStar(
   if (isStaticQuery) {
     if (safePathCache.size >= MAX_SAFE_PATH_CACHE) safePathCache.clear();
     safePathCache.set(cacheKey, result ? [...result] : null);
+  } else if (memo && dynKey) {
+    memo.dynamicPaths.set(dynKey, result ? [...result] : null);
   }
   return result;
 }
@@ -483,7 +637,8 @@ export async function findTradeRoute(client: Db, opts: FindRouteOptions): Promis
       mode,
       blockedCells,
       avoidFactionIds,
-      cellFactionMap
+      cellFactionMap,
+      opts.memo
     );
     if (!corePath || corePath.length === 0) continue;
 

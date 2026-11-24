@@ -26,6 +26,7 @@ import {
   TransportMode,
   RoutePlan,
   ensureRouteGraphCache,
+  createRouteSearchMemo,
   findTradeRoute,
   advanceAlongPath,
   distBetweenCells,
@@ -272,7 +273,12 @@ export async function runInterFactionTradeEngine(
 
   const cellFactionMap = new Map<number, number>();
   if (warMap.size > 0) {
-    const cellFactionRes = await client.query(`SELECT id, faction_id FROM sim_cells WHERE faction_id IS NOT NULL AND faction_id > 0`);
+    const cellFactionRes = await client.query(`
+      SELECT c.id, c.faction_id
+      FROM sim_cells c
+      JOIN sim_route_graph rg ON rg.cell_id = c.id
+      WHERE c.faction_id IS NOT NULL AND c.faction_id > 0
+    `);
     for (const c of cellFactionRes.rows) {
       cellFactionMap.set(Number(c.id), Number(c.faction_id) || 0);
     }
@@ -393,6 +399,29 @@ export async function runInterFactionTradeEngine(
   const inTransitRes = await client.query(`
     SELECT * FROM sim_trade_shipments WHERE status = 'IN_TRANSIT' ORDER BY id ASC
   `);
+
+  if (warMap.size > 0 && inTransitRes.rows.length > 0) {
+    const missingAirCells = new Set<number>();
+    for (const s of inTransitRes.rows) {
+      if (String(s.transport_mode || "") !== "AIR") continue;
+      const pCells = parseJson<number[]>(s.path_cells, []);
+      for (const rawCid of pCells) {
+        const cid = Number(rawCid);
+        if (Number.isInteger(cid) && cid > 0 && !cellFactionMap.has(cid)) {
+          missingAirCells.add(cid);
+        }
+      }
+    }
+    if (missingAirCells.size > 0) {
+      const extraRes = await client.query(
+        `SELECT id, faction_id FROM sim_cells WHERE id = ANY($1::int[]) AND faction_id IS NOT NULL AND faction_id > 0`,
+        [Array.from(missingAirCells).sort((a, b) => a - b)]
+      );
+      for (const r of extraRes.rows) {
+        cellFactionMap.set(Number(r.id), Number(r.faction_id) || 0);
+      }
+    }
+  }
 
   const activeLaneKeys = new Set<string>();
   const shipmentUpdates: Array<{ id: number; status: string; pathIndex: number; currentCellId: number; etaTicks: number; resolvedTick: number | null }> = [];
@@ -677,34 +706,63 @@ export async function runInterFactionTradeEngine(
   // ── PHASE C: DISPATCH NEW CITIZEN-CREWED CONVOYS ───────────────────────────
   const activeRemainingCount = activeLaneKeys.size;
   if (activeRemainingCount < MAX_ACTIVE_SHIPMENTS) {
-    // 1. Load available living logistics crew after Phase B releases settled cleanly (capped per burg & role over partial index)
-    const crewRes = await client.query(`
-      SELECT citizen_id, settlement_id, profession FROM (
-        SELECT citizen_id, settlement_id, profession,
-               ROW_NUMBER() OVER (PARTITION BY settlement_id, profession ORDER BY citizen_id ASC) AS rn
-        FROM population_demographics
-        WHERE allegiance_status = 'CIVILIAN'
-          AND life_stage = 'ADULT'
-          AND profession IN ('Merchant Factor', 'Merchant Trader', 'Caravan Drover', 'Caravan Guard', 'Sailor', 'Aether-Crew')
-      ) t
-      WHERE rn <= 8
-      ORDER BY settlement_id ASC,
-               CASE WHEN profession = 'Merchant Factor' THEN 0 ELSE 1 END ASC,
-               citizen_id ASC
-    `);
-    const crewQueuesByBurg = new Map<number, CrewQueues>();
-    for (const c of crewRes.rows) {
-      const q = getOrCreateQueues(crewQueuesByBurg, Number(c.settlement_id));
-      const cid = Number(c.citizen_id);
-      const prof = String(c.profession || "");
-      if (prof === "Merchant Factor" || prof === "Merchant Trader") q.merchants.push(cid);
-      else if (prof === "Caravan Drover") q.drovers.push(cid);
-      else if (prof === "Sailor") q.sailors.push(cid);
-      else if (prof === "Aether-Crew") q.skycrew.push(cid);
-      else if (prof === "Caravan Guard") q.guards.push(cid);
+    // 1. Index current surplus holders per good key deterministically first so crew query targets only surplus burgs
+    const surplusByGood = new Map<string, any[]>();
+    const surplusBurgSet = new Set<number>();
+    for (const b of burgRes.rows) {
+      let hasSurplus = false;
+      for (const [gKey, qtyRaw] of Object.entries(b.inventory as Record<string, number>)) {
+        const qty = Number(qtyRaw) || 0;
+        if (qty >= 16) {
+          hasSurplus = true;
+          let list = surplusByGood.get(gKey);
+          if (!list) {
+            list = [];
+            surplusByGood.set(gKey, list);
+          }
+          list.push(b);
+        }
+      }
+      if (hasSurplus) surplusBurgSet.add(Number(b.burg_id));
     }
 
-    // 2. Load canonical Azgaar trade deal corridors (sim_trade_deals)
+    // 2. Load available living logistics crew for surplus burgs only via LATERAL LIMIT 8 over partial index
+    const crewQueuesByBurg = new Map<number, CrewQueues>();
+    if (surplusBurgSet.size > 0) {
+      const surplusBurgIds = Array.from(surplusBurgSet).sort((a, b) => a - b);
+      const crewRes = await client.query(
+        `SELECT c.citizen_id, c.settlement_id, c.profession
+         FROM unnest($1::int[]) AS b(settlement_id)
+         CROSS JOIN unnest(ARRAY['Merchant Factor', 'Merchant Trader', 'Caravan Drover', 'Caravan Guard', 'Sailor', 'Aether-Crew']) AS p(profession)
+         CROSS JOIN LATERAL (
+           SELECT pd.citizen_id, pd.settlement_id, pd.profession
+           FROM population_demographics pd
+           WHERE pd.settlement_id = b.settlement_id
+             AND pd.profession = p.profession
+             AND pd.allegiance_status = 'CIVILIAN'
+             AND pd.life_stage = 'ADULT'
+             AND pd.profession IN ('Merchant Factor', 'Merchant Trader', 'Caravan Drover', 'Caravan Guard', 'Sailor', 'Aether-Crew')
+           ORDER BY pd.citizen_id ASC
+           LIMIT 8
+         ) c
+         ORDER BY c.settlement_id ASC,
+                  CASE WHEN c.profession = 'Merchant Factor' THEN 0 ELSE 1 END ASC,
+                  c.citizen_id ASC`,
+        [surplusBurgIds]
+      );
+      for (const c of crewRes.rows) {
+        const q = getOrCreateQueues(crewQueuesByBurg, Number(c.settlement_id));
+        const cid = Number(c.citizen_id);
+        const prof = String(c.profession || "");
+        if (prof === "Merchant Factor" || prof === "Merchant Trader") q.merchants.push(cid);
+        else if (prof === "Caravan Drover") q.drovers.push(cid);
+        else if (prof === "Sailor") q.sailors.push(cid);
+        else if (prof === "Aether-Crew") q.skycrew.push(cid);
+        else if (prof === "Caravan Guard") q.guards.push(cid);
+      }
+    }
+
+    // 3. Load canonical Azgaar trade deal corridors (sim_trade_deals)
     const dealsRes = await client.query(`
       SELECT from_burg_id, to_market_id, good_id
       FROM sim_trade_deals
@@ -720,22 +778,6 @@ export async function runInterFactionTradeEngine(
         const k1 = `${toCenterBurg}:${gInfo.key}`;
         if (!dealSuppliersByKey.has(k1)) dealSuppliersByKey.set(k1, new Set());
         dealSuppliersByKey.get(k1)!.add(fromBurgId);
-      }
-    }
-
-    // 3. Index current surplus holders per good key deterministically
-    const surplusByGood = new Map<string, any[]>();
-    for (const b of burgRes.rows) {
-      for (const [gKey, qtyRaw] of Object.entries(b.inventory as Record<string, number>)) {
-        const qty = Number(qtyRaw) || 0;
-        if (qty >= 16) {
-          let list = surplusByGood.get(gKey);
-          if (!list) {
-            list = [];
-            surplusByGood.set(gKey, list);
-          }
-          list.push(b);
-        }
       }
     }
 
@@ -768,6 +810,7 @@ export async function runInterFactionTradeEngine(
       etaTicks: number;
     }> = [];
 
+    const routeMemo = createRouteSearchMemo();
     const embargoedBurgsThisTick = new Set<number>();
     let dispatchEventsEmitted = 0;
 
@@ -947,6 +990,7 @@ export async function runInterFactionTradeEngine(
               blockedCells,
               avoidFactionIds: avoidFactions,
               cellFactionMap,
+              memo: routeMemo,
             });
           }
 
