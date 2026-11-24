@@ -4,7 +4,11 @@ import type { Db, Delta, OverlayChange } from "../deltas/types.js";
 import { mapNpcIdToEntityRef, parseEntityRef } from "../entities/refs.js";
 import { ensureEntity, getEntityByRef } from "../entities/registry.js";
 import { hasObjectOverlay } from "./overlays.js";
-import { resolvePropEconomicImpact } from "./propEconomy.js";
+import {
+  isNotableEconomicProp,
+  makeObjectEntityRef,
+  resolvePropEconomicImpact,
+} from "./propEconomy.js";
 
 export interface MicroNpcInput {
   id: string;
@@ -240,7 +244,41 @@ export async function writeBackPropChange(
   const posX = Array.isArray(prop.pos) && Number.isFinite(Number(prop.pos[0])) ? Math.round(Number(prop.pos[0])) : null;
   const posY = Array.isArray(prop.pos) && Number.isFinite(Number(prop.pos[1])) ? Math.round(Number(prop.pos[1])) : null;
 
+  const entityDeltas: Delta[] = [];
+  let entityRefOut = objectRef;
+  if (isNotableEconomicProp(prop.name, propTags)) {
+    const objEntityRef =
+      prop.entity_ref ||
+      (String(prop.id || "").startsWith("object:")
+        ? String(prop.id)
+        : makeObjectEntityRef(cellId, rx, ry, z, String(prop.id)));
+    prop.entity_ref = objEntityRef;
+    entityRefOut = objEntityRef;
+    const isDestructive = change === "burnt" || change === "destroyed";
+    entityDeltas.push({
+      kind: "entity.create",
+      ref: objEntityRef,
+      entityKind: "object",
+      name: String(prop.name || prop.id),
+      alive: !isDestructive,
+      lod: "micro",
+      cellId,
+      rx,
+      ry,
+      z,
+      x: posX,
+      y: posY,
+      sourceTable: "sim_sector_layers",
+      sourceId: String(prop.id),
+      createdTick: tick,
+    });
+    if (isDestructive) {
+      entityDeltas.push({ kind: "entity.die", ref: objEntityRef, diedTick: tick });
+    }
+  }
+
   const deltas: Delta[] = [
+    ...entityDeltas,
     ...econDeltas,
     {
       kind: "overlay.add",
@@ -252,7 +290,7 @@ export async function writeBackPropChange(
       y: posY,
       objectRef,
       change,
-      payload: opts.payload ?? { name: prop.name, tags: propTags },
+      payload: opts.payload ?? { name: prop.name, tags: propTags, entity_ref: entityRefOut !== objectRef ? entityRefOut : undefined },
       tick,
       minute,
       source,
