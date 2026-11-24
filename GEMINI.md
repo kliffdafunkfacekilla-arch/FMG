@@ -50,9 +50,9 @@ If you can't say which step of the loop a change serves, don't build it. Add it 
 
 Run all tests before every commit. A failing test blocks the commit.
 
-## Current focus: one vertical slice
+## Current focus
 
-Make **one burg, one thread and one play session** work end to end through the loop before widening anything. Expanding other systems (new layers, factions, weather, rendering) is frozen until the slice works.
+See **"Current focus" in `AGENT_RULES.md`**, which is the only copy. Since 2026-11-24 the vertical slice is certified (`testVerticalSlice`) and widening is allowed under the gates listed there.
 
 ## Known contradictions to resolve (don't paper over them)
 

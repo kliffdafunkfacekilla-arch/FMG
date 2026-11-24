@@ -43,3 +43,6 @@ simulation-engine/matches_full.txt
 # Retired SQLite store and old state snapshot (PostgreSQL is authoritative)
 *.sqlite
 simulation-engine/state.json
+
+# Database backups and benchmark dumps
+backups/

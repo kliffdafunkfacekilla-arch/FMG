@@ -47,12 +47,24 @@ If you can't say which step of the loop a change serves, don't build it. Add it 
 | Pure simulation | Simulation modules import nothing from the UI or renderer. |
 | B.R.U.T.A.L. math | A d12 roll against a Guard matches the rulebook's worked examples. |
 | Canon calendar and Powers | The calendar, the 12 Powers and the prisons match `Canon/04` and `Canon/02`. |
+| The loop works end to end | One burg, one thread and one play session go through every loop step (`testVerticalSlice`). |
+| A day replays exactly | The same world state and tick give the same day (`testTickReplay`). |
+| A tick stays cheap | Each tick step stays within its query budget (`testTickReplay`). |
 
 Run all tests before every commit. A failing test blocks the commit.
 
-## Current focus: one vertical slice
+## Current focus: widen from a certified loop
 
-Make **one burg, one thread and one play session** (steps 1–5 of `STORY_AUDIT.md`) work end to end through the loop before widening anything. Expanding other systems (new layers, factions, weather, rendering) is frozen until the slice works.
+**The vertical slice is done (2026-11-24).** `testVerticalSlice` runs Burg 1 (Excelsis Citadel), one thread and one play session through the whole loop, and B.R.U.T.A.L. Draft v5.0 is complete (`RULES_TARGET_v5.0.md`). The `Ostraka_full.map` datasets (`PARKING_LOT.md`, Phase B) are wired into the tick, each with its own test.
+
+Widening is allowed again, but every change must:
+
+1. **Name its loop step** (above). If it serves none, it goes to `PARKING_LOT.md`.
+2. **Keep the loop green:** `testVerticalSlice` and every other suite pass.
+3. **Keep the tick reproducible and cheap:** `testTickReplay` passes, including the query budgets, and a day stays under the 1.5 s autoplay interval (`node dist/scripts/benchTick.js 3`). Raise a budget only with a reason in the commit message.
+4. **Prove a new dataset matters:** a system that reads new data gets a test showing it changes an outcome.
+
+**Still parked:** the items in `PARKING_LOT.md` ("Parked Items") and the parked story designs in `STORY_AUDIT.md` ("Still open"). Unpark one at a time, only when the user chooses it, and record the choice here as the new current focus.
 
 ## Known contradictions to resolve (don't paper over them)
 

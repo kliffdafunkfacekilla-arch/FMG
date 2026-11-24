@@ -8,7 +8,9 @@ Per **Rule 1** of `GEMINI.md`:
 
 ---
 
-## Parked Items (Frozen Until Vertical Slice is Complete)
+## Parked Items
+
+The vertical slice is certified (2026-11-24), so these are no longer blocked by it. They stay parked until the user picks one; see "Current focus" in `AGENT_RULES.md`.
 
 1. **Standalone `player-client` React WebApp**:
    - The primary tactical interface and live party watcher are running natively inside the Observer Dashboard (`simulation-engine/src/observer/` on `http://localhost:5174`).
