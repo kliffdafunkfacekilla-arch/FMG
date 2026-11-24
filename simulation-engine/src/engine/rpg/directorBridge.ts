@@ -2,6 +2,7 @@ import { llmDisabled, ollamaJson } from '../llm.js';
 import pool from '../../db/pool';
 import { Entity, processSectorNarrativeLayer } from './narrativeTagEngine';
 import type { SimThread, ThreadStateEvaluation } from '../threads/threadEngine';
+import { facts, factTags } from '../facts/facts.js';
 
 // =========================================================================
 // 1. DATA CONTRACTS (JSON-to-JSON Pipeline)
@@ -200,24 +201,17 @@ export async function buildDirectorInputPayload(
     const wealth = Number(burg?.wealth ?? 5000);
     const factionName = burg?.faction_name || "Provincial Sovereignty";
 
-    const econTags: string[] = [];
+    const burgFactInput = {
+        food,
+        wealth,
+        unrest,
+        pop_null: Number(burg?.pop_null ?? 0),
+        pop_attuned: Number(burg?.pop_attuned ?? 0)
+    };
     const grainReserve = Math.min(100, Math.max(0, (food / 1000) * 100));
     const inflation = Number((1.0 + Math.max(0, (unrest - 30) / 100)).toFixed(2));
-
-    if (food < 150) econTags.push('#Famine', '#ResourceScarcity');
-    else if (food < 350) econTags.push('#GrainShortage');
-    else if (food > 800) econTags.push('#HarvestAbundance');
-
-    if (unrest > 70) econTags.push('#TradeBlockade', '#MarketCollapse');
-    else if (wealth > 8000) econTags.push('#CommercialBoom');
-
-    const factionTags: string[] = [];
-    if (unrest > 60) factionTags.push('#MartialLaw');
-    if (unrest > 45) factionTags.push('#UndergroundUnrest');
-    factionTags.push('#GuildDominance');
-
-    const garrisonStrength: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' = 
-        unrest > 75 ? 'CRITICAL' : unrest > 50 ? 'HIGH' : unrest > 25 ? 'MEDIUM' : 'LOW';
+    const { econTags, factionTags } = factTags(burgFactInput);
+    const garrisonStrength = facts.garrisonStrength(burgFactInput);
 
     const playerRes = await pool.query(
         `SELECT name, lineage, institution, species, inventory, passive_traits, main_type FROM sim_player_character WHERE id = $1 LIMIT 1`,
