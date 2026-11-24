@@ -1080,7 +1080,7 @@ router.post('/sector_load', async (req, res) => {
         grid: preRenderedMap ? preRenderedMap.grid : undefined,
         vaultName: preRenderedMap ? preRenderedMap.name : undefined,
         poiType: preRenderedMap ? preRenderedMap.poiType : undefined,
-        campaignState: brutalGM.getStoryEngine().getCampaignState(),
+        openThreads: await getOpenThreads(pool, targetCellId),
         calendar,
         chaosFlow: flowProximity,
         chaosSurge: (injected as any).activeBeat?.context?.activeSurge || null,
@@ -1649,7 +1649,7 @@ router.get('/flows', async (req, res) => {
 router.post('/scene', async (req, res) => {
   try {
     const { context } = req.body;
-    const beat = brutalGM.getStoryEngine().getCampaignState().activeBeat;
+    const beat = brutalGM.getStoryEngine().getActiveBeat();
 
     const calRes = await pool.query('SELECT moon_phase, season, active_flow, dragon_domain FROM sim_calendar ORDER BY id DESC LIMIT 1');
     const cal = calRes.rows[0] || {
@@ -1771,8 +1771,8 @@ router.post('/action_stream', async (req, res) => {
       success: result.success,
       systemLog: result.systemLog,
       lootAwarded: result.lootAwarded,
-      objectiveProgress: result.objectiveProgress,
-      campaignState: result.campaignState,
+      activeBeat: result.activeBeat,
+      openThreads: result.openThreads,
       dialogue: result.dialogue,
       intent: result.intent
     })}\n\n`);

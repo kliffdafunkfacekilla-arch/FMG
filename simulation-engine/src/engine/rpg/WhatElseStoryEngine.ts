@@ -612,17 +612,12 @@ export class WhatElseStoryEngine {
     "the Vigilant", "the Swift", "Leaf-Catcher", "the Stern", "Wind-Walker"
   ];
 
-  /** Legacy compatibility stub; story progression is governed exclusively by `sim_threads`. */
-  public getCampaignState() {
-    return {
-      activeBeat: this.activeBeat
-    };
+  public getActiveBeat(): StoryBeat | null {
+    return this.activeBeat;
   }
 
-  public restoreCampaignState(state: any) {
-    if (state?.activeBeat) {
-      this.activeBeat = state.activeBeat;
-    }
+  public setActiveBeat(beat: StoryBeat | null): void {
+    this.activeBeat = beat;
   }
 
   /**
@@ -1208,10 +1203,5 @@ export class WhatElseStoryEngine {
     npcs.push(...synthesizedNPCs);
 
     return { props, npcs, activeBeat: beat };
-  }
-
-  /** Legacy compatibility stub; quest resolution runs through `sim_threads` (`questChainEngine`). */
-  public updateObjective(_targetId: string, _amount: number = 1): { beatCompleted: boolean; updatedObjective?: QuestObjective | undefined } {
-    return { beatCompleted: false };
   }
 }

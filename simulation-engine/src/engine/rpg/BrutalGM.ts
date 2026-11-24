@@ -56,6 +56,7 @@ import { ProceduralNPCGenerator, SeededPRNG } from "./ProceduralNPCGenerator.js"
 import { getActiveChaosFlows, evaluatePointChaosFlowProximity, applyPlayerChaosMutation } from "../agents/chaosFlowAgent.js";
 import { generateChaosSurge } from "./chaosSurgeEngine.js";
 import { recruitCultistPersona, recruitWardenPersona, recruitMandatePersona } from "../agents/citizenPersonaHelper.js";
+import { getOpenThreads } from "../threads/threadEngine.js";
 
 export interface ActionInput {
   actionText: string;
@@ -129,13 +130,10 @@ export interface GMResolutionOutput {
     gold: number;
     item?: string | undefined;
   } | undefined;
-  objectiveProgress?: {
-    beatCompleted: boolean;
-    description?: string | undefined;
-  };
   playerInjuryState?: EntityInjuryState | undefined;
   foeStackState?: FoeStackState | undefined;
-  campaignState: any;
+  activeBeat: any;
+  openThreads?: any[];
   worldDelta: {
     propsDestroyed: string[];
     npcsDefeated: string[];
@@ -1007,7 +1005,7 @@ Return ONLY valid JSON matching this schema:
 
   public restoreState(storyState: any) {
     if (storyState) {
-      this.storyEngine.restoreCampaignState(storyState);
+      this.storyEngine.setActiveBeat(storyState?.activeBeat || null);
     }
   }
 
@@ -1024,7 +1022,7 @@ Return ONLY valid JSON matching this schema:
         isDestroyed: p.isDestroyed
       })),
       npcs: Array.from(this.activeNPCs.values()),
-      campaignState: this.storyEngine.getCampaignState()
+      activeBeat: this.storyEngine.getActiveBeat()
     };
   }
 
@@ -1412,7 +1410,8 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
         },
         systemLog: `[INCAPACITATED: You are unconscious at 0 HP. You cannot take action until revived.]`,
         narrativeResponse: `${player.name} lies motionless upon the cold earth, consciousness fading beneath the Cruorbus sky. You cannot act in this state.`,
-        campaignState: this.storyEngine.getCampaignState(),
+        activeBeat: this.storyEngine.getActiveBeat(),
+        openThreads: [],
         worldDelta: { propsDestroyed: [], npcsDefeated: [] }
       };
     }
@@ -1479,7 +1478,8 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
           },
           systemLog: `[SOCIAL: '${targetProp.name}' is an inanimate physical object. It does not respond to speech, bribes, or threats.]`,
           narrativeResponse: `${player.name} addresses ${targetProp.name}, but stone, iron, and silence offer no response.`,
-          campaignState: this.storyEngine.getCampaignState(),
+          activeBeat: this.storyEngine.getActiveBeat(),
+          openThreads: [],
           worldDelta: { propsDestroyed: [], npcsDefeated: [] }
         };
       }
@@ -1506,7 +1506,8 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
           narrativeResponse: animalHit
             ? `${player.name} lowers posture and projects stillness before ${targetNPC.name}. The creature watches with wary calm.`
             : `${targetNPC.name} tenses against ${player.name}, ready to fight or flee the unfamiliar intruder.`,
-          campaignState: this.storyEngine.getCampaignState(),
+          activeBeat: this.storyEngine.getActiveBeat(),
+          openThreads: [],
           worldDelta: { propsDestroyed: [], npcsDefeated: [] }
         };
       }
@@ -2359,11 +2360,7 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
       }
     }
 
-    // 5. Objective Tracking & WhatELSE Progression
-    const targetIdToCheck = intent.targetId;
-    const objectiveUpdate = hit ? this.storyEngine.updateObjective(targetIdToCheck, 1) : { beatCompleted: false };
-
-    // 6. State Mutation & PostgreSQL Backfeed
+    // 5. State Mutation & PostgreSQL Backfeed (story progression lives in sim_threads via questChainEngine)
     const propsDestroyed: string[] = [];
     const npcsDefeated: string[] = [];
 
@@ -2409,18 +2406,6 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
         );
       } catch (err) {
         console.error("Error persisting NPC mutation to sim_npc_instances:", err);
-      }
-    }
-
-    // If story beat completed, reload sector with activeContext so new beat is injected with persistence
-    if (objectiveUpdate.beatCompleted) {
-      const activeBeat = this.storyEngine.getCampaignState().activeBeat;
-      const beatXp = activeBeat?.rewards?.xp || 140;
-      const beatGold = activeBeat?.rewards?.gold || 30;
-      xpGained += beatXp;
-      player.gold = (player.gold || 0) + beatGold;
-      if (this.activeContext) {
-        await this.loadSector(this.activeContext);
       }
     }
 
@@ -2816,13 +2801,13 @@ Speak 1-2 sentences of direct in-character spoken dialogue in quotation marks re
     }
 
     // E. Write-back to DB events if significant event occurred
-    if (hit || objectiveUpdate.beatCompleted) {
+    if (hit) {
       await this.pool.query(
         `INSERT INTO sim_events (tick, tier, lore_date, burg_id, faction_id, type, message)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         [
           stamp.tick,
-          objectiveUpdate.beatCompleted ? "MAJOR" : "MINOR",
+          "MINOR",
           stamp.loreDate,
           stamp.burgId,
           stamp.factionId,
@@ -2960,6 +2945,10 @@ RULES:
       [playerId, memNow, memSummary, JSON.stringify(memTags)]
     ).catch(() => {});
 
+    const openThreads = this.activeContext?.cellId
+      ? await getOpenThreads(this.pool, this.activeContext.cellId).catch(() => [])
+      : [];
+
     return {
       success: hit,
       intent,
@@ -2977,13 +2966,10 @@ RULES:
       narrativeResponse,
       dialogue: inCharacterDialogue,
       lootAwarded,
-      objectiveProgress: {
-        beatCompleted: objectiveUpdate.beatCompleted,
-        description: objectiveUpdate.updatedObjective?.description
-      },
       playerInjuryState: this.playerInjuryStates.get(playerId),
       foeStackState: targetNPC?.foeStack,
-      campaignState: this.storyEngine.getCampaignState(),
+      activeBeat: this.storyEngine.getActiveBeat(),
+      openThreads,
       worldDelta: {
         propsDestroyed,
         npcsDefeated

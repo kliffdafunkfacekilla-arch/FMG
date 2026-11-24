@@ -192,8 +192,8 @@ async function runVerticalSliceTest() {
   assert(hooks.some(t => t.id === thread.id), `Open thread #${thread.id} did not reach cell ${cellId} hooks`);
 
   const gm = new BrutalGameMaster(pool);
-  const campState: any = gm.getStoryEngine().getCampaignState();
-  assert(campState.currentAct === undefined && campState.totalActs === undefined, "Legacy 5-act ACTS still exposed in getCampaignState()");
+  assert(typeof (gm.getStoryEngine() as any).getCampaignState === "undefined", "Legacy getCampaignState stub must be deleted");
+  assert(typeof (gm.getStoryEngine() as any).updateObjective === "undefined", "Legacy updateObjective stub must be deleted");
 
   gm.activeNPCs.set(captainNpc.id, captainNpc);
   gm.activeNPCs.set(citNpc.id, citNpc);
