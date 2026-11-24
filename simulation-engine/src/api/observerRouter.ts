@@ -5,6 +5,8 @@ import { resetWorld } from "../engine/resetWorld";
 import { FACTION_SPECIALTIES } from "../engine/economy/factionSpecialties";
 import { VERGE_COORD } from "../engine/canon/dragonPrisons.js";
 import { addCellTags, loadCellTagMap } from "../engine/cellTags.js";
+import { readWorldClock, setClockRunning } from "../engine/clock/clock.js";
+import { enqueueCommand, isWorkerActive, waitForCommand } from "../worker/commands.js";
 
 const observerRouter = Router();
 type Db = { query: (text: string, params?: any[]) => Promise<any> };
@@ -314,9 +316,21 @@ async function runTrackedTick() {
   }
 }
 
+const useLegacyInProcessTick = () => process.env.SIM_WORKER === "off";
+
 let autoplayTimer: any = null;
-observerRouter.post("/autoplay", (req, res) => {
-    const { enabled } = req.body;
+observerRouter.post("/autoplay", async (req, res) => {
+    const enabled = Boolean(req.body?.enabled);
+    if (!useLegacyInProcessTick()) {
+        try {
+            const kind = enabled ? "start" : "stop";
+            await enqueueCommand(pool, kind, {});
+            const clock = await setClockRunning(pool, enabled);
+            return res.json({ autoplay: clock.running, mode: clock.mode, speed_ms: clock.speed_ms });
+        } catch (e: any) {
+            return res.status(500).json({ error: e.message });
+        }
+    }
     if (enabled && !autoplayTimer) {
         autoplayTimer = setInterval(async () => {
             if (!tickInProgress && !resetInProgress) {
@@ -331,13 +345,35 @@ observerRouter.post("/autoplay", (req, res) => {
     }
     res.json({ autoplay: !!autoplayTimer });
 });
-observerRouter.get("/autoplay", (req, res) => {
+observerRouter.get("/autoplay", async (req, res) => {
+    if (!useLegacyInProcessTick()) {
+        try {
+            const clock = await readWorldClock(pool);
+            return res.json({ autoplay: clock.running, mode: clock.mode, speed_ms: clock.speed_ms });
+        } catch (e: any) {
+            return res.status(500).json({ error: e.message });
+        }
+    }
     res.json({ autoplay: !!autoplayTimer });
 });
 
-// Cheap poll target: the dashboard polls this and refetches everything else only when `tick` changes.
+// Cheap poll target: answers immediately from persisted world_clock without blocking on running ticks.
 observerRouter.get("/status", async (req, res) => {
   try {
+    if (!useLegacyInProcessTick()) {
+      const clock = await readWorldClock(pool);
+      return res.json({
+        tick: clock.tick || (await currentTick()),
+        minute_of_day: clock.minute_of_day,
+        mode: clock.mode,
+        speed_ms: clock.speed_ms,
+        tickInProgress: clock.tick_in_progress || tickInProgress,
+        resetInProgress,
+        autoplay: clock.running,
+        lastTickError: clock.last_tick_error ?? lastTickError,
+        lastTickHealth: clock.last_tick_health ?? lastTickHealth,
+      });
+    }
     res.json({ tick: await currentTick(), tickInProgress, resetInProgress, autoplay: !!autoplayTimer, lastTickError, lastTickHealth });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -401,11 +437,29 @@ observerRouter.get("/state", async (req, res) => {
 });
 
 observerRouter.post("/tick", async (req, res) => {
-  if (tickInProgress) {
-    return res.status(429).json({ error: autoplayTimer ? "Autoplay is running: stop it to step by hand." : "A tick is already running. Please wait." });
-  }
   if (resetInProgress) {
     return res.status(429).json({ error: "World reset in progress. Please wait." });
+  }
+
+  if (!useLegacyInProcessTick()) {
+    try {
+      const clock = await readWorldClock(pool);
+      if (clock.tick_in_progress) {
+        return res.status(429).json({ error: clock.running ? "Autoplay is running: stop it to step by hand." : "A tick is already running. Please wait." });
+      }
+      if (!(await isWorkerActive(pool))) {
+        return res.status(503).json({ error: "Simulation worker is not running. Start `npm run worker` or set SIM_WORKER=off." });
+      }
+      const cmdId = await enqueueCommand(pool, "tick", {});
+      const result = await waitForCommand(pool, cmdId);
+      return res.json(result);
+    } catch (error: any) {
+      return res.status(500).json({ error: error.message || "Tick failed" });
+    }
+  }
+
+  if (tickInProgress) {
+    return res.status(429).json({ error: autoplayTimer ? "Autoplay is running: stop it to step by hand." : "A tick is already running. Please wait." });
   }
 
   tickInProgress = true;
@@ -422,14 +476,32 @@ observerRouter.post("/tick", async (req, res) => {
 
 // Run batch ticks at will (1, 5, 10)
 observerRouter.post("/batch_ticks", async (req, res) => {
-  if (tickInProgress) {
-    return res.status(429).json({ error: autoplayTimer ? "Autoplay is running: stop it to step by hand." : "A tick is already running. Please wait." });
-  }
   if (resetInProgress) {
     return res.status(429).json({ error: "World reset in progress. Please wait." });
   }
 
   const count = Math.min(Math.max(Number(req.body.count || 1), 1), 25);
+  if (!useLegacyInProcessTick()) {
+    try {
+      const clock = await readWorldClock(pool);
+      if (clock.tick_in_progress) {
+        return res.status(429).json({ error: clock.running ? "Autoplay is running: stop it to step by hand." : "A tick is already running. Please wait." });
+      }
+      if (!(await isWorkerActive(pool))) {
+        return res.status(503).json({ error: "Simulation worker is not running. Start `npm run worker` or set SIM_WORKER=off." });
+      }
+      const cmdId = await enqueueCommand(pool, "fast_forward", { days: count });
+      const result = await waitForCommand(pool, cmdId, count * 15000 + 30000);
+      return res.json(result);
+    } catch (error: any) {
+      return res.status(500).json({ error: error.message || "Batch tick failed" });
+    }
+  }
+
+  if (tickInProgress) {
+    return res.status(429).json({ error: autoplayTimer ? "Autoplay is running: stop it to step by hand." : "A tick is already running. Please wait." });
+  }
+
   tickInProgress = true;
   try {
     const results = [];
@@ -1006,7 +1078,8 @@ observerRouter.post("/trigger_crisis", async (req, res) => {
 });
 
 observerRouter.post("/reset", async (req, res) => {
-  if (tickInProgress) {
+  const clock = !useLegacyInProcessTick() ? await readWorldClock(pool).catch(() => null) : null;
+  if (tickInProgress || clock?.tick_in_progress) {
     return res.status(429).json({ error: "Cannot reset while a tick is in progress." });
   }
   if (resetInProgress) {
@@ -1014,6 +1087,10 @@ observerRouter.post("/reset", async (req, res) => {
   }
 
   // Halt background autoplay during world reset to prevent race conditions
+  if (!useLegacyInProcessTick()) {
+    await enqueueCommand(pool, "stop", {}).catch(() => {});
+    await setClockRunning(pool, false).catch(() => {});
+  }
   if (autoplayTimer) {
     clearInterval(autoplayTimer);
     autoplayTimer = null;
