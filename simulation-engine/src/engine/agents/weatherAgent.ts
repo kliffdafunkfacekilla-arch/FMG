@@ -270,7 +270,7 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
 
     } else if (phase === "MERCY") {
         // The Mercy Alignment — brief calm, eco healing
-        await client.query("UPDATE sim_cells SET eco_health = LEAST(COALESCE(eco_max, 100), COALESCE(eco_health, 100) + 3)");
+        await client.query("UPDATE sim_cells SET eco_health = LEAST(COALESCE(eco_max, 100), COALESCE(eco_health, 100) + 3) WHERE COALESCE(eco_health, 100) < COALESCE(eco_max, 100)");
         await client.query("UPDATE sim_chaos_zones SET intensity = GREATEST(0, intensity - 8)");
         await client.query("DELETE FROM sim_chaos_zones WHERE intensity <= 0");
         await client.query(
@@ -279,7 +279,7 @@ export async function runWeatherAgent(client: any, tick: number, season: string,
         );
 
     } else if (phase === "VOID_DRAIN" && dayOfMonth % 12 === 5) {
-        await client.query("UPDATE sim_cells SET eco_health = LEAST(COALESCE(eco_max, 100), COALESCE(eco_health, 100) + 2)");
+        await client.query("UPDATE sim_cells SET eco_health = LEAST(COALESCE(eco_max, 100), COALESCE(eco_health, 100) + 2) WHERE COALESCE(eco_health, 100) < COALESCE(eco_max, 100)");
         await client.query(
             `INSERT INTO sim_events (tick, type, message, tier, lore_date) VALUES ($1, 'VOID_DRAIN', $2, 'MINOR', $3)`,
             [tick, `The central Void drinks the last of the surface chaos, leaking it upward into the Broken Moon. The cycle of Cruorbus begins anew.`, loreDate]
