@@ -5,6 +5,7 @@ import {
   decideProposal,
   listDeskProposals,
 } from "../engine/story/storylines.js";
+import { previewStoryOptions } from "../engine/story/preview.js";
 
 const storyRouter = Router();
 
@@ -82,6 +83,23 @@ storyRouter.post("/desk/:id", async (req: Request, res: Response): Promise<void>
       clock_max: req.body?.clock_max !== undefined ? Number(req.body.clock_max) : undefined,
       hook: req.body?.hook,
       acceptAfterEdit: req.body?.acceptAfterEdit,
+    });
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
+});
+
+/**
+ * POST /api/story/preview
+ * Simulates up to MAX_PREVIEW_OPTIONS over up to MAX_PREVIEW_DAYS inside rolled-back transactions.
+ */
+storyRouter.post("/preview", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await previewStoryOptions({
+      proposalId: req.body?.proposalId !== undefined ? Number(req.body.proposalId) : undefined,
+      resolutionOptions: Array.isArray(req.body?.resolutionOptions) ? req.body.resolutionOptions : undefined,
+      days: req.body?.days !== undefined ? Number(req.body.days) : undefined,
     });
     res.json({ success: true, ...result });
   } catch (err: any) {

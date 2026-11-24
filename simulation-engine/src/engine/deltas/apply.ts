@@ -124,6 +124,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   const burgMilAdjusts: Array<Extract<Delta, { kind: "burg.militaryAdjust" }>> = [];
   const infraAdjusts: Array<Extract<Delta, { kind: "infrastructure.adjust" }>> = [];
   const overlayAdds: Array<Extract<Delta, { kind: "overlay.add" }>> = [];
+  const standingAdjusts: Array<Extract<Delta, { kind: "standing.adjust" }>> = [];
   let lastCalendar: Extract<Delta, { kind: "calendar.set" }> | null = null;
 
   for (const d of deltas) {
@@ -293,6 +294,9 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         break;
       case "overlay.add":
         overlayAdds.push(d);
+        break;
+      case "standing.adjust":
+        standingAdjusts.push(d);
         break;
     }
   }
@@ -1043,6 +1047,47 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
     for (const dt of ticks) {
       const refs = byTick.get(dt)!;
       counts.entities = (counts.entities || 0) + (await markEntitiesDeadBatch(db, refs, dt));
+    }
+  }
+
+  // 18. standing adjustments
+  if (standingAdjusts.length > 0) {
+    const grouped = new Map<string, {
+      subjectRef: string;
+      partyRef: string;
+      delta: number;
+      reasons: Array<{ tick: number; delta: number; reason: string }>;
+    }>();
+    for (const s of standingAdjusts) {
+      const key = `${s.subjectRef}\0${s.partyRef}`;
+      let cur = grouped.get(key);
+      if (!cur) {
+        cur = { subjectRef: s.subjectRef, partyRef: s.partyRef, delta: 0, reasons: [] };
+        grouped.set(key, cur);
+      }
+      cur.delta += Math.round(s.delta);
+      cur.reasons.push({ tick: s.tick ?? 0, delta: Math.round(s.delta), reason: s.reason });
+    }
+
+    for (const key of Array.from(grouped.keys()).sort()) {
+      const item = grouped.get(key)!;
+      const res = await db.query(
+        `INSERT INTO standing (subject_ref, party_ref, value, reasons)
+         VALUES ($1, $2, LEAST(100, GREATEST(-100, $3::int)), $4::jsonb)
+         ON CONFLICT (subject_ref, party_ref) DO UPDATE SET
+           value = LEAST(100, GREATEST(-100, standing.value + $3::int)),
+           reasons = (
+             SELECT COALESCE(jsonb_agg(elem ORDER BY ord), '[]'::jsonb)
+             FROM (
+               SELECT elem, ord
+               FROM jsonb_array_elements(COALESCE(standing.reasons, '[]'::jsonb) || EXCLUDED.reasons) WITH ORDINALITY AS t(elem, ord)
+               ORDER BY ord DESC
+               LIMIT 20
+             ) sub
+           )`,
+        [item.subjectRef, item.partyRef, item.delta, JSON.stringify(item.reasons)]
+      );
+      counts.standing = (counts.standing || 0) + (res.rowCount || 1);
     }
   }
 

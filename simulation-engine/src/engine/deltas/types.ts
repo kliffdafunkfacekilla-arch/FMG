@@ -266,6 +266,14 @@ export type Delta =
       tick: number;
       minute?: number | undefined;
       source: string;
+    }
+  | {
+      kind: "standing.adjust";
+      subjectRef: string;
+      partyRef: string;
+      delta: number;
+      reason: string;
+      tick?: number | undefined;
     };
 
 export type DeltaEmitter = (delta: Delta) => void;

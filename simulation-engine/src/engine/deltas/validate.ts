@@ -28,6 +28,7 @@ const KNOWN_KINDS = new Set<string>([
   "burg.militaryAdjust",
   "infrastructure.adjust",
   "overlay.add",
+  "standing.adjust",
 ]);
 
 function clamp(v: number, min: number, max: number): number {
@@ -56,6 +57,7 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   const paragonIds = new Set<number>();
   const agentIds = new Set<number>();
   const factionIds = new Set<number>();
+  const standingEntityRefs = new Set<string>();
 
   const structuralErrors = new Map<number, string>();
 
@@ -332,6 +334,28 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         }
         break;
       }
+      case "standing.adjust": {
+        const err = finiteOrReject([
+          ["delta", d.delta],
+          ["tick", d.tick],
+        ]);
+        const subject = String(d.subjectRef || "").trim();
+        const party = String(d.partyRef || "").trim();
+        const reason = String(d.reason || "").trim();
+        if (err || !subject || !party || !reason) {
+          structuralErrors.set(i, err || "Invalid standing.adjust payload");
+        } else if (subject.startsWith("faction:")) {
+          const fid = Number(subject.slice("faction:".length));
+          if (!Number.isInteger(fid) || fid <= 0) {
+            structuralErrors.set(i, `Invalid faction standing ref "${subject}"`);
+          } else {
+            factionIds.add(fid);
+          }
+        } else {
+          standingEntityRefs.add(subject);
+        }
+        break;
+      }
     }
   }
 
@@ -369,6 +393,15 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   if (factionIds.size > 0) {
     const res = await db.query(`SELECT id FROM sim_factions WHERE id = ANY($1::int[])`, [Array.from(factionIds)]);
     for (const r of res.rows) validFactions.add(Number(r.id));
+  }
+
+  const validStandingEntities = new Set<string>();
+  if (standingEntityRefs.size > 0) {
+    const entCheck = await db.query(`SELECT to_regclass('entities') IS NOT NULL AS ready`);
+    if (entCheck.rows[0]?.ready) {
+      const res = await db.query(`SELECT ref FROM entities WHERE ref = ANY($1::text[])`, [Array.from(standingEntityRefs)]);
+      for (const r of res.rows) validStandingEntities.add(String(r.ref));
+    }
   }
 
   const ok: Delta[] = [];
@@ -562,6 +595,22 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         }
         ok.push(d);
         break;
+
+      case "standing.adjust": {
+        const subject = String(d.subjectRef || "").trim();
+        if (subject.startsWith("faction:")) {
+          const fid = Number(subject.slice("faction:".length));
+          if (!validFactions.has(fid)) {
+            rejected.push({ delta: d, reason: `Unknown standing faction ${subject}` });
+            break;
+          }
+        } else if (!validStandingEntities.has(subject)) {
+          rejected.push({ delta: d, reason: `Unknown standing entity ${subject}` });
+          break;
+        }
+        ok.push(d);
+        break;
+      }
 
       default:
         ok.push(d);
