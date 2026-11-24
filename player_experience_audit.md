@@ -1,21 +1,21 @@
 # Ostraka TTRPG — Player Experience & System Audit
 
 **Audit Perspective**: Casual to Hardcore Player Playthrough  
-**Audited Components**: App Title Screen, Character Studio, 12-Attribute Matrix, Battlegrid & Movement, Contextual Actions, Gemini Chronicler, Difficulty Tiers, Permadeath & Memorial Archive, WhatELSE Questing, Save/Load Engine  
+**Audited Components**: App Title Screen, Character Studio, 12-Attribute Matrix, Battlegrid & Movement, Contextual Actions, Ollama Chronicler, Difficulty Tiers, Permadeath & Memorial Archive, WhatELSE Questing, Save/Load Engine  
 **Date**: October 11, 2026
 
 ---
 
 ## 1. Executive Summary & Player Scorecard
 
-Ostraka has evolved from a simulation map inspector into an authentic, deeply atmospheric procedural dark fantasy TTRPG. A player loading the game today encounters a fully responsive client powered by a PostgreSQL state backend and real-time Gemini sensory narrative engine.
+Ostraka has evolved from a simulation map inspector into an authentic, deeply atmospheric procedural dark fantasy TTRPG. A player loading the game today encounters a fully responsive client powered by a PostgreSQL state backend and real-time local Ollama sensory narrative engine.
 
 | Dimension | Rating | Player Verdict |
 | :--- | :---: | :--- |
 | **First Impressions & Title** | 🟢 9 / 10 | Evocative, clean, atmospheric radial styling with instant Continue / Create / Load buttons. |
 | **Character Creation Studio** | 🟢 9.5 / 10 | Extraordinary depth: 6 Kingdoms with biological profiles, 72 Lineages with trait lore, 12-stat splits, attunements, and 3 difficulty modes. |
 | **World Navigation & Radar** | 🟢 8.5 / 10 | Smooth WASD movement, biome-accurate color shifts, objective compass radar, and Zelda-style border transitions. |
-| **Action & Narrative Terminal** | 🟢 9 / 10 | Evocative Gemini prose, opposed d20 + stat mechanics, hotkeys (1-5), and auto-swapping contextual action chips. |
+| **Action & Narrative Terminal** | 🟢 9 / 10 | Evocative Ollama prose, B.R.U.T.A.L. opposed d12 + stat vs Guard mechanics, hotkeys (1-5), and auto-swapping contextual action chips. |
 | **Combat & Tactical Resolution** | 🟢 8.5 / 10 | Opposed rolls with armor DR, weapon damage bonuses, dynamic retaliation, and elemental tag propagation. |
 | **Difficulty & Defeat Stakes** | 🟢 9.5 / 10 | Grounded defeat text. Clear mechanical distinctions between Casual, Survivor, and Hardcore permadeath. |
 | **Questing & Campaign Flow** | 🟢 8 / 10 | WhatELSE 5-Act structure with live objective checklists, pivot choices, and reputation shifts. |
@@ -46,7 +46,7 @@ flowchart TD
     L --> M["Tactical Battlegrid (WASD Movement)"]
     M --> N["Encounter Proximity (<= 3 tiles)"]
     N --> O["Action Terminal (Hotkeys 1-5 / Free Text)"]
-    O --> P["Concordia Opposed Rolls + Gemini Sensory Prose"]
+    O --> P["B.R.U.T.A.L. d12 Opposed Rolls + Ollama Sensory Prose"]
     P --> Q{"HP > 0?"}
     Q -->|"Yes"| M
     Q -->|"No"| R["Defeat Screen"]
@@ -101,8 +101,8 @@ flowchart TD
 
 ### 3.4 The Chronicler Action Terminal & Combat Mechanics
 * **What Works Great**:
-  * **Opposed d20 + Stat Checks**: System logs clearly print both the attacker's roll + stat and the defender's roll + stat, followed by damage reduction subtraction.
-  * **Gemini 2.0 Sensory Descriptions**: The narrative is dark, punchy, and grounded. Example output:
+  * **B.R.U.T.A.L. Opposed d12 + Stat vs Guard Checks**: System logs clearly print both the attacker's d12 + stat roll and the defender's Guard / Active Defense, followed by Net Margin, Clash resolution, and injury tiers.
+  * **Local Ollama Sensory Descriptions**: The narrative is dark, punchy, and grounded. Example output:
     > *"The bandit’s breastplate caves with a sickening crunch of fracturing bone, driving the wheezing wretch hard into the frost-slick mud. Warm, coppery iron blooms heavily in the chill air..."*
   * **Contextual Action Chips**:
     * Near a Hostile NPC: Buttons auto-switch to `[🗣️ Talk]`, `[⚔️ Attack]`, `[🪙 Bribe (10g)]`, `[💀 Intimidate]`.

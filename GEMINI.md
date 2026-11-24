@@ -57,5 +57,5 @@ Make **one burg, one thread and one play session** work end to end through the l
 ## Known contradictions to resolve (don't paper over them)
 
 - ~~**Database:**~~ **Resolved 2026-11-11: PostgreSQL is the only database.** The old SQLite file, the sqlite migration scripts and `better-sqlite3` are removed.
-- **Dice:** the skills say "1d12 Net Margin" and `SYSTEM_OVERVIEW.md` says "1d20". The answer is B.R.U.T.A.L. (rule 4).
-- **Duplication:** `GEMINI.md` describes world mechanics that duplicate Canon. Trim it to architecture, and point to Canon for the world.
+- ~~**Dice:**~~ **Resolved 2026-11-24:** Docs (`SYSTEM_OVERVIEW.md`, `OSTRAKA_SYSTEM_ROADMAP.md`, `player_experience_audit.md`) now specify B.R.U.T.A.L. Draft v5.0 (`d12 + stat` against a Guard, pointing to `BRUTAL_Rulebook_v3.md`), with retired names and dice removed.
+- ~~**Duplication:**~~ **Resolved 2026-11-24:** `GEMINI.md` is trimmed to architecture and rules only and points to `C:\Users\krazy\Desktop\Shatterlands\Canon\` and `Rules\`.

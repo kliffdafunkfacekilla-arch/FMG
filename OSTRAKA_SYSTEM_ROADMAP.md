@@ -36,10 +36,10 @@ The backend system is strictly partitioned into four autonomous, collaborating p
 +-----------------------------------------------------------------------------------+
 |                                         |                                         |
 |                                         v                                         |
-|  PILLAR 3: INDEPENDENT GM ENGINE                   PILLAR 4: AI STORY GENERATOR   |
-|  - B.R.U.T.A.L. 12-Attribute Matrix                   - Gemini Natural Language Arbiter|
-|  - 4 Derived Pools (HP, Stamina, Composure, Focus) - Free-Speech Intent Parser    |
-|  - Opposed 1d20 Resolution                         - Narrative Drama & Organic Lore|
+|  PILLAR 3: B.R.U.T.A.L. GM ENGINE                 PILLAR 4: AI STORY DIRECTOR    |
+|  - B.R.U.T.A.L. 12-Attribute Matrix                 - Local Ollama Narrative Arbiter|
+|  - 4 Derived Pools (Health, Composure, Stamina, Focus) - Free-Speech Intent Parser|
+|  - Opposed 1d12 Net Margin Resolution             - Narrative Drama & Organic Lore|
 |  - Physical Tag Matrix Cascades                    - Connects Any Two Entities    |
 |  - Pure Mechanical Execution (No Hallucinations)  - Feeds Events to `sim_events`  |
 +-----------------------------------------------------------------------------------+
@@ -188,26 +188,20 @@ Macro and regional events emit tags (`#MartialLawCurfew`, `#FamineCrisis`, `#Ful
 
 ---
 
-## 6. CONCORDIA MECHANICAL GM & RULES ENGINE (PILLAR 3)
+## 6. B.R.U.T.A.L. MECHANICAL GM & RULES ENGINE (PILLAR 3)
 
-Located in `simulation-engine/src/engine/rpg/` and `src/engine/`:
+Located in `simulation-engine/src/engine/rpg/` and `src/engine/`, implementing **B.R.U.T.A.L. Draft v5.0** per `C:\Users\krazy\Desktop\Shatterlands\Rules\BRUTAL_Rulebook_v3.md` (and `RULES_TARGET_v5.0.md`):
 * **12 Attributes**: Might, Endurance, Finesse, Reflex, Vitality, Fortitude, Knowledge, Logic, Awareness, Intuition, Charm, Willpower.
-* **4 Derived Pools**:
-  $$\text{Health} = \text{Vitality} \times 10 + \text{Fortitude} \times 5$$
-  $$\text{Stamina} = \text{Endurance} \times 5 + \text{Might} \times 2$$
-  $$\text{Composure} = \text{Willpower} \times 5 + \text{Charm} \times 2$$
-  $$\text{Focus} = \text{Logic} \times 5 + \text{Knowledge} \times 2$$
-* **Opposed 1d20 Resolution**:
-  $$\text{Attacker Roll} = 1d20 + \text{Stat} + \text{Mod} \quad \text{vs} \quad \text{Defender Roll} = 1d20 + \text{Stat} + \text{Mod}$$
-  $$\text{Net Difference} > 0 \implies \text{Hit}, \quad \text{Injury Points} = \text{Difference} + \text{Weapon Bonus} - \text{Armor Soak}$$
-* **No AI Hallucination**: Pure mechanical code execution (`RulesEngine.ts`, `TagMatrixEngine.ts`, `combatEngine.ts`).
+* **4 Derived Pools & 4 Derived Senses/Guards**: Health, Composure, Stamina, Focus; Perception, Speed (Dodge Guard), Stealth, Balance (Footing Guard).
+* **Opposed 1d12 Net Margin Resolution**: `1d12 + Stat` vs Guard or Active Defense, yielding Miss/Deflection (`< 0`), **The Clash** (`= 0`, resolved across 6 stances), or Hit (`>= 1`) with deterministic capacity loss, armor soak, and injury escalation.
+* **No AI Hallucination**: Pure deterministic code execution (`BrutalGM.ts`, `RulesEngine.ts`, `TagMatrixEngine.ts`, `combatResolutionEngine.ts`).
 
 ---
 
 ## 7. AI STORY GENERATOR & EVENT NARRATION (PILLAR 4)
 
 Located in `simulation-engine/src/api/directorRouter.ts`, `src/engine/rpg/WhatElseStoryEngine.ts`, `src/engine/rpg/directorBridge.ts`:
-* **Gemini LLM Arbitration**: Reads pure mechanical results from Pillar 3 and translates them into vivid natural language narrative sensory outputs.
+* **Local Ollama LLM Arbitration**: Reads pure mechanical results from Pillar 3 via `engine/llm.ts` and translates them into vivid natural language narrative sensory outputs.
 * **Free-Speech Intent Parser**: Translates player natural language inputs into structured B.R.U.T.A.L. GM actions (`ActionCategory: COMBAT | SOCIAL | SUBTERFUGE | EXPLORATION | SURVIVAL`).
 * **Emergent Lore Weaving**: Dynamically discovers real simulation connections between any two entities in the database (e.g., linking a displaced tailor in Burg #12 to an Otter Mafia smuggler).
 * **Logging**: All narrative milestones backfeed into `sim_events` and `sim_gm_memories`.
@@ -247,9 +241,9 @@ Located in `simulation-engine/src/api/directorRouter.ts`, `src/engine/rpg/WhatEl
 * **`agentMovementHelper.ts`**: In-memory spatial hash grid (34,430 cells), Euclidean navigation, agent collisions.
 * **`outlawSyndicates.ts`**: Static lore definitions and unique gear loadouts for all 10 criminal factions.
 
-### 3. CONCORDIA RULES & DM ENGINE (`simulation-engine/src/engine/rpg/`)
-* **`B.R.U.T.A.L.GM.ts`**: Entity-Component Game Master loop, sensory filters, plausibility checks.
-* **`RulesEngine.ts`**: Opposed 1d20 resolution, injury point calculations, armor soak, disadvantage.
+### 3. B.R.U.T.A.L. RULES & DM ENGINE (`simulation-engine/src/engine/rpg/`)
+* **`BrutalGM.ts`**: Entity-Component Game Master loop, sensory filters, plausibility checks.
+* **`RulesEngine.ts`**: B.R.U.T.A.L. Draft v5.0 opposed d12 + Stat vs Guard resolution, Net Margin tiers, Clash stances, and injury escalation.
 * **`TagMatrixEngine.ts`**: Declarative reaction rule table, material damage cascades, structural destruction.
 * **`TagRegistry.ts`**: Definitions of all physical, environmental, and behavioral tags + action DCs.
 * **`narrativeReactionEngine.ts`**: Deterministic data collision engine between citizen tags and world events.
@@ -262,7 +256,7 @@ Located in `simulation-engine/src/api/directorRouter.ts`, `src/engine/rpg/WhatEl
 * **`CharacterData.ts`**: Character sheet definitions, lineage/kingdom traits, derived pool formulas.
 * **`CharacterGenerator.ts`**: Procedural creation of balanced player and NPC character sheets.
 * **`ProceduralNPCGenerator.ts`**: Deterministic PRNG synthesis of tactical NPCs matching local demographics.
-* **`directorBridge.ts`**: Formats live sector state into concise structured JSON for Gemini story director.
+* **`directorBridge.ts`**: Formats live sector state into concise structured JSON for the local Ollama story director.
 * **`chaosSurgeEngine.ts`**: Table of 100 wild arcana surges triggered by excessive spark channeling.
 
 ### 4. MAP & SECTOR GENERATION (`simulation-engine/src/engine/maps/`)

@@ -11,8 +11,8 @@ Per **Rule 3** of `GEMINI.md`:
   - **Lore**: `C:\Users\krazy\Desktop\Shatterlands\Canon\`, starting at `00_Index_and_Precedence.md`.
   - **Rules**: `C:\Users\krazy\Desktop\Shatterlands\Rules\BRUTAL_Rulebook_v3.md` (Draft v5.0; see `RULES_TARGET_v5.0.md`). For the digest, read `Rules\Table_Test_Pack\players\Rules_Digest.md`.
   - If the code disagrees with them, the code is wrong.
-- **The World is Ostraka, in the Shatterlands** ("Aetheria" is a retired working name).
-- **The Game System is B.R.U.T.A.L.** (opposed 1d12 + Stat against Guard/DC).
+- **The World is Ostraka, in the Shatterlands** (see `AGENT_RULES.md` Rule 5).
+- **The Game System is B.R.U.T.A.L.** (Draft v5.0: opposed `1d12 + Stat` against Guard / Active Defense per `C:\Users\krazy\Desktop\Shatterlands\Rules\BRUTAL_Rulebook_v3.md`).
 - **Database Authority**: PostgreSQL is the single authoritative database. Any historical `.sqlite` files are retired.
 
 ---
