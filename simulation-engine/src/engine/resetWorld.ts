@@ -127,7 +127,7 @@ CREATE TABLE sim_cells (
     flux        INT  DEFAULT 0,
     feature_id  INT  DEFAULT 0,
     cell_type   SMALLINT DEFAULT 0
-  );
+  ) WITH (fillfactor = 85, autovacuum_vacuum_scale_factor = 0.02);
 
   CREATE TABLE IF NOT EXISTS sim_weather_fronts (
     id          SERIAL PRIMARY KEY,
@@ -191,7 +191,7 @@ CREATE TABLE IF NOT EXISTS sim_burg_economy (
   product_value    REAL DEFAULT 0,
   production       JSONB DEFAULT '[]'::jsonb,
   coa              JSONB DEFAULT '{}'::jsonb
-);
+) WITH (fillfactor = 85, autovacuum_vacuum_scale_factor = 0.02);
 
 CREATE TABLE IF NOT EXISTS sim_cultures (
   id      INT PRIMARY KEY,
@@ -818,7 +818,7 @@ CREATE TABLE IF NOT EXISTS population_demographics (
     want TEXT,
     flaw TEXT,
     line_wont_cross TEXT
-);
+) WITH (autovacuum_vacuum_scale_factor = 0.02);
 CREATE INDEX IF NOT EXISTS idx_pop_settlement ON population_demographics(settlement_id);
 CREATE INDEX IF NOT EXISTS idx_pop_spark ON population_demographics(spark_tier);
 CREATE INDEX IF NOT EXISTS idx_pop_allegiance ON population_demographics(allegiance_status);

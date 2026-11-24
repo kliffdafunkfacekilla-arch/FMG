@@ -236,4 +236,21 @@ export async function applySchemaPatches(db: Db): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_trade_shipments_status ON sim_trade_shipments(status);
     CREATE INDEX IF NOT EXISTS idx_trade_shipments_cell ON sim_trade_shipments(current_cell_id) WHERE status = 'IN_TRANSIT';
   `);
+
+  // Reserve 15% free space per heap page for HOT updates and trigger autovacuum earlier (2% vs 20%)
+  const optRes = await db.query(`
+    SELECT relname, COALESCE(array_to_string(reloptions, ','), '') AS opts
+    FROM pg_class
+    WHERE relname IN ('sim_cells', 'sim_burg_economy', 'population_demographics') AND relkind = 'r'
+  `);
+  const optsByTable = new Map<string, string>(optRes.rows.map((r: any) => [String(r.relname), String(r.opts)]));
+  if (!optsByTable.get("sim_cells")?.includes("fillfactor=85") || !optsByTable.get("sim_cells")?.includes("autovacuum_vacuum_scale_factor=0.02")) {
+    await db.query(`ALTER TABLE sim_cells SET (fillfactor = 85, autovacuum_vacuum_scale_factor = 0.02)`);
+  }
+  if (!optsByTable.get("sim_burg_economy")?.includes("fillfactor=85") || !optsByTable.get("sim_burg_economy")?.includes("autovacuum_vacuum_scale_factor=0.02")) {
+    await db.query(`ALTER TABLE sim_burg_economy SET (fillfactor = 85, autovacuum_vacuum_scale_factor = 0.02)`);
+  }
+  if (!optsByTable.get("population_demographics")?.includes("autovacuum_vacuum_scale_factor=0.02")) {
+    await db.query(`ALTER TABLE population_demographics SET (autovacuum_vacuum_scale_factor = 0.02)`);
+  }
 }
