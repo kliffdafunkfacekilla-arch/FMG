@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import pool from "../db/pool.js";
 import { isolateTest } from "./testIsolation.js";
+import { applySchemaPatches } from "../db/schemaPatches.js";
 import { getFactionSpecialty } from "../engine/economy/factionSpecialties.js";
 import { runBurgOperationsAgent } from "../engine/agents/burgOperationsAgent.js";
 import { updateRegionalMarkets } from "../engine/economy/marketAgent.js";
@@ -23,6 +24,7 @@ async function setExcelsisStockpile(inv: Record<string, number>) {
 
 async function main() {
   console.log("=== Testing Citizen-Backed Economy, Recipes, Specialties & 31 Markets ===");
+  await applySchemaPatches(pool);
 
   const tickRes = await pool.query(`SELECT COALESCE(MAX(tick), 1)::int AS tick FROM sim_calendar`);
   const baseTick = Number(tickRes.rows[0].tick) || 1;
@@ -97,9 +99,15 @@ async function main() {
     `UPDATE population_demographics SET allegiance_status = 'DECEASED'
      WHERE settlement_id = 1 AND life_stage = 'ADULT' AND profession = 'Woodcutter'`
   );
+  await pool.query(`UPDATE sim_burg_economy SET workforce = NULL WHERE burg_id = 1`);
   await runBurgOperationsAgent(pool, baseTick + 1, "NoWoodcutters");
   const noWoodInv = await getStockpile(1);
   assert.equal(noWoodInv.wood || 0, 10, `Expected 0 wood gain when Woodcutters absent, got ${(noWoodInv.wood || 0) - 10}`);
+  const recountCheck = await pool.query(`SELECT workforce FROM sim_burg_economy WHERE burg_id = 1`);
+  const recountedWf = typeof recountCheck.rows[0].workforce === "string"
+    ? JSON.parse(recountCheck.rows[0].workforce)
+    : recountCheck.rows[0].workforce;
+  assert.ok(recountedWf && typeof recountedWf === "object" && Number(recountedWf.Woodcutter?.records || 0) === 0, "Expected workforce JSONB recounted cleanly after invalidation");
   await pool.query("ROLLBACK TO SAVEPOINT eco_no_woodcutters");
   console.log("3. No worker = no resource (Woodcutters control Wood output)... PASSED");
 
@@ -125,6 +133,7 @@ async function main() {
     `UPDATE population_demographics SET allegiance_status = 'DECEASED'
      WHERE settlement_id = 1 AND life_stage = 'ADULT' AND profession = 'Armorer'`
   );
+  await pool.query(`UPDATE sim_burg_economy SET workforce = NULL WHERE burg_id = 1`);
   await runBurgOperationsAgent(pool, baseTick + 1, "ArmsNoCrafters");
   const armsNoCraftInv = await getStockpile(1);
   assert.equal(armsNoCraftInv.arms || 0, 0, `Expected 0 Arms crafted when all Armorers absent, got ${armsNoCraftInv.arms}`);

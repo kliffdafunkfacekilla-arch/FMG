@@ -24,6 +24,30 @@ export async function applySchemaPatches(db: Db): Promise<void> {
   await db.query(`ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS pop_departure_pool FLOAT DEFAULT 0`);
   // People per citizen record in this burg, recounted weekly by the burg operations agent
   await db.query(`ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS record_unit INT`);
+  // Cached living adult civilian workforce counts per profession per burg, recounted weekly or on citizen change
+  await db.query(`ALTER TABLE sim_burg_economy ADD COLUMN IF NOT EXISTS workforce JSONB DEFAULT NULL`);
+  const wfHasAny = await db.query(`SELECT 1 FROM sim_burg_economy WHERE workforce IS NOT NULL LIMIT 1`);
+  if (wfHasAny.rows.length === 0) {
+    await db.query(`
+      WITH per_prof AS (
+        SELECT settlement_id, COALESCE(profession, '') AS profession, COUNT(*)::int AS records, COALESCE(SUM(unit_size), 0)::int AS people
+        FROM population_demographics
+        WHERE life_stage = 'ADULT' AND allegiance_status = 'CIVILIAN'
+        GROUP BY settlement_id, COALESCE(profession, '')
+      ),
+      agg AS (
+        SELECT settlement_id,
+               jsonb_object_agg(profession, jsonb_build_object('records', records, 'people', people) ORDER BY profession) AS wf
+        FROM per_prof
+        GROUP BY settlement_id
+      )
+      UPDATE sim_burg_economy b
+      SET workforce = COALESCE(a.wf, '{}'::jsonb)
+      FROM (SELECT burg_id FROM sim_burg_economy) all_b
+      LEFT JOIN agg a ON a.settlement_id = all_b.burg_id
+      WHERE b.burg_id = all_b.burg_id
+    `);
+  }
 
   // Lookups every tick makes (TICK_PROFILE=1 showed them as sequential scans): agents by role and cell or
   // home burg (cultists, wardens, the Mandate), events by tick and by type (director, NPC routines, the

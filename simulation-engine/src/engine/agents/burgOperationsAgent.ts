@@ -228,6 +228,7 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
     const burgUpdates: any[] = [];
     const stockpileUpdates: any[] = [];
     const burgEvents: any[] = [];
+    const workforceDirtyBurgs = new Set<number>();
 
     // Load canonical goods & recipes from sim_goods (Ostraka_full.map)
     const goodsRes = await client.query(`SELECT id, name, value, tags, recipes FROM sim_goods ORDER BY id`);
@@ -257,26 +258,77 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
         }
     }
 
-    // Load real living adult civilian workers grouped by (settlement_id, profession)
-    const wfRes = await client.query(`
-        SELECT settlement_id, profession, COUNT(*)::int AS active_records, COALESCE(SUM(unit_size), 0)::int AS active_people
-        FROM population_demographics
-        WHERE life_stage = 'ADULT' AND allegiance_status = 'CIVILIAN'
-        GROUP BY settlement_id, profession
-        ORDER BY settlement_id, profession
-    `);
-    const burgWorkforce = new Map<number, Map<string, { records: number; people: number }>>();
-    for (const row of wfRes.rows) {
-        const bId = Number(row.settlement_id);
-        let pMap = burgWorkforce.get(bId);
-        if (!pMap) {
-            pMap = new Map();
-            burgWorkforce.set(bId, pMap);
+    // Load real living adult civilian workers grouped by (settlement_id, profession),
+    // cached on sim_burg_economy.workforce and recounted weekly (or per-burg when missing/invalidated).
+    const isWeeklyWorkforce = tick % DAYS_PER_WEEK === 0;
+    const missingWorkforceIds = isWeeklyWorkforce
+        ? []
+        : burgRes.rows.filter((b: any) => b.workforce == null).map((b: any) => Number(b.burg_id));
+
+    if (isWeeklyWorkforce || missingWorkforceIds.length > 0) {
+        const wfRes = isWeeklyWorkforce
+            ? await client.query(`
+                SELECT settlement_id, COALESCE(profession, '') AS profession, COUNT(*)::int AS active_records, COALESCE(SUM(unit_size), 0)::int AS active_people
+                FROM population_demographics
+                WHERE life_stage = 'ADULT' AND allegiance_status = 'CIVILIAN'
+                GROUP BY settlement_id, COALESCE(profession, '')
+                ORDER BY settlement_id, profession
+            `)
+            : await client.query(`
+                SELECT settlement_id, COALESCE(profession, '') AS profession, COUNT(*)::int AS active_records, COALESCE(SUM(unit_size), 0)::int AS active_people
+                FROM population_demographics
+                WHERE settlement_id = ANY($1::int[]) AND life_stage = 'ADULT' AND allegiance_status = 'CIVILIAN'
+                GROUP BY settlement_id, COALESCE(profession, '')
+                ORDER BY settlement_id, profession
+            `, [missingWorkforceIds]);
+
+        const recountedMap = new Map<number, Record<string, { records: number; people: number }>>();
+        const targetRows = isWeeklyWorkforce
+            ? burgRes.rows
+            : burgRes.rows.filter((b: any) => b.workforce == null);
+        for (const b of targetRows) recountedMap.set(Number(b.burg_id), {});
+        for (const row of wfRes.rows) {
+            const bId = Number(row.settlement_id);
+            let rec = recountedMap.get(bId);
+            if (!rec) {
+                rec = {};
+                recountedMap.set(bId, rec);
+            }
+            rec[String(row.profession || "")] = {
+                records: Number(row.active_records) || 0,
+                people: Number(row.active_people) || 0
+            };
         }
-        pMap.set(String(row.profession || ""), {
-            records: Number(row.active_records) || 0,
-            people: Number(row.active_people) || 0
-        });
+        for (const b of targetRows) {
+            b.workforce = recountedMap.get(Number(b.burg_id)) || {};
+        }
+        if (targetRows.length > 0) {
+            await client.query(`
+                UPDATE sim_burg_economy b SET workforce = v.wf
+                FROM (SELECT unnest($1::int[]) AS burg_id, unnest($2::jsonb[]) AS wf) v
+                WHERE b.burg_id = v.burg_id`,
+                [targetRows.map((b: any) => Number(b.burg_id)), targetRows.map((b: any) => JSON.stringify(b.workforce || {}))]
+            );
+        }
+    }
+
+    const burgWorkforce = new Map<number, Map<string, { records: number; people: number }>>();
+    for (const b of burgRes.rows) {
+        const bId = Number(b.burg_id);
+        const pMap = new Map<string, { records: number; people: number }>();
+        let raw = b.workforce;
+        if (typeof raw === 'string') {
+            try { raw = JSON.parse(raw); } catch { raw = {}; }
+        }
+        if (raw && typeof raw === 'object') {
+            for (const [prof, counts] of Object.entries(raw as Record<string, any>)) {
+                pMap.set(prof, {
+                    records: Number(counts?.records) || 0,
+                    people: Number(counts?.people) || 0
+                });
+            }
+        }
+        burgWorkforce.set(bId, pMap);
     }
 
     // Map to accumulate hierarchical shipments from downstream hamlets/villages/towns
@@ -1271,6 +1323,7 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
                             want = COALESCE(want, $6), flaw = COALESCE(flaw, $7), line_wont_cross = COALESCE(line_wont_cross, $8)
                         WHERE citizen_id = $5
                     `, [adultTrade, newAdultMotiv, wp.type, wp.name, child.citizen_id, adultMotives.want, adultMotives.flaw, adultMotives.lineWontCross]);
+                        workforceDirtyBurgs.add(Number(burg.burg_id));
 
                         // Spawn replacement infant/child in the cradle to replace them
                         const replacementFirst = pickRandom(FIRST_NAMES[child.species] || FIRST_NAMES["Human"] || ["Val"], "Val");
@@ -1302,10 +1355,12 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
                         ]);
                     } else {
                         await spawnImmigrant(client, burg, ledger);
+                        workforceDirtyBurgs.add(Number(burg.burg_id));
                     }
                 } else {
                     // 50% immigration: someone moving to the area
                     await spawnImmigrant(client, burg, ledger);
+                    workforceDirtyBurgs.add(Number(burg.burg_id));
                 }
             }
 
@@ -1329,6 +1384,7 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
                     SET allegiance_status = 'DECEASED', cause_of_death = 'FAMINE_OR_PLAGUE'
                     WHERE citizen_id = $1
                 `, [victimRes.rows[0].citizen_id]);
+                    workforceDirtyBurgs.add(Number(burg.burg_id));
                 }
             }
 
@@ -1342,6 +1398,7 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
                 const dead = leftTotal > 0 ? Math.round(retiring * (departedDead / leftTotal)) : 0;
                 await retireRecords(client, burg.burg_id, dead, "DECEASED", "CIVIL_VIOLENCE", `Killed in the violence in ${burg.name}.`);
                 await retireRecords(client, burg.burg_id, retiring - dead, "DEPARTED", null, `Left ${burg.name} as a refugee or outlaw.`);
+                workforceDirtyBurgs.add(Number(burg.burg_id));
             }
 
             const newPopNull = Math.floor(Math.max(12, (burg.pop_null || 0) + popNullDelta));
@@ -1428,6 +1485,13 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
                 burgUpdates.map(u => u.pop_growth_pool || 0.0),
                 burgUpdates.map(u => u.pop_departure_pool || 0.0)
             ]);
+        }
+
+        if (workforceDirtyBurgs.size > 0) {
+            await client.query(
+                `UPDATE sim_burg_economy SET workforce = NULL WHERE burg_id = ANY($1::int[])`,
+                [Array.from(workforceDirtyBurgs).sort((a, b) => a - b)]
+            );
         }
 
         if (stockpileUpdates.length > 0) {

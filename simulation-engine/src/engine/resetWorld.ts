@@ -180,6 +180,7 @@ CREATE TABLE IF NOT EXISTS sim_burg_economy (
   current_inventory JSONB DEFAULT '{}'::jsonb,
   pop_departure_pool FLOAT DEFAULT 0,
   record_unit      INT DEFAULT NULL,
+  workforce        JSONB DEFAULT NULL,
   x                REAL DEFAULT 0,
   y                REAL DEFAULT 0,
   citadel          BOOLEAN DEFAULT FALSE,
