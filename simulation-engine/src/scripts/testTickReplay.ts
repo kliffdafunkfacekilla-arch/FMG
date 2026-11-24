@@ -17,6 +17,34 @@ function check(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
 }
 
+const QUERY_CEILINGS: Record<string, number> = {
+  burgOperations: 120,
+  chaosFlows: 130,
+  cartels: 120,
+  wardens: 100,
+  factionPlanning: 75,
+  npcRoutines: 70,
+  cultists: 70,
+  backgroundDirector: 70,
+  autonomousDrama: 40,
+  trade: 35,
+  weather: 30,
+  threadClocks: 25,
+  paragons: 25,
+  setup: 15,
+  calendar: 15,
+  mandate: 15,
+  grindCanyon: 15,
+  encounters: 15,
+  chronicler: 15,
+  reaper: 20,
+  factionCollapse: 15,
+  ecology: 20,
+  burgExpansion: 20,
+  market: 20,
+};
+const DEFAULT_STEP_CEILING = 120;
+
 async function main() {
   // Before the first savepoint: a patch applied inside a run would be rolled back with it
   await applySchemaPatches(pool);
@@ -33,6 +61,17 @@ async function main() {
       check(r.status === "success", `day ${tick} did not fully commit: ${JSON.stringify(r.failedAgents)}`);
       check(["calendar", "burgOperations", "cartels", "reaper"].every(k => typeof r.timings[k] === "number"), "a step has no timing");
       console.log(`1. Day ${tick} committed in ${r.totalMs} ms with a timing for every step... PASSED`);
+    }
+    if (i === 1) {
+      const violations: string[] = [];
+      let totalQueries = 0;
+      for (const [stepName, count] of Object.entries(r.queries || {})) {
+        totalQueries += count;
+        const limit = QUERY_CEILINGS[stepName] ?? DEFAULT_STEP_CEILING;
+        if (count > limit) violations.push(`${stepName}: ${count} > ${limit}`);
+      }
+      check(violations.length === 0, `query budget exceeded on day ${tick}: ${violations.join(", ")}`);
+      console.log(`1b. Query budget within ceilings on day ${tick} (${totalQueries} queries total, warm totalMs=${r.totalMs} ms)... PASSED`);
     }
     prints.push(await worldFingerprint(tick, baseCitizenId, baseAgentId));
     await pool.query("ROLLBACK TO SAVEPOINT replay_run");
