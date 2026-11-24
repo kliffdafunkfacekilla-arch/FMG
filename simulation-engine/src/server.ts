@@ -9,6 +9,7 @@ import observerRouter from './api/observerRouter';
 import { regionalRouter } from './api/regionalRouter';
 import tellerRouter from './api/tellerRouter';
 import directorRouter from './api/directorRouter';
+import storyRouter from './api/storyRouter';
 import { rulesRouter } from './api/rulesRouter';
 import { ensureCellTagsTable } from './engine/cellTags';
 import { ensureArcTable } from './engine/threads/storyArcs';
@@ -38,6 +39,7 @@ app.use('/api/observer', observerRouter);
 app.use('/api/regional', regionalRouter);
 app.use('/teller', tellerRouter);
 app.use('/api/dm/story', directorRouter);
+app.use('/api/story', storyRouter);
 app.use('/api/rules', rulesRouter);
 
 const PORT = Number(process.env.PORT) || 3000;

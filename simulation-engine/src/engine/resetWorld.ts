@@ -60,6 +60,9 @@ DROP TABLE IF EXISTS sim_grind_canyons CASCADE;
 DROP TABLE IF EXISTS sim_sector_layers CASCADE;
 DROP TABLE IF EXISTS sim_cell_tags CASCADE;
 -- Stories belong to the world they happened in
+DROP VIEW IF EXISTS sim_threads CASCADE;
+DROP VIEW IF EXISTS sim_story_arcs CASCADE;
+DROP TABLE IF EXISTS storyline_beats, storyline_actors, storylines CASCADE;
 DROP TABLE IF EXISTS sim_threads CASCADE;
 DROP TABLE IF EXISTS sim_story_arcs CASCADE;
 

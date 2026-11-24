@@ -1,9 +1,11 @@
 import { Pool, PoolClient } from "pg";
+import type { Db } from "../deltas/types.js";
 import { npcMatchesRef } from "../entities/refs.js";
 import { resolveActorRef } from "../entities/resolve.js";
 
-export type ThreadState = "open" | "escalated" | "resolved";
-export type ThreadOrigin = "reaction" | "beat" | "arc" | "world";
+export type ThreadState = "proposed" | "open" | "escalated" | "resolved" | "expired" | "failed" | "rejected";
+export type ThreadOrigin = "reaction" | "beat" | "arc" | "world" | "drama" | "director" | "gm" | "escalation";
+export type StorylineScale = "scene" | "thread" | "arc" | "saga";
 
 export interface ThreadWorldDelta {
   unrestDelta?: number | undefined;
@@ -25,6 +27,9 @@ export interface ThreadWorldDelta {
 
 export interface SimThread {
   id: number;
+  parent_id?: number | null | undefined;
+  scale?: StorylineScale | undefined;
+  scope_cells?: number[] | undefined;
   question: string;
   stakes: string;
   actor_ids: string[];
@@ -35,34 +40,57 @@ export interface SimThread {
   clock_max: number;
   state: ThreadState;
   origin: ThreadOrigin;
+  source?: string | undefined;
   created_tick: number;
   resolved_tick: number | null;
   resolution: string | null;
   rule_id?: string | null;
+  why?: string | null | undefined;
+  facts?: any[] | undefined;
+  hook?: Record<string, any> | undefined;
+  rank_score?: number | undefined;
   on_expire?: ThreadWorldDelta | null;
   on_resolved_by_party?: ThreadWorldDelta | null;
 }
 
 export interface CreateThreadInput {
+  parent_id?: number | null | undefined;
+  scale?: StorylineScale | undefined;
+  scope_cells?: number[] | undefined;
   question: string;
   stakes: string;
   actor_ids: string[];
   cell_id: number;
   rx: number;
   ry: number;
-  clock?: number;
-  clock_max?: number;
-  origin?: ThreadOrigin;
+  z?: number | undefined;
+  clock?: number | undefined;
+  clock_max?: number | undefined;
+  state?: ThreadState | undefined;
+  origin?: ThreadOrigin | undefined;
+  source?: string | undefined;
   created_tick: number;
-  rule_id?: string;
-  on_expire?: ThreadWorldDelta;
-  on_resolved_by_party?: ThreadWorldDelta;
+  rule_id?: string | null | undefined;
+  why?: string | null | undefined;
+  facts?: any[] | undefined;
+  hook?: Record<string, any> | undefined;
+  rank_score?: number | undefined;
+  on_expire?: ThreadWorldDelta | undefined;
+  on_resolved_by_party?: ThreadWorldDelta | undefined;
+}
+
+async function hasStorylinesTable(client: Pool | PoolClient): Promise<boolean> {
+  const res = await client.query(`SELECT to_regclass('storylines') IS NOT NULL AS ready`);
+  return Boolean(res.rows[0]?.ready);
 }
 
 /**
- * Ensures the sim_threads table exists in PostgreSQL.
+ * Ensures the storyline / legacy sim_threads storage exists in PostgreSQL.
  */
 export async function ensureThreadTable(client: Pool | PoolClient): Promise<void> {
+  if (await hasStorylinesTable(client)) {
+    return;
+  }
   await client.query(`
     CREATE TABLE IF NOT EXISTS sim_threads (
       id                   SERIAL PRIMARY KEY,
@@ -95,7 +123,7 @@ export async function ensureThreadTable(client: Pool | PoolClient): Promise<void
  * Validates that every actor ID resolves through the unified entity registry (Rule 7).
  */
 export async function validateActorIds(
-  client: Pool | PoolClient,
+  client: Db,
   actorIds: string[]
 ): Promise<{ valid: boolean; invalidIds: string[] }> {
   if (!actorIds || actorIds.length === 0) {
@@ -145,33 +173,119 @@ export async function createThread(
     );
   }
 
+  const useStorylines = await hasStorylinesTable(client);
+  if (!useStorylines) {
+    const res = await client.query(
+      `
+      INSERT INTO sim_threads (
+        question, stakes, actor_ids, cell_id, rx, ry, clock, clock_max, state, origin, created_tick,
+        rule_id, on_expire, on_resolved_by_party
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open', $9, $10, $11, $12, $13)
+      RETURNING *
+      `,
+      [
+        input.question,
+        input.stakes,
+        input.actor_ids,
+        input.cell_id,
+        input.rx,
+        input.ry,
+        input.clock ?? 0,
+        input.clock_max ?? 6,
+        input.origin ?? "reaction",
+        input.created_tick,
+        input.rule_id || null,
+        JSON.stringify(input.on_expire || {}),
+        JSON.stringify(input.on_resolved_by_party || {})
+      ]
+    );
+    return res.rows[0];
+  }
+
+  const origin = input.origin ?? "reaction";
+  const source =
+    input.source ??
+    (origin === "arc" ? "arc" : origin === "world" ? "world" : origin === "beat" ? "beat" : "reaction");
+  const cleanActors = Array.from(new Set((input.actor_ids || []).map((a) => String(a).trim()).filter(Boolean)));
+  const scopeCells = input.scope_cells && input.scope_cells.length > 0 ? input.scope_cells : [input.cell_id];
+
   const res = await client.query(
     `
-    INSERT INTO sim_threads (
-      question, stakes, actor_ids, cell_id, rx, ry, clock, clock_max, state, origin, created_tick,
-      rule_id, on_expire, on_resolved_by_party
+    INSERT INTO storylines (
+      parent_id, scale, scope_cells, cell_id, rx, ry, z,
+      question, stakes, actor_ids, clock, clock_max, state,
+      origin, source, rule_id, why, facts, hook, rank_score,
+      created_tick, on_expire, on_resolved_by_party
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open', $9, $10, $11, $12, $13)
-    RETURNING *
+    VALUES (
+      $1, $2, $3, $4, $5, $6, $7,
+      $8, $9, $10, $11, $12, $13,
+      $14, $15, $16, $17, $18::jsonb, $19::jsonb, $20,
+      $21, $22::jsonb, $23::jsonb
+    )
+    RETURNING
+      id::int AS id,
+      parent_id,
+      scale,
+      scope_cells,
+      question,
+      stakes,
+      actor_ids,
+      COALESCE(cell_id, scope_cells[1], 0)::int AS cell_id,
+      rx,
+      ry,
+      clock,
+      clock_max,
+      state,
+      origin,
+      source,
+      created_tick,
+      resolved_tick,
+      resolution_text AS resolution,
+      rule_id,
+      why,
+      facts,
+      hook,
+      rank_score::float AS rank_score,
+      on_expire,
+      on_resolved_by_party
     `,
     [
-      input.question,
-      input.stakes,
-      input.actor_ids,
+      input.parent_id ?? null,
+      input.scale ?? "thread",
+      scopeCells,
       input.cell_id,
       input.rx,
       input.ry,
+      input.z ?? 0,
+      input.question,
+      input.stakes,
+      cleanActors,
       input.clock ?? 0,
       input.clock_max ?? 6,
-      input.origin ?? "reaction",
-      input.created_tick,
+      input.state ?? "open",
+      origin,
+      source,
       input.rule_id || null,
+      input.why || null,
+      JSON.stringify(input.facts || []),
+      JSON.stringify(input.hook || {}),
+      input.rank_score ?? 0,
+      input.created_tick,
       JSON.stringify(input.on_expire || {}),
-      JSON.stringify(input.on_resolved_by_party || {})
+      JSON.stringify(input.on_resolved_by_party || {}),
     ]
   );
 
-  return res.rows[0];
+  const row = res.rows[0];
+  for (const ref of cleanActors) {
+    await client.query(
+      `INSERT INTO storyline_actors (storyline_id, entity_ref, role) VALUES ($1, $2, 'actor') ON CONFLICT DO NOTHING`,
+      [row.id, ref]
+    );
+  }
+  return row;
 }
 
 /**
@@ -387,12 +501,38 @@ export async function resolveThreadNaturally(
     evaluation.outcomeType === 'EXPIRED' ? 'THREAD_EXPIRED' : 'THREAD_RESOLVED_BY_PARTY'
   );
 
-  await client.query(
-    `UPDATE sim_threads 
-     SET state = 'resolved', resolved_tick = $1, resolution = $2 
-     WHERE id = $3`,
-    [currentTick, evaluation.resolutionNarrative, thread.id]
-  );
+  const useStorylines = await hasStorylinesTable(client);
+  if (useStorylines) {
+    await client.query(
+      `UPDATE storylines
+       SET state = 'resolved',
+           resolved_tick = $1,
+           resolution_text = $2,
+           resolution = $3::jsonb
+       WHERE id = $4`,
+      [
+        currentTick,
+        evaluation.resolutionNarrative,
+        JSON.stringify({
+          outcomeType: evaluation.outcomeType,
+          unrestDelta: evaluation.unrestDelta,
+          wealthDelta: evaluation.wealthDelta,
+          foodDelta: evaluation.foodDelta,
+          rawMaterialsDelta: evaluation.rawMaterialsDelta,
+          crimeRateDelta: evaluation.crimeRateDelta,
+          narrativeSummary: evaluation.resolutionNarrative,
+        }),
+        thread.id,
+      ]
+    );
+  } else {
+    await client.query(
+      `UPDATE sim_threads 
+       SET state = 'resolved', resolved_tick = $1, resolution = $2 
+       WHERE id = $3`,
+      [currentTick, evaluation.resolutionNarrative, thread.id]
+    );
+  }
 
   return deltaResult;
 }
@@ -566,9 +706,10 @@ async function appendActorMemoryTag(client: Pool | PoolClient, typedId: string, 
   }
 }
 
-/** Promotes an escalating clash into an active sim_story_arcs entry if none exists at that sector. */
+/** Promotes an escalating clash into an active arc entry in storylines (and sim_story_arcs view). */
 async function promoteThreadToArcIfNeeded(client: Pool | PoolClient, thread: any, currentTick: number): Promise<void> {
   try {
+    const useStorylines = await hasStorylinesTable(client);
     const existing = await client.query(
       `SELECT 1 FROM sim_story_arcs WHERE cell_id = $1 AND rx = $2 AND ry = $3 AND state = 'active' LIMIT 1`,
       [thread.cell_id, thread.rx ?? 50, thread.ry ?? 50]
@@ -579,20 +720,65 @@ async function promoteThreadToArcIfNeeded(client: Pool | PoolClient, thread: any
       { phase: 1, objective: thread.question, discovery_method: "Witnesses and local aftermath" },
       { phase: 2, objective: `Contain the fallout between ${Array.isArray(thread.actor_ids) ? thread.actor_ids.join(" and ") : "rival factions"}`, discovery_method: "Direct confrontation or mediation" }
     ];
-    await client.query(
-      `INSERT INTO sim_story_arcs (arc_key, cell_id, rx, ry, z, inciting_incident, beats, active_phase, state, thread_ids, actor_id, source, created_tick)
-       VALUES ($1, $2, $3, $4, 0, $5, $6::jsonb, 1, 'active', $7::int[], $8, 'escalation', $9)`,
+
+    if (!useStorylines) {
+      await client.query(
+        `INSERT INTO sim_story_arcs (arc_key, cell_id, rx, ry, z, inciting_incident, beats, active_phase, state, thread_ids, actor_id, source, created_tick)
+         VALUES ($1, $2, $3, $4, 0, $5, $6::jsonb, 1, 'active', $7::int[], $8, 'escalation', $9)`,
+        [
+          `clash_${thread.cell_id}_${thread.created_tick}`.slice(0, 160),
+          thread.cell_id,
+          thread.rx ?? 50,
+          thread.ry ?? 50,
+          thread.stakes,
+          JSON.stringify(beats),
+          [Number(thread.id)],
+          Array.isArray(thread.actor_ids) && thread.actor_ids[0] ? String(thread.actor_ids[0]) : null,
+          currentTick
+        ]
+      );
+      return;
+    }
+
+    const actors: string[] = Array.isArray(thread.actor_ids) ? thread.actor_ids.map(String) : [];
+    const arcRes = await client.query(
+      `INSERT INTO storylines (
+         scale, scope_cells, cell_id, rx, ry, z,
+         question, stakes, actor_ids, clock, clock_max, state,
+         origin, source, arc_key, active_phase, created_tick
+       )
+       VALUES ('arc', $1, $2, $3, $4, 0, $5, $6, $7, 1, $8, 'open', 'arc', 'escalation', $9, 1, $10)
+       RETURNING id`,
       [
-        `clash_${thread.cell_id}_${thread.created_tick}`.slice(0, 160),
-        thread.cell_id,
+        [Number(thread.cell_id)],
+        Number(thread.cell_id),
         thread.rx ?? 50,
         thread.ry ?? 50,
         thread.stakes,
-        JSON.stringify(beats),
-        [Number(thread.id)],
-        Array.isArray(thread.actor_ids) && thread.actor_ids[0] ? String(thread.actor_ids[0]) : null,
-        currentTick
+        thread.stakes,
+        actors,
+        beats.length,
+        `clash_${thread.cell_id}_${thread.created_tick}`.slice(0, 160),
+        currentTick,
       ]
+    );
+    const arcId = Number(arcRes.rows[0].id);
+    for (const ref of actors) {
+      await client.query(
+        `INSERT INTO storyline_actors (storyline_id, entity_ref, role) VALUES ($1, $2, 'actor') ON CONFLICT DO NOTHING`,
+        [arcId, ref]
+      );
+    }
+    for (const beat of beats) {
+      await client.query(
+        `INSERT INTO storyline_beats (storyline_id, phase, objective, discovery, state)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [arcId, beat.phase, beat.objective, beat.discovery_method, beat.phase === 1 ? "open" : "pending"]
+      );
+    }
+    await client.query(
+      `UPDATE storylines SET parent_id = $1 WHERE id = $2 AND parent_id IS NULL`,
+      [arcId, Number(thread.id)]
     );
   } catch {
     // sim_story_arcs may not exist in isolated unit tests
@@ -702,11 +888,33 @@ export async function advanceThreadClocks(
       );
 
       await client.query(
-        `UPDATE sim_threads 
-         SET clock = $1, state = 'resolved', resolved_tick = $2, resolution = $3 
-         WHERE id = $4`,
-        [nextClock, currentTick, deltaResult.resolution, thread.id]
-      );
+        `UPDATE storylines
+         SET clock = $1,
+             state = 'resolved',
+             resolved_tick = $2,
+             resolution_text = $3,
+             resolution = $4::jsonb
+         WHERE id = $5`,
+        [
+          nextClock,
+          currentTick,
+          deltaResult.resolution,
+          JSON.stringify({
+            outcomeType: "EXPIRED",
+            expired: true,
+            unrestDelta: onExpireOutcome.unrestDelta ?? 0,
+            wealthDelta: onExpireOutcome.wealthDelta ?? 0,
+            foodDelta: onExpireOutcome.foodDelta ?? 0,
+            narrativeSummary: deltaResult.resolution,
+          }),
+          thread.id,
+        ]
+      ).catch(async () => {
+        await client.query(
+          `UPDATE sim_threads SET clock = $1, state = 'resolved', resolved_tick = $2, resolution = $3 WHERE id = $4`,
+          [nextClock, currentTick, deltaResult.resolution, thread.id]
+        );
+      });
       if (thread.rule_id === "AUTONOMOUS_CLASH" && Array.isArray(thread.actor_ids) && thread.actor_ids.length >= 2) {
         await appendActorMemoryTag(client, String(thread.actor_ids[0]), `#PrevailedOver:${thread.actor_ids[1]}`);
         await appendActorMemoryTag(client, String(thread.actor_ids[1]), `#Grudge:${thread.actor_ids[0]}`);

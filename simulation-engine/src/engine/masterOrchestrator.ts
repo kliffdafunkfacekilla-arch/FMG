@@ -39,6 +39,7 @@ import { markEntitiesDeadBatch } from "./entities/registry.js";
 import { runSeeded, seedSql, tickSeed } from "./rng.js";
 import { runAutonomousDramaAgent } from "./agents/autonomousDramaAgent.js";
 import { advanceThreadClocks } from "./threads/threadEngine.js";
+import { checkStoryEscalations } from "./story/storylines.js";
 
 let schemaMigrated = false;
 
@@ -223,7 +224,10 @@ async function runTick(): Promise<TickResult> {
             await step('npcRoutines', () => runNPCRoutineAgent(client, tick, loreDate));
             await step('backgroundDirector', () => runBackgroundDirectorAgent(client, tick, loreDate));
             await step('autonomousDrama', () => runAutonomousDramaAgent(client, tick, loreDate));
-            await step('threadClocks', () => advanceThreadClocks(client, tick, loreDate));
+            await step('threadClocks', async () => {
+              await advanceThreadClocks(client, tick, loreDate);
+              await checkStoryEscalations(client, tick);
+            });
 
             // 10. Chronicler
             await step('chronicler', () => runChroniclerAgent(client, tick, loreDate));
