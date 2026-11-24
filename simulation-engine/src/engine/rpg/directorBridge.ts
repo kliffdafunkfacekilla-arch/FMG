@@ -3,6 +3,9 @@ import pool from '../../db/pool';
 import { Entity, processSectorNarrativeLayer } from './narrativeTagEngine';
 import type { SimThread, ThreadStateEvaluation } from '../threads/threadEngine';
 import { facts, factTags } from '../facts/facts.js';
+import { mapNpcIdToEntityRef } from '../entities/refs.js';
+import { getEntityByRef } from '../entities/registry.js';
+import { buildStoryContext, renderStoryContext, type StoryContext } from '../story/context.js';
 
 // =========================================================================
 // 1. DATA CONTRACTS (JSON-to-JSON Pipeline)
@@ -59,6 +62,8 @@ export interface DirectorInputPayload {
     simulation_state: SimulationStatePayload;
     player_profile_context: PlayerProfileContext;
     available_sector_assets: AvailableSectorAssets;
+    storyContext?: StoryContext | undefined;
+    renderedContext?: string | undefined;
 }
 
 export interface StoryBeatContract {
@@ -127,7 +132,14 @@ export function validateDirectorMutations(
     blueprint: DirectorOutputBlueprint
 ): ValidationResult {
     const validNpcIds = new Set(inputPayload.available_sector_assets.eligible_npcs.map(n => n.id));
+    for (const e of inputPayload.storyContext?.focus.entities || []) {
+        if (e.id) validNpcIds.add(e.id);
+        validNpcIds.add(e.ref);
+    }
     const validPropIds = new Set(inputPayload.available_sector_assets.eligible_props.map(p => p.id));
+    for (const o of inputPayload.storyContext?.focus.objects || []) {
+        validPropIds.add(o.id);
+    }
 
     const rejectedNpcIds: string[] = [];
     const rejectedPropIds: string[] = [];
@@ -181,11 +193,12 @@ export function validateDirectorMutations(
 
 export async function buildDirectorInputPayload(
     cellId: number,
-    rx: number = 112,
-    ry: number = 112,
+    rx: number = 50,
+    ry: number = 50,
     z: number = 0,
     playerId: number = 1
 ): Promise<DirectorInputPayload> {
+    const storyContext = await buildStoryContext(pool, { cellId, rx, ry, z }, { playerId });
     const burgRes = await pool.query(
         `SELECT b.*, f.name AS faction_name
          FROM sim_burg_economy b
@@ -219,42 +232,31 @@ export async function buildDirectorInputPayload(
     );
     const player = playerRes.rows[0] || {};
     // No hard-coded person: without a player character row the arc addresses "the party".
-    const legalName = player.name || "the party";
+    const legalName = player.name || storyContext.party.characters[0]?.name || "the party";
     const backstoryHooks = [
         `${player.species || 'Human'} from ${player.institution || 'Provincial Guild'}`,
         ...(player.passive_traits || [])
     ];
     const inventoryNotable: string[] = Array.isArray(player.inventory) ? player.inventory.slice(0, 3).map((i: any) => typeof i === 'string' ? i : i.name || '#Artifact') : ['#BrassInkwell', '#IronBadge'];
 
-    const sectorRes = await pool.query(
-        `SELECT npcs, props FROM sim_sector_layers WHERE cell_id = $1 AND rx = $2 AND ry = $3 AND z_layer = $4 LIMIT 1`,
-        [cellId, rx, ry, z]
-    );
-
-    const rawNpcs = sectorRes.rows[0]?.npcs || [];
-    const rawProps = sectorRes.rows[0]?.props || [];
-
-    const eligibleNpcs: EligibleNPCAsset[] = rawNpcs.map((n: any) => ({
-        id: String(n.id),
-        name: String(n.name),
-        role: n.role,
-        profession: n.profession,
-        tags: Array.isArray(n.tags) ? n.tags : []
+    const eligibleNpcs: EligibleNPCAsset[] = storyContext.focus.entities.map((e) => ({
+        id: e.id || e.ref,
+        name: e.name,
+        role: e.role,
+        tags: e.tags
     }));
 
-    const eligibleProps: EligiblePropAsset[] = rawProps.map((p: any) => {
-        const lx = p.pos ? p.pos[0] : p.localPos ? p.localPos.lx : 128;
-        const ly = p.pos ? p.pos[1] : p.localPos ? p.localPos.ly : 128;
-        return {
-            id: String(p.id),
-            type: p.name || 'Prop',
-            lx,
-            ly,
-            tags: Array.isArray(p.tags) ? p.tags : []
-        };
-    });
+    const eligibleProps: EligiblePropAsset[] = storyContext.focus.objects.map((p) => ({
+        id: p.id,
+        type: p.name || 'Prop',
+        lx: p.pos ? p.pos[0] : 128,
+        ly: p.pos ? p.pos[1] : 128,
+        tags: p.tags
+    }));
 
     return {
+        storyContext,
+        renderedContext: renderStoryContext(storyContext),
         simulation_state: {
             cell_id: cellId,
             sector_coords: { rx, ry },
@@ -522,8 +524,15 @@ eligible_npcs; to plant a clue or entrance, use the exact "id" of one of eligibl
 (inciting_incident, objective, discovery_method, dialogue) refer to people and things by their plain names: never
 write an id, a tag (words starting with #) or a field name in prose. npc_alterations may only target ids listed in
 eligible_npcs and prop_alterations only ids in eligible_props; leave a list empty if none fit. Reply with JSON only.`;
-    const prompt = `Simulation state:
-${JSON.stringify(inputPayload, null, 2)}
+    const contextText = inputPayload.renderedContext
+        || (inputPayload.storyContext ? renderStoryContext(inputPayload.storyContext) : JSON.stringify(inputPayload, null, 2));
+    const prompt = `Grounded Story Context:
+${contextText}
+
+Eligible NPCs:
+${inputPayload.available_sector_assets.eligible_npcs.map(n => `- id="${n.id}" name="${n.name}" role="${n.role || 'Citizen'}"`).join('\n')}
+Eligible Props:
+${inputPayload.available_sector_assets.eligible_props.slice(0, 12).map(p => `- id="${p.id}" type="${p.type}"`).join('\n')}
 
 Reply with JSON of exactly this shape:
 {
@@ -661,20 +670,26 @@ export async function generateThreadResolutionAftermath(
     eligibleNpcs: EligibleNPCAsset[],
     eligibleProps: EligiblePropAsset[],
     burgName: string = "the district",
-    playerActionText?: string
+    playerActionText?: string,
+    storyContext?: StoryContext
 ): Promise<ThreadAftermathSynthesis> {
     const fallback = () => synthesizeProceduralAftermath(thread, evaluation, eligibleNpcs, eligibleProps, burgName);
     if (llmDisabled()) return fallback();
     const validNpcIds = new Set(eligibleNpcs.map(n => String(n.id)));
+    for (const e of storyContext?.focus.entities || []) {
+        if (e.id) validNpcIds.add(e.id);
+        validNpcIds.add(e.ref);
+    }
+    const ctxBlock = storyContext ? `\n${renderStoryContext(storyContext)}\n` : "";
     const prompt = `A story thread in ${burgName} has just been resolved.
 Question: "${thread.question}"
 Stakes: "${thread.stakes}"
 Outcome: ${evaluation.outcomeType} (actor: ${evaluation.actorState || 'resolved'})
 What the party did: "${playerActionText || 'direct intervention'}"
 What happened: "${evaluation.resolutionNarrative}"
-
+${ctxBlock}
 People present (you may ONLY use these ids):
-${JSON.stringify(eligibleNpcs.map(n => ({ id: n.id, name: n.name, role: n.role })), null, 2)}
+${eligibleNpcs.map(n => `- id="${n.id}" name="${n.name}" role="${n.role || 'Citizen'}"`).join('\n')}
 
 Reply with JSON only:
 {
@@ -690,8 +705,11 @@ Reply with JSON only:
     });
     if (!parsed?.narrativeSummary) return fallback();
     if (parsed.followUpThread) {
-        // Rule 7: a follow-up thread may only name someone who is really there
-        if (!validNpcIds.has(String(parsed.followUpThread.actor_id))) {
+        // Rule 7 / W5: validate actor_id against tile assets AND the unified entity registry
+        const rawAid = String(parsed.followUpThread.actor_id || "");
+        const ref = rawAid.startsWith("npc_") ? mapNpcIdToEntityRef(rawAid) : rawAid;
+        const regEntity = rawAid ? await getEntityByRef(pool, ref) : null;
+        if (!validNpcIds.has(rawAid) && !regEntity) {
             const fallbackActor = eligibleNpcs[0]?.id || thread.actor_ids[0];
             if (fallbackActor) parsed.followUpThread.actor_id = String(fallbackActor);
             else delete (parsed as any).followUpThread;
