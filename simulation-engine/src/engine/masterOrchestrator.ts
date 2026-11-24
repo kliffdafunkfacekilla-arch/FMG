@@ -8,6 +8,8 @@ import { runWardenAgent } from "./agents/wardenAgent";
 import { runCultistAgent } from "./agents/cultistAgent";
 import { runMandateAgent } from "./agents/mandateAgent";
 import { runEncounterAgent } from "./agents/encounterAgent";
+import { loadEncounter } from "./macro/encounter/load.js";
+import { stepEncounter } from "./macro/encounter/step.js";
 import { runChroniclerAgent } from "./agents/chroniclerAgent";
 import { runCartelAgent } from "./agents/cartelAgent";
 import { runGrindCanyonAgent } from "./agents/grindCanyonAgent";
@@ -189,7 +191,10 @@ async function runTick(): Promise<TickResult> {
             await step('grindCanyon', () => runGrindCanyonAgent(client, tick, loreDate));
 
             // 9. Encounters, NPC routines, the background story director & autonomous clashes
-            await step('encounters', () => runEncounterAgent(client, tick));
+            await step('encounters', async (emit) => {
+                const snap = await loadEncounter(client);
+                for (const d of stepEncounter(snap, { tick, random: Math.random })) emit(d);
+            });
             await step('npcRoutines', () => runNPCRoutineAgent(client, tick, loreDate));
             await step('backgroundDirector', () => runBackgroundDirectorAgent(client, tick, loreDate));
             await step('autonomousDrama', () => runAutonomousDramaAgent(client, tick, loreDate));
