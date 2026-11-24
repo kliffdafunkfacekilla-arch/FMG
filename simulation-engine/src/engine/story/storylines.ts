@@ -151,6 +151,20 @@ export async function createStoryline(
   const tick = spec.createdTick ?? (await getCurrentTick(db));
   const actorValidation = await validateActorIds(db, spec.actor_ids);
   if (!actorValidation.valid) {
+    await db
+      .query(
+        `INSERT INTO world_deltas (tick, minute, source, kind, payload)
+         VALUES ($1, 0, 'storyline_guard', 'rule7.rejected', $2::jsonb)`,
+        [
+          tick,
+          JSON.stringify({
+            invalidIds: actorValidation.invalidIds,
+            question: spec.question,
+            source: spec.source,
+          }),
+        ]
+      )
+      .catch(() => {});
     throw new Error(
       `[Storyline Guard] Rejected unknown/invented actors: [${actorValidation.invalidIds.join(", ")}] (Rule 7).`
     );

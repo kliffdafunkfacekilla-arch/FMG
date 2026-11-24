@@ -53,12 +53,14 @@ async function main() {
   const baseCitizenId = Number((await pool.query(`SELECT COALESCE(MAX(citizen_id), 0) m FROM population_demographics`)).rows[0].m);
   const baseAgentId = Number((await pool.query(`SELECT COALESCE(MAX(id), 0) m FROM sim_agents`)).rows[0].m);
   const prints: Record<string, string>[] = [];
+  const warmTimesMs: number[] = [];
   let tick = 0;
   // Run 1 warms per-process caches; runs 2 and 3 are compared
   for (let i = 0; i < 3; i++) {
     await pool.query("SAVEPOINT replay_run");
     const r = await executeMasterTick();
     tick = r.currentTick;
+    if (i > 0) warmTimesMs.push(r.totalMs);
     if (i === 0) {
       check(r.status === "success", `day ${tick} did not fully commit: ${JSON.stringify(r.failedAgents)}`);
       check(["calendar", "burgOperations", "cartels", "reaper"].every(k => typeof r.timings[k] === "number"), "a step has no timing");
@@ -81,6 +83,13 @@ async function main() {
   const differing = Object.keys(prints[1]!).filter(k => prints[1]![k] !== prints[2]![k]);
   check(differing.length === 0, `a replay of day ${tick} differs in: ${differing.join(", ")}`);
   console.log(`2. Replaying day ${tick} from the same state gives the same world (${Object.keys(prints[1]!).join(", ")})... PASSED`);
+
+  const fastestWarmMs = Math.min(...warmTimesMs);
+  check(
+    fastestWarmMs < 1500,
+    `scale gate exceeded: warm macro ticks [${warmTimesMs.join(", ")}] ms exceeded 1500 ms budget`
+  );
+  console.log(`2b. Full-map warm macro day within <1500ms scale gate (${warmTimesMs.join(" / ")} ms)... PASSED`);
 
   // A table an agent needs is missing for this one day: only that agent should be rolled back
   await pool.query("SAVEPOINT broken_run");

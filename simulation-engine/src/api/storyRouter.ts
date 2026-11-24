@@ -5,6 +5,7 @@ import {
   decideProposal,
   listDeskProposals,
 } from "../engine/story/storylines.js";
+import { computeStoryHealthMetrics } from "../engine/story/metrics.js";
 import { previewStoryOptions } from "../engine/story/preview.js";
 
 const storyRouter = Router();
@@ -102,6 +103,19 @@ storyRouter.post("/preview", async (req: Request, res: Response): Promise<void> 
       days: req.body?.days !== undefined ? Number(req.body.days) : undefined,
     });
     res.json({ success: true, ...result });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
+});
+
+/**
+ * GET /api/story/metrics
+ * Returns story health metrics across storylines, actors, actions, and Rule-7 validator logs (Phase 13.1).
+ */
+storyRouter.get("/metrics", async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const metrics = await computeStoryHealthMetrics(pool);
+    res.json({ success: true, metrics });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err?.message || String(err) });
   }

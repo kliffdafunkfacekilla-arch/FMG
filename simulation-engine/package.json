@@ -12,6 +12,8 @@
     "worker": "node dist/worker/simWorker.js",
     "test": "node run-tests.cjs",
     "db:backup": "node scripts/backup.cjs",
+    "db:save": "node scripts/saveWorld.cjs",
+    "db:branch": "node scripts/branchWorld.cjs",
     "db:migrate": "node dist/db/migrate.js"
   },
   "keywords": [],
