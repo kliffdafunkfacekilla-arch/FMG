@@ -41,6 +41,7 @@ const QUERY_CEILINGS: Record<string, number> = {
   factionCollapse: 15,
   ecology: 20,
   burgExpansion: 20,
+  cultureReligion: 25,
   market: 20,
 };
 const DEFAULT_STEP_CEILING = 120;

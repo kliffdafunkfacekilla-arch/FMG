@@ -16,6 +16,7 @@ import { runInterFactionTradeEngine } from "./economy/interFactionTradeEngine";
 import { runTrophicEcologyAgent } from "./agents/trophicEcologyAgent";
 import { runNPCRoutineAgent } from "./agents/npcRoutineAgent";
 import { runChaosFlowAgent } from "./agents/chaosFlowAgent";
+import { runCultureReligionAgent } from "./agents/cultureReligionAgent";
 import { runBackgroundDirectorAgent } from "./agents/backgroundDirector";
 import { backfillBlankPersonas } from "./agents/citizenPersonaHelper";
 import { initSpatialCache } from "./agents/agentMovementHelper";
@@ -161,6 +162,7 @@ async function runTick(): Promise<TickResult> {
             await step('factionCollapse', () => runFactionCollapse(client, tick, loreDate));
             await step('factionPlanning', () => runFactionPlanningAgent(client, tick, loreDate));
             await step('burgExpansion', () => runBurgExpansionAgent(client, tick, loreDate));
+            await step('cultureReligion', () => runCultureReligionAgent(client, tick, loreDate));
             await step('trade', () => runInterFactionTradeEngine(client, tick, loreDate));
             await step('market', () => runMarketAgent(client, tick));
 

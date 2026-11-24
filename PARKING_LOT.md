@@ -31,12 +31,12 @@ Per **Rule 1** of `GEMINI.md`:
    - Parked.
 
 
-## Phase B: Ostraka_full.map Rich Datasets (Seeded, Pending Global-Sim Integration)
+## Phase B: Ostraka_full.map Rich Datasets (Completed 2026-11-24)
 
-Ingested and stored in PostgreSQL from `Ostraka_full.map` without altering current tick/agent logic yet:
-- `sim_route_graph` / `sim_roads`: Wire route blockade/war closures to disrupt matching `sim_trade_deals` paths and freight costs.
-- `sim_markets` & `sim_goods` (31 markets, 71 goods): Replace uniform global commodity scarcity with market-by-market regional supply, demand, and trade-deal fulfillment.
-- `sim_factions` fiscal fields (`treasury`, `gdp`, `budget`, `corruption`, `total_pop`): Drive war chest solvency, troop upkeep (`sim_faction_units`), and corruption-fueled unrest/crime.
-- `sim_burg_economy` civic flags (`has_port`, `has_citadel`, `has_walls`, `has_plaza`, `has_temple`, `has_shanty`, `capital`): Feed tactical `SectorMapGenerator` district/building placement and siege mechanics.
-- `sim_cells` painted `culture_id` & `religion_id` + `sim_cultures` / `sim_religions`: Enable territory-wide heresy/cultural conversion/suppression diffusion.
-- `sim_rivers` & cell `flux` / `temp_c` / `precip`: Drive drought, flooding, river navigation tolls, and seasonal harvest variance.
+Ingested and stored in PostgreSQL from `Ostraka_full.map` and now wired into the simulation and tests (after `testVerticalSlice` certified the vertical slice):
+- ~~`sim_route_graph` / `sim_roads`:~~ **DONE (`5eb737a`, `B6.1`)** — physical convoy routing, blockade edge closures, bypass rerouting, and destination stalls (`testCitizenLogistics`).
+- ~~`sim_markets` & `sim_goods` (31 markets, 71 goods):~~ **DONE (`98ac644`)** — citizen-backed gathering, recipes, specialties, and 31-market regional pricing (`testCitizenEconomy`).
+- ~~`sim_factions` fiscal fields (`treasury`, `gdp`, `budget`, `corruption`, `total_pop`):~~ **DONE (`B6.2`)** — tax revenue vs `sim_faction_units` troop upkeep, bankruptcy desertion, and corruption-fed unrest/crime (`testFactionFinances`).
+- ~~`sim_burg_economy` civic flags (`port`, `citadel`, `walls`, `plaza`, `temple`, `shanty`, `is_capital`):~~ **DONE (`B6.3`)** — wired into `SectorMapGenerator` / `WardDistrict` structures/props and siege defense (`testCivicFlags`).
+- ~~`sim_rivers` & cell `flux` / `current_temp`:~~ **DONE (`B6.4`)** — river floods, drought irrigation buffering, agricultural harvest variance, and river crossing tolls (`testRiversAndClimate`).
+- ~~`sim_cells` `culture_id` & `religion_id` + `sim_cultures` / `sim_religions`:~~ **DONE (`B6.5`)** — cell-to-cell cultural assimilation, heresy diffusion, and temple reconversion (`testCultureReligion`).
