@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import pool from "../db/pool.js";
 import { isolateTest } from "./testIsolation.js";
-import { applySchemaPatches } from "../db/schemaPatches.js";
+import { migrate } from "../db/migrate.js";
 import {
   findTradeRoute,
   advanceAlongPath,
@@ -43,7 +43,7 @@ async function pickCrew(burgId: number, modeProf: "Caravan Drover" | "Sailor" | 
 
 async function main() {
   console.log("=== Testing Citizen-Crewed Physical Logistics & Route Graph Trade ===");
-  await applySchemaPatches(pool);
+  await migrate(pool);
 
   const calRes = await pool.query(`SELECT COALESCE(MAX(tick), 1)::int AS tick FROM sim_calendar`);
   const baseTick = Number(calRes.rows[0].tick) || 1;

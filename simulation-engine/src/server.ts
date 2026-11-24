@@ -12,7 +12,7 @@ import directorRouter from './api/directorRouter';
 import { rulesRouter } from './api/rulesRouter';
 import { ensureCellTagsTable } from './engine/cellTags';
 import { ensureArcTable } from './engine/threads/storyArcs';
-import { applySchemaPatches } from './db/schemaPatches';
+import { migrate } from './db/migrate';
 
 // .env is loaded by db/pool (imported above) from simulation-engine/.env, wherever the server is started.
 dotenv.config({ path: path.join(__dirname, '../.env') });
@@ -49,6 +49,6 @@ app.listen(PORT, HOST, () => {
   // Tables added after a world was created (live databases are never reset just to add one).
   ensureCellTagsTable(pool).catch((e) => console.error(`[db] Could not ensure sim_cell_tags: ${e.message}`));
   ensureArcTable(pool).catch((e) => console.error(`[db] Could not ensure sim_story_arcs: ${e.message}`));
-  applySchemaPatches(pool).catch((e) => console.error(`[db] Could not apply schema patches: ${e.message}`));
+  migrate(pool).catch((e) => console.error(`[db] Could not run database migrations: ${e.message}`));
 });
 

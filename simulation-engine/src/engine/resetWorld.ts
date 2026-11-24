@@ -1,4 +1,5 @@
 import pool from "../db/pool";
+import { migrate } from "../db/migrate";
 import { ingestHolgalandMap } from "../db/ingestHolgalandMap";
 import { buildSupplyChainHierarchy } from "../db/buildSupplyChainHierarchy";
 import { ensureParagonMotivesPopulated, ensureCitizenMotivesPopulated } from "./rpg/paragonMotives";
@@ -11,6 +12,7 @@ import zlib from "zlib";
 
 const DDL = `
 -- Drop only simulation tables, strictly preserving player character sheets, game saves, and memorials
+DROP TABLE IF EXISTS schema_version CASCADE;
 DROP TABLE IF EXISTS sim_active_projects CASCADE;
 DROP TABLE IF EXISTS sim_faction_units CASCADE;
 DROP TABLE IF EXISTS sim_faction_borders CASCADE;
@@ -861,6 +863,7 @@ export async function resetWorld(): Promise<{ message: string; stats: Record<str
     console.log("[resetWorld] Ensuring database schema and tables exist...");
     await client.query(DDL);
     client.release();
+    await migrate(pool);
 
     console.log("[resetWorld] Ingesting authentic Ostraka_full.map atlas & world datasets...");
     await ingestHolgalandMap();

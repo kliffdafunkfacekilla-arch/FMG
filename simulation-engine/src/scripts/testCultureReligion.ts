@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import pool from "../db/pool.js";
 import { isolateTest } from "./testIsolation.js";
-import { applySchemaPatches } from "../db/schemaPatches.js";
+import { migrate } from "../db/migrate.js";
 import { runCultureReligionAgent } from "../engine/agents/cultureReligionAgent.js";
 import { runSeeded, tickSeed } from "../engine/rng.js";
 
 async function main() {
   console.log("=== Testing Culture Assimilation, Heresy Diffusion & Temple Pushback (B6.5) ===");
-  await applySchemaPatches(pool);
+  await migrate(pool);
 
   const calRes = await pool.query(`SELECT COALESCE(MAX(tick), 1)::int AS t FROM sim_calendar`);
   const probeTick = Number(calRes.rows[0].t) + 1;
