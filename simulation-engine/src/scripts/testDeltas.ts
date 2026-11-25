@@ -302,6 +302,65 @@ async function main() {
   await pool.query("ROLLBACK TO SAVEPOINT delta_burg_ops");
   console.log("7. Extended burg.set, infra upsert & activeProject deltas + Rule 7 rejection... PASSED");
 
+  // 8. Reaper / cleanup extensions (record_unit, workforce_empty, agent persona fields, burg.stripRuin)
+  await pool.query("SAVEPOINT delta_reaper_ext");
+  await pool.query(
+    `UPDATE sim_burg_economy SET workforce = '{"Farmer":{"records":1,"people":10}}'::jsonb WHERE burg_id = $1`,
+    [b1]
+  );
+  await pool.query(
+    `INSERT INTO sim_infrastructure (burg_id, cell_id, type, level) VALUES ($1, $2, 'RUIN_TEST_MILL', 1) ON CONFLICT DO NOTHING`,
+    [b1, c1]
+  );
+  const agRes = await pool.query(`SELECT id FROM sim_agents ORDER BY id ASC LIMIT 1`);
+  const agId = Number(agRes.rows[0].id);
+
+  const v8 = await validateDeltas(
+    [
+      { kind: "burg.set", burgId: b1, fields: { record_unit: 99, workforce_empty: true } },
+      {
+        kind: "agent.update",
+        agentId: agId,
+        fields: {
+          name: "Renamed Seer",
+          citizen_name: "Elara",
+          profession: "Scribe",
+          species: "Human",
+          personality_temper: "STOIC",
+          personality_instinct: "WARY",
+          motivation: "Keep watch",
+        },
+      },
+      { kind: "burg.stripRuin", burgId: b1 },
+      { kind: "burg.stripRuin", burgId: 99999999 },
+    ],
+    pool
+  );
+  assert.equal(v8.ok.length, 3);
+  assert.equal(v8.rejected.length, 1, "Unknown burg.stripRuin burgId must be rejected by Rule 7");
+  await applyDeltas(v8.ok, pool);
+
+  const bAfter8 = (await pool.query(`SELECT record_unit, workforce FROM sim_burg_economy WHERE burg_id = $1`, [b1])).rows[0];
+  assert.equal(Number(bAfter8.record_unit), 40, "record_unit should clamp to 40");
+  assert.deepEqual(bAfter8.workforce, {}, "workforce_empty must set {} jsonb");
+
+  const agAfter8 = (
+    await pool.query(
+      `SELECT name, citizen_name, profession, species, personality_temper, personality_instinct, motivation FROM sim_agents WHERE id = $1`,
+      [agId]
+    )
+  ).rows[0];
+  assert.equal(agAfter8.name, "Renamed Seer");
+  assert.equal(agAfter8.citizen_name, "Elara");
+  assert.equal(agAfter8.profession, "Scribe");
+
+  const infAfter8 = await pool.query(`SELECT COUNT(*)::int AS c FROM sim_infrastructure WHERE burg_id = $1`, [b1]);
+  assert.equal(Number(infAfter8.rows[0].c), 0, "burg.stripRuin must remove burg infrastructure");
+  const stockAfter8 = await pool.query(`SELECT COUNT(*)::int AS c FROM sim_industrial_stockpiles WHERE burg_id = $1`, [b1]);
+  assert.equal(Number(stockAfter8.rows[0].c), 0, "burg.stripRuin must remove burg stockpiles");
+  await pool.query("ROLLBACK TO SAVEPOINT delta_reaper_ext");
+  console.log("8. Reaper / persona delta extensions & Rule 7 rejection... PASSED");
+
   console.log("\nALL DELTA TESTS PASSED");
 }
 

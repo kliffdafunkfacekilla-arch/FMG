@@ -48,7 +48,9 @@ export async function settleSatellite(
   );
   if (movedPeople <= 0) return 0;
 
-  await client.query(`UPDATE sim_burg_economy SET record_unit = $1 WHERE burg_id = $2`, [Math.round(perRecord), satellite.burg_id]);
+  await flushStepDeltas(client, "agent:burgExpansion", 0, [
+    { kind: "burg.set", burgId: satellite.burg_id, fields: { record_unit: Math.round(perRecord) } },
+  ]);
 
   const totalFounders = Math.max(3, Math.min(16, Math.round(movedPeople / perRecord)));
   const adultsWanted = Math.max(2, Math.ceil(totalFounders * 0.75));

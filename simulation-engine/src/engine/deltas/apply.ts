@@ -53,6 +53,9 @@ interface BurgMerged {
   dpSet: boolean;
   dpVal: number;
   wfClr: boolean;
+  wfEmpty: boolean;
+  ruSet: boolean;
+  ruVal: number;
 }
 
 function emptyBurgMerged(): BurgMerged {
@@ -87,6 +90,9 @@ function emptyBurgMerged(): BurgMerged {
     dpSet: false,
     dpVal: 0,
     wfClr: false,
+    wfEmpty: false,
+    ruSet: false,
+    ruVal: 12,
   };
 }
 
@@ -213,6 +219,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   const tradeShipmentCreates: Array<Extract<Delta, { kind: "tradeShipment.create" }>> = [];
   let advanceActiveProjects = false;
   const activeProjectCreates: Array<Extract<Delta, { kind: "activeProject.create" }>> = [];
+  const ruinStripBurgIds = new Set<number>();
   let wardRechargeTick: number | null = null;
   let lastCalendar: Extract<Delta, { kind: "calendar.set" }> | null = null;
 
@@ -255,7 +262,9 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         if (f.demographics !== undefined) { m.demoSet = true; m.demoVal = f.demographics; }
         if (f.pop_growth_pool !== undefined) { m.gpSet = true; m.gpVal = f.pop_growth_pool; }
         if (f.pop_departure_pool !== undefined) { m.dpSet = true; m.dpVal = f.pop_departure_pool; }
-        if (f.clear_workforce) { m.wfClr = true; }
+        if (f.clear_workforce) { m.wfClr = true; m.wfEmpty = false; }
+        if (f.workforce_empty) { m.wfEmpty = true; m.wfClr = false; }
+        if (f.record_unit !== undefined) { m.ruSet = true; m.ruVal = Math.round(f.record_unit); }
         break;
       }
       case "cell.adjust": {
@@ -578,6 +587,9 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
       case "activeProject.create":
         activeProjectCreates.push(d);
         break;
+      case "burg.stripRuin":
+        ruinStripBurgIds.add(d.burgId);
+        break;
     }
   }
 
@@ -785,7 +797,9 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
            unnest($52::boolean[]) AS demo_set, unnest($53::text[]) AS demo_val,
            unnest($54::boolean[]) AS gp_set, unnest($55::float8[]) AS gp_val,
            unnest($56::boolean[]) AS dp_set, unnest($57::float8[]) AS dp_val,
-           unnest($58::boolean[]) AS wf_clr
+           unnest($58::boolean[]) AS wf_clr,
+           unnest($59::boolean[]) AS wf_empty,
+           unnest($60::boolean[]) AS ru_set, unnest($61::int[]) AS ru_val
        ),
        computed AS (
          SELECT
@@ -809,7 +823,9 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
            CASE WHEN v.demo_set THEN v.demo_val ELSE b.demographics END AS next_demo,
            CASE WHEN v.gp_set THEN v.gp_val ELSE b.pop_growth_pool END AS next_gp,
            CASE WHEN v.dp_set THEN v.dp_val ELSE b.pop_departure_pool END AS next_dp,
-           v.wf_clr AS wf_clr
+           v.wf_clr AS wf_clr,
+           v.wf_empty AS wf_empty,
+           CASE WHEN v.ru_set THEN LEAST(40, GREATEST(3, v.ru_val)) ELSE b.record_unit END AS next_ru
          FROM v
          JOIN sim_burg_economy b ON b.burg_id = v.burg_id
        )
@@ -833,7 +849,8 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
          demographics = u.next_demo,
          pop_growth_pool = u.next_gp,
          pop_departure_pool = u.next_dp,
-         workforce = CASE WHEN u.wf_clr THEN NULL ELSE b.workforce END
+         workforce = CASE WHEN u.wf_clr THEN NULL WHEN u.wf_empty THEN '{}'::jsonb ELSE b.workforce END,
+         record_unit = u.next_ru
        FROM computed u
        WHERE b.burg_id = u.burg_id
          AND (
@@ -856,7 +873,9 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
            b.demographics IS DISTINCT FROM u.next_demo OR
            b.pop_growth_pool IS DISTINCT FROM u.next_gp OR
            b.pop_departure_pool IS DISTINCT FROM u.next_dp OR
-           (u.wf_clr AND b.workforce IS NOT NULL)
+           b.record_unit IS DISTINCT FROM u.next_ru OR
+           (u.wf_clr AND b.workforce IS NOT NULL) OR
+           (u.wf_empty AND b.workforce IS DISTINCT FROM '{}'::jsonb)
          )`,
       [
         ids,
@@ -880,6 +899,8 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         rows.map((r) => r.gpSet), rows.map((r) => r.gpVal),
         rows.map((r) => r.dpSet), rows.map((r) => r.dpVal),
         rows.map((r) => r.wfClr),
+        rows.map((r) => r.wfEmpty),
+        rows.map((r) => r.ruSet), rows.map((r) => r.ruVal),
       ]
     );
     counts.sim_burg_economy = res.rowCount || 0;
@@ -1197,7 +1218,14 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
          age_ticks = CASE WHEN v.age_set THEN v.age_val ELSE a.age_ticks END,
          target_grove_id = CASE WHEN v.tg_set THEN v.tg_val ELSE a.target_grove_id END,
          sub_role = CASE WHEN v.sr_set THEN v.sr_val ELSE a.sub_role END,
-         spark_tier = CASE WHEN v.spk_set THEN v.spk_val ELSE a.spark_tier END
+         spark_tier = CASE WHEN v.spk_set THEN v.spk_val ELSE a.spark_tier END,
+         name = CASE WHEN v.nm_set THEN v.nm_val ELSE a.name END,
+         citizen_name = CASE WHEN v.cn_set THEN v.cn_val ELSE a.citizen_name END,
+         profession = CASE WHEN v.pr_set THEN v.pr_val ELSE a.profession END,
+         species = CASE WHEN v.sp_set THEN v.sp_val ELSE a.species END,
+         personality_temper = CASE WHEN v.pt_set THEN v.pt_val ELSE a.personality_temper END,
+         personality_instinct = CASE WHEN v.pi_set THEN v.pi_val ELSE a.personality_instinct END,
+         motivation = CASE WHEN v.mt_set THEN v.mt_val ELSE a.motivation END
        FROM (
          SELECT
            unnest($1::int[]) AS id,
@@ -1210,7 +1238,14 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
            unnest($14::boolean[]) AS age_set, unnest($15::int[]) AS age_val,
            unnest($16::boolean[]) AS tg_set, unnest($17::int[]) AS tg_val,
            unnest($18::boolean[]) AS sr_set, unnest($19::text[]) AS sr_val,
-           unnest($20::boolean[]) AS spk_set, unnest($21::text[]) AS spk_val
+           unnest($20::boolean[]) AS spk_set, unnest($21::text[]) AS spk_val,
+           unnest($22::boolean[]) AS nm_set, unnest($23::text[]) AS nm_val,
+           unnest($24::boolean[]) AS cn_set, unnest($25::text[]) AS cn_val,
+           unnest($26::boolean[]) AS pr_set, unnest($27::text[]) AS pr_val,
+           unnest($28::boolean[]) AS sp_set, unnest($29::text[]) AS sp_val,
+           unnest($30::boolean[]) AS pt_set, unnest($31::text[]) AS pt_val,
+           unnest($32::boolean[]) AS pi_set, unnest($33::text[]) AS pi_val,
+           unnest($34::boolean[]) AS mt_set, unnest($35::text[]) AS mt_val
        ) v
        WHERE a.id = v.id`,
       [
@@ -1225,6 +1260,13 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         fields.map((f) => f.target_grove_id !== undefined), fields.map((f) => f.target_grove_id ?? null),
         fields.map((f) => f.sub_role !== undefined), fields.map((f) => f.sub_role ?? null),
         fields.map((f) => f.spark_tier !== undefined), fields.map((f) => f.spark_tier ?? null),
+        fields.map((f) => f.name !== undefined), fields.map((f) => f.name ?? null),
+        fields.map((f) => f.citizen_name !== undefined), fields.map((f) => f.citizen_name ?? null),
+        fields.map((f) => f.profession !== undefined), fields.map((f) => f.profession ?? null),
+        fields.map((f) => f.species !== undefined), fields.map((f) => f.species ?? null),
+        fields.map((f) => f.personality_temper !== undefined), fields.map((f) => f.personality_temper ?? null),
+        fields.map((f) => f.personality_instinct !== undefined), fields.map((f) => f.personality_instinct ?? null),
+        fields.map((f) => f.motivation !== undefined), fields.map((f) => f.motivation ?? null),
       ]
     );
     counts.sim_agents = (counts.sim_agents || 0) + (res.rowCount || 0);
@@ -2269,6 +2311,17 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
       ]
     );
     counts.sim_active_projects = (counts.sim_active_projects || 0) + (res.rowCount || activeProjectCreates.length);
+  }
+
+  // 38. burg.stripRuin (removes infra, lairs, stockpiles for ruined burgs)
+  if (ruinStripBurgIds.size > 0) {
+    const stripIds = Array.from(ruinStripBurgIds).sort((a, b) => a - b);
+    const infraRes = await db.query(`DELETE FROM sim_infrastructure WHERE burg_id = ANY($1::int[])`, [stripIds]);
+    counts.sim_infrastructure = (counts.sim_infrastructure || 0) + (infraRes.rowCount || 0);
+    const lairRes = await db.query(`DELETE FROM sim_fringe_lairs WHERE burg_id = ANY($1::int[])`, [stripIds]);
+    counts.sim_fringe_lairs = (counts.sim_fringe_lairs || 0) + (lairRes.rowCount || 0);
+    const stockRes = await db.query(`DELETE FROM sim_industrial_stockpiles WHERE burg_id = ANY($1::int[])`, [stripIds]);
+    counts.sim_industrial_stockpiles = (counts.sim_industrial_stockpiles || 0) + (stockRes.rowCount || 0);
   }
 
   return counts;

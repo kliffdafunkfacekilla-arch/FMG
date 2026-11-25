@@ -27,6 +27,7 @@ import { materializeTradeDispatchDeltas, stepTrade } from "../engine/macro/trade
 import type { TradeRouter, TradeSnapshot } from "../engine/macro/trade/types.js";
 import { stepBurgOperations } from "../engine/macro/burgOperations/step.js";
 import type { BurgOperationsSnapshot, BurgOpSnap } from "../engine/macro/burgOperations/types.js";
+import { stepReaper } from "../engine/macro/reaper/step.js";
 
 function testEncounterUnit() {
   const emptyDeltas = stepEncounter({ agents: [], cellIds: [10, 20, 30] }, { tick: 2, random: mulberry32(42) });
@@ -2221,6 +2222,43 @@ function testBurgOperationsUnit() {
   console.log("22. stepBurgOperations (no DB) prod, food, health, infra, ledger... PASSED");
 }
 
+function testReaperUnit() {
+  const empty = stepReaper({
+    tick: 5,
+    ghostBurgs: [],
+    ghostShipments: [],
+    caravanCitizenIds: [],
+    paragonIds: [],
+  });
+  assert.equal(empty.deltas.length, 0);
+  assert.equal(empty.ruinedBurgIds.length, 0);
+
+  const out = stepReaper({
+    tick: 12,
+    ghostBurgs: [
+      { burgId: 40, name: "Ashhold", occupierFactionId: 3, urbanTier: 2 },
+      { burgId: 41, name: "[Ruin] Oldmire", occupierFactionId: null, urbanTier: 0 },
+    ],
+    ghostShipments: [
+      { id: 90, merchantCitizenId: 501, crewCitizenIds: [502, 503], pathIndex: 2, currentCellId: 300, etaTicks: 3 },
+    ],
+    caravanCitizenIds: [503, 501, 503],
+    paragonIds: [81, 82],
+  });
+
+  assert.deepEqual(out.ruinedBurgIds, [40, 41]);
+  assert.ok(out.deltas.some((d) => d.kind === "citizen.status" && d.citizenId === 501 && d.status === "CIVILIAN"));
+  assert.ok(out.deltas.some((d) => d.kind === "citizen.status" && d.citizenId === 503 && d.status === "CIVILIAN"));
+  assert.ok(out.deltas.some((d) => d.kind === "tradeShipment.update" && d.shipmentId === 90 && d.status === "ABORTED" && d.resolvedTick === 12));
+  assert.ok(out.deltas.some((d) => d.kind === "paragon.die" && d.paragonId === 81 && d.diedTick === 12));
+  assert.ok(out.deltas.some((d) => d.kind === "burg.stripRuin" && d.burgId === 40));
+  const b40 = out.deltas.find((d) => d.kind === "burg.set" && d.burgId === 40) as any;
+  assert.ok(b40 && b40.fields.name === "[Ruin] Ashhold" && b40.fields.urban_tier === 0 && b40.fields.occupier_faction_id === null && b40.fields.workforce_empty === true);
+  const b41 = out.deltas.find((d) => d.kind === "burg.set" && d.burgId === 41) as any;
+  assert.ok(b41 && b41.fields.name === undefined, "Already [Ruin] prefixed burg must not get double prefix");
+  console.log("23. stepReaper (no DB) convoy abort, crew release, paragon die, ruin stripping... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
@@ -2245,6 +2283,7 @@ function main() {
   testCartelsUnit();
   testTradeUnit();
   testBurgOperationsUnit();
+  testReaperUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 
