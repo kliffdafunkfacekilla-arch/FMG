@@ -7,7 +7,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { getWorkplaceForProfession } from "./burgOperationsAgent.js";
-import { sqlShuffle } from "../rng.js";
+import { getBurgLivingTotals, transferCohortsBetweenBurgs } from "../entities/population.js";
+import { promoteBatchFromCohorts, type PromoteBatchSpec } from "../lod/promote.js";
 
 type SatelliteType = "HAMLET" | "FARMLAND" | "LOGGING" | "WATCHTOWER";
 
@@ -20,69 +21,68 @@ const FOUNDER_TRADES: Record<SatelliteType, string[]> = {
 };
 
 /**
- * Moves real citizens from the parent burg to a newly founded satellite. Expansion used to move a
- * population number only, so every satellite had pop_null > 0 and no people: its maps came out empty
- * and stories there had nobody to involve. Founders are living adult civilians of the parent, preferring
- * the trades the settlement needs, plus children who share a founder's family name. The number of
- * records follows the parent's own people-per-record density, so the hamlet is as detailed as its parent.
- * Returns how many records moved.
+ * Moves real people from the parent burg's cohorts to a newly founded satellite and promotes
+ * named adult/child founders into `population_demographics` + `entities` so maps and stories have real residents.
+ * Returns how many named founder records were promoted for the satellite.
  */
 export async function settleSatellite(
   client: any,
   parent: { burg_id: number; name: string },
   satellite: { burg_id: number; cell_id: number; name: string; type: SatelliteType; pioneers: number }
 ): Promise<number> {
-  const density = await client.query(`
-    SELECT (b.pop_null + COALESCE(b.pop_attuned, 0))::float / NULLIF(COUNT(d.citizen_id), 0) AS per_record
-    FROM sim_burg_economy b
-    LEFT JOIN population_demographics d ON d.settlement_id = b.burg_id AND d.allegiance_status = 'CIVILIAN'
-    WHERE b.burg_id = $1 GROUP BY b.burg_id`, [parent.burg_id]);
-  const perRecord = Number(density.rows[0]?.per_record) || 8.5;
-  const total = Math.max(3, Math.min(16, Math.round(satellite.pioneers / perRecord)));
-  const adultsWanted = Math.max(2, Math.ceil(total * 0.75));
+  const parentTotals = await getBurgLivingTotals(client, [parent.burg_id]);
+  const pt = parentTotals.get(parent.burg_id);
+  if (!pt || pt.people <= 0) return 0;
 
-  const adults = await client.query(`
-    SELECT citizen_id, profession, split_part(name, ' ', 2) AS family
-    FROM population_demographics
-    WHERE settlement_id = $1 AND allegiance_status = 'CIVILIAN' AND life_stage = 'ADULT'
-    ORDER BY (profession = ANY($2)) DESC, ${sqlShuffle('citizen_id')}
-    LIMIT $3`, [parent.burg_id, FOUNDER_TRADES[satellite.type], adultsWanted]);
-  if (adults.rows.length === 0) return 0;
+  const econRes = await client.query(`SELECT COALESCE(record_unit, 12)::int AS unit FROM sim_burg_economy WHERE burg_id = $1 LIMIT 1`, [parent.burg_id]);
+  const perRecord = Math.min(40, Math.max(3, Number(econRes.rows[0]?.unit || 8.5)));
 
-  const families = [...new Set(adults.rows.map((a: any) => String(a.family)).filter(Boolean))];
-  const children = await client.query(`
-    SELECT citizen_id FROM population_demographics
-    WHERE settlement_id = $1 AND allegiance_status = 'CIVILIAN' AND life_stage = 'CHILD'
-    ORDER BY (split_part(name, ' ', 2) = ANY($2)) DESC, ${sqlShuffle('citizen_id')}
-    LIMIT $3`, [parent.burg_id, families, Math.max(0, total - adults.rows.length)]);
+  const { movedPeople } = await transferCohortsBetweenBurgs(
+    client,
+    parent.burg_id,
+    satellite.burg_id,
+    satellite.pioneers,
+    FOUNDER_TRADES[satellite.type]
+  );
+  if (movedPeople <= 0) return 0;
 
+  await client.query(`UPDATE sim_burg_economy SET record_unit = $1 WHERE burg_id = $2`, [Math.round(perRecord), satellite.burg_id]);
+
+  const totalFounders = Math.max(3, Math.min(16, Math.round(movedPeople / perRecord)));
+  const adultsWanted = Math.max(2, Math.ceil(totalFounders * 0.75));
+  const childrenWanted = Math.max(0, totalFounders - adultsWanted);
   const motivation = `Left ${parent.name} to help found ${satellite.name}.`;
-  for (const a of adults.rows) {
-    const wp = getWorkplaceForProfession(String(a.profession), satellite.name);
-    await client.query(`
-      UPDATE population_demographics
-      SET settlement_id = $1, home_cell_id = $2, motivation = $3, birthplace = COALESCE(birthplace, $4),
-          workplace_type = $5, workplace_name = $6
-      WHERE citizen_id = $7`,
-      [satellite.burg_id, satellite.cell_id, motivation, parent.name, wp.type, wp.name, a.citizen_id]);
+
+  const specs: PromoteBatchSpec[] = [];
+  for (let i = 0; i < adultsWanted; i++) {
+    specs.push({
+      burgId: satellite.burg_id,
+      filter: {
+        ageBand: "ADULT",
+        allegiance: "CIVILIAN",
+        preferredProfessions: FOUNDER_TRADES[satellite.type],
+      },
+      slotKey: `founder:${satellite.burg_id}:adult:${i}`,
+      permanent: true,
+      birthplace: parent.name,
+      motivationOverride: motivation,
+      workplaceBurgName: satellite.name,
+    });
   }
-  if (children.rows.length) {
-    await client.query(`
-      UPDATE population_demographics
-      SET settlement_id = $1, home_cell_id = $2, birthplace = COALESCE(birthplace, $3)
-      WHERE citizen_id = ANY($4)`,
-      [satellite.burg_id, satellite.cell_id, parent.name, children.rows.map((c: any) => c.citizen_id)]);
+  for (let i = 0; i < childrenWanted; i++) {
+    specs.push({
+      burgId: satellite.burg_id,
+      filter: { ageBand: "CHILD", allegiance: "CIVILIAN" },
+      slotKey: `founder:${satellite.burg_id}:child:${i}`,
+      permanent: true,
+      birthplace: parent.name,
+      motivationOverride: motivation,
+      workplaceBurgName: satellite.name,
+    });
   }
-  // The satellite's records stand for as many people each as its parent's do
-  await client.query(`UPDATE sim_burg_economy SET record_unit = $1 WHERE burg_id = $2`, [Math.min(40, Math.max(3, Math.round(perRecord))), satellite.burg_id]);
-  const movedRefs = [
-    ...adults.rows.map((a: any) => `citizen:${a.citizen_id}`),
-    ...children.rows.map((c: any) => `citizen:${c.citizen_id}`),
-  ];
-  if (movedRefs.length > 0) {
-    await client.query(`UPDATE entities SET cell_id = $1 WHERE ref = ANY($2::text[])`, [satellite.cell_id, movedRefs]);
-  }
-  return adults.rows.length + children.rows.length;
+
+  const promoted = (await promoteBatchFromCohorts(client, specs, 1)).filter((r) => r !== null);
+  return promoted.length;
 }
 
 const SETTLEMENT_HAMLET_PREFIXES = [

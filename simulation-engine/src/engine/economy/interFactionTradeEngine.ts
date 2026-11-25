@@ -34,6 +34,7 @@ import {
   computeRiverTollForPath,
 } from "./routeGraphRouter.js";
 import { loadCellTagMap } from "../cellTags.js";
+import { promoteBatchFromCohorts, type PromoteBatchSpec } from "../lod/promote.js";
 
 type Db = { query: (text: string, params?: any[]) => Promise<any> };
 
@@ -783,8 +784,10 @@ export async function runInterFactionTradeEngine(
       if (hasSurplus) surplusBurgSet.add(Number(b.burg_id));
     }
 
-    // 2. Load available living logistics crew for surplus burgs only via LATERAL LIMIT 8 over partial index
+    // 2. Load available living logistics crew from `population_demographics` + backfill slots from `population_cohorts`
     const crewQueuesByBurg = new Map<number, CrewQueues>();
+    const cohortCrewSpecsByToken = new Map<number, PromoteBatchSpec>();
+    let nextCohortToken = -1;
     if (surplusBurgSet.size > 0) {
       const surplusBurgIds = Array.from(surplusBurgSet).sort((a, b) => a - b);
       const crewRes = await client.query(
@@ -816,6 +819,41 @@ export async function runInterFactionTradeEngine(
         else if (prof === "Sailor") q.sailors.push(cid);
         else if (prof === "Aether-Crew") q.skycrew.push(cid);
         else if (prof === "Caravan Guard") q.guards.push(cid);
+      }
+
+      const cohCrewRes = await client.query(
+        `SELECT burg_id, profession, COALESCE(SUM(count), 0)::int AS cnt
+         FROM population_cohorts
+         WHERE burg_id = ANY($1::int[])
+           AND profession IN ('Merchant Factor', 'Merchant Trader', 'Caravan Drover', 'Caravan Guard', 'Sailor', 'Aether-Crew')
+           AND age_band = 'ADULT'
+           AND allegiance = 'CIVILIAN'
+           AND count > 0
+         GROUP BY burg_id, profession
+         ORDER BY burg_id ASC,
+                  CASE WHEN profession = 'Merchant Factor' THEN 0 ELSE 1 END ASC,
+                  profession ASC`,
+        [surplusBurgIds]
+      );
+      for (const row of cohCrewRes.rows) {
+        const bid = Number(row.burg_id);
+        const prof = String(row.profession);
+        const q = getOrCreateQueues(crewQueuesByBurg, bid);
+        const slots = Math.min(6, Number(row.cnt || 0));
+        for (let k = 0; k < slots; k++) {
+          const tok = nextCohortToken--;
+          cohortCrewSpecsByToken.set(tok, {
+            burgId: bid,
+            filter: { profession: prof, ageBand: "ADULT", allegiance: "CIVILIAN" },
+            slotKey: `logistics:${tick}:${bid}:${prof}:${k}`,
+            permanent: true,
+          });
+          if (prof === "Merchant Factor" || prof === "Merchant Trader") q.merchants.push(tok);
+          else if (prof === "Caravan Drover") q.drovers.push(tok);
+          else if (prof === "Sailor") q.sailors.push(tok);
+          else if (prof === "Aether-Crew") q.skycrew.push(tok);
+          else if (prof === "Caravan Guard") q.guards.push(tok);
+        }
       }
     }
 
@@ -1194,6 +1232,39 @@ export async function runInterFactionTradeEngine(
             });
           }
         }
+      }
+    }
+
+    // Resolve any cohort-backed placeholder crew tokens in one batched promotion call
+    const usedTokens: number[] = [];
+    const seenTok = new Set<number>();
+    for (const s of newShipments) {
+      if (s.merchantId < 0 && !seenTok.has(s.merchantId)) {
+        seenTok.add(s.merchantId);
+        usedTokens.push(s.merchantId);
+      }
+      for (const cid of s.crewIds) {
+        if (cid < 0 && !seenTok.has(cid)) {
+          seenTok.add(cid);
+          usedTokens.push(cid);
+        }
+      }
+    }
+    if (usedTokens.length > 0) {
+      const specs = usedTokens.map((t) => cohortCrewSpecsByToken.get(t)!);
+      const promoted = await promoteBatchFromCohorts(client, specs, tick);
+      const tokToId = new Map<number, number>();
+      for (let i = 0; i < usedTokens.length; i++) {
+        const p = promoted[i];
+        if (p) tokToId.set(usedTokens[i]!, p.citizenId);
+      }
+      for (const s of newShipments) {
+        if (s.merchantId < 0) s.merchantId = tokToId.get(s.merchantId) || s.merchantId;
+        s.crewIds = s.crewIds.map((c) => (c < 0 ? (tokToId.get(c) || c) : c)).filter((c) => c > 0);
+      }
+      for (let i = 0; i < crewAssignIds.length; i++) {
+        const id = crewAssignIds[i]!;
+        if (id < 0) crewAssignIds[i] = tokToId.get(id) || id;
       }
     }
 

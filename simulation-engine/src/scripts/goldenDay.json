@@ -2,15 +2,16 @@
   "seed": "ostraka",
   "startTick": 1,
   "targetTick": 2,
-  "recordedAt": "2026-11-24T20:36:29.053Z",
-  "note": "phase3-scheduled-events-fingerprint",
+  "recordedAt": "2026-11-25T03:43:23.887Z",
+  "note": "phase8.4-cohort-cutover",
   "fingerprint": {
-    "burgs": "46ed0677659752425c3f176ef0bc20c4",
+    "burgs": "6bac4da9c6c7ebf2048d15fc401e8667",
     "cells": "7d4b04d33cc39946e6f7c1801a905246",
-    "agents": "3a6c28bf19e8723c0ea6d5cfab639948",
-    "people": "a87a37e437958fb8dea83f5e049d33e3",
-    "events": "bfaed256d109cb207851389c314a0921",
-    "shipments": "cdfd8e9b36db2476fae8d70f3fc41c4d",
+    "agents": "16ac94c9cec5e2774e479c1dbf09038c",
+    "people": "513a2d62d284b51fa25023b7d957461a",
+    "events": "4f6a3673bac871060f0e7f83289e975b",
+    "shipments": "12ea67db77bbf29f037711aede7e5f1e",
+    "cohorts": "9a9e118dfcf0e1334c8d622a64adf2e8",
     "scheduled": ""
   }
 }

@@ -5,6 +5,7 @@ import pool from "../db/pool.js";
 import { isolateTest } from "./testIsolation.js";
 import { migrate } from "../db/migrate.js";
 import { resolveBorderWarPair, summarizeTickHealth } from "../api/observerRouter.js";
+import { getBurgCohortWorkforce } from "../engine/entities/population.js";
 import { runInterFactionTradeEngine } from "../engine/economy/interFactionTradeEngine.js";
 import { runSeeded, tickSeed } from "../engine/rng.js";
 
@@ -57,15 +58,9 @@ async function main() {
   console.log(`3. Sector total_pop (${ep.total_pop}) & 12 Prisons (${totalWardens} stationed wardens)... PASSED`);
 
   // 4. Burg stockpile, workforce & 31 regional markets parity
-  const excWorkRes = await pool.query(`
-    SELECT COALESCE(profession, 'Unassigned') AS profession,
-           COUNT(*) FILTER (WHERE allegiance_status = 'CIVILIAN')::int AS active_records
-    FROM population_demographics
-    WHERE settlement_id = 1 AND life_stage = 'ADULT' AND allegiance_status IN ('CIVILIAN', 'ON_CARAVAN')
-    GROUP BY profession
-  `);
-  const workProfs = new Set(excWorkRes.rows.map((r: any) => String(r.profession)));
-  assert.ok(workProfs.has("Merchant Factor") && workProfs.has("Caravan Drover"), "Excelsis workforce missing logistics roles");
+  const excWfMap = await getBurgCohortWorkforce(pool, [1]);
+  const excWf = excWfMap.get(1) || {};
+  assert.ok((excWf["Merchant Factor"]?.people || 0) > 0 && (excWf["Caravan Drover"]?.people || 0) > 0, "Excelsis workforce missing logistics roles");
 
   const marketsRes = await pool.query(`SELECT id, center_burg_id, goods FROM sim_markets ORDER BY id`);
   assert.equal(marketsRes.rows.length, 31, `Expected 31 regional markets, got ${marketsRes.rows.length}`);

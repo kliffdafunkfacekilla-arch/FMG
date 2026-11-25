@@ -1,4 +1,5 @@
 import type { PoolClient } from "pg";
+import { promoteFromCohort } from "../lod/promote.js";
 import { createThread } from "../threads/threadEngine.js";
 
 /**
@@ -44,7 +45,7 @@ export async function runAutonomousDramaAgent(
     const instigator = paragonRes.rows[(tick + Number(burg.burg_id)) % paragonRes.rows.length];
     const rivalParagon = paragonRes.rows.find((p: any) => p.id !== instigator.id);
 
-    // 3. Pair against a rival paragon or a real adult citizen in the same burg
+    // 3. Pair against a rival paragon or a real adult citizen (promoting from cohort if needed)
     let targetTypedId: string | null = null;
     let targetLabel = "";
     let targetBonus = 1;
@@ -67,10 +68,23 @@ export async function runAutonomousDramaAgent(
         targetTypedId = `citizen:${cit.citizen_id}`;
         targetLabel = `${cit.name} (${cit.profession || "Citizen"})`;
         targetBonus = 1;
-      } else if (rivalParagon) {
-        targetTypedId = `paragon:${rivalParagon.id}`;
-        targetLabel = `${rivalParagon.name} (${rivalParagon.title || "Paragon"})`;
-        targetBonus = 2;
+      } else {
+        const promoted = await promoteFromCohort(
+          client,
+          Number(burg.burg_id),
+          { ageBand: "ADULT", allegiance: "CIVILIAN" },
+          `drama:${tick}:${burg.burg_id}`,
+          tick
+        );
+        if (promoted) {
+          targetTypedId = promoted.entityRef;
+          targetLabel = `${promoted.name} (${promoted.profession || "Citizen"})`;
+          targetBonus = 1;
+        } else if (rivalParagon) {
+          targetTypedId = `paragon:${rivalParagon.id}`;
+          targetLabel = `${rivalParagon.name} (${rivalParagon.title || "Paragon"})`;
+          targetBonus = 2;
+        }
       }
     }
 

@@ -5,6 +5,7 @@ import { migrate } from "../db/migrate.js";
 import { getFactionSpecialty } from "../engine/economy/factionSpecialties.js";
 import { runBurgOperationsAgent } from "../engine/agents/burgOperationsAgent.js";
 import { updateRegionalMarkets } from "../engine/economy/marketAgent.js";
+import { getBurgCohortWorkforce } from "../engine/entities/population.js";
 
 async function getStockpile(burgId: number): Promise<Record<string, number>> {
   const res = await pool.query(`SELECT complex_inventory FROM sim_industrial_stockpiles WHERE burg_id = $1`, [burgId]);
@@ -53,26 +54,21 @@ async function main() {
     "Excelsis resource_profile missing crafted Arms (#59)"
   );
 
-  const profCheckRes = await pool.query(
-    `SELECT
-       COUNT(*) FILTER (WHERE profession = 'Fisherman' AND life_stage = 'ADULT')::int AS fishermen,
-       COUNT(*) FILTER (WHERE profession = 'Armorer' AND life_stage = 'ADULT')::int AS armorers,
-       COUNT(*) FILTER (WHERE profession = 'Tanner' AND life_stage = 'ADULT')::int AS tanners,
-       COUNT(*) FILTER (WHERE profession = 'Woodcutter' AND life_stage = 'ADULT')::int AS woodcutters,
-       COUNT(*) FILTER (WHERE profession = 'Merchant Factor' AND life_stage = 'ADULT')::int AS merchants,
-       COUNT(*) FILTER (WHERE profession = 'Caravan Drover' AND life_stage = 'ADULT')::int AS drovers,
-       COUNT(*) FILTER (WHERE profession = 'Aether-Crew' AND life_stage = 'ADULT')::int AS skycrew,
-       COUNT(*) FILTER (WHERE life_stage = 'ADULT' AND workplace_type IS NULL)::int AS missing_wp
-     FROM population_demographics
-     WHERE settlement_id = 1 AND allegiance_status = 'CIVILIAN'`
+  const wfMap = await getBurgCohortWorkforce(pool, [1]);
+  const excWf = wfMap.get(1) || {};
+  const missingWpRes = await pool.query(
+    `SELECT COUNT(*) FILTER (WHERE life_stage = 'ADULT' AND workplace_type IS NULL)::int AS missing_wp
+     FROM population_demographics WHERE settlement_id = 1 AND allegiance_status = 'CIVILIAN'`
   );
-  const pc = profCheckRes.rows[0];
-  assert.equal(Number(pc.fishermen), 0, `Landlocked Excelsis should have 0 Fishermen, got ${pc.fishermen}`);
-  assert.ok(Number(pc.armorers) > 0, "Excelsis missing Armorer adults");
-  assert.ok(Number(pc.tanners) > 0, "Excelsis missing Tanner adults");
-  assert.ok(Number(pc.woodcutters) > 0, "Excelsis missing Woodcutter adults");
-  assert.ok(Number(pc.merchants) > 0 && Number(pc.drovers) > 0 && Number(pc.skycrew) > 0, "Excelsis missing logistics crew");
-  assert.equal(Number(pc.missing_wp), 0, "Excelsis adults missing workplace_type");
+  assert.equal(excWf["Fisherman"]?.people || 0, 0, `Landlocked Excelsis should have 0 Fishermen, got ${excWf["Fisherman"]?.people || 0}`);
+  assert.ok((excWf["Armorer"]?.people || 0) > 0, "Excelsis missing Armorer adults");
+  assert.ok((excWf["Tanner"]?.people || 0) > 0, "Excelsis missing Tanner adults");
+  assert.ok((excWf["Woodcutter"]?.people || 0) > 0, "Excelsis missing Woodcutter adults");
+  assert.ok(
+    (excWf["Merchant Factor"]?.people || 0) > 0 && (excWf["Caravan Drover"]?.people || 0) > 0 && (excWf["Aether-Crew"]?.people || 0) > 0,
+    "Excelsis missing logistics crew"
+  );
+  assert.equal(Number(missingWpRes.rows[0].missing_wp), 0, "Excelsis adults missing workplace_type");
 
   await pool.query("SAVEPOINT eco_clean_check");
   await runBurgOperationsAgent(pool, baseTick + 1, "CitizenEco Check");
@@ -95,6 +91,7 @@ async function main() {
 
   await pool.query("SAVEPOINT eco_no_woodcutters");
   await setExcelsisStockpile({ wood: 10, iron: 50, coal: 50, leather: 50, grain: 50 });
+  await pool.query(`UPDATE population_cohorts SET count = 0 WHERE burg_id = 1 AND age_band = 'ADULT' AND profession = 'Woodcutter'`);
   await pool.query(
     `UPDATE population_demographics SET allegiance_status = 'DECEASED'
      WHERE settlement_id = 1 AND life_stage = 'ADULT' AND profession = 'Woodcutter'`
@@ -129,6 +126,7 @@ async function main() {
 
   await pool.query("SAVEPOINT eco_arms_no_crafters");
   await setExcelsisStockpile({ wood: 20, iron: 50, coal: 50, leather: 50, arms: 0 });
+  await pool.query(`UPDATE population_cohorts SET count = 0 WHERE burg_id = 1 AND age_band = 'ADULT' AND profession = 'Armorer'`);
   await pool.query(
     `UPDATE population_demographics SET allegiance_status = 'DECEASED'
      WHERE settlement_id = 1 AND life_stage = 'ADULT' AND profession = 'Armorer'`

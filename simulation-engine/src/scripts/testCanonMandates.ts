@@ -175,15 +175,17 @@ async function runCanonMandateTests() {
   // -------------------------------------------------------------
   try {
     process.stdout.write("Test 4: Zero Generic Spawns... ");
-    const citizenCountRes = await pool.query(`SELECT count(*) as c FROM population_demographics`);
-    const paragonCountRes = await pool.query(`SELECT count(*) as p FROM sim_paragons`);
-    const burgCountRes = await pool.query(`SELECT count(*) as b FROM sim_burg_economy`);
+    const cohortCountRes = await pool.query(`SELECT COALESCE(SUM(count), 0)::int AS c FROM population_cohorts`);
+    const citizenCountRes = await pool.query(`SELECT count(*)::int as c FROM population_demographics`);
+    const paragonCountRes = await pool.query(`SELECT count(*)::int as p FROM sim_paragons`);
+    const burgCountRes = await pool.query(`SELECT count(*)::int as b FROM sim_burg_economy`);
+    const cohortPeople = Number(cohortCountRes.rows[0]?.c || 0);
     const citizens = Number(citizenCountRes.rows[0]?.c || 0);
     const paragons = Number(paragonCountRes.rows[0]?.p || 0);
     const burgs = Number(burgCountRes.rows[0]?.b || 0);
 
-    if (citizens < 1000 || paragons < burgs * 2) {
-      throw new Error(`Insufficient ground truth demographics: ${citizens} citizens, ${paragons} paragons (expected >= ${burgs * 2} for ${burgs} burgs)`);
+    if (cohortPeople < 100000 || citizens < 20 || paragons < burgs * 2) {
+      throw new Error(`Insufficient ground truth demographics: ${cohortPeople} cohort people, ${citizens} notables, ${paragons} paragons (expected >= ${burgs * 2} for ${burgs} burgs)`);
     }
     console.log("✅ PASSED");
   } catch (err: any) {

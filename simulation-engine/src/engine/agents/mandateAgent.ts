@@ -10,6 +10,7 @@
 import { stepTowardCell, getNearestSacredGrove, persistAgentStates, AgentStateRow } from "./agentMovementHelper.js";
 import { recruitMandatePersona } from "./citizenPersonaHelper.js";
 import { upsertEntity } from "../entities/registry.js";
+import { promoteFromCohort } from "../lod/promote.js";
 import { sqlShuffle } from "../rng.js";
 
 export async function runMandateAgent(client: any, tick: number, loreDate: string) {
@@ -28,7 +29,7 @@ export async function runMandateAgent(client: any, tick: number, loreDate: strin
     );
 
     if (existingWarband.rowCount === 0 && Math.random() < 0.25) {
-      // Query pre-rendered citizen pool for Null laborers
+      // Query kept/notable Null civilians first, then promote cleanly from cohorts
       const recruitRes = await client.query(`
         SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation
         FROM population_demographics
@@ -41,21 +42,51 @@ export async function runMandateAgent(client: any, tick: number, loreDate: strin
         LIMIT 1
       `, [burg.burg_id]);
 
-      const dbCitizen = recruitRes.rows[0];
-      const citizen = dbCitizen ? {
-        citizenName: dbCitizen.name,
-        profession: dbCitizen.profession,
-        species: dbCitizen.species,
-        sparkTier: dbCitizen.spark_tier,
-        temper: dbCitizen.temper,
-        instinct: dbCitizen.instinct,
-        motivation: dbCitizen.motivation
-      } : recruitMandatePersona(burg.name || `Burg #${burg.burg_id}`);
+      let dbCitizenId: number | null = recruitRes.rows[0]?.citizen_id ? Number(recruitRes.rows[0].citizen_id) : null;
+      let citizen: any = recruitRes.rows[0] ? {
+        citizenName: recruitRes.rows[0].name,
+        profession: recruitRes.rows[0].profession,
+        species: recruitRes.rows[0].species,
+        sparkTier: recruitRes.rows[0].spark_tier,
+        temper: recruitRes.rows[0].temper,
+        instinct: recruitRes.rows[0].instinct,
+        motivation: recruitRes.rows[0].motivation
+      } : null;
 
-      if (dbCitizen) {
+      if (!citizen) {
+        const promoted = await promoteFromCohort(
+          client,
+          Number(burg.burg_id),
+          { ageBand: "ADULT", allegiance: "CIVILIAN", isNull: true },
+          `mandate:${tick}:${burg.burg_id}`,
+          tick
+        );
+        if (promoted) {
+          dbCitizenId = promoted.citizenId;
+          const pr = await client.query(
+            `SELECT name, profession, species, spark_tier, temper, instinct, motivation FROM population_demographics WHERE citizen_id = $1`,
+            [promoted.citizenId]
+          );
+          const row = pr.rows[0];
+          citizen = {
+            citizenName: row?.name || promoted.name,
+            profession: row?.profession || promoted.profession,
+            species: row?.species || promoted.species,
+            sparkTier: row?.spark_tier || promoted.sparkTier,
+            temper: row?.temper || "VENGEFUL",
+            instinct: row?.instinct || "WARY",
+            motivation: row?.motivation || `Bitter Null laborer of ${burg.name}`,
+          };
+          await client.query(`DELETE FROM promoted_slots WHERE citizen_id = $1`, [promoted.citizenId]);
+        }
+      }
+
+      if (!citizen) citizen = recruitMandatePersona(burg.name || `Burg #${burg.burg_id}`);
+
+      if (dbCitizenId) {
         await client.query(
           "UPDATE population_demographics SET allegiance_status = 'MANDATE_ZEALOT' WHERE citizen_id = $1",
-          [dbCitizen.citizen_id]
+          [dbCitizenId]
         );
       }
 

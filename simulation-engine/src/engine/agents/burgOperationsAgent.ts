@@ -1,7 +1,15 @@
 import { DAYS_PER_WEEK, DAYS_PER_YEAR, SHADOWFALL, isYearEnd, seasonKind } from "../canon/calendar.js";
 import { tagBurgCitizens } from "./citizenPersonaHelper";
 import { loadCellTagMap } from "../cellTags.js";
-import { deriveCitizenMotives } from "../rpg/paragonMotives.js";
+import {
+    adjustCohortsBatch,
+    ageCohortsYearly,
+    getBurgCohortWorkforce,
+    getBurgLivingTotals,
+    retireFromCohortsBatch,
+    zeroBurgsCohorts,
+    type CohortKey,
+} from "../entities/population.js";
 import { 
     getFactionSpecialty, 
     getGoodsByCategory, 
@@ -137,61 +145,6 @@ export function splitByShare(people: number, attunedShare: number): { nulls: num
     return { nulls: people - attuned, attuned };
 }
 
-/** Takes n living civilians out of a burg's records: dead (with a cause) or gone (DEPARTED). */
-async function retireRecords(client: any, burgId: number, n: number, status: "DECEASED" | "DEPARTED", cause: string | null, motivation: string) {
-    if (n <= 0) return;
-    await client.query(`
-        UPDATE population_demographics
-        SET allegiance_status = $2, cause_of_death = $3, motivation = $4
-        WHERE citizen_id IN (
-            SELECT citizen_id FROM population_demographics
-            WHERE settlement_id = $1 AND allegiance_status = 'CIVILIAN'
-            ORDER BY ${sqlShuffle("citizen_id")}
-            LIMIT $5
-        )`, [burgId, status, cause, motivation, n]);
-}
-
-async function spawnImmigrant(client: any, burg: any, ledger: RecordLedger) {
-    const isExotic = Math.random() < 0.15;
-    const ALL_SPECIES = ["Human", "Avian", "Bear-Folk", "Wolf-Kin", "Felid", "Saurian", "Plant-Folk"];
-    const species = isExotic ? pickRandom(ALL_SPECIES, "Human") : resolveSpecies(burg.species_demographics);
-    const first = pickRandom(FIRST_NAMES[species] || FIRST_NAMES["Human"] || ["Val"], "Val");
-    const last = pickRandom(LAST_NAMES[species] || LAST_NAMES["Human"] || ["Traveler"], "Traveler");
-    const name = `${first} ${last}`;
-    const profession = pickRandom(ADULT_PROFESSIONS, "Merchant Trader");
-    const age = Math.floor(Math.random() * 25) + 20;
-    const childhood = pickRandom(CHILDHOOD_BACKGROUNDS, "Traveled far across the leylines during youth.");
-    const isNull = Math.random() >= ledger.attunedShare;
-    const sparkTier = isNull ? "NULL" : (Math.random() < 0.50 ? "DORMANT_SPARK" : Math.random() < 0.70 ? "SENSITIVE" : "CHANNELER");
-    const temper = pickRandom(["GREEDY", "FANATICAL", "DESPERATE", "SCHOLARLY", "STOIC", "VENGEFUL", "COMPASSIONATE", "BITTER"], "CURIOUS");
-    const instinct = pickRandom(["WARY", "CURIOUS", "AGGRESSIVE", "FEARFUL", "DEVOUT"], "WARY");
-    const motiv = `Relocated to ${burg.name || 'town'} seeking new trade opportunities and stability.`;
-    const wp = getWorkplaceForProfession(profession, burg.name || "Town");
-    const motives = deriveCitizenMotives({ profession, temper, instinct, allegiance_status: "CIVILIAN" });
-
-    await client.query(`
-        INSERT INTO population_demographics (
-            settlement_id, home_cell_id, name, profession, species,
-            is_null, spark_tier, attunement_level, chaos_attraction_index,
-            temper, instinct, motivation, traits, social_links, allegiance_status,
-            unit_size, life_stage, age, childhood_background, is_immigrant,
-            workplace_type, workplace_name, want, flaw, line_wont_cross
-        ) VALUES (
-            $1, $2, $3, $4, $5,
-            $6, $7, $8, $9,
-            $10, $11, $12, $13::jsonb, '[]'::jsonb, 'CIVILIAN',
-            $18, 'ADULT', $14, $15, TRUE,
-            $16, $17, $19, $20, $21
-        )
-    `, [
-        burg.burg_id, burg.cell_id, name, profession, species,
-        isNull, sparkTier, isNull ? 0 : 0.3, isNull ? 0 : 2.0,
-        temper, instinct, motiv, JSON.stringify([temper, instinct]),
-        age, childhood, wp.type, wp.name, ledger.unit,
-        motives.want, motives.flaw, motives.lineWontCross
-    ]);
-}
-
 /**
  * Computes seasonal & hydrological crop modifier from cell climate, river discharge, and flood/drought tags.
  */
@@ -230,9 +183,8 @@ export function computeClimateHarvestModifier(opts: {
 
 export async function runBurgOperationsAgent(client: any, tick: number, loreDate: string = "") {
     if (isYearEnd(tick)) {
-        // Natural annual maturation: advance all living citizen ages by 1 year (1 year = DAYS_PER_YEAR days)
-        // Everyone alive ages, cultists and zealots included (it used to be civilians only)
-        await client.query("UPDATE population_demographics SET age = age + 1 WHERE allegiance_status NOT IN ('DECEASED', 'DEPARTED')").catch(() => { });
+        // Natural annual maturation: advance living notables and cohort age bands deterministically
+        await ageCohortsYearly(client, ADULT_TRADE_MAP);
     }
 
 
@@ -248,22 +200,20 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
         LEFT JOIN sim_industrial_stockpiles s ON b.burg_id = s.burg_id ORDER BY b.burg_id
     `);
 
-    // Each burg's people per citizen record (record_unit). Counting 600k records costs ~200 ms, and
-    // density moves slowly, so it is recounted weekly (and for a burg that has none yet) and stored, which
-    // also keeps a replay of the day on the same value.
-    if (tick % DAYS_PER_WEEK === 0 || burgRes.rows.some((b: any) => b.record_unit == null)) {
-        const countRes = await client.query(`
-            SELECT settlement_id, COUNT(*)::int AS n FROM population_demographics
-            WHERE allegiance_status NOT IN ('DECEASED', 'DEPARTED') GROUP BY settlement_id ORDER BY settlement_id`);
-        const living = new Map<number, number>(countRes.rows.map((r: any) => [Number(r.settlement_id), Number(r.n)]));
-        for (const b of burgRes.rows) {
-            b.record_unit = recordLedger(Number(b.pop_null) || 0, Number(b.pop_attuned) || 0, living.get(Number(b.burg_id)) || 0).unit;
+    // Backfill record_unit only when a burg lacks one yet (stable calibrated values never inflate after pruning).
+    if (burgRes.rows.some((b: any) => b.record_unit == null)) {
+        const totals = await getBurgLivingTotals(client);
+        const needsUnit = burgRes.rows.filter((b: any) => b.record_unit == null);
+        for (const b of needsUnit) {
+            const t = totals.get(Number(b.burg_id));
+            const approxRecords = t ? t.notableRecords + Math.round(t.cohortPeople / 12) : 0;
+            b.record_unit = recordLedger(Number(b.pop_null) || 0, Number(b.pop_attuned) || 0, approxRecords).unit;
         }
         await client.query(`
             UPDATE sim_burg_economy b SET record_unit = v.unit
             FROM (SELECT unnest($1::int[]) AS burg_id, unnest($2::int[]) AS unit) v
             WHERE b.burg_id = v.burg_id`,
-            [burgRes.rows.map((b: any) => b.burg_id), burgRes.rows.map((b: any) => b.record_unit)]);
+            [needsUnit.map((b: any) => b.burg_id), needsUnit.map((b: any) => b.record_unit)]);
     }
 
     const burgUpdates: any[] = [];
@@ -272,6 +222,10 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
     const workforceDirtyBurgs = new Set<number>();
     const infraBuilds = new Map<string, { burgId: number; cellId: number; type: string; inc: number }>();
     const ecoMaxReductions = new Map<number, number>();
+    const cohortGrowthOps: Array<CohortKey & { delta: number }> = [];
+    const cohortRetireReqs: Array<{ burgId: number; people: number }> = [];
+    const emptiedFamineBurgs: number[] = [];
+    const emptiedRuinedBurgs: number[] = [];
 
     // Load canonical goods & recipes from sim_goods (Ostraka_full.map)
     const goodsRes = await client.query(`SELECT id, name, value, tags, recipes FROM sim_goods ORDER BY id`);
@@ -309,41 +263,12 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
         : burgRes.rows.filter((b: any) => b.workforce == null).map((b: any) => Number(b.burg_id));
 
     if (isWeeklyWorkforce || missingWorkforceIds.length > 0) {
-        const wfRes = isWeeklyWorkforce
-            ? await client.query(`
-                SELECT settlement_id, COALESCE(profession, '') AS profession, COUNT(*)::int AS active_records, COALESCE(SUM(unit_size), 0)::int AS active_people
-                FROM population_demographics
-                WHERE life_stage = 'ADULT' AND allegiance_status = 'CIVILIAN'
-                GROUP BY settlement_id, COALESCE(profession, '')
-                ORDER BY settlement_id, profession
-            `)
-            : await client.query(`
-                SELECT settlement_id, COALESCE(profession, '') AS profession, COUNT(*)::int AS active_records, COALESCE(SUM(unit_size), 0)::int AS active_people
-                FROM population_demographics
-                WHERE settlement_id = ANY($1::int[]) AND life_stage = 'ADULT' AND allegiance_status = 'CIVILIAN'
-                GROUP BY settlement_id, COALESCE(profession, '')
-                ORDER BY settlement_id, profession
-            `, [missingWorkforceIds]);
-
-        const recountedMap = new Map<number, Record<string, { records: number; people: number }>>();
+        const wfMap = await getBurgCohortWorkforce(client, isWeeklyWorkforce ? undefined : missingWorkforceIds);
         const targetRows = isWeeklyWorkforce
             ? burgRes.rows
             : burgRes.rows.filter((b: any) => b.workforce == null);
-        for (const b of targetRows) recountedMap.set(Number(b.burg_id), {});
-        for (const row of wfRes.rows) {
-            const bId = Number(row.settlement_id);
-            let rec = recountedMap.get(bId);
-            if (!rec) {
-                rec = {};
-                recountedMap.set(bId, rec);
-            }
-            rec[String(row.profession || "")] = {
-                records: Number(row.active_records) || 0,
-                people: Number(row.active_people) || 0
-            };
-        }
         for (const b of targetRows) {
-            b.workforce = recountedMap.get(Number(b.burg_id)) || {};
+            b.workforce = wfMap.get(Number(b.burg_id)) || {};
         }
         if (targetRows.length > 0) {
             await client.query(`
@@ -1348,128 +1273,61 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
             // Demographic growth, maturation and immigration: one citizen record per ledger.unit people
             let growthPool = (Number(burg.pop_growth_pool) || 0) + (births - (starvationDeaths || 0));
 
-            // Each full unit of growth adds one record and that many people, split by the burg's real mix
+            // Each full unit of growth adds people to cohorts, split by the burg's real mix
             const grown = splitByShare(ledger.unit, ledger.attunedShare);
             while (growthPool >= ledger.unit) {
                 growthPool -= ledger.unit;
                 popNullDelta += grown.nulls;
                 popAttunedDelta += grown.attuned;
 
-                // 50% from children coming of age, 50% from immigration
                 const isMaturation = Math.random() < 0.50;
-                if (isMaturation) {
-                    // Find oldest living child in this burg
-                    const childRes = await client.query(`
-                    SELECT citizen_id, name, profession, species, spark_tier, childhood_background
-                    FROM population_demographics
-                    WHERE settlement_id = $1 AND life_stage = 'CHILD' AND allegiance_status = 'CIVILIAN'
-                    ORDER BY age DESC, citizen_id ASC
-                    LIMIT 1
-                `, [burg.burg_id]);
-
-                    if (childRes.rows.length > 0) {
-                        const child = childRes.rows[0];
-                        const adultTrade = ADULT_TRADE_MAP[child.profession] || "Laborer";
-                        const newAdultMotiv = `Having come of age in ${burg.name || 'their hometown'}, they carry forward the lessons of their childhood: ${child.childhood_background || 'faithful labor'}`;
-
-                        // Promote child to adult with assigned workplace
-                        const wp = getWorkplaceForProfession(adultTrade, burg.name || "Town");
-                        const adultMotives = deriveCitizenMotives({ profession: adultTrade, temper: "CURIOUS", instinct: "WARY", allegiance_status: "CIVILIAN" });
-                        await client.query(`
-                        UPDATE population_demographics
-                        SET life_stage = 'ADULT', age = 16, profession = $1, motivation = $2,
-                            workplace_type = $3, workplace_name = $4,
-                            want = COALESCE(want, $6), flaw = COALESCE(flaw, $7), line_wont_cross = COALESCE(line_wont_cross, $8)
-                        WHERE citizen_id = $5
-                    `, [adultTrade, newAdultMotiv, wp.type, wp.name, child.citizen_id, adultMotives.want, adultMotives.flaw, adultMotives.lineWontCross]);
-                        workforceDirtyBurgs.add(Number(burg.burg_id));
-
-                        // Spawn replacement infant/child in the cradle to replace them
-                        const replacementFirst = pickRandom(FIRST_NAMES[child.species] || FIRST_NAMES["Human"] || ["Val"], "Val");
-                        const replacementLast = child.name.split(" ")[1] || "Kin";
-                        const replacementName = `${replacementFirst} ${replacementLast}`;
-                        const replacementRole = pickRandom(["Forge Apprentice", "Weaver Youth", "Temple Ward", "Farm Hand", "Herbalist Gatherer", "Scribe Runner", "Potter Apprentice"], "Apprentice");
-                        const childBg = pickRandom(CHILDHOOD_BACKGROUNDS, "Learning the traditions of their elders.");
-                        const isChildNull = Math.random() >= ledger.attunedShare;
-                        const childMotives = deriveCitizenMotives({ profession: replacementRole, temper: "CURIOUS", instinct: "WARY", allegiance_status: "CIVILIAN" });
-
-                        await client.query(`
-                        INSERT INTO population_demographics (
-                            settlement_id, home_cell_id, name, profession, species,
-                            is_null, spark_tier, attunement_level, chaos_attraction_index,
-                            temper, instinct, motivation, traits, social_links, allegiance_status,
-                            unit_size, life_stage, age, childhood_background, want, flaw, line_wont_cross
-                        ) VALUES (
-                            $1, $2, $3, $4, $5,
-                            $6, $7, $8, $9,
-                            'CURIOUS', 'WARY', $10, '["CURIOUS","WARY","YOUTH"]'::jsonb, '[]'::jsonb, 'CIVILIAN',
-                            $12, 'CHILD', 1, $11, $13, $14, $15
-                        )
-                    `, [
-                            burg.burg_id, burg.cell_id, replacementName, replacementRole, child.species,
-                            isChildNull, isChildNull ? 'NULL' : (Math.random() < 0.5 ? 'DORMANT_SPARK' : 'SENSITIVE'),
-                            isChildNull ? 0 : 0.2, isChildNull ? 0 : 1.0,
-                            `Growing up in ${burg.name || 'town'} under the guidance of elder craftsmen.`,
-                            childBg, ledger.unit, childMotives.want, childMotives.flaw, childMotives.lineWontCross
-                        ]);
-                    } else {
-                        await spawnImmigrant(client, burg, ledger);
-                        workforceDirtyBurgs.add(Number(burg.burg_id));
-                    }
-                } else {
-                    // 50% immigration: someone moving to the area
-                    await spawnImmigrant(client, burg, ledger);
-                    workforceDirtyBurgs.add(Number(burg.burg_id));
-                }
+                const species = resolveSpecies(burg.species_demographics);
+                const isNull = Math.random() >= ledger.attunedShare;
+                const sparkTier = isNull ? "NULL" : (Math.random() < 0.50 ? "DORMANT_SPARK" : Math.random() < 0.70 ? "SENSITIVE" : "CHANNELER");
+                const prof = isMaturation
+                    ? (ADULT_TRADE_MAP[pickRandom(Object.keys(ADULT_TRADE_MAP), "Farm Hand")] || "Laborer")
+                    : pickRandom(ADULT_PROFESSIONS, "Merchant Trader");
+                cohortGrowthOps.push({
+                    burgId: Number(burg.burg_id),
+                    species,
+                    profession: prof,
+                    ageBand: "ADULT",
+                    sparkTier,
+                    isNull,
+                    allegiance: "CIVILIAN",
+                    delta: ledger.unit,
+                });
+                workforceDirtyBurgs.add(Number(burg.burg_id));
             }
 
-            // Each full unit of starvation deaths takes one record and that many people
+            // Each full unit of starvation deaths retires that many people from cohorts
+            let starveRetirePeople = 0;
             while (growthPool <= -ledger.unit) {
                 growthPool += ledger.unit;
                 popNullDelta -= grown.nulls;
                 popAttunedDelta -= grown.attuned;
-
-                const victimRes = await client.query(`
-                SELECT citizen_id, name, profession
-                FROM population_demographics
-                WHERE settlement_id = $1 AND allegiance_status = 'CIVILIAN'
-                ORDER BY (CASE WHEN temper = 'DESPERATE' THEN 1 WHEN temper = 'BITTER' THEN 2 ELSE 3 END), ${sqlShuffle('citizen_id')}
-                LIMIT 1
-            `, [burg.burg_id]);
-
-                if (victimRes.rows.length > 0) {
-                    await client.query(`
-                    UPDATE population_demographics
-                    SET allegiance_status = 'DECEASED', cause_of_death = 'FAMINE_OR_PLAGUE'
-                    WHERE citizen_id = $1
-                `, [victimRes.rows[0].citizen_id]);
-                    workforceDirtyBurgs.add(Number(burg.burg_id));
-                }
+                starveRetirePeople += ledger.unit;
+            }
+            if (starveRetirePeople > 0) {
+                cohortRetireReqs.push({ burgId: Number(burg.burg_id), people: starveRetirePeople });
+                workforceDirtyBurgs.add(Number(burg.burg_id));
             }
 
             if (totalPop > 0 && totalPop < ledger.unit && growthPool <= -totalPop) {
                 popNullDelta = -(Number(burg.pop_null) || 0);
                 popAttunedDelta = -(Number(burg.pop_attuned) || 0);
                 growthPool = 0;
-                await client.query(`
-                    UPDATE population_demographics
-                    SET allegiance_status = 'DECEASED', cause_of_death = 'FAMINE_OR_PLAGUE',
-                        motivation = $2
-                    WHERE settlement_id = $1 AND allegiance_status = 'CIVILIAN'
-                `, [burg.burg_id, `Perished in the famine that emptied ${burg.name}.`]);
+                emptiedFamineBurgs.push(Number(burg.burg_id));
                 workforceDirtyBurgs.add(Number(burg.burg_id));
             }
 
-            // Executions, riots, bandits and refugees already left the counters above. Their records follow
-            // one per full unit: the dead are marked DECEASED, the rest DEPARTED (kept as history).
+            // Executions, riots, bandits and refugees already left the counters above. Retire cohorts
+            // once a full unit has left.
             let departurePool = (Number(burg.pop_departure_pool) || 0) + departedDead + departedLeft;
             const retiring = Math.floor(departurePool / ledger.unit);
             if (retiring > 0) {
                 departurePool -= retiring * ledger.unit;
-                const leftTotal = departedDead + departedLeft;
-                const dead = leftTotal > 0 ? Math.round(retiring * (departedDead / leftTotal)) : 0;
-                await retireRecords(client, burg.burg_id, dead, "DECEASED", "CIVIL_VIOLENCE", `Killed in the violence in ${burg.name}.`);
-                await retireRecords(client, burg.burg_id, retiring - dead, "DEPARTED", null, `Left ${burg.name} as a refugee or outlaw.`);
+                cohortRetireReqs.push({ burgId: Number(burg.burg_id), people: retiring * ledger.unit });
                 workforceDirtyBurgs.add(Number(burg.burg_id));
             }
 
@@ -1477,11 +1335,7 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
             const newPopAttuned = Math.floor(Math.max(0, (burg.pop_attuned || 0) + popAttunedDelta));
             if (newPopNull <= 0 && newPopAttuned <= 0) {
                 departurePool = 0;
-                await client.query(`
-                    UPDATE population_demographics
-                    SET allegiance_status = 'DEPARTED', motivation = $2
-                    WHERE settlement_id = $1 AND allegiance_status = 'CIVILIAN'
-                `, [burg.burg_id, `Abandoned the ruined settlement of ${burg.name}.`]);
+                emptiedRuinedBurgs.push(Number(burg.burg_id));
                 workforceDirtyBurgs.add(Number(burg.burg_id));
             }
             const sparkbornTotal = newPopAttuned;
@@ -1573,6 +1427,19 @@ export async function runBurgOperationsAgent(client: any, tick: number, loreDate
                 `UPDATE sim_burg_economy SET workforce = NULL WHERE burg_id = ANY($1::int[])`,
                 [Array.from(workforceDirtyBurgs).sort((a, b) => a - b)]
             );
+        }
+
+        if (cohortGrowthOps.length > 0) {
+            await adjustCohortsBatch(client, cohortGrowthOps);
+        }
+        if (cohortRetireReqs.length > 0) {
+            await retireFromCohortsBatch(client, cohortRetireReqs);
+        }
+        if (emptiedFamineBurgs.length > 0) {
+            await zeroBurgsCohorts(client, emptiedFamineBurgs, "DECEASED", "Perished in famine.");
+        }
+        if (emptiedRuinedBurgs.length > 0) {
+            await zeroBurgsCohorts(client, emptiedRuinedBurgs, "DEPARTED", "Abandoned a ruined settlement.");
         }
 
         if (stockpileUpdates.length > 0) {

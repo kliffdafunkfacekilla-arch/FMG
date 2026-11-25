@@ -13,7 +13,9 @@ async function snapshot(tick: number) {
     .map(e => `${e.type}|${e.burg_id}|${e.message}`);
   const people = (await pool.query(`SELECT settlement_id, allegiance_status, life_stage, count(*)::int c FROM population_demographics GROUP BY 1,2,3 ORDER BY 1,2,3`)).rows
     .map(r => `${r.settlement_id}|${r.allegiance_status}|${r.life_stage}|${r.c}`);
-  return { burgs, events, people };
+  const cohorts = (await pool.query(`SELECT burg_id, age_band, allegiance, COALESCE(SUM(count), 0)::int c FROM population_cohorts WHERE count > 0 GROUP BY 1,2,3 ORDER BY 1,2,3`)).rows
+    .map(r => `${r.burg_id}|${r.age_band}|${r.allegiance}|${r.c}`);
+  return { burgs, events, people, cohorts };
 }
 
 async function main() {
@@ -46,6 +48,9 @@ async function main() {
   const pa = new Set<string>(a.people);
   const pd = b.people.filter((p: string) => !pa.has(p));
   console.log(`\nPeople groups differing: ${pd.length}`); pd.slice(0, 6).forEach((p: string) => console.log("  " + p));
+  const ca = new Set<string>(a.cohorts || []);
+  const cd = (b.cohorts || []).filter((c: string) => !ca.has(c));
+  console.log(`Cohort groups differing: ${cd.length}`); cd.slice(0, 6).forEach((c: string) => console.log("  " + c));
 }
 
 isolateTest()

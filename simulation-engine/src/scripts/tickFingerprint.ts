@@ -14,8 +14,17 @@ export async function worldFingerprint(tick: number, baseCitizenId: number, base
     // New citizens' ids come from a sequence, and sequences do not roll back: hash those without their id
     people: await q(`SELECT md5(string_agg(concat_ws(',', CASE WHEN citizen_id <= $1 THEN citizen_id END, settlement_id, allegiance_status, life_stage, name, profession, unit_size), '|' ORDER BY citizen_id <= $1 DESC, CASE WHEN citizen_id <= $1 THEN citizen_id END, settlement_id, allegiance_status, life_stage, name, profession, unit_size)) h FROM population_demographics`, [baseCitizenId]),
     events: await q(`SELECT md5(string_agg(concat_ws(',', type, burg_id, message), '|' ORDER BY type, burg_id, message)) h FROM sim_events WHERE tick = $1`, [tick]),
-    // Exclude SERIAL shipment id so rolled-back sequences never cause false diffs across replays
-    shipments: await q(`SELECT COALESCE(md5(string_agg(concat_ws(',', source_burg_id, dest_burg_id, transport_mode, good_key, quantity, status, current_cell_id, path_index, merchant_citizen_id, tariff_gold), '|' ORDER BY source_burg_id, dest_burg_id, transport_mode, good_key, dispatched_tick, merchant_citizen_id)), '') h FROM sim_trade_shipments`),
+    // Exclude SERIAL shipment id and post-base promoted merchant_citizen_id so rolled-back sequences never cause false diffs across replays
+    shipments: await q(`
+      SELECT COALESCE(md5(string_agg(
+        concat_ws(',', s.source_burg_id, s.dest_burg_id, s.transport_mode, s.good_key, s.quantity, s.status, s.current_cell_id, s.path_index,
+          CASE WHEN s.merchant_citizen_id <= $1 THEN s.merchant_citizen_id::text ELSE '' END,
+          p.name, p.profession, s.tariff_gold),
+        '|' ORDER BY s.source_burg_id, s.dest_burg_id, s.transport_mode, s.good_key, s.dispatched_tick, p.name, p.profession
+      )), '') h
+      FROM sim_trade_shipments s
+      LEFT JOIN population_demographics p ON p.citizen_id = s.merchant_citizen_id`, [baseCitizenId]),
+    cohorts: await q(`SELECT COALESCE(md5(string_agg(concat_ws(',', burg_id, species, profession, age_band, spark_tier, is_null, allegiance, count), '|' ORDER BY burg_id, species, profession, age_band, spark_tier, is_null, allegiance)), '') h FROM population_cohorts WHERE count > 0`),
     scheduled: await q(`SELECT COALESCE(md5(string_agg(concat_ws(',', due_tick, due_minute, kind, payload::text, fired_tick), '|' ORDER BY due_tick, due_minute, kind, payload::text)), '') h FROM scheduled_events`),
   };
 }

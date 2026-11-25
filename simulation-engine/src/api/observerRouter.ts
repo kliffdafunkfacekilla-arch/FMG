@@ -5,6 +5,7 @@ import { resetWorld } from "../engine/resetWorld";
 import { FACTION_SPECIALTIES } from "../engine/economy/factionSpecialties";
 import { VERGE_COORD } from "../engine/canon/dragonPrisons.js";
 import { addCellTags, loadCellTagMap } from "../engine/cellTags.js";
+import { getBurgCohortWorkforce } from "../engine/entities/population.js";
 import { readWorldClock, setClockRunning } from "../engine/clock/clock.js";
 import { enqueueCommand, isWorkerActive, waitForCommand } from "../worker/commands.js";
 
@@ -795,18 +796,39 @@ observerRouter.get("/burg_citizens", async (req, res) => {
       WHERE b.burg_id = $1
     `, [burgIdNum]);
 
-    const workforceRes = await pool.query(`
-      SELECT COALESCE(profession, 'Unassigned') AS profession,
-             COUNT(*) FILTER (WHERE allegiance_status = 'CIVILIAN')::int AS active_records,
-             COUNT(*) FILTER (WHERE allegiance_status = 'ON_CARAVAN')::int AS on_caravan_records,
-             COALESCE(SUM(unit_size), 0)::int AS people
-      FROM population_demographics
-      WHERE settlement_id = $1
-        AND life_stage = 'ADULT'
-        AND allegiance_status IN ('CIVILIAN', 'ON_CARAVAN')
-      GROUP BY profession
-      ORDER BY active_records DESC, on_caravan_records DESC, profession ASC
-    `, [burgIdNum]);
+    const [wfMap, caravanRes] = await Promise.all([
+      getBurgCohortWorkforce(pool, [burgIdNum]),
+      pool.query(
+        `SELECT COALESCE(profession, 'Unassigned') AS profession, COUNT(*)::int AS on_caravan_records,
+                COALESCE(SUM(unit_size), 0)::int AS caravan_people
+         FROM population_demographics
+         WHERE settlement_id = $1 AND life_stage = 'ADULT' AND allegiance_status = 'ON_CARAVAN'
+         GROUP BY profession`,
+        [burgIdNum]
+      ),
+    ]);
+
+    const wfByProf = wfMap.get(burgIdNum) || {};
+    const mergedWf = new Map<string, { profession: string; active_records: number; on_caravan_records: number; people: number }>();
+    for (const [prof, c] of Object.entries(wfByProf)) {
+      const label = prof || "Unassigned";
+      mergedWf.set(label, {
+        profession: label,
+        active_records: c.records,
+        on_caravan_records: 0,
+        people: c.people,
+      });
+    }
+    for (const r of caravanRes.rows) {
+      const label = String(r.profession || "Unassigned");
+      const cur = mergedWf.get(label) || { profession: label, active_records: 0, on_caravan_records: 0, people: 0 };
+      cur.on_caravan_records += Number(r.on_caravan_records || 0);
+      cur.people += Number(r.caravan_people || 0);
+      mergedWf.set(label, cur);
+    }
+    const workforceRows = Array.from(mergedWf.values()).sort(
+      (a, b) => (b.active_records - a.active_records) || (b.on_caravan_records - a.on_caravan_records) || a.profession.localeCompare(b.profession)
+    );
 
     const sRow = stockpileRes.rows[0];
     res.json({
@@ -815,7 +837,7 @@ observerRouter.get("/burg_citizens", async (req, res) => {
       paragons: paragonsRes.rows,
       stockpile: safeParseJson<Record<string, number>>(sRow?.complex_inventory, {}),
       resourceProfile: safeParseJson<any>(sRow?.resource_profile, {}),
-      workforce: workforceRes.rows
+      workforce: workforceRows
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

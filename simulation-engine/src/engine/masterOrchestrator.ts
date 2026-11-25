@@ -1,6 +1,7 @@
 import pool from "../db/pool";
 import { runCalendarAgent } from "./agents/calendarAgent";
 import { loadCalendar } from "./macro/calendar/load.js";
+import { zeroBurgsCohorts } from "./entities/population.js";
 import { stepCalendar } from "./macro/calendar/step.js";
 import { fireDueScheduledEvents } from "./clock/scheduler.js";
 import { runWeatherAgent } from "./agents/weatherAgent";
@@ -300,11 +301,7 @@ async function runTick(): Promise<TickResult> {
                 for (const table of ["sim_infrastructure", "sim_fringe_lairs", "sim_industrial_stockpiles"]) {
                     await client.query(`DELETE FROM ${table} WHERE burg_id = ANY($1)`, [ids]);
                 }
-                await client.query(
-                    `UPDATE population_demographics SET allegiance_status = 'DEPARTED', motivation = 'Abandoned a ruined settlement.'
-                     WHERE settlement_id = ANY($1) AND allegiance_status = 'CIVILIAN'`,
-                    [ids]
-                );
+                await zeroBurgsCohorts(client, ids, "DEPARTED", "Abandoned a ruined settlement.");
                 // Ruins stay on the map as neutral, uninhabited shells
                 await client.query(
                     `UPDATE sim_burg_economy

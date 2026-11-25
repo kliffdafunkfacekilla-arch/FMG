@@ -3,7 +3,9 @@
  * how their distinct human personalities influence their behavior as Cultists,
  * Wardens, or Mandate Zealots.
  */
-import { addCellTags } from "../cellTags.js";import { sqlShuffle } from "../rng.js";
+import { addCellTags } from "../cellTags.js";
+import { promoteFromCohort } from "../lod/promote.js";
+import { sqlShuffle } from "../rng.js";
 
 
 export interface CitizenPersona {
@@ -376,8 +378,27 @@ export async function recruitInsideMan(
       LIMIT 1
     `, [settlementId]);
 
-    if (candidateRes.rows.length === 0) return null;
-    const c = candidateRes.rows[0];
+    let picked = candidateRes.rows[0] ? {
+      citizen_id: Number(candidateRes.rows[0].citizen_id),
+      name: String(candidateRes.rows[0].name),
+      profession: String(candidateRes.rows[0].profession),
+    } : null;
+
+    if (!picked) {
+      const prom = await promoteFromCohort(
+        client,
+        settlementId,
+        { ageBand: "ADULT", allegiance: "CIVILIAN" },
+        `insideman:${settlementId}:${cartelName}`
+      );
+      if (prom) {
+        picked = { citizen_id: prom.citizenId, name: prom.name, profession: prom.profession };
+        await client.query(`DELETE FROM promoted_slots WHERE citizen_id = $1`, [prom.citizenId]);
+      }
+    }
+
+    if (!picked) return null;
+    const c = picked;
 
     const tags = ['#InsideMan', '#SyndicateOperative', '#ContrabandContact'];
     if (c.profession.includes('Sentry') || c.profession.includes('Watch')) {

@@ -17,6 +17,7 @@ import { resolveStorylineFromActions } from "../engine/story/resolve.js";
 import { buildStoryContext, renderStoryContext } from "../engine/story/context.js";
 import { MAX_PREVIEW_OPTIONS, previewStoryOptions } from "../engine/story/preview.js";
 import { ensureEntity } from "../engine/entities/registry.js";
+import { promoteFromCohort } from "../engine/lod/promote.js";
 import { worldFingerprint } from "./tickFingerprint.js";
 
 async function main() {
@@ -31,30 +32,41 @@ async function main() {
   const partyRef = `player:${playerId}`;
   await ensureEntity(pool, partyRef, { name: playerRes.rows[0]?.name || "Adventurer", kind: "person", lod: "micro", createdTick: tick });
 
-  // Pick a cached burg tile with a real paragon + adult citizen
+  // Pick a cached burg tile with a real paragon (using existing adult citizen or promoting from cohorts)
   const targetRes = await pool.query(
     `SELECT b.burg_id, b.name AS burg_name, b.cell_id, b.unrest, b.wealth, c.faction_id,
             p.id AS paragon_id, p.name AS paragon_name,
-            d.citizen_id, d.name AS citizen_name
+            (SELECT d.citizen_id FROM population_demographics d
+             WHERE d.settlement_id = b.burg_id AND d.life_stage = 'ADULT' AND d.allegiance_status = 'CIVILIAN'
+             ORDER BY d.citizen_id ASC LIMIT 1) AS citizen_id,
+            (SELECT d.name FROM population_demographics d
+             WHERE d.settlement_id = b.burg_id AND d.life_stage = 'ADULT' AND d.allegiance_status = 'CIVILIAN'
+             ORDER BY d.citizen_id ASC LIMIT 1) AS citizen_name
      FROM sim_burg_economy b
      JOIN sim_cells c ON c.id = b.cell_id
      JOIN sim_paragons p ON p.burg_id = b.burg_id AND p.outlaw_id IS NULL
-     JOIN population_demographics d ON d.settlement_id = b.burg_id AND d.life_stage = 'ADULT' AND d.allegiance_status = 'CIVILIAN'
      WHERE c.faction_id IS NOT NULL AND c.faction_id > 0
-     ORDER BY b.burg_id ASC, p.id ASC, d.citizen_id ASC
+     ORDER BY b.burg_id ASC, p.id ASC
      LIMIT 1`
   );
-  assert.ok(targetRes.rows.length > 0, "Expected burg with faction, paragon, and adult citizen");
+  assert.ok(targetRes.rows.length > 0, "Expected burg with faction and paragon");
   const target = targetRes.rows[0];
   const cellId = Number(target.cell_id);
   const burgId = Number(target.burg_id);
   const factionId = Number(target.faction_id);
   const paragonRef = `paragon:${target.paragon_id}`;
-  const witnessCitizenId = Number(target.citizen_id);
+  let witnessCitizenId = target.citizen_id ? Number(target.citizen_id) : 0;
+  let witnessCitizenName = target.citizen_name ? String(target.citizen_name) : "";
+  if (!witnessCitizenId) {
+    const prom = await promoteFromCohort(pool, burgId, { ageBand: "ADULT", allegiance: "CIVILIAN" }, `action_witness:${burgId}`, tick);
+    assert.ok(prom, "Expected promotable adult witness in burg");
+    witnessCitizenId = prom.citizenId;
+    witnessCitizenName = prom.name;
+  }
   const witnessRef = `citizen:${witnessCitizenId}`;
 
   await ensureEntity(pool, paragonRef, { name: String(target.paragon_name), kind: "person", lod: "micro", cellId, createdTick: tick });
-  await ensureEntity(pool, witnessRef, { name: String(target.citizen_name), kind: "person", lod: "micro", cellId, createdTick: tick });
+  await ensureEntity(pool, witnessRef, { name: witnessCitizenName, kind: "person", lod: "micro", cellId, createdTick: tick });
 
   // Ensure baseline burg unrest >= 20 so diplomatic -12 and violent +18 are clearly separable
   await pool.query(`UPDATE sim_burg_economy SET unrest = 30, wealth = 5000 WHERE burg_id = $1`, [burgId]);

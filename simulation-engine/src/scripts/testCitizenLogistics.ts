@@ -14,6 +14,7 @@ import { openWorldEventThreads } from "../engine/threads/worldThreads.js";
 import { validateActorIds } from "../engine/threads/threadEngine.js";
 import { runSeeded, tickSeed } from "../engine/rng.js";
 import { addCellTags } from "../engine/cellTags.js";
+import { promoteFromCohort } from "../engine/lod/promote.js";
 
 async function getInv(burgId: number): Promise<Record<string, number>> {
   const r = await pool.query(`SELECT complex_inventory FROM sim_industrial_stockpiles WHERE burg_id = $1`, [burgId]);
@@ -23,20 +24,30 @@ async function getInv(burgId: number): Promise<Record<string, number>> {
 }
 
 async function pickCrew(burgId: number, modeProf: "Caravan Drover" | "Sailor" | "Aether-Crew") {
-  const m = await pool.query(
+  let m = await pool.query(
     `SELECT citizen_id FROM population_demographics
      WHERE settlement_id = $1 AND life_stage = 'ADULT' AND allegiance_status = 'CIVILIAN'
        AND profession IN ('Merchant Factor', 'Merchant Trader')
      ORDER BY citizen_id ASC LIMIT 1`,
     [burgId]
   );
-  const c = await pool.query(
+  if (!m.rows[0]) {
+    const pm =
+      (await promoteFromCohort(pool, burgId, { profession: "Merchant Factor", ageBand: "ADULT", allegiance: "CIVILIAN" }, `testlog:m:${burgId}:${modeProf}`, 1)) ||
+      (await promoteFromCohort(pool, burgId, { profession: "Merchant Trader", ageBand: "ADULT", allegiance: "CIVILIAN" }, `testlog:mt:${burgId}:${modeProf}`, 1));
+    if (pm) m = { rows: [{ citizen_id: pm.citizenId }] } as any;
+  }
+  let c = await pool.query(
     `SELECT citizen_id FROM population_demographics
      WHERE settlement_id = $1 AND life_stage = 'ADULT' AND allegiance_status = 'CIVILIAN'
        AND profession = $2
      ORDER BY citizen_id ASC LIMIT 1`,
     [burgId, modeProf]
   );
+  if (!c.rows[0]) {
+    const pc = await promoteFromCohort(pool, burgId, { profession: modeProf, ageBand: "ADULT", allegiance: "CIVILIAN" }, `testlog:c:${burgId}:${modeProf}`, 1);
+    if (pc) c = { rows: [{ citizen_id: pc.citizenId }] } as any;
+  }
   if (!m.rows[0] || !c.rows[0]) return null;
   return { merchantId: Number(m.rows[0].citizen_id), crewId: Number(c.rows[0].citizen_id) };
 }
@@ -165,6 +176,10 @@ async function main() {
   // Isolate a single surplus seller of 'coal' (Hidden Lagoon #24) and strip Excelsis (#1) coal to 0
   await pool.query(`UPDATE sim_industrial_stockpiles SET complex_inventory = '{"wood": 500, "coal": 0, "iron": 0, "leather": 0}' WHERE burg_id != 24`);
   await pool.query(`UPDATE sim_industrial_stockpiles SET complex_inventory = '{"coal": 900}' WHERE burg_id = 24`);
+  await pool.query(
+    `UPDATE population_cohorts SET count = 0
+     WHERE burg_id = 24 AND profession IN ('Merchant Factor', 'Merchant Trader', 'Caravan Drover', 'Sailor', 'Aether-Crew')`
+  );
   await pool.query(
     `UPDATE population_demographics SET allegiance_status = 'DEPARTED'
      WHERE settlement_id = 24 AND profession IN ('Merchant Factor', 'Merchant Trader', 'Caravan Drover', 'Sailor', 'Aether-Crew')`

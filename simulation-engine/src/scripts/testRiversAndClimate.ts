@@ -37,12 +37,12 @@ async function main() {
   const farmBurgRes = await pool.query(`
     SELECT b.burg_id, b.cell_id
     FROM sim_burg_economy b
-    JOIN population_demographics pd ON pd.settlement_id = b.burg_id
-    WHERE pd.life_stage = 'ADULT' AND pd.allegiance_status = 'CIVILIAN'
-      AND pd.profession IN ('Grain Farmer', 'Livestock Herder', 'Fisherman', 'Fruit Grower')
+    JOIN population_cohorts pc ON pc.burg_id = b.burg_id
+    WHERE pc.age_band = 'ADULT' AND pc.allegiance = 'CIVILIAN'
+      AND pc.profession IN ('Grain Farmer', 'Livestock Herder', 'Fisherman', 'Fruit Grower')
       AND b.pop_null > 50
     GROUP BY b.burg_id, b.cell_id
-    ORDER BY COUNT(*) DESC, b.burg_id ASC
+    ORDER BY SUM(pc.count) DESC, b.burg_id ASC
     LIMIT 1
   `);
   const farmBurg = farmBurgRes.rows[0];

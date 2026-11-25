@@ -7,6 +7,7 @@ import { executeMasterTick } from "../engine/masterOrchestrator.js";
 import { resyncMapCast } from "../engine/micro/mapCast.js";
 import { applyMapOverlays, loadTileOverlays } from "../engine/micro/overlays.js";
 import { writeBackNpcDeath, writeBackPropChange } from "../engine/micro/writeBack.js";
+import { promoteFromCohort } from "../engine/lod/promote.js";
 import { isolateTest } from "./testIsolation.js";
 
 async function main() {
@@ -16,13 +17,15 @@ async function main() {
   const calRes = await pool.query(`SELECT MAX(tick)::int AS t FROM sim_calendar`);
   const baseTick = Number(calRes.rows[0]?.t || 1);
 
-  // Locate a living paragon with a valid burg & at least 3 living adult citizens
+  // Locate a living paragon with a valid burg & cohort capacity for at least 3 adult civilians
   const burgRes = await pool.query(
     `SELECT b.burg_id, b.cell_id, b.food, b.wealth, b.raw_materials, b.pop_null, b.pop_attuned
      FROM sim_burg_economy b
      WHERE EXISTS (SELECT 1 FROM sim_paragons p WHERE p.burg_id = b.burg_id)
-       AND (SELECT COUNT(*) FROM population_demographics c
-            WHERE c.settlement_id = b.burg_id AND c.allegiance_status = 'CIVILIAN') >= 3
+       AND (
+         (SELECT COUNT(*) FROM population_demographics c WHERE c.settlement_id = b.burg_id AND c.allegiance_status = 'CIVILIAN') >= 3
+         OR (SELECT COALESCE(SUM(pc.count), 0) FROM population_cohorts pc WHERE pc.burg_id = b.burg_id AND pc.age_band = 'ADULT' AND pc.allegiance = 'CIVILIAN') >= 10
+       )
      ORDER BY b.burg_id ASC
      LIMIT 1`
   );
@@ -31,7 +34,18 @@ async function main() {
   const burgId = Number(burg.burg_id);
   const cellId = Number(burg.cell_id);
 
-  const citRes = await pool.query(
+  let citRes = await pool.query(
+    `SELECT citizen_id, name, profession, is_null, unit_size
+     FROM population_demographics
+     WHERE settlement_id = $1 AND allegiance_status = 'CIVILIAN'
+     ORDER BY citizen_id ASC
+     LIMIT 3`,
+    [burgId]
+  );
+  for (let i = citRes.rows.length; i < 3; i++) {
+    await promoteFromCohort(pool, burgId, { ageBand: "ADULT", allegiance: "CIVILIAN" }, `wb_test:${i}`, baseTick);
+  }
+  citRes = await pool.query(
     `SELECT citizen_id, name, profession, is_null, unit_size
      FROM population_demographics
      WHERE settlement_id = $1 AND allegiance_status = 'CIVILIAN'
