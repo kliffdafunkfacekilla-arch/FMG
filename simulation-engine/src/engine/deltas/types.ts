@@ -448,6 +448,11 @@ export type Delta =
       wealth: number;
       food: number;
       roadName: string;
+    }
+  | {
+      kind: "paragon.setCorruption";
+      paragonId: number;
+      corruptionScore: number;
     };
 
 export type DeltaEmitter = (delta: Delta) => void;

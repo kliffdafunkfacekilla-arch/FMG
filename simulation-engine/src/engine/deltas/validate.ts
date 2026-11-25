@@ -49,6 +49,7 @@ const KNOWN_KINDS = new Set<string>([
   "ancientWard.recharge",
   "ancientWard.discharge",
   "burg.createSatellite",
+  "paragon.setCorruption",
 ]);
 
 function clamp(v: number, min: number, max: number): number {
@@ -625,6 +626,15 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         }
         break;
       }
+      case "paragon.setCorruption": {
+        const err = finiteOrReject([
+          ["paragonId", d.paragonId],
+          ["corruptionScore", d.corruptionScore],
+        ]);
+        if (err) structuralErrors.set(i, err);
+        else paragonIds.add(d.paragonId);
+        break;
+      }
     }
   }
 
@@ -1136,6 +1146,18 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
           popAttuned: Math.max(0, Math.round(d.popAttuned)),
           wealth: Math.max(0, Math.round(d.wealth)),
           food: Math.max(0, Math.round(d.food)),
+        });
+        break;
+
+      case "paragon.setCorruption":
+        if (!validParagons.has(d.paragonId)) {
+          rejected.push({ delta: d, reason: `Unknown paragonId ${d.paragonId}` });
+          break;
+        }
+        ok.push({
+          kind: "paragon.setCorruption",
+          paragonId: d.paragonId,
+          corruptionScore: clamp(Math.round(d.corruptionScore), 0, 100),
         });
         break;
 

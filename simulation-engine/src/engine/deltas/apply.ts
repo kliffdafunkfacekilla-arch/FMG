@@ -160,6 +160,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   const groveSealDeltas = new Map<number, number>();
   const wardDischarges = new Map<number, number>();
   const satelliteCreates: Array<Extract<Delta, { kind: "burg.createSatellite" }>> = [];
+  const paragonCorruptions = new Map<number, number>();
   let wardRechargeTick: number | null = null;
   let lastCalendar: Extract<Delta, { kind: "calendar.set" }> | null = null;
 
@@ -449,6 +450,9 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         break;
       case "burg.createSatellite":
         satelliteCreates.push(d);
+        break;
+      case "paragon.setCorruption":
+        paragonCorruptions.set(d.paragonId, d.corruptionScore);
         break;
     }
   }
@@ -1791,6 +1795,19 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
       );
       counts.sim_roads = (counts.sim_roads || 0) + (roadRes.rowCount || insertedSats.length);
     }
+  }
+
+  // 29. sim_paragons corruption
+  if (paragonCorruptions.size > 0) {
+    const pIds = Array.from(paragonCorruptions.keys()).sort((a, b) => a - b);
+    const res = await db.query(
+      `UPDATE sim_paragons AS p
+       SET corruption_score = v.score
+       FROM (SELECT unnest($1::int[]) AS id, unnest($2::int[]) AS score) AS v
+       WHERE p.id = v.id AND p.corruption_score IS DISTINCT FROM v.score`,
+      [pIds, pIds.map((id) => paragonCorruptions.get(id)!)]
+    );
+    counts.sim_paragons = (counts.sim_paragons || 0) + (res.rowCount || 0);
   }
 
   return counts;

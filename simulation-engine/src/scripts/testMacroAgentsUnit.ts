@@ -20,6 +20,7 @@ import { stepCultistRecruitment, stepCultists } from "../engine/macro/cultist/st
 import { planWardenAwakening, stepWardenAwakening, stepWardens } from "../engine/macro/warden/step.js";
 import { stepBurgExpansion, uniqueBurgName } from "../engine/macro/burgExpansion/step.js";
 import { stepChronicler } from "../engine/macro/chronicler/step.js";
+import { stepParagons } from "../engine/macro/paragons/step.js";
 
 function testEncounterUnit() {
   const emptyDeltas = stepEncounter({ agents: [], cellIds: [10, 20, 30] }, { tick: 2, random: mulberry32(42) });
@@ -1287,6 +1288,179 @@ function testChroniclerUnit() {
   console.log("17. stepChronicler (no DB) monthly TURN_LOG, rumor clustering & cooldown... PASSED");
 }
 
+function testParagonsUnit() {
+  // Choose tick=14 so (tick + p.id * 5) % 14 === 0 triggers only when p.id % 14 === 0 -> use p.id = 14 & 28
+  const greedyHoarder = stepParagons(
+    {
+      tick: 14,
+      loreDate: "Day 14",
+      burgs: [
+        {
+          burgId: 1,
+          name: "Ashport",
+          cellId: 100,
+          popNull: 1000,
+          food: 500, // famine (< 0.6 * 2000)
+          health: 90,
+          unrest: 10,
+          wealth: 500,
+          crimeRate: 10,
+          port: true,
+        },
+      ],
+      paragons: [
+        {
+          id: 14,
+          burgId: 1,
+          outlawId: null,
+          domain: "Civil",
+          title: "Mayor",
+          name: "Vane",
+          traits: JSON.stringify(["GREEDY", "USURIOUS"]),
+          corruptionScore: 63, // +2 drift -> 65 -> COMPASS_TRADE_EMBARGO, hoards grain (+4 -> 67)
+        },
+      ],
+      cellTagsByCell: {},
+    },
+    { random: () => 0.25 }
+  );
+
+  type P = (typeof greedyHoarder)[number];
+  assert.ok(greedyHoarder.some((d) => d.kind === "paragon.setCorruption" && d.paragonId === 14 && d.corruptionScore === 67));
+  assert.ok(greedyHoarder.some((d) => d.kind === "event.log" && d.type === "COMPASS_TRADE_EMBARGO"));
+  assert.ok(greedyHoarder.some((d) => d.kind === "event.log" && d.type === "MAYOR_HOARD_GRAIN_SPECULATION"));
+  assert.ok(greedyHoarder.some((d) => d.kind === "tags.add" && d.tags.includes("#CompassEmbargo")));
+  assert.ok(greedyHoarder.some((d) => d.kind === "citizen.tagBurg" && d.burgId === 1));
+  const bAdj = greedyHoarder.find((d): d is Extract<P, { kind: "burg.adjust" }> => d.kind === "burg.adjust");
+  assert.ok(bAdj && bAdj.wealth === 85 && bAdj.unrest === 12);
+
+  // Compassionate Mayor with #Line_NeverTaxTheStarving helps starving & Security lifts active curfew when unrest drops
+  const reliefAndLift = stepParagons(
+    {
+      tick: 14,
+      loreDate: "Day 14",
+      burgs: [
+        {
+          burgId: 2,
+          name: "Brightwater",
+          cellId: 200,
+          popNull: 1000,
+          food: 500,
+          health: 90,
+          unrest: 5, // calm -> lift active curfew
+          wealth: 500,
+          crimeRate: 5,
+          port: false,
+        },
+      ],
+      paragons: [
+        {
+          id: 14,
+          burgId: 2,
+          outlawId: null,
+          domain: "Civil",
+          title: "Burgomaster",
+          name: "Clara",
+          traits: JSON.stringify(["COMPASSIONATE"]),
+          corruptionScore: 4,
+        },
+        {
+          id: 28,
+          burgId: 2,
+          outlawId: null,
+          domain: "Security",
+          title: "Watch Commander",
+          name: "Dorian",
+          traits: JSON.stringify(["STOIC"]),
+          corruptionScore: 0,
+        },
+      ],
+      cellTagsByCell: { 200: ["#NightfallCurfewActive"] },
+    },
+    { random: () => 0.1 }
+  );
+
+  assert.ok(reliefAndLift.some((d) => d.kind === "event.log" && d.type === "MAYOR_EXPAND_GRANARY"));
+  assert.ok(reliefAndLift.some((d) => d.kind === "event.log" && d.type === "COMMANDER_LIFT_CURFEW"));
+  assert.ok(reliefAndLift.some((d) => d.kind === "tags.remove" && d.tags.includes("#NightfallCurfewActive")));
+
+  assert.equal(
+    JSON.stringify(
+      stepParagons(
+        {
+          tick: 14,
+          loreDate: "Day 14",
+          burgs: [
+            {
+              burgId: 1,
+              name: "Ashport",
+              cellId: 100,
+              popNull: 1000,
+              food: 500,
+              health: 90,
+              unrest: 10,
+              wealth: 500,
+              crimeRate: 10,
+              port: true,
+            },
+          ],
+          paragons: [
+            {
+              id: 14,
+              burgId: 1,
+              outlawId: null,
+              domain: "Civil",
+              title: "Mayor",
+              name: "Vane",
+              traits: JSON.stringify(["GREEDY"]),
+              corruptionScore: 20,
+            },
+          ],
+          cellTagsByCell: {},
+        },
+        { random: mulberry32(88) }
+      )
+    ),
+    JSON.stringify(
+      stepParagons(
+        {
+          tick: 14,
+          loreDate: "Day 14",
+          burgs: [
+            {
+              burgId: 1,
+              name: "Ashport",
+              cellId: 100,
+              popNull: 1000,
+              food: 500,
+              health: 90,
+              unrest: 10,
+              wealth: 500,
+              crimeRate: 10,
+              port: true,
+            },
+          ],
+          paragons: [
+            {
+              id: 14,
+              burgId: 1,
+              outlawId: null,
+              domain: "Civil",
+              title: "Mayor",
+              name: "Vane",
+              traits: JSON.stringify(["GREEDY"]),
+              corruptionScore: 20,
+            },
+          ],
+          cellTagsByCell: {},
+        },
+        { random: mulberry32(88) }
+      )
+    )
+  );
+  console.log("18. stepParagons (no DB) greedy hoarding, embargo, relief & curfew lift... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
@@ -1306,6 +1480,7 @@ function main() {
   testWardenUnit();
   testBurgExpansionUnit();
   testChroniclerUnit();
+  testParagonsUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 

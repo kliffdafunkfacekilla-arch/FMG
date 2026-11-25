@@ -30,7 +30,7 @@ const QUERY_CEILINGS: Record<string, number> = {
   trade: 35,
   weather: 30,
   threadClocks: 25,
-  paragons: 25,
+  paragons: 20,
   setup: 15,
   calendar: 15,
   scheduledEvents: 20,
