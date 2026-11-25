@@ -23,19 +23,33 @@ async function main() {
   assert.equal(report.mismatches.length, 0, `Conservation mismatches found: ${JSON.stringify(report.mismatches.slice(0, 5))}`);
   console.log(`1. Cohort backfill & conservation (${bf.cohorts} cohorts, ${bf.cohortPeople} cohort people, ${bf.notablePeople} notable people, ${report.exactMatches}/${report.burgsChecked} burgs exact)... PASSED`);
 
-  // 2. Cohort workforce adapter matches total adult civilian headcount on Burg 1 (Excelsis)
-  const rawWf = await pool.query(
-    `SELECT COALESCE(profession, '') AS prof, COALESCE(SUM(unit_size), 0)::int AS people
-     FROM population_demographics
-     WHERE settlement_id = 1 AND life_stage = 'ADULT' AND allegiance_status = 'CIVILIAN'
-     GROUP BY 1 ORDER BY 1`
+  // 2. Cohort workforce adapter matches exact truth (cohorts + living adult notable entities) on Burg 1 (Excelsis)
+  const expectedWf = await pool.query(
+    `SELECT prof, SUM(people)::int AS people
+     FROM (
+       SELECT COALESCE(profession, '') AS prof, SUM(count)::int AS people
+       FROM population_cohorts
+       WHERE burg_id = 1 AND age_band = 'ADULT' AND allegiance = 'CIVILIAN' AND count > 0
+       GROUP BY 1
+       UNION ALL
+       SELECT COALESCE(p.profession, '') AS prof, SUM(COALESCE(p.unit_size, 1))::int AS people
+       FROM population_demographics p
+       JOIN entities e ON e.source_table = 'population_demographics' AND e.source_id = p.citizen_id::text AND e.alive = true
+       WHERE p.settlement_id = 1 AND p.life_stage = 'ADULT' AND p.allegiance_status = 'CIVILIAN'
+       GROUP BY 1
+     ) sub
+     GROUP BY 1
+     ORDER BY 1`
   );
   const cohWfMap = await getBurgCohortWorkforce(pool, [1]);
   const cohWf = cohWfMap.get(1) || {};
-  for (const r of rawWf.rows) {
+  for (const r of expectedWf.rows) {
     assert.equal(cohWf[String(r.prof)]?.people || 0, Number(r.people), `Workforce mismatch for profession "${r.prof}"`);
   }
-  console.log(`2. getBurgCohortWorkforce exact headcount parity for Excelsis (${rawWf.rows.length} trades)... PASSED`);
+  assert.ok((cohWf["Merchant Factor"]?.people || 0) > 0 && (cohWf["Caravan Drover"]?.people || 0) > 0, "Excelsis missing cohort logistics crew");
+  assert.ok((cohWf["Woodcutter"]?.people || 0) > 0 && (cohWf["Armorer"]?.people || 0) > 0, "Excelsis missing Woodcutter/Armorer workforce");
+  assert.equal(cohWf["Fisherman"]?.people || 0, 0, "Landlocked Excelsis must have 0 Fishermen");
+  console.log(`2. getBurgCohortWorkforce exact headcount parity for Excelsis (${expectedWf.rows.length} trades)... PASSED`);
 
   // 3. Deterministic promoteFromCohort (same slotKey -> same citizen, no double decrement; new slotKey -> new citizen)
   const sumBefore = Number((await pool.query(`SELECT COALESCE(SUM(count), 0)::int AS c FROM population_cohorts WHERE burg_id = 1`)).rows[0].c);
@@ -62,19 +76,22 @@ async function main() {
   console.log(`3. Deterministic promoteFromCohort & slot idempotency (${first.name} #${first.citizenId} / ${second.name} #${second.citizenId})... PASSED`);
 
   // 4. Citizens named in chronicle events are preserved as notables (scoped cleanly without homonym bloat)
-  const citSample = (await pool.query(
-    `SELECT citizen_id, settlement_id FROM population_demographics
-     WHERE allegiance_status = 'CIVILIAN' AND settlement_id IS NOT NULL
-     ORDER BY citizen_id DESC LIMIT 1`
-  )).rows[0];
   const uniqueName = "Vaelor Floodgatekeeper";
-  await pool.query(`UPDATE population_demographics SET name = $1 WHERE citizen_id = $2`, [uniqueName, citSample.citizen_id]);
+  const insEvCit = await pool.query(
+    `INSERT INTO population_demographics (
+       settlement_id, home_cell_id, name, profession, species, is_null, spark_tier,
+       allegiance_status, unit_size, life_stage, age, want, flaw, line_wont_cross
+     ) VALUES (1, 30627, $1, 'Miller', 'Human', true, 'NULL', 'CIVILIAN', 1, 'ADULT', 32, 'w', 'f', 'l')
+     RETURNING citizen_id`,
+    [uniqueName]
+  );
+  const testCid = Number(insEvCit.rows[0].citizen_id);
   await pool.query(
-    `INSERT INTO sim_events (tick, burg_id, type, message, tier) VALUES (99, $1, 'TEST_NAME_PRESERVE', $2, 'MINOR')`,
-    [citSample.settlement_id, `Courier reported that ${uniqueName} unlocked the eastern floodgate.`]
+    `INSERT INTO sim_events (tick, burg_id, type, message, tier) VALUES (99, 1, 'TEST_NAME_PRESERVE', $1, 'MINOR')`,
+    [`Courier reported that ${uniqueName} unlocked the eastern floodgate.`]
   );
   const notables = await findNotableCitizenIds(pool);
-  assert.ok(notables.has(Number(citSample.citizen_id)), `Citizen named in sim_events (${uniqueName}) must be kept as a notable`);
+  assert.ok(notables.has(testCid), `Citizen named in sim_events (${uniqueName}) must be kept as a notable`);
   console.log("4. Citizens named in sim_events / sim_gm_memories stay protected notables... PASSED");
 
   console.log("\nALL COHORT & PROMOTION TESTS PASSED");

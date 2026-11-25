@@ -8,6 +8,7 @@ import { migrate } from "../db/migrate.js";
 import { DAYS_PER_WEEK } from "../engine/canon/calendar.js";
 import { stepEcology } from "../engine/macro/ecology/step.js";
 import { executeMasterTick } from "../engine/masterOrchestrator.js";
+import { promoteFromCohort } from "../engine/lod/promote.js";
 import { stepMesoDay } from "../engine/meso/mesoStep.js";
 import {
   MAX_ACTIVE_REGIONS,
@@ -172,7 +173,11 @@ async function main() {
   await pool.query(`UPDATE sim_burg_economy SET wealth = GREATEST(wealth, 1000), food = GREATEST(food, 500) WHERE burg_id = $1`, [burgId]);
   const wealthBase = Number((await pool.query(`SELECT wealth FROM sim_burg_economy WHERE burg_id = $1`, [burgId])).rows[0].wealth);
 
-  const citRow = (await pool.query(`SELECT citizen_id FROM population_demographics WHERE settlement_id = $1 AND life_stage = 'ADULT' ORDER BY citizen_id ASC LIMIT 1`, [burgId])).rows[0];
+  let citRow = (await pool.query(`SELECT citizen_id FROM population_demographics WHERE settlement_id = $1 AND life_stage = 'ADULT' ORDER BY citizen_id ASC LIMIT 1`, [burgId])).rows[0];
+  if (!citRow) {
+    const prom = await promoteFromCohort(pool, burgId, { ageBand: "ADULT", allegiance: "CIVILIAN" }, "meso_cal_merchant", 1);
+    if (prom) citRow = { citizen_id: prom.citizenId };
+  }
   const goodRow = (await pool.query(`SELECT id FROM sim_goods ORDER BY id ASC LIMIT 1`)).rows[0];
   const merchantId = Number(citRow?.citizen_id || 1);
   const goodId = Number(goodRow?.id || 1);

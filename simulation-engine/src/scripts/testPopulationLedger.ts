@@ -35,20 +35,26 @@ async function main() {
 
   // A burg that has lost three units' worth of people outside births and deaths
   const burg = (await pool.query(`
-    SELECT b.burg_id, b.pop_null, COALESCE(b.pop_attuned, 0) AS pop_attuned,
-           (SELECT COUNT(*)::int FROM population_demographics d WHERE d.settlement_id = b.burg_id AND d.allegiance_status NOT IN ('DECEASED', 'DEPARTED')) AS records
+    SELECT b.burg_id, b.pop_null, COALESCE(b.pop_attuned, 0) AS pop_attuned, COALESCE(b.record_unit, 12)::int AS unit,
+           (
+             COALESCE((SELECT SUM(count)::int FROM population_cohorts pc WHERE pc.burg_id = b.burg_id AND pc.allegiance = 'CIVILIAN'), 0) +
+             COALESCE((SELECT SUM(COALESCE(d.unit_size, 1))::int FROM population_demographics d WHERE d.settlement_id = b.burg_id AND d.allegiance_status = 'CIVILIAN'), 0)
+           ) AS living_people
     FROM sim_burg_economy b WHERE b.parent_burg_id IS NULL AND b.pop_null > 1000 ORDER BY b.burg_id LIMIT 1`)).rows[0];
-  check(burg && burg.records > 50, "no burg with records to test with");
-  const unit = recordLedger(Number(burg.pop_null), Number(burg.pop_attuned), Number(burg.records)).unit;
+  check(burg && Number(burg.living_people) > 500, "no burg with living population to test with");
+  const unit = Math.min(40, Math.max(3, Number(burg.unit || 12)));
   await pool.query(`UPDATE sim_burg_economy SET pop_departure_pool = $1 WHERE burg_id = $2`, [unit * 3 + 1, burg.burg_id]);
-  const departedBefore = Number((await pool.query(`SELECT COUNT(*)::int n FROM population_demographics WHERE settlement_id = $1 AND allegiance_status = 'DEPARTED'`, [burg.burg_id])).rows[0].n);
+  const cohBefore = Number((await pool.query(`SELECT COALESCE(SUM(count), 0)::int n FROM population_cohorts WHERE burg_id = $1 AND allegiance = 'CIVILIAN'`, [burg.burg_id])).rows[0].n);
+  const demoBefore = Number((await pool.query(`SELECT COALESCE(SUM(COALESCE(unit_size, 1)), 0)::int n FROM population_demographics WHERE settlement_id = $1 AND allegiance_status = 'CIVILIAN'`, [burg.burg_id])).rows[0].n);
   const day = await executeMasterTick();
   check(day.status === "success", `the day did not fully commit: ${JSON.stringify(day.failedAgents)}`);
-  const departedAfter = Number((await pool.query(`SELECT COUNT(*)::int n FROM population_demographics WHERE settlement_id = $1 AND allegiance_status = 'DEPARTED'`, [burg.burg_id])).rows[0].n);
+  const cohAfter = Number((await pool.query(`SELECT COALESCE(SUM(count), 0)::int n FROM population_cohorts WHERE burg_id = $1 AND allegiance = 'CIVILIAN'`, [burg.burg_id])).rows[0].n);
+  const demoAfter = Number((await pool.query(`SELECT COALESCE(SUM(COALESCE(unit_size, 1)), 0)::int n FROM population_demographics WHERE settlement_id = $1 AND allegiance_status = 'CIVILIAN'`, [burg.burg_id])).rows[0].n);
+  const retiredPeople = (cohBefore + demoBefore) - (cohAfter + demoAfter);
   const pool2 = Number((await pool.query(`SELECT pop_departure_pool p FROM sim_burg_economy WHERE burg_id = $1`, [burg.burg_id])).rows[0].p);
-  check(departedAfter - departedBefore >= 3, `expected at least 3 records to depart, ${departedAfter - departedBefore} did`);
+  check(retiredPeople >= 3 * unit, `expected at least ${3 * unit} people to retire, ${retiredPeople} did`);
   check(pool2 < unit, `the departure pool kept ${pool2}, a full unit (${unit}) or more`);
-  console.log(`3. ${unit * 3 + 1} people gone at ${unit} per record retired ${departedAfter - departedBefore} records, ${pool2} left in the pool... PASSED`);
+  console.log(`3. ${unit * 3 + 1} people gone at ${unit} per unit retired ${retiredPeople} people from cohorts, ${pool2} left in the pool... PASSED`);
 
   // 4. Famine-struck burgs can empty to 0 and stay on the map as ruins stripped by the Reaper
   await pool.query("SAVEPOINT ruin_reaper_test");
@@ -92,6 +98,8 @@ async function main() {
   }
   const remCivs = await pool.query(`SELECT COUNT(*)::int AS n FROM population_demographics WHERE settlement_id = $1 AND allegiance_status = 'CIVILIAN'`, [tid]);
   check(Number(remCivs.rows[0].n) === 0, `expected 0 living civilians left in ruined burg ${tid}, got ${remCivs.rows[0].n}`);
+  const remCoh = await pool.query(`SELECT COALESCE(SUM(count), 0)::int AS n FROM population_cohorts WHERE burg_id = $1 AND allegiance = 'CIVILIAN'`, [tid]);
+  check(Number(remCoh.rows[0].n) === 0, `expected 0 cohort civilians left in ruined burg ${tid}, got ${remCoh.rows[0].n}`);
   await pool.query("ROLLBACK TO SAVEPOINT ruin_reaper_test");
   console.log(`4. Famine-emptied burg ${tid} (${targetBurg.name}) drops to 0 and becomes a stripped [Ruin]... PASSED`);
 

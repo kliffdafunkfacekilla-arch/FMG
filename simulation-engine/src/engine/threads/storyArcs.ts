@@ -3,6 +3,7 @@
  * and `storyline_beats` tables (Phase 9.1), with `sim_story_arcs` maintained as a view.
  */
 import { Pool, PoolClient } from "pg";
+import { promoteFromCohort } from "../lod/promote.js";
 import { createThread } from "./threadEngine.js";
 
 type Db = Pool | PoolClient;
@@ -77,7 +78,8 @@ async function resolveActor(db: Db, cellId: number, rx: number, ry: number, pref
   if (living) return String(living.id);
 
   const records = await db.query(
-    `SELECT (SELECT p.id FROM sim_paragons p WHERE p.burg_id = b.burg_id AND p.outlaw_id IS NULL ORDER BY p.id LIMIT 1) AS paragon_id,
+    `SELECT b.burg_id,
+            (SELECT p.id FROM sim_paragons p WHERE p.burg_id = b.burg_id AND p.outlaw_id IS NULL ORDER BY p.id LIMIT 1) AS paragon_id,
             (SELECT d.citizen_id FROM population_demographics d WHERE d.settlement_id = b.burg_id AND d.life_stage = 'ADULT' AND d.allegiance_status = 'CIVILIAN' ORDER BY d.citizen_id LIMIT 1) AS citizen_id
      FROM sim_burg_economy b WHERE b.cell_id = $1 LIMIT 1`,
     [cellId]
@@ -85,6 +87,10 @@ async function resolveActor(db: Db, cellId: number, rx: number, ry: number, pref
   const rec = records.rows[0];
   if (rec?.paragon_id) return `paragon:${rec.paragon_id}`;
   if (rec?.citizen_id) return `citizen:${rec.citizen_id}`;
+  if (rec?.burg_id) {
+    const prom = await promoteFromCohort(db, Number(rec.burg_id), { ageBand: "ADULT", allegiance: "CIVILIAN" }, `arc:${cellId}:${rx}:${ry}`, 1);
+    if (prom) return prom.entityRef;
+  }
   return null;
 }
 

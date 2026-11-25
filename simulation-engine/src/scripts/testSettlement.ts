@@ -8,6 +8,7 @@
 import pool from "../db/pool.js";
 import { isolateTest } from "./testIsolation.js";
 import { settleSatellite } from "../engine/agents/burgExpansionAgent.js";
+import { getBurgLivingTotals } from "../engine/entities/population.js";
 import { migrate } from "../db/migrate.js";
 
 function check(cond: unknown, msg: string): asserts cond {
@@ -22,10 +23,10 @@ async function main() {
   const parentRes = await pool.query(`
     SELECT b.burg_id, b.name FROM sim_burg_economy b
     WHERE b.parent_burg_id IS NULL
-      AND (SELECT count(*) FROM population_demographics d WHERE d.settlement_id = b.burg_id AND d.allegiance_status = 'CIVILIAN' AND d.life_stage = 'ADULT') >= 40
+      AND (SELECT COALESCE(SUM(pc.count), 0)::int FROM population_cohorts pc WHERE pc.burg_id = b.burg_id AND pc.allegiance = 'CIVILIAN' AND pc.age_band = 'ADULT') >= 300
     ORDER BY b.burg_id LIMIT 1`);
   const parent = parentRes.rows[0];
-  check(parent, "no burg with 40 living adults to test with");
+  check(parent, "no burg with 300 living cohort adults to test with");
   const cellRes = await pool.query(`SELECT id FROM sim_cells WHERE id NOT IN (SELECT cell_id FROM sim_burg_economy) ORDER BY id LIMIT 1`);
   const cellId = Number(cellRes.rows[0].id);
   const newId = Number((await pool.query(`SELECT MAX(burg_id) + 1 AS id FROM sim_burg_economy`)).rows[0].id);
@@ -33,10 +34,14 @@ async function main() {
   await pool.query(
     `INSERT INTO sim_burg_economy (burg_id, cell_id, name, parent_burg_id, settlement_type, pop_null, pop_attuned)
      VALUES ($1, $2, $3, $4, 'WATCHTOWER', 48, 12)`, [newId, cellId, name, parent.burg_id]);
-  const before = Number((await pool.query(`SELECT count(*) c FROM population_demographics WHERE settlement_id = $1`, [parent.burg_id])).rows[0].c);
-  const parentHasWatch = Number((await pool.query(
-    `SELECT count(*) c FROM population_demographics WHERE settlement_id = $1 AND allegiance_status = 'CIVILIAN' AND life_stage = 'ADULT' AND profession = ANY($2)`,
-    [parent.burg_id, WATCH_TRADES])).rows[0].c);
+  const beforePeople = (await getBurgLivingTotals(pool, [parent.burg_id])).get(Number(parent.burg_id))?.people || 0;
+  const parentHasWatch =
+    Number((await pool.query(
+      `SELECT COALESCE(SUM(count), 0)::int c FROM population_cohorts WHERE burg_id = $1 AND allegiance = 'CIVILIAN' AND age_band = 'ADULT' AND profession = ANY($2)`,
+      [parent.burg_id, WATCH_TRADES])).rows[0].c) +
+    Number((await pool.query(
+      `SELECT count(*)::int c FROM population_demographics WHERE settlement_id = $1 AND allegiance_status = 'CIVILIAN' AND life_stage = 'ADULT' AND profession = ANY($2)`,
+      [parent.burg_id, WATCH_TRADES])).rows[0].c);
 
   const moved = await settleSatellite(pool, parent, { burg_id: newId, cell_id: cellId, name, type: "WATCHTOWER", pioneers: 60 });
   console.log(`1. Settling a watchtower of 60 pioneers from ${parent.name}... ${moved} citizen records moved`);
@@ -59,9 +64,11 @@ async function main() {
   if (children.length) console.log(`   children: ${children.length}, sharing a founder's family name: ${children.filter(c => families.has(String(c.name).split(" ")[1])).length}`);
   console.log(`3. Founders prefer the watchtower's trades (${adults.filter(s => WATCH_TRADES.includes(s.profession)).length}/${adults.length})... PASSED`);
 
-  const after = Number((await pool.query(`SELECT count(*) c FROM population_demographics WHERE settlement_id = $1`, [parent.burg_id])).rows[0].c);
-  check(before - after === moved, `parent lost ${before - after} records, ${moved} moved`);
-  console.log("4. The parent lost exactly the records that moved (nobody duplicated or invented)... PASSED");
+  const afterTotals = await getBurgLivingTotals(pool, [parent.burg_id, newId]);
+  const afterPeople = afterTotals.get(Number(parent.burg_id))?.people || 0;
+  const satPeople = afterTotals.get(newId)?.people || 0;
+  check(beforePeople - afterPeople === 60 && satPeople === 60, `parent lost ${beforePeople - afterPeople} people, satellite holds ${satPeople}`);
+  console.log("4. Parent lost 60 cohort people and satellite gained 60 people cleanly (exact conservation)... PASSED");
 
   console.log("\nALL SETTLEMENT TESTS PASSED");
 }

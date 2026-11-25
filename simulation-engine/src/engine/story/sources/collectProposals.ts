@@ -9,6 +9,7 @@ import { evaluateSectorReactions, type SectorContext } from "../../rpg/narrative
 import { synthesizeProceduralStoryArc, buildDirectorInputPayload } from "../../rpg/directorBridge.js";
 import { facts, factTags } from "../../facts/facts.js";
 import { buildStoryContext } from "../context.js";
+import { promoteFromCohort } from "../../lod/promote.js";
 import type { StoryProposalSpec } from "./types.js";
 
 export interface CollectProposalsInput {
@@ -158,6 +159,12 @@ export async function collectStoryProposals(
         if (citRes.rows[0]) {
           rivalRef = `citizen:${citRes.rows[0].citizen_id}`;
           rivalLabel = `${citRes.rows[0].name} (${citRes.rows[0].profession || "Citizen"})`;
+        } else {
+          const prom = await promoteFromCohort(db, Number(burg.burg_id), { ageBand: "ADULT", allegiance: "CIVILIAN" }, `proposal:${cellId}:${currentTick}`, currentTick);
+          if (prom) {
+            rivalRef = prom.entityRef;
+            rivalLabel = `${prom.name} (${prom.profession || "Citizen"})`;
+          }
         }
       }
       const actorIds = rivalRef ? [`paragon:${p1.id}`, rivalRef] : [`paragon:${p1.id}`];

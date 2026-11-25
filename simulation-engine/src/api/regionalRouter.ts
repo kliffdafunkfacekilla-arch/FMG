@@ -4,6 +4,7 @@ import pool from "../db/pool";
 import { RegionalInstance } from "../regional/RegionalInstance";
 import { getActiveChaosFlows, evaluatePointChaosFlowProximity } from "../engine/agents/chaosFlowAgent.js";
 import { buildRegion, focusRegion, unfocusRegion } from "../engine/meso/region.js";
+import { ensureBurgMicroCast } from "../engine/lod/promote.js";
 import { enqueueCommand, isWorkerActive, waitForCommand } from "../worker/commands.js";
 
 export const regionalRouter = Router();
@@ -99,23 +100,14 @@ export async function getOrCreateRegionalInstance(cellId: number): Promise<Regio
     console.warn(`[RegionalRouter] Neighbor lookup failed for cell ${cellId}:`, err);
   }
 
-  // Fetch authentic adult citizens for this cell / burg (12:1 worker baseline)
+  // Fetch authentic adult citizens for this cell / burg (promoting from cohorts if burg has fewer than 12 notable rows)
   let citizens: any[] = [];
   try {
     const burgId = burg ? burg.burg_id : null;
-    let citRes;
     if (burgId) {
-      citRes = await pool.query(
-        `SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation,
-                workplace_type, workplace_name, childhood_background, allegiance_status, unit_size
-         FROM population_demographics
-         WHERE settlement_id = $1 OR home_cell_id = $2
-         ORDER BY citizen_id ASC
-         LIMIT 600`,
-        [burgId, cellId]
-      );
+      citizens = await ensureBurgMicroCast(pool, burgId, cellId, 12, `regional:${cellId}`, 1);
     } else {
-      citRes = await pool.query(
+      const citRes = await pool.query(
         `SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation,
                 workplace_type, workplace_name, childhood_background, allegiance_status, unit_size
          FROM population_demographics
@@ -124,8 +116,8 @@ export async function getOrCreateRegionalInstance(cellId: number): Promise<Regio
          LIMIT 300`,
         [cellId]
       );
+      citizens = citRes.rows;
     }
-    citizens = citRes.rows;
   } catch (err) {
     console.warn(`[RegionalRouter] Demographics lookup failed for cell ${cellId}:`, err);
   }
@@ -309,42 +301,42 @@ regionalRouter.get("/sector/:cell_id", async (req, res) => {
 
   try {
     const layerRes = await pool.query(
-        `SELECT layer_name, compressed_terrain, props, npcs, features
+      `SELECT layer_name, compressed_terrain, props, npcs, features
        FROM sim_sector_layers
        WHERE cell_id = $1 AND rx = $2 AND ry = $3 AND z_layer = $4 LIMIT 1`,
-        [cellId, rx, ry, z]
-      );
+      [cellId, rx, ry, z]
+    );
 
-      if (layerRes.rowCount && layerRes.rowCount > 0) {
-        const v = layerRes.rows[0];
-        const decompressed = zlib.gunzipSync(v.compressed_terrain);
-        return res.json({
-          success: true,
-          pre_rendered: true,
-          cell_id: cellId,
-          rx,
-          ry,
-          z,
-          name: v.layer_name,
-          grid: Array.from(decompressed),
-          props: v.props || [],
-          npcs: v.npcs || [],
-        features: v.features || {}
-        });
-      }
-
-      res.json({
+    if (layerRes.rowCount && layerRes.rowCount > 0) {
+      const v = layerRes.rows[0];
+      const decompressed = zlib.gunzipSync(v.compressed_terrain);
+      return res.json({
         success: true,
-        pre_rendered: false,
+        pre_rendered: true,
         cell_id: cellId,
         rx,
-      ry,
-        z
+        ry,
+        z,
+        name: v.layer_name,
+        grid: Array.from(decompressed),
+        props: v.props || [],
+        npcs: v.npcs || [],
+        features: v.features || {}
       });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
     }
-  });
+
+    res.json({
+      success: true,
+      pre_rendered: false,
+      cell_id: cellId,
+      rx,
+      ry,
+      z
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 regionalRouter.get("/cell/:cell_id", async (req, res) => {
   const cellId = parseInt(req.params.cell_id);

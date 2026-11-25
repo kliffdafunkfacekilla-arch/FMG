@@ -14,7 +14,8 @@
     "db:backup": "node scripts/backup.cjs",
     "db:save": "node scripts/saveWorld.cjs",
     "db:branch": "node scripts/branchWorld.cjs",
-    "db:migrate": "node dist/db/migrate.js"
+    "db:migrate": "node dist/db/migrate.js",
+    "db:prune-population": "node dist/scripts/prunePopulationDemographics.js"
   },
   "keywords": [],
   "author": "",

@@ -13,6 +13,7 @@ import { SHADOWFALL_MONTH, isChaosPeak } from "../canon/calendar.js";
  */
 
 import { ollamaGenerate, ollamaGenerateStrict } from "../llm.js";
+import { promoteFromCohort } from "../lod/promote.js";
 import { Pool } from "pg";
 import { TagMatrixEngine, TaggedObject } from "./TagMatrixEngine.js";
 import { WhatElseStoryEngine, SectorContext, InjectedNPC, InjectedWorldState } from "./WhatElseStoryEngine.js";
@@ -237,7 +238,7 @@ export class BrutalGameMaster {
           (context as any).isEclipse = true;
         }
       }
-    } catch (err) {}
+    } catch (err) { }
 
     // Option 4: Query Live Burg Economy (Famine, Food Stockpile & Unrest Telemetry)
     try {
@@ -255,7 +256,7 @@ export class BrutalGameMaster {
           context.isFamine = true;
         }
       }
-    } catch (err) {}
+    } catch (err) { }
 
     // Option 4: Query Live Faction Geopolitics (Active Warzone Frontline Telemetry)
     try {
@@ -271,7 +272,7 @@ export class BrutalGameMaster {
         context.isWarzone = true;
         (context as any).warringFactions = `${warRes.rows[0].f1_name} vs ${warRes.rows[0].f2_name}`;
       }
-    } catch (err) {}
+    } catch (err) { }
 
 
 
@@ -371,11 +372,20 @@ export class BrutalGameMaster {
             agentData = liveAgentRes.rows[0];
             roleType = agentData.role;
           } else {
-            // Query persistent pre-rendered citizen from population_demographics
-            const popRes = await this.pool.query(
-              "SELECT * FROM population_demographics WHERE home_cell_id = $1 ORDER BY RANDOM() LIMIT 1",
+            // Query kept/notable citizen first, or promote from local burg's cohorts
+            let popRes = await this.pool.query(
+              "SELECT * FROM population_demographics WHERE home_cell_id = $1 AND allegiance_status = 'CIVILIAN' ORDER BY RANDOM() LIMIT 1",
               [cellId]
             );
+            if (popRes.rows.length === 0) {
+              const burgCell = await this.pool.query(`SELECT burg_id FROM sim_burg_economy WHERE cell_id = $1 LIMIT 1`, [cellId]);
+              if (burgCell.rows[0]?.burg_id) {
+                const prom = await promoteFromCohort(this.pool, Number(burgCell.rows[0].burg_id), { ageBand: "ADULT", allegiance: "CIVILIAN" }, `encounter:${cellId}:${rx}:${ry}`, 1);
+                if (prom) {
+                  popRes = await this.pool.query(`SELECT * FROM population_demographics WHERE citizen_id = $1`, [prom.citizenId]);
+                }
+              }
+            }
             if (popRes.rows.length > 0) {
               const row = popRes.rows[0];
               agentData = {

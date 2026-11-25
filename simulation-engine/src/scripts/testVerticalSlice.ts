@@ -23,6 +23,7 @@ import {
   validateActorIds
 } from "../engine/threads/threadEngine.js";
 import { resolveThreadByParty } from "../engine/questChainEngine.js";
+import { promoteFromCohort } from "../engine/lod/promote.js";
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
@@ -109,7 +110,7 @@ async function runVerticalSliceTest() {
     `Expected all population_demographics rows to have motives, found ${nullCitizenRes.rows[0]?.c} NULL`
   );
 
-  const citizenRowRes = await pool.query(
+  let citizenRowRes = await pool.query(
     `SELECT citizen_id, name, profession, temper, instinct, allegiance_status, want, flaw, line_wont_cross
      FROM population_demographics
      WHERE settlement_id = $1 AND life_stage = 'ADULT' AND allegiance_status = 'CIVILIAN'
@@ -117,7 +118,17 @@ async function runVerticalSliceTest() {
      ORDER BY citizen_id LIMIT 1`,
     [burgId, secParagon.name]
   );
-  assert(citizenRowRes.rows.length > 0, "Expected at least one adult civilian in Burg 81");
+  if (citizenRowRes.rows.length === 0) {
+    const prom = await promoteFromCohort(pool, burgId, { ageBand: "ADULT", allegiance: "CIVILIAN" }, "vs_citizen_1", 1);
+    if (prom) {
+      citizenRowRes = await pool.query(
+        `SELECT citizen_id, name, profession, temper, instinct, allegiance_status, want, flaw, line_wont_cross
+         FROM population_demographics WHERE citizen_id = $1`,
+        [prom.citizenId]
+      );
+    }
+  }
+  assert(citizenRowRes.rows.length > 0, "Expected at least one adult civilian in Burg 1");
   const citRow = citizenRowRes.rows[0];
   assert(Boolean(citRow.want && citRow.flaw && citRow.line_wont_cross), "Burg 81 citizen missing DB motives");
   const citNpc: any = {

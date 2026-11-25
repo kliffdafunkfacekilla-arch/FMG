@@ -1,5 +1,6 @@
 import { isYearEnd } from "../canon/calendar.js";
 import { markEntitiesDeadBatch, upsertEntity } from "../entities/registry.js";
+import { promoteFromCohort } from "../lod/promote.js";
 /**
  * wardenAgent.ts - Autonomous Grey Warden Lifecycle, Aether-Tech Sigil Magic,
  * Ancient Ward Awakenings, Eyeless Flow-Seers, and Spire Crypt Alcoves.
@@ -79,7 +80,7 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
         LIMIT 1
       `, [ward.cell_id]);
 
-      // Fallback to worldwide civilian sparkborn if local pool exhausted
+      // Fallback to worldwide civilian sparkborn notables, then promote from Sparkborn cohorts
       if (candidateRes.rows.length === 0) {
         candidateRes = await client.query(`
           SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation, settlement_id
@@ -89,6 +90,35 @@ export async function runWardenAgent(client: any, tick: number, loreDate: string
           ORDER BY ${sqlShuffle("citizen_id")}
           LIMIT 1
         `);
+      }
+
+      if (candidateRes.rows.length === 0) {
+        const cohPick = await client.query(
+          `SELECT c.burg_id
+           FROM population_cohorts c
+           JOIN sim_burg_economy b ON b.burg_id = c.burg_id
+           WHERE c.is_null = false AND c.age_band = 'ADULT' AND c.allegiance = 'CIVILIAN' AND c.count > 0
+           ORDER BY cell_dist2(b.cell_id, $1) ASC, c.count DESC, c.burg_id ASC
+           LIMIT 1`,
+          [ward.cell_id]
+        );
+        if (cohPick.rows.length > 0) {
+          const prom = await promoteFromCohort(
+            client,
+            Number(cohPick.rows[0].burg_id),
+            { ageBand: "ADULT", allegiance: "CIVILIAN", isNull: false },
+            `warden:${tick}:${ward.id}`,
+            tick
+          );
+          if (prom) {
+            candidateRes = await client.query(
+              `SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation, settlement_id
+               FROM population_demographics WHERE citizen_id = $1`,
+              [prom.citizenId]
+            );
+            await client.query(`DELETE FROM promoted_slots WHERE citizen_id = $1`, [prom.citizenId]);
+          }
+        }
       }
 
       const dbCitizen = candidateRes.rows[0];

@@ -2,6 +2,7 @@ import { hashSeed, mulberry32 } from "../rng.js";
 import type { Db } from "../deltas/types.js";
 import { mapNpcIdToEntityRef, parseEntityRef } from "../entities/refs.js";
 import { markEntitiesDeadBatch, syncLayerEntities, upsertEntitiesBatch, type UpsertEntityInput } from "../entities/registry.js";
+import { ensureBurgMicroCast } from "../lod/promote.js";
 import { applyMapOverlays, loadTileOverlays } from "./overlays.js";
 import { isNotableEconomicProp, makeObjectEntityRef } from "./propEconomy.js";
 
@@ -183,7 +184,7 @@ export async function resyncMapCast(
   const addedRefs: string[] = [];
   const targetBurgId = opts.burgId ?? null;
   if (z === 0 && targetBurgId && targetBurgId > 0 && keptNpcs.length < 40) {
-    const citRes = await db.query(
+    let citRows = (await db.query(
       `SELECT citizen_id, name, profession, species, spark_tier, temper, instinct, motivation,
               want, flaw, line_wont_cross, workplace_type, workplace_name, allegiance_status
        FROM population_demographics
@@ -191,9 +192,13 @@ export async function resyncMapCast(
        ORDER BY citizen_id ASC
        LIMIT 40`,
       [targetBurgId]
-    );
+    )).rows;
+    const unseated = citRows.filter((c: any) => !presentRefs.has(`citizen:${c.citizen_id}`) && !deadRefs.has(`citizen:${c.citizen_id}`));
+    if (keptNpcs.length < 12 && unseated.length < 5) {
+      citRows = await ensureBurgMicroCast(db, targetBurgId, cellId, Math.min(40, keptNpcs.length + 12), `cast:${cellId}:${rx}:${ry}`, 1);
+    }
     let added = 0;
-    for (const c of citRes.rows) {
+    for (const c of citRows) {
       if (added >= 5 || keptNpcs.length >= 40) break;
       const ref = `citizen:${c.citizen_id}`;
       if (presentRefs.has(ref) || deadRefs.has(ref)) continue;
