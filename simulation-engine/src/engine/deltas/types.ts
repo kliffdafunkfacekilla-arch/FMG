@@ -483,6 +483,7 @@ export type Delta =
       heat?: number | undefined;
       cellId?: number | undefined;
       burgId?: number | null | undefined;
+      inventory?: Record<string, number> | undefined;
     }
   | {
       kind: "fringeLair.delete";
@@ -500,6 +501,44 @@ export type Delta =
       kind: "ghostwindDrop.execute";
       dropId: number;
       executedTick: number;
+    }
+  | {
+      kind: "burgStockpile.setInventory";
+      burgId: number;
+      inventory: Record<string, number>;
+    }
+  | {
+      kind: "tradeShipment.update";
+      shipmentId: number;
+      status: "IN_TRANSIT" | "DELIVERED" | "INTERCEPTED" | "ABORTED";
+      pathIndex: number;
+      currentCellId: number;
+      etaTicks: number;
+      resolvedTick: number | null;
+      pathCells?: number[] | undefined;
+    }
+  | {
+      kind: "tradeShipment.create";
+      sourceBurgId: number;
+      destBurgId: number;
+      sourceFactionId: number;
+      destFactionId: number;
+      transportMode: "LAND" | "SEA" | "AIR";
+      goodId: number;
+      goodKey: string;
+      goodName: string;
+      quantity: number;
+      unitPrice: number;
+      totalGold: number;
+      tariffGold: number;
+      carriageWeight: number;
+      merchantCitizenId: number;
+      crewCitizenIds: number[];
+      guardCount: number;
+      pathCells: number[];
+      startCellId: number;
+      dispatchedTick: number;
+      etaTicks: number;
     };
 
 export type DeltaEmitter = (delta: Delta) => void;

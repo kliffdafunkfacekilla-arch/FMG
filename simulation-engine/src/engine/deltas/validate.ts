@@ -57,6 +57,9 @@ const KNOWN_KINDS = new Set<string>([
   "fringeLair.delete",
   "ghostwindDrop.create",
   "ghostwindDrop.execute",
+  "burgStockpile.setInventory",
+  "tradeShipment.update",
+  "tradeShipment.create",
 ]);
 
 function clamp(v: number, min: number, max: number): number {
@@ -70,6 +73,14 @@ function finiteOrReject(nums: Array<[string, number | undefined]>): string | nul
     }
   }
   return null;
+}
+
+function isFiniteNumberMap(obj: unknown): obj is Record<string, number> {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
+  for (const v of Object.values(obj as Record<string, unknown>)) {
+    if (typeof v !== "number" || !Number.isFinite(v)) return false;
+  }
+  return true;
 }
 
 /**
@@ -99,6 +110,7 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   const factionUnitIds = new Set<number>();
   const fringeLairIds = new Set<number>();
   const ghostwindDropIds = new Set<number>();
+  const shipmentIds = new Set<number>();
 
   const structuralErrors = new Map<number, string>();
 
@@ -693,8 +705,9 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
           ["cellId", d.cellId],
           ["burgId", d.burgId ?? undefined],
         ]);
-        if (err) structuralErrors.set(i, err);
-        else {
+        if (err || (d.inventory !== undefined && !isFiniteNumberMap(d.inventory))) {
+          structuralErrors.set(i, err || "Invalid inventory map in fringeLair.update");
+        } else {
           fringeLairIds.add(d.lairId);
           if (d.cellId !== undefined) cellIds.add(d.cellId);
           if (typeof d.burgId === "number" && d.burgId > 0) burgIds.add(d.burgId);
@@ -730,6 +743,92 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         ]);
         if (err) structuralErrors.set(i, err);
         else ghostwindDropIds.add(d.dropId);
+        break;
+      }
+      case "burgStockpile.setInventory": {
+        const err = finiteOrReject([["burgId", d.burgId]]);
+        if (err || !isFiniteNumberMap(d.inventory)) {
+          structuralErrors.set(i, err || "Invalid inventory in burgStockpile.setInventory");
+        } else {
+          burgIds.add(d.burgId);
+        }
+        break;
+      }
+      case "tradeShipment.update": {
+        const err = finiteOrReject([
+          ["shipmentId", d.shipmentId],
+          ["pathIndex", d.pathIndex],
+          ["currentCellId", d.currentCellId],
+          ["etaTicks", d.etaTicks],
+          ["resolvedTick", d.resolvedTick ?? undefined],
+        ]);
+        const validStatus =
+          d.status === "IN_TRANSIT" ||
+          d.status === "DELIVERED" ||
+          d.status === "INTERCEPTED" ||
+          d.status === "ABORTED";
+        const validPath =
+          d.pathCells === undefined ||
+          (Array.isArray(d.pathCells) && d.pathCells.every((c) => Number.isInteger(c) && c > 0));
+        if (err || !validStatus || !validPath || d.currentCellId < 0) {
+          structuralErrors.set(i, err || "Invalid tradeShipment.update payload");
+        } else {
+          shipmentIds.add(d.shipmentId);
+          if (d.currentCellId > 0) cellIds.add(d.currentCellId);
+          if (d.pathCells) {
+            for (const c of d.pathCells) cellIds.add(c);
+          }
+        }
+        break;
+      }
+      case "tradeShipment.create": {
+        const err = finiteOrReject([
+          ["sourceBurgId", d.sourceBurgId],
+          ["destBurgId", d.destBurgId],
+          ["sourceFactionId", d.sourceFactionId],
+          ["destFactionId", d.destFactionId],
+          ["goodId", d.goodId],
+          ["quantity", d.quantity],
+          ["unitPrice", d.unitPrice],
+          ["totalGold", d.totalGold],
+          ["tariffGold", d.tariffGold],
+          ["carriageWeight", d.carriageWeight],
+          ["merchantCitizenId", d.merchantCitizenId],
+          ["guardCount", d.guardCount],
+          ["startCellId", d.startCellId],
+          ["dispatchedTick", d.dispatchedTick],
+          ["etaTicks", d.etaTicks],
+        ]);
+        const validMode = d.transportMode === "LAND" || d.transportMode === "SEA" || d.transportMode === "AIR";
+        const validCrew =
+          Array.isArray(d.crewCitizenIds) && d.crewCitizenIds.every((c) => Number.isInteger(c) && c > 0);
+        const validPath =
+          Array.isArray(d.pathCells) &&
+          d.pathCells.length > 0 &&
+          d.pathCells.every((c) => Number.isInteger(c) && c > 0);
+        if (
+          err ||
+          d.quantity <= 0 ||
+          !validMode ||
+          !d.goodKey ||
+          !d.goodName ||
+          d.sourceFactionId < 0 ||
+          d.destFactionId < 0 ||
+          d.merchantCitizenId <= 0 ||
+          !validCrew ||
+          !validPath
+        ) {
+          structuralErrors.set(i, err || "Invalid tradeShipment.create payload");
+        } else {
+          burgIds.add(d.sourceBurgId);
+          burgIds.add(d.destBurgId);
+          if (d.sourceFactionId > 0) factionIds.add(d.sourceFactionId);
+          if (d.destFactionId > 0) factionIds.add(d.destFactionId);
+          cellIds.add(d.startCellId);
+          for (const c of d.pathCells) cellIds.add(c);
+          citizenIds.add(d.merchantCitizenId);
+          for (const c of d.crewCitizenIds) citizenIds.add(c);
+        }
         break;
       }
     }
@@ -847,6 +946,12 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   if (ghostwindDropIds.size > 0) {
     const res = await db.query(`SELECT id FROM sim_ghostwind_dead_drops WHERE id = ANY($1::int[])`, [Array.from(ghostwindDropIds)]);
     for (const r of res.rows) validGhostwindDrops.add(Number(r.id));
+  }
+
+  const validShipments = new Set<number>();
+  if (shipmentIds.size > 0) {
+    const res = await db.query(`SELECT id FROM sim_trade_shipments WHERE id = ANY($1::int[])`, [Array.from(shipmentIds)]);
+    for (const r of res.rows) validShipments.add(Number(r.id));
   }
 
   const validStandingEntities = new Set<string>();
@@ -1382,6 +1487,79 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         }
         ok.push({ kind: "ghostwindDrop.execute", dropId: d.dropId, executedTick: Math.round(d.executedTick) });
         break;
+
+      case "burgStockpile.setInventory":
+        if (!validBurgs.has(d.burgId)) {
+          rejected.push({ delta: d, reason: `Unknown burgStockpile burgId ${d.burgId}` });
+          break;
+        }
+        ok.push({
+          kind: "burgStockpile.setInventory",
+          burgId: Math.round(d.burgId),
+          inventory: d.inventory,
+        });
+        break;
+
+      case "tradeShipment.update": {
+        if (!validShipments.has(d.shipmentId)) {
+          rejected.push({ delta: d, reason: `Unknown shipmentId ${d.shipmentId}` });
+          break;
+        }
+        if (d.currentCellId > 0 && !validCells.has(d.currentCellId)) {
+          rejected.push({ delta: d, reason: `Unknown tradeShipment currentCellId ${d.currentCellId}` });
+          break;
+        }
+        if (d.pathCells !== undefined && !d.pathCells.every((c) => validCells.has(c))) {
+          rejected.push({ delta: d, reason: `Unknown cellId in tradeShipment pathCells` });
+          break;
+        }
+        ok.push({
+          ...d,
+          shipmentId: Math.round(d.shipmentId),
+          pathIndex: Math.max(0, Math.round(d.pathIndex)),
+          currentCellId: Math.max(0, Math.round(d.currentCellId)),
+          etaTicks: Math.max(0, Math.round(d.etaTicks)),
+          resolvedTick: d.resolvedTick !== null ? Math.round(d.resolvedTick) : null,
+        });
+        break;
+      }
+
+      case "tradeShipment.create": {
+        if (!validBurgs.has(d.sourceBurgId)) {
+          rejected.push({ delta: d, reason: `Unknown tradeShipment sourceBurgId ${d.sourceBurgId}` });
+          break;
+        }
+        if (!validBurgs.has(d.destBurgId)) {
+          rejected.push({ delta: d, reason: `Unknown tradeShipment destBurgId ${d.destBurgId}` });
+          break;
+        }
+        if (d.sourceFactionId > 0 && !validFactions.has(d.sourceFactionId)) {
+          rejected.push({ delta: d, reason: `Unknown tradeShipment sourceFactionId ${d.sourceFactionId}` });
+          break;
+        }
+        if (d.destFactionId > 0 && !validFactions.has(d.destFactionId)) {
+          rejected.push({ delta: d, reason: `Unknown tradeShipment destFactionId ${d.destFactionId}` });
+          break;
+        }
+        if (!validCells.has(d.startCellId) || !d.pathCells.every((c) => validCells.has(c))) {
+          rejected.push({ delta: d, reason: `Unknown cellId in tradeShipment.create path` });
+          break;
+        }
+        if (!validCitizens.has(d.merchantCitizenId) || !d.crewCitizenIds.every((c) => validCitizens.has(c))) {
+          rejected.push({ delta: d, reason: `Unknown citizenId in tradeShipment.create crew` });
+          break;
+        }
+        ok.push({
+          ...d,
+          quantity: Math.max(1, Math.round(d.quantity)),
+          totalGold: Math.max(0, Math.round(d.totalGold)),
+          tariffGold: Math.max(0, Math.round(d.tariffGold)),
+          guardCount: Math.max(0, Math.round(d.guardCount)),
+          dispatchedTick: Math.round(d.dispatchedTick),
+          etaTicks: Math.max(1, Math.round(d.etaTicks)),
+        });
+        break;
+      }
 
       default:
         ok.push(d);

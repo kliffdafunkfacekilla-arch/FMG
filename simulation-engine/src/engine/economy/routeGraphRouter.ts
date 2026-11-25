@@ -654,12 +654,10 @@ export function isCellBlockedOrHostile(
 }
 
 /**
- * Finds the best legal trade route across requested transport modes.
- * Returns null if all allowed modes are blocked by geography, war borders, or embargoes.
+ * Synchronous cached lookup finding the best legal trade route across requested transport modes.
+ * Assumes `ensureRouteGraphCache` has already populated the static route graph in memory.
  */
-export async function findTradeRoute(client: Db, opts: FindRouteOptions): Promise<RoutePlan | null> {
-  await ensureRouteGraphCache(client);
-
+export function findTradeRouteSync(opts: FindRouteOptions): RoutePlan | null {
   const { fromCellId, toCellId, allowedModes, blockedCells, avoidFactionIds, cellFactionMap } = opts;
   if (!fromCellId || !toCellId || allowedModes.length === 0) return null;
 
@@ -726,6 +724,15 @@ export async function findTradeRoute(client: Db, opts: FindRouteOptions): Promis
   });
 
   return candidates[0] || null;
+}
+
+/**
+ * Finds the best legal trade route across requested transport modes.
+ * Returns null if all allowed modes are blocked by geography, war borders, or embargoes.
+ */
+export async function findTradeRoute(client: Db, opts: FindRouteOptions): Promise<RoutePlan | null> {
+  await ensureRouteGraphCache(client);
+  return findTradeRouteSync(opts);
 }
 
 /**

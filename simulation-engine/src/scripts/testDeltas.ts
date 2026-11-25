@@ -120,6 +120,126 @@ async function main() {
   await pool.query("ROLLBACK TO SAVEPOINT step_order");
   console.log("5. Per-step visibility and savepoint rollback atomicity verified... PASSED");
 
+  // 6. Trade & Stockpile & Lair inventory deltas + Rule 7 rejection
+  const twoBurgs = await pool.query(`SELECT burg_id, cell_id FROM sim_burg_economy ORDER BY burg_id ASC LIMIT 2`);
+  const b1 = Number(twoBurgs.rows[0].burg_id);
+  const c1 = Number(twoBurgs.rows[0].cell_id);
+  const b2 = Number(twoBurgs.rows[1].burg_id);
+  const c2 = Number(twoBurgs.rows[1].cell_id);
+  const citRes = await pool.query(`SELECT citizen_id FROM population_demographics ORDER BY citizen_id ASC LIMIT 2`);
+  const cit1 = Number(citRes.rows[0].citizen_id);
+  const cit2 = Number(citRes.rows[1].citizen_id);
+  const facRes = await pool.query(`SELECT id FROM sim_factions ORDER BY id ASC LIMIT 2`);
+  const fac1 = Number(facRes.rows[0].id);
+  const fac2 = Number(facRes.rows[1].id);
+  const outRes = await pool.query(`SELECT id FROM sim_outlaw_factions ORDER BY id ASC LIMIT 1`);
+  const outId = Number(outRes.rows[0].id);
+
+  await pool.query("SAVEPOINT delta_trade");
+  const lairIns = await pool.query(
+    `INSERT INTO sim_fringe_lairs (faction_id, cell_id, burg_id, lair_type, manpower, heat, inventory)
+     VALUES ($1, $2, $3, 'SMUGGLER_COVE', 50, 10, '{}'::jsonb) RETURNING id`,
+    [outId, c1, b1]
+  );
+  const testLairId = Number(lairIns.rows[0].id);
+
+  const tradeCreateV = await validateDeltas(
+    [
+      { kind: "burgStockpile.setInventory", burgId: b1, inventory: { grain: 42, coal: 17 } },
+      { kind: "fringeLair.update", lairId: testLairId, heat: 18, inventory: { coal: 12 } },
+      {
+        kind: "tradeShipment.create",
+        sourceBurgId: b1,
+        destBurgId: b2,
+        sourceFactionId: fac1,
+        destFactionId: fac2,
+        transportMode: "LAND",
+        goodId: 34,
+        goodKey: "coal",
+        goodName: "Coal",
+        quantity: 12,
+        unitPrice: 8,
+        totalGold: 100,
+        tariffGold: 4,
+        carriageWeight: 7.2,
+        merchantCitizenId: cit1,
+        crewCitizenIds: [cit2],
+        guardCount: 0,
+        pathCells: [c1, c2],
+        startCellId: c1,
+        dispatchedTick: 125,
+        etaTicks: 1,
+      },
+      { kind: "tradeShipment.update", shipmentId: 99999999, status: "DELIVERED", pathIndex: 1, currentCellId: c2, etaTicks: 0, resolvedTick: 126 },
+      { kind: "burgStockpile.setInventory", burgId: 99999999, inventory: { grain: 1 } },
+      {
+        kind: "tradeShipment.create",
+        sourceBurgId: b1,
+        destBurgId: b2,
+        sourceFactionId: fac1,
+        destFactionId: fac2,
+        transportMode: "LAND",
+        goodId: 34,
+        goodKey: "coal",
+        goodName: "Coal",
+        quantity: 5,
+        unitPrice: 5,
+        totalGold: 25,
+        tariffGold: 0,
+        carriageWeight: 3,
+        merchantCitizenId: 99999999,
+        crewCitizenIds: [],
+        guardCount: 0,
+        pathCells: [c1, c2],
+        startCellId: c1,
+        dispatchedTick: 125,
+        etaTicks: 1,
+      },
+    ],
+    pool
+  );
+  assert.equal(tradeCreateV.ok.length, 3, `Expected 3 valid trade deltas, got ${tradeCreateV.ok.length}`);
+  assert.equal(tradeCreateV.rejected.length, 3, "Expected 3 invalid trade deltas rejected by Rule 7");
+  await applyDeltas(tradeCreateV.ok, pool);
+
+  const stockRow = (await pool.query(`SELECT complex_inventory FROM sim_industrial_stockpiles WHERE burg_id = $1`, [b1])).rows[0];
+  assert.equal(stockRow.complex_inventory, JSON.stringify({ grain: 42, coal: 17 }));
+
+  const lairRow = (await pool.query(`SELECT heat, inventory FROM sim_fringe_lairs WHERE id = $1`, [testLairId])).rows[0];
+  assert.equal(Number(lairRow.heat), 18);
+  assert.equal(Number(lairRow.inventory.coal), 12);
+
+  const shipRow = (
+    await pool.query(
+      `SELECT id, status, current_cell_id, resolved_tick FROM sim_trade_shipments WHERE dispatched_tick = 125 ORDER BY id DESC LIMIT 1`
+    )
+  ).rows[0];
+  assert.ok(shipRow && shipRow.status === "IN_TRANSIT" && Number(shipRow.current_cell_id) === c1);
+
+  const shipUpdV = await validateDeltas(
+    [
+      {
+        kind: "tradeShipment.update",
+        shipmentId: Number(shipRow.id),
+        status: "DELIVERED",
+        pathIndex: 1,
+        currentCellId: c2,
+        etaTicks: 0,
+        resolvedTick: 126,
+      },
+    ],
+    pool
+  );
+  assert.equal(shipUpdV.rejected.length, 0);
+  await applyDeltas(shipUpdV.ok, pool);
+
+  const deliveredRow = (await pool.query(`SELECT status, current_cell_id, resolved_tick FROM sim_trade_shipments WHERE id = $1`, [shipRow.id])).rows[0];
+  assert.equal(deliveredRow.status, "DELIVERED");
+  assert.equal(Number(deliveredRow.current_cell_id), c2);
+  assert.equal(Number(deliveredRow.resolved_tick), 126);
+  await pool.query("ROLLBACK TO SAVEPOINT delta_trade");
+  console.log("6. Trade shipment, stockpile & lair inventory deltas + Rule 7 rejection... PASSED");
+
   console.log("\nALL DELTA TESTS PASSED");
 }
 
