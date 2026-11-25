@@ -278,6 +278,19 @@ export type Delta =
       delta: number;
       reason: string;
       tick?: number | undefined;
+    }
+  | {
+      kind: "market.setGoods";
+      marketId: number;
+      goods: Record<string, { price: number; stock: number; refStock: number }>;
+    }
+  | {
+      kind: "commodity.set";
+      commodity: string;
+      currentPrice: number;
+      globalSupply: number;
+      globalDemand: number;
+      lastUpdatedTick: number;
     };
 
 export type DeltaEmitter = (delta: Delta) => void;

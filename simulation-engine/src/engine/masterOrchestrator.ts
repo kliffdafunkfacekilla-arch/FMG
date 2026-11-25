@@ -31,7 +31,8 @@ import { backfillBlankPersonas } from "./agents/citizenPersonaHelper";
 import { initSpatialCache } from "./agents/agentMovementHelper";
 import { stepActiveRegions } from "../api/regionalRouter";
 import { DAYS_PER_MONTH } from "./canon/calendar.js";
-import { runMarketAgent } from "./economy/marketAgent.js";
+import { loadMarket } from "./macro/market/load.js";
+import { stepMarket } from "./macro/market/step.js";
 import { loadFactionCollapse } from "./macro/factionCollapse/load.js";
 import { stepFactionCollapse } from "./macro/factionCollapse/step.js";
 import { migrate } from "../db/migrate.js";
@@ -216,7 +217,11 @@ async function runTick(): Promise<TickResult> {
             await step('burgExpansion', () => runBurgExpansionAgent(client, tick, loreDate));
             await step('cultureReligion', () => runCultureReligionAgent(client, tick, loreDate));
             await step('trade', () => runInterFactionTradeEngine(client, tick, loreDate));
-            await step('market', () => runMarketAgent(client, tick));
+            await step('market', async () => {
+                const snap = await loadMarket(client, tick);
+                const out = stepMarket(snap);
+                if (out.deltas.length > 0) await flushStepDeltas(client, 'market', tick, out.deltas);
+            });
 
             // 6-8. Wardens, cultists, the Mandate, cartels, Grind Canyon
             await step('wardens', () => runWardenAgent(client, tick, loreDate));

@@ -212,6 +212,7 @@ function testCalendarUnit() {
 }
 
 import { stepFactionCollapse } from "../engine/macro/factionCollapse/step.js";
+import { stepMarket } from "../engine/macro/market/step.js";
 
 function testFactionCollapseUnit() {
   const deltas = stepFactionCollapse({
@@ -243,6 +244,56 @@ function testFactionCollapseUnit() {
   console.log("5. stepFactionCollapse (no DB) bankrupt collapse, landless peace & funded nomad skip... PASSED");
 }
 
+function testMarketUnit() {
+  const skipped = stepMarket({ tick: 2, due: false, goods: [], burgs: [], markets: [], prices: [] });
+  assert.equal(skipped.deltas.length, 0, "Non-weekly due:false tick must emit zero market deltas");
+
+  const res = stepMarket({
+    tick: 7,
+    due: true,
+    goods: [
+      { id: 1, key: "grain", value: 10 },
+      { id: 2, key: "wine", value: 20 },
+    ],
+    burgs: [
+      { burgId: 10, marketId: 1, food: 2500, complexInventory: { wine: 4, spices: 5 } },
+      { burgId: 11, marketId: 0, food: 500, complexInventory: { spices: 2 } },
+    ],
+    markets: [
+      { id: 1, centerBurgId: 10, goods: { "1": { price: 10, stock: 20, refStock: 25 } } },
+    ],
+    prices: [
+      { commodity: "grain", basePrice: 10, currentPrice: 10, globalDemand: 30 },
+      { commodity: "aromatics", basePrice: 25, currentPrice: 20, globalDemand: 0 },
+    ],
+  });
+
+  assert.equal(res.marketsUpdated, 1);
+  assert.equal(res.commoditiesUpdated, 2);
+  type D = (typeof res.deltas)[number];
+  const mkt = res.deltas.find((d): d is Extract<D, { kind: "market.setGoods" }> => d.kind === "market.setGoods");
+  assert.ok(mkt);
+  assert.equal(mkt.marketId, 1);
+  // Market 1 grain = 25 (from burg 10; burg 11 has marketId 0 so skipped locally), wine = 4
+  assert.equal(mkt.goods["1"]?.stock, 25);
+  assert.equal(mkt.goods["1"]?.refStock, 25);
+  assert.equal(mkt.goods["1"]?.price, 10);
+  assert.equal(mkt.goods["2"]?.stock, 4);
+
+  const comms = res.deltas.filter((d): d is Extract<D, { kind: "commodity.set" }> => d.kind === "commodity.set");
+  const grain = comms.find((c) => c.commodity === "grain");
+  const aromatics = comms.find((c) => c.commodity === "aromatics");
+  assert.ok(grain && aromatics);
+  // World grain = 25 + 5 = 30 == globalDemand -> price stays 10
+  assert.equal(grain.globalSupply, 30);
+  assert.equal(grain.currentPrice, 10);
+  // Aromatics aliases spices (5 + 2 = 7), globalDemand seeded from supply = 7 -> target 25, next = 20 + 5*0.25 = 21.25
+  assert.equal(aromatics.globalSupply, 7);
+  assert.equal(aromatics.globalDemand, 7);
+  assert.equal(aromatics.currentPrice, 21.25);
+  console.log("6. stepMarket (no DB) skip on non-weekly tick, regional goods, aliasSupply & step math... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
@@ -250,6 +301,7 @@ function main() {
   testEcologyUnit();
   testCalendarUnit();
   testFactionCollapseUnit();
+  testMarketUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 

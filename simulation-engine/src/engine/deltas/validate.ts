@@ -30,6 +30,8 @@ const KNOWN_KINDS = new Set<string>([
   "overlay.add",
   "standing.adjust",
   "diplomacy.endWars",
+  "market.setGoods",
+  "commodity.set",
 ]);
 
 function clamp(v: number, min: number, max: number): number {
@@ -59,6 +61,8 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   const agentIds = new Set<number>();
   const factionIds = new Set<number>();
   const standingEntityRefs = new Set<string>();
+  const marketIds = new Set<number>();
+  const commodityNames = new Set<string>();
 
   const structuralErrors = new Map<number, string>();
 
@@ -362,6 +366,36 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         }
         break;
       }
+      case "market.setGoods": {
+        if (!Number.isFinite(d.marketId) || !d.goods || typeof d.goods !== "object" || Array.isArray(d.goods)) {
+          structuralErrors.set(i, "Invalid market.setGoods payload");
+        } else {
+          let bad = false;
+          for (const g of Object.values(d.goods)) {
+            if (!g || !Number.isFinite(g.price) || !Number.isFinite(g.stock) || !Number.isFinite(g.refStock)) {
+              bad = true;
+              break;
+            }
+          }
+          if (bad) structuralErrors.set(i, "Non-finite goods entry in market.setGoods");
+          else marketIds.add(d.marketId);
+        }
+        break;
+      }
+      case "commodity.set": {
+        const err = finiteOrReject([
+          ["currentPrice", d.currentPrice],
+          ["globalSupply", d.globalSupply],
+          ["globalDemand", d.globalDemand],
+          ["lastUpdatedTick", d.lastUpdatedTick],
+        ]);
+        if (err || !d.commodity || typeof d.commodity !== "string") {
+          structuralErrors.set(i, err || "Missing commodity in commodity.set");
+        } else {
+          commodityNames.add(d.commodity);
+        }
+        break;
+      }
     }
   }
 
@@ -399,6 +433,18 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   if (factionIds.size > 0) {
     const res = await db.query(`SELECT id FROM sim_factions WHERE id = ANY($1::int[])`, [Array.from(factionIds)]);
     for (const r of res.rows) validFactions.add(Number(r.id));
+  }
+
+  const validMarkets = new Set<number>();
+  if (marketIds.size > 0) {
+    const res = await db.query(`SELECT id FROM sim_markets WHERE id = ANY($1::int[])`, [Array.from(marketIds)]);
+    for (const r of res.rows) validMarkets.add(Number(r.id));
+  }
+
+  const validCommodities = new Set<string>();
+  if (commodityNames.size > 0) {
+    const res = await db.query(`SELECT commodity FROM sim_commodity_prices WHERE commodity = ANY($1::text[])`, [Array.from(commodityNames)]);
+    for (const r of res.rows) validCommodities.add(String(r.commodity));
   }
 
   const validStandingEntities = new Set<string>();
@@ -622,6 +668,28 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         ok.push(d);
         break;
       }
+
+      case "market.setGoods":
+        if (!validMarkets.has(d.marketId)) {
+          rejected.push({ delta: d, reason: `Unknown marketId ${d.marketId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "commodity.set":
+        if (!validCommodities.has(d.commodity)) {
+          rejected.push({ delta: d, reason: `Unknown commodity ${d.commodity}` });
+          break;
+        }
+        ok.push({
+          ...d,
+          currentPrice: Math.max(0, d.currentPrice),
+          globalSupply: clamp(Math.round(d.globalSupply), 0, 2147483647),
+          globalDemand: clamp(Math.round(d.globalDemand), 0, 2147483647),
+          lastUpdatedTick: Math.round(d.lastUpdatedTick),
+        });
+        break;
 
       default:
         ok.push(d);

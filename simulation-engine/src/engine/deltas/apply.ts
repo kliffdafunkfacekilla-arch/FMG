@@ -100,6 +100,8 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   if (deltas.length === 0) return counts;
 
   const burgs = new Map<number, BurgMerged>();
+  const marketGoods = new Map<number, string>();
+  const commoditySets = new Map<string, { currentPrice: number; globalSupply: number; globalDemand: number; lastUpdatedTick: number }>();
   const cells = new Map<number, CellMerged>();
   const cellFactions = new Map<number, number | null>();
   const citizenStatuses = new Map<number, { status: string; cause: string | null; motivation: string | null }>();
@@ -301,6 +303,17 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         break;
       case "diplomacy.endWars":
         endWarFactions.add(d.factionId);
+        break;
+      case "market.setGoods":
+        marketGoods.set(d.marketId, JSON.stringify(d.goods));
+        break;
+      case "commodity.set":
+        commoditySets.set(d.commodity, {
+          currentPrice: d.currentPrice,
+          globalSupply: Math.round(d.globalSupply),
+          globalDemand: Math.round(d.globalDemand),
+          lastUpdatedTick: Math.round(d.lastUpdatedTick),
+        });
         break;
     }
   }
@@ -1103,6 +1116,50 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
       );
       counts.standing = (counts.standing || 0) + (res.rowCount || 1);
     }
+  }
+
+  // 19. regional markets
+  if (marketGoods.size > 0) {
+    const ids = Array.from(marketGoods.keys()).sort((a, b) => a - b);
+    const goodsJson = ids.map((id) => marketGoods.get(id)!);
+    const res = await db.query(
+      `UPDATE sim_markets AS m
+       SET goods = v.goods
+       FROM (
+         SELECT unnest($1::int[]) AS id, unnest($2::jsonb[]) AS goods
+       ) AS v
+       WHERE m.id = v.id`,
+      [ids, goodsJson]
+    );
+    counts.sim_markets = (counts.sim_markets || 0) + (res.rowCount || ids.length);
+  }
+
+  // 20. global commodity prices
+  if (commoditySets.size > 0) {
+    const names = Array.from(commoditySets.keys()).sort();
+    const res = await db.query(
+      `UPDATE sim_commodity_prices AS c
+       SET current_price = v.current_price,
+           global_supply = v.global_supply,
+           global_demand = v.global_demand,
+           last_updated_tick = v.last_updated_tick
+       FROM (
+         SELECT unnest($1::text[]) AS commodity,
+                unnest($2::float8[]) AS current_price,
+                unnest($3::int[]) AS global_supply,
+                unnest($4::int[]) AS global_demand,
+                unnest($5::int[]) AS last_updated_tick
+       ) AS v
+       WHERE c.commodity = v.commodity`,
+      [
+        names,
+        names.map((n) => commoditySets.get(n)!.currentPrice),
+        names.map((n) => commoditySets.get(n)!.globalSupply),
+        names.map((n) => commoditySets.get(n)!.globalDemand),
+        names.map((n) => commoditySets.get(n)!.lastUpdatedTick),
+      ]
+    );
+    counts.sim_commodity_prices = (counts.sim_commodity_prices || 0) + (res.rowCount || names.length);
   }
 
   return counts;

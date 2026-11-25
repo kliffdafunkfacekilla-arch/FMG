@@ -43,7 +43,7 @@ const QUERY_CEILINGS: Record<string, number> = {
   ecology: 20,
   burgExpansion: 20,
   cultureReligion: 25,
-  market: 20,
+  market: 10,
 };
 const DEFAULT_STEP_CEILING = 120;
 
