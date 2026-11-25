@@ -176,10 +176,23 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   const factionUpdates = new Map<number, { treasury: NumAcc; fiscalSet: boolean; fiscalJson: string | null }>();
   const factionUnitUpdates = new Map<number, { count: number; status: string }>();
   const diplomacyUpserts = new Map<string, { factionAId: number; factionBId: number; status: string; tension: number }>();
-  const lairUpdates = new Map<number, { heat?: number; cellId?: number; burgIdSet?: boolean; burgId?: number | null }>();
+  const lairUpdates = new Map<
+    number,
+    {
+      heat?: number;
+      cellId?: number;
+      burgIdSet?: boolean;
+      burgId?: number | null;
+      inventorySet?: boolean;
+      inventoryJson?: string | null;
+    }
+  >();
   const lairDeleteIds = new Set<number>();
   const ghostwindDropCreates: Array<Extract<Delta, { kind: "ghostwindDrop.create" }>> = [];
   const ghostwindDropExecutes = new Map<number, number>();
+  const stockpileInventories = new Map<number, string>();
+  const tradeShipmentUpdates = new Map<number, Extract<Delta, { kind: "tradeShipment.update" }>>();
+  const tradeShipmentCreates: Array<Extract<Delta, { kind: "tradeShipment.create" }>> = [];
   let wardRechargeTick: number | null = null;
   let lastCalendar: Extract<Delta, { kind: "calendar.set" }> | null = null;
 
@@ -509,6 +522,10 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
           cur.burgIdSet = true;
           cur.burgId = d.burgId;
         }
+        if (d.inventory !== undefined) {
+          cur.inventorySet = true;
+          cur.inventoryJson = JSON.stringify(d.inventory);
+        }
         lairUpdates.set(d.lairId, cur);
         break;
       }
@@ -520,6 +537,15 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         break;
       case "ghostwindDrop.execute":
         ghostwindDropExecutes.set(d.dropId, d.executedTick);
+        break;
+      case "burgStockpile.setInventory":
+        stockpileInventories.set(d.burgId, JSON.stringify(d.inventory));
+        break;
+      case "tradeShipment.update":
+        tradeShipmentUpdates.set(d.shipmentId, d);
+        break;
+      case "tradeShipment.create":
+        tradeShipmentCreates.push(d);
         break;
     }
   }
@@ -1984,27 +2010,31 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
            unnest($1::int[]) AS id,
            unnest($2::boolean[]) AS h_set, unnest($3::int[]) AS h_val,
            unnest($4::boolean[]) AS c_set, unnest($5::int[]) AS c_val,
-           unnest($6::boolean[]) AS b_set, unnest($7::int[]) AS b_val
+           unnest($6::boolean[]) AS b_set, unnest($7::int[]) AS b_val,
+           unnest($8::boolean[]) AS i_set, unnest($9::jsonb[]) AS i_val
        ),
        computed AS (
          SELECT
            l.id,
            CASE WHEN v.h_set THEN v.h_val ELSE l.heat END AS next_heat,
            CASE WHEN v.c_set THEN v.c_val ELSE l.cell_id END AS next_cell,
-           CASE WHEN v.b_set THEN v.b_val ELSE l.burg_id END AS next_burg
+           CASE WHEN v.b_set THEN v.b_val ELSE l.burg_id END AS next_burg,
+           CASE WHEN v.i_set THEN v.i_val ELSE l.inventory END AS next_inv
          FROM v
          JOIN sim_fringe_lairs l ON l.id = v.id
        )
        UPDATE sim_fringe_lairs l SET
          heat = u.next_heat,
          cell_id = u.next_cell,
-         burg_id = u.next_burg
+         burg_id = u.next_burg,
+         inventory = u.next_inv
        FROM computed u
        WHERE l.id = u.id
          AND (
            l.heat IS DISTINCT FROM u.next_heat OR
            l.cell_id IS DISTINCT FROM u.next_cell OR
-           l.burg_id IS DISTINCT FROM u.next_burg
+           l.burg_id IS DISTINCT FROM u.next_burg OR
+           l.inventory IS DISTINCT FROM u.next_inv
          )`,
       [
         activeLairUpdateIds,
@@ -2014,6 +2044,8 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         list.map((r) => r.cellId ?? null),
         list.map((r) => Boolean(r.burgIdSet)),
         list.map((r) => r.burgId ?? null),
+        list.map((r) => Boolean(r.inventorySet)),
+        list.map((r) => r.inventoryJson ?? null),
       ]
     );
     counts.sim_fringe_lairs = (counts.sim_fringe_lairs || 0) + (res.rowCount || 0);
@@ -2046,6 +2078,95 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
       [dIds, dIds.map((id) => ghostwindDropExecutes.get(id)!)]
     );
     counts.sim_ghostwind_dead_drops = (counts.sim_ghostwind_dead_drops || 0) + (res.rowCount || 0);
+  }
+
+  // 35. sim_industrial_stockpiles
+  if (stockpileInventories.size > 0) {
+    const ids = Array.from(stockpileInventories.keys()).sort((a, b) => a - b);
+    const res = await db.query(
+      `INSERT INTO sim_industrial_stockpiles (burg_id, complex_inventory)
+       SELECT unnest($1::int[]), unnest($2::text[])
+       ON CONFLICT (burg_id) DO UPDATE SET
+         complex_inventory = EXCLUDED.complex_inventory
+       WHERE sim_industrial_stockpiles.complex_inventory IS DISTINCT FROM EXCLUDED.complex_inventory`,
+      [ids, ids.map((id) => stockpileInventories.get(id)!)]
+    );
+    counts.sim_industrial_stockpiles = (counts.sim_industrial_stockpiles || 0) + (res.rowCount || 0);
+  }
+
+  // 36. sim_trade_shipments updates & creates
+  if (tradeShipmentUpdates.size > 0) {
+    const sIds = Array.from(tradeShipmentUpdates.keys()).sort((a, b) => a - b);
+    const updates = sIds.map((id) => tradeShipmentUpdates.get(id)!);
+    const res = await db.query(
+      `UPDATE sim_trade_shipments AS sh SET
+         status = v.status,
+         path_index = v.path_index,
+         current_cell_id = v.current_cell_id,
+         eta_ticks = v.eta_ticks,
+         resolved_tick = v.resolved_tick,
+         path_cells = COALESCE(v.path_cells, sh.path_cells)
+       FROM (
+         SELECT unnest($1::int[]) AS id,
+                unnest($2::text[]) AS status,
+                unnest($3::int[]) AS path_index,
+                unnest($4::int[]) AS current_cell_id,
+                unnest($5::int[]) AS eta_ticks,
+                unnest($6::int[]) AS resolved_tick,
+                unnest($7::jsonb[]) AS path_cells
+       ) AS v
+       WHERE sh.id = v.id`,
+      [
+        updates.map((u) => u.shipmentId),
+        updates.map((u) => u.status),
+        updates.map((u) => u.pathIndex),
+        updates.map((u) => u.currentCellId),
+        updates.map((u) => u.etaTicks),
+        updates.map((u) => u.resolvedTick),
+        updates.map((u) => (u.pathCells !== undefined ? JSON.stringify(u.pathCells) : null)),
+      ]
+    );
+    counts.sim_trade_shipments = (counts.sim_trade_shipments || 0) + (res.rowCount || updates.length);
+  }
+
+  if (tradeShipmentCreates.length > 0) {
+    const res = await db.query(
+      `INSERT INTO sim_trade_shipments (
+         source_burg_id, dest_burg_id, source_faction_id, dest_faction_id,
+         transport_mode, good_id, good_key, good_name, quantity, unit_price,
+         total_gold, tariff_gold, carriage_weight, merchant_citizen_id,
+         crew_citizen_ids, guard_count, path_cells, path_index,
+         current_cell_id, status, dispatched_tick, eta_ticks
+       )
+       SELECT unnest($1::int[]), unnest($2::int[]), unnest($3::int[]), unnest($4::int[]),
+              unnest($5::text[]), unnest($6::int[]), unnest($7::text[]), unnest($8::text[]),
+              unnest($9::int[]), unnest($10::real[]), unnest($11::int[]), unnest($12::int[]),
+              unnest($13::real[]), unnest($14::int[]), unnest($15::jsonb[]), unnest($16::int[]),
+              unnest($17::jsonb[]), 0, unnest($18::int[]), 'IN_TRANSIT', unnest($19::int[]), unnest($20::int[])`,
+      [
+        tradeShipmentCreates.map((n) => n.sourceBurgId),
+        tradeShipmentCreates.map((n) => n.destBurgId),
+        tradeShipmentCreates.map((n) => n.sourceFactionId),
+        tradeShipmentCreates.map((n) => n.destFactionId),
+        tradeShipmentCreates.map((n) => n.transportMode),
+        tradeShipmentCreates.map((n) => n.goodId),
+        tradeShipmentCreates.map((n) => n.goodKey),
+        tradeShipmentCreates.map((n) => n.goodName),
+        tradeShipmentCreates.map((n) => n.quantity),
+        tradeShipmentCreates.map((n) => n.unitPrice),
+        tradeShipmentCreates.map((n) => n.totalGold),
+        tradeShipmentCreates.map((n) => n.tariffGold),
+        tradeShipmentCreates.map((n) => n.carriageWeight),
+        tradeShipmentCreates.map((n) => n.merchantCitizenId),
+        tradeShipmentCreates.map((n) => JSON.stringify(n.crewCitizenIds)),
+        tradeShipmentCreates.map((n) => n.guardCount),
+        tradeShipmentCreates.map((n) => JSON.stringify(n.pathCells)),
+        tradeShipmentCreates.map((n) => n.startCellId),
+        tradeShipmentCreates.map((n) => n.dispatchedTick),
+        tradeShipmentCreates.map((n) => n.etaTicks),
+      ]
+    );
+    counts.sim_trade_shipments = (counts.sim_trade_shipments || 0) + (res.rowCount || tradeShipmentCreates.length);
   }
 
   return counts;
