@@ -38,6 +38,12 @@ interface BurgMerged {
   occVal: number | null;
   nameSet: boolean;
   nameVal: string | null;
+  milSet: boolean;
+  milVal: string | null;
+  occTicksSet: boolean;
+  occTicksVal: number;
+  resSet: boolean;
+  resVal: number;
 }
 
 function emptyBurgMerged(): BurgMerged {
@@ -57,6 +63,12 @@ function emptyBurgMerged(): BurgMerged {
     occVal: null,
     nameSet: false,
     nameVal: null,
+    milSet: false,
+    milVal: null,
+    occTicksSet: false,
+    occTicksVal: 0,
+    resSet: false,
+    resVal: 0,
   };
 }
 
@@ -161,6 +173,9 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   const wardDischarges = new Map<number, number>();
   const satelliteCreates: Array<Extract<Delta, { kind: "burg.createSatellite" }>> = [];
   const paragonCorruptions = new Map<number, number>();
+  const factionUpdates = new Map<number, { treasury: NumAcc; fiscalSet: boolean; fiscalJson: string | null }>();
+  const factionUnitUpdates = new Map<number, { count: number; status: string }>();
+  const diplomacyUpserts = new Map<string, { factionAId: number; factionBId: number; status: string; tension: number }>();
   let wardRechargeTick: number | null = null;
   let lastCalendar: Extract<Delta, { kind: "calendar.set" }> | null = null;
 
@@ -196,6 +211,9 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         if (f.urban_tier !== undefined) { m.urbanTierSet = true; m.urbanTierVal = f.urban_tier; }
         if (f.occupier_faction_id !== undefined) { m.occSet = true; m.occVal = f.occupier_faction_id; }
         if (f.name !== undefined) { m.nameSet = true; m.nameVal = f.name; }
+        if (f.military_forces !== undefined) { m.milSet = true; m.milVal = f.military_forces; }
+        if (f.occupation_ticks !== undefined) { m.occTicksSet = true; m.occTicksVal = f.occupation_ticks; }
+        if (f.resistance_strength !== undefined) { m.resSet = true; m.resVal = f.resistance_strength; }
         break;
       }
       case "cell.adjust": {
@@ -454,6 +472,31 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
       case "paragon.setCorruption":
         paragonCorruptions.set(d.paragonId, d.corruptionScore);
         break;
+      case "faction.update": {
+        let f = factionUpdates.get(d.factionId);
+        if (!f) {
+          f = { treasury: zeroAcc(), fiscalSet: false, fiscalJson: null };
+          factionUpdates.set(d.factionId, f);
+        }
+        applyNumSet(f.treasury, d.treasurySet);
+        applyNumAdjust(f.treasury, d.treasuryDelta);
+        if (d.fiscalEconomy !== undefined) {
+          f.fiscalSet = true;
+          f.fiscalJson = JSON.stringify(d.fiscalEconomy);
+        }
+        break;
+      }
+      case "factionUnit.update":
+        factionUnitUpdates.set(d.unitId, { count: d.count, status: d.status });
+        break;
+      case "diplomacy.upsert":
+        diplomacyUpserts.set(`${d.factionAId}:${d.factionBId}`, {
+          factionAId: d.factionAId,
+          factionBId: d.factionBId,
+          status: d.status,
+          tension: d.tension,
+        });
+        break;
     }
   }
 
@@ -653,7 +696,10 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
            unnest($34::boolean[]) AS tier_set, unnest($35::int[]) AS tier_val,
            unnest($36::boolean[]) AS occ_set, unnest($37::int[]) AS occ_val,
            unnest($38::boolean[]) AS name_set, unnest($39::text[]) AS name_val,
-           unnest($40::boolean[]) AS ref_act, unnest($41::boolean[]) AS ref_set, unnest($42::float8[]) AS ref_base, unnest($43::float8[]) AS ref_delta
+           unnest($40::boolean[]) AS ref_act, unnest($41::boolean[]) AS ref_set, unnest($42::float8[]) AS ref_base, unnest($43::float8[]) AS ref_delta,
+           unnest($44::boolean[]) AS mil_set, unnest($45::text[]) AS mil_val,
+           unnest($46::boolean[]) AS ot_set, unnest($47::int[]) AS ot_val,
+           unnest($48::boolean[]) AS rs_set, unnest($49::int[]) AS rs_val
        ),
        computed AS (
          SELECT
@@ -669,7 +715,10 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
            CASE WHEN v.popa_act THEN GREATEST(0, ROUND((CASE WHEN v.popa_set THEN v.popa_base + v.popa_delta ELSE COALESCE(b.pop_attuned, 0) + v.popa_delta END)::numeric))::int ELSE b.pop_attuned END AS next_pop_attuned,
            CASE WHEN v.tier_set THEN GREATEST(0, v.tier_val) ELSE b.urban_tier END AS next_tier,
            CASE WHEN v.occ_set THEN v.occ_val ELSE b.occupier_faction_id END AS next_occ,
-           CASE WHEN v.name_set THEN v.name_val ELSE b.name END AS next_name
+           CASE WHEN v.name_set THEN v.name_val ELSE b.name END AS next_name,
+           CASE WHEN v.mil_set THEN v.mil_val ELSE b.military_forces END AS next_mil,
+           CASE WHEN v.ot_set THEN GREATEST(0, v.ot_val) ELSE b.occupation_ticks END AS next_ot,
+           CASE WHEN v.rs_set THEN GREATEST(0, v.rs_val) ELSE b.resistance_strength END AS next_rs
          FROM v
          JOIN sim_burg_economy b ON b.burg_id = v.burg_id
        )
@@ -685,7 +734,10 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
          pop_attuned = u.next_pop_attuned,
          urban_tier = u.next_tier,
          occupier_faction_id = u.next_occ,
-         name = u.next_name
+         name = u.next_name,
+         military_forces = u.next_mil,
+         occupation_ticks = u.next_ot,
+         resistance_strength = u.next_rs
        FROM computed u
        WHERE b.burg_id = u.burg_id
          AND (
@@ -700,7 +752,10 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
            b.pop_attuned IS DISTINCT FROM u.next_pop_attuned OR
            b.urban_tier IS DISTINCT FROM u.next_tier OR
            b.occupier_faction_id IS DISTINCT FROM u.next_occ OR
-           b.name IS DISTINCT FROM u.next_name
+           b.name IS DISTINCT FROM u.next_name OR
+           b.military_forces IS DISTINCT FROM u.next_mil OR
+           b.occupation_ticks IS DISTINCT FROM u.next_ot OR
+           b.resistance_strength IS DISTINCT FROM u.next_rs
          )`,
       [
         ids,
@@ -716,6 +771,9 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         rows.map((r) => r.occSet), rows.map((r) => r.occVal),
         rows.map((r) => r.nameSet), rows.map((r) => r.nameVal),
         rows.map((r) => numActive(r.refinedGoods)), rows.map((r) => r.refinedGoods.hasSet), rows.map((r) => r.refinedGoods.setVal), rows.map((r) => r.refinedGoods.delta),
+        rows.map((r) => r.milSet), rows.map((r) => r.milVal),
+        rows.map((r) => r.occTicksSet), rows.map((r) => r.occTicksVal),
+        rows.map((r) => r.resSet), rows.map((r) => r.resVal),
       ]
     );
     counts.sim_burg_economy = res.rowCount || 0;
@@ -1808,6 +1866,81 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
       [pIds, pIds.map((id) => paragonCorruptions.get(id)!)]
     );
     counts.sim_paragons = (counts.sim_paragons || 0) + (res.rowCount || 0);
+  }
+
+  // 30. sim_factions
+  if (factionUpdates.size > 0) {
+    const fIds = Array.from(factionUpdates.keys()).sort((a, b) => a - b);
+    const list = fIds.map((id) => factionUpdates.get(id)!);
+    const res = await db.query(
+      `WITH v AS (
+         SELECT
+           unnest($1::int[]) AS id,
+           unnest($2::boolean[]) AS t_act, unnest($3::boolean[]) AS t_set,
+           unnest($4::bigint[]) AS t_base, unnest($5::bigint[]) AS t_delta,
+           unnest($6::boolean[]) AS f_set, unnest($7::jsonb[]) AS f_val
+       ),
+       computed AS (
+         SELECT
+           f.id,
+           CASE WHEN v.t_act THEN GREATEST(0, CASE WHEN v.t_set THEN v.t_base + v.t_delta ELSE COALESCE(f.treasury, 0) + v.t_delta END)::bigint ELSE f.treasury END AS next_treasury,
+           CASE WHEN v.f_set THEN v.f_val ELSE f.fiscal_economy END AS next_fiscal
+         FROM v
+         JOIN sim_factions f ON f.id = v.id
+       )
+       UPDATE sim_factions f SET
+         treasury = u.next_treasury,
+         fiscal_economy = u.next_fiscal
+       FROM computed u
+       WHERE f.id = u.id
+         AND (f.treasury IS DISTINCT FROM u.next_treasury OR f.fiscal_economy IS DISTINCT FROM u.next_fiscal)`,
+      [
+        fIds,
+        list.map((r) => numActive(r.treasury)),
+        list.map((r) => r.treasury.hasSet),
+        list.map((r) => Math.round(r.treasury.setVal)),
+        list.map((r) => Math.round(r.treasury.delta)),
+        list.map((r) => r.fiscalSet),
+        list.map((r) => r.fiscalJson),
+      ]
+    );
+    counts.sim_factions = (counts.sim_factions || 0) + (res.rowCount || 0);
+  }
+
+  // 31. sim_faction_units
+  if (factionUnitUpdates.size > 0) {
+    const uIds = Array.from(factionUnitUpdates.keys()).sort((a, b) => a - b);
+    const res = await db.query(
+      `UPDATE sim_faction_units AS u
+       SET count = v.count, status = v.status
+       FROM (SELECT unnest($1::int[]) AS id, unnest($2::int[]) AS count, unnest($3::text[]) AS status) AS v
+       WHERE u.id = v.id AND (u.count IS DISTINCT FROM v.count OR u.status IS DISTINCT FROM v.status)`,
+      [
+        uIds,
+        uIds.map((id) => factionUnitUpdates.get(id)!.count),
+        uIds.map((id) => factionUnitUpdates.get(id)!.status),
+      ]
+    );
+    counts.sim_faction_units = (counts.sim_faction_units || 0) + (res.rowCount || 0);
+  }
+
+  // 32. sim_diplomacy
+  if (diplomacyUpserts.size > 0) {
+    const keys = Array.from(diplomacyUpserts.keys()).sort();
+    const list = keys.map((k) => diplomacyUpserts.get(k)!);
+    const res = await db.query(
+      `INSERT INTO sim_diplomacy (faction_a_id, faction_b_id, status, tension)
+       SELECT unnest($1::int[]), unnest($2::int[]), unnest($3::text[]), unnest($4::int[])
+       ON CONFLICT (faction_a_id, faction_b_id) DO UPDATE
+       SET status = EXCLUDED.status, tension = EXCLUDED.tension`,
+      [
+        list.map((d) => d.factionAId),
+        list.map((d) => d.factionBId),
+        list.map((d) => d.status),
+        list.map((d) => d.tension),
+      ]
+    );
+    counts.sim_diplomacy = (counts.sim_diplomacy || 0) + (res.rowCount || list.length);
   }
 
   return counts;

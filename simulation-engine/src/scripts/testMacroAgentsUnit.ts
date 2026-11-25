@@ -21,6 +21,7 @@ import { planWardenAwakening, stepWardenAwakening, stepWardens } from "../engine
 import { stepBurgExpansion, uniqueBurgName } from "../engine/macro/burgExpansion/step.js";
 import { stepChronicler } from "../engine/macro/chronicler/step.js";
 import { stepParagons } from "../engine/macro/paragons/step.js";
+import { stepFactionPlanning } from "../engine/macro/factions/step.js";
 
 function testEncounterUnit() {
   const emptyDeltas = stepEncounter({ agents: [], cellIds: [10, 20, 30] }, { tick: 2, random: mulberry32(42) });
@@ -1461,6 +1462,178 @@ function testParagonsUnit() {
   console.log("18. stepParagons (no DB) greedy hoarding, embargo, relief & curfew lift... PASSED");
 }
 
+function testFactionPlanningUnit() {
+  // Weekly tick 7 with faction 1 + 2 at war, faction 1 bankrupt with unit desertion, and conquest outcome
+  const deltas = stepFactionPlanning(
+    {
+      tick: 7,
+      loreDate: "Day 7",
+      factions: [
+        {
+          id: 1,
+          name: "Avian Empire",
+          treasury: 0,
+          trait_aggression: 7,
+          trait_economy: 5,
+          trait_magic: 5,
+          fiscal_economy: { pollTax: 0, salesTax: 0, collected: 0, budget: { corruption: 35 } },
+        },
+        {
+          id: 2,
+          name: "Hound March",
+          treasury: 5000,
+          trait_aggression: 8,
+          trait_economy: 4,
+          trait_magic: 3,
+          fiscal_economy: { budget: { corruption: 10 } },
+        },
+      ],
+      burgs: [
+        {
+          burg_id: 10,
+          cell_id: 100,
+          faction_id: 1,
+          pop_null: 1000,
+          pop_attuned: 50,
+          wealth: 200,
+          food: 800,
+          unrest: 10,
+          crime_rate: 5,
+          health: 90,
+          military_forces: JSON.stringify({ infantry: 40, airship: 10 }),
+          citadel: true,
+          walls: true,
+          is_capital: true,
+        },
+        {
+          burg_id: 20,
+          cell_id: 200,
+          faction_id: 2,
+          pop_null: 500,
+          pop_attuned: 0,
+          wealth: 400,
+          food: 500,
+          unrest: 10,
+          crime_rate: 5,
+          health: 90,
+          military_forces: JSON.stringify({ infantry: 1 }),
+        },
+      ],
+      units: [
+        { id: 101, faction_id: 1, count: 12, status: "ACTIVE" }, // insolvent -> disbands
+      ],
+      paragons: [
+        { id: 1, faction_id: 1, title: "EMPEROR", name: "Kael", traits: ["CONQUEROR"], corruption_score: 0 },
+        { id: 2, faction_id: 2, title: "WARLORD", name: "Brak", traits: ["CONQUEROR"], corruption_score: 0 },
+      ],
+      diplomacy: [
+        { factionAId: 2, factionBId: 1, status: "WAR", tension: 100 },
+      ],
+      borders: [{ factionA: 1, factionB: 2 }],
+      cellTagsByCell: {},
+    },
+    { random: () => 0.1 } // aggressor = 1 (0.1 < 0.5), war roll passes (0.1 <= 0.4), conquers weak burg 20
+  );
+
+  type F = (typeof deltas)[number];
+  assert.ok(deltas.some((d) => d.kind === "factionUnit.update" && d.unitId === 101 && d.count === 0 && d.status === "DISBANDED"));
+  assert.ok(deltas.some((d) => d.kind === "event.log" && d.type === "FACTION_TROOP_DESERTION"));
+  assert.ok(deltas.some((d) => d.kind === "event.log" && d.type === "FACTION_CORRUPTION_UNREST"));
+  assert.ok(deltas.some((d) => d.kind === "cell.setFaction" && d.cellId === 200 && d.factionId === 1));
+  assert.ok(deltas.some((d) => d.kind === "event.log" && d.type === "SIEGE_WON"));
+  assert.ok(deltas.some((d) => d.kind === "citizen.tagBurg" && d.burgId === 20));
+  const f1Upd = deltas.find((d): d is Extract<F, { kind: "faction.update" }> => d.kind === "faction.update" && d.factionId === 1);
+  assert.ok(f1Upd && f1Upd.treasurySet === 200, `Expected conquest loot +200 treasurySet, got ${f1Upd?.treasurySet}`);
+
+  // Border tension escalation PEACE -> COLD_WAR on tick 7 when tension >= 62
+  const chillDeltas = stepFactionPlanning(
+    {
+      tick: 7,
+      loreDate: "Day 7",
+      factions: [
+        { id: 1, name: "Realm A", treasury: 5000, fiscal_economy: {} },
+        { id: 2, name: "Realm B", treasury: 5000, fiscal_economy: {} },
+      ],
+      burgs: [
+        { burg_id: 1, cell_id: 10, faction_id: 1, pop_null: 2000, wealth: 500, unrest: 0, military_forces: '{"infantry":40}' },
+        { burg_id: 2, cell_id: 20, faction_id: 2, pop_null: 2000, wealth: 500, unrest: 0, military_forces: "{}" },
+      ],
+      units: [],
+      paragons: [
+        { id: 1, faction_id: 1, title: "EMPEROR", name: "Vance", traits: ["CONQUEROR"], corruption_score: 0 },
+      ],
+      diplomacy: [{ factionAId: 1, factionBId: 2, status: "PEACE", tension: 63 }],
+      borders: [{ factionA: 1, factionB: 2 }],
+      cellTagsByCell: {},
+    },
+    { random: () => 0.5 }
+  );
+  assert.ok(chillDeltas.some((d) => d.kind === "diplomacy.upsert" && d.status === "COLD_WAR" && d.tension === 65));
+  assert.ok(chillDeltas.some((d) => d.kind === "event.log" && d.type === "COLD_WAR_CHILL"));
+
+  // Monthly sovereign action on tick where (tick + 1*7) % 48 === 0 (tick = 41)
+  const monthlyDeltas = stepFactionPlanning(
+    {
+      tick: 41,
+      loreDate: "Day 41",
+      factions: [
+        { id: 1, name: "Empire", treasury: 6000, trait_aggression: 10, trait_economy: 2, trait_magic: 2, fiscal_economy: {} },
+        { id: 2, name: "Rival", treasury: 6000, fiscal_economy: {} },
+      ],
+      burgs: [
+        { burg_id: 1, cell_id: 10, faction_id: 1, pop_null: 3000, wealth: 800, unrest: 5, military_forces: '{"infantry":40}' },
+        { burg_id: 2, cell_id: 20, faction_id: 2, pop_null: 3000, wealth: 800, unrest: 5, military_forces: '{"infantry":10}' },
+      ],
+      units: [],
+      paragons: [
+        { id: 1, faction_id: 1, title: "EMPEROR", name: "Titus", traits: ["CONQUEROR"], corruption_score: 0 },
+      ],
+      diplomacy: [],
+      borders: [{ factionA: 1, factionB: 2 }],
+      cellTagsByCell: {},
+    },
+    { random: () => 0.1 }
+  );
+  assert.ok(monthlyDeltas.some((d) => d.kind === "diplomacy.upsert" && d.status === "WAR" && d.tension === 100));
+  assert.ok(monthlyDeltas.some((d) => d.kind === "event.log" && d.type === "DECLARE_WAR"));
+
+  assert.equal(
+    JSON.stringify(
+      stepFactionPlanning(
+        {
+          tick: 7,
+          loreDate: "Day 7",
+          factions: [{ id: 1, name: "A", treasury: 3000, fiscal_economy: {} }],
+          burgs: [{ burg_id: 1, cell_id: 10, faction_id: 1, pop_null: 500, wealth: 100, military_forces: "{}" }],
+          units: [],
+          paragons: [],
+          diplomacy: [],
+          borders: [],
+          cellTagsByCell: {},
+        },
+        { random: mulberry32(99) }
+      )
+    ),
+    JSON.stringify(
+      stepFactionPlanning(
+        {
+          tick: 7,
+          loreDate: "Day 7",
+          factions: [{ id: 1, name: "A", treasury: 3000, fiscal_economy: {} }],
+          burgs: [{ burg_id: 1, cell_id: 10, faction_id: 1, pop_null: 500, wealth: 100, military_forces: "{}" }],
+          units: [],
+          paragons: [],
+          diplomacy: [],
+          borders: [],
+          cellTagsByCell: {},
+        },
+        { random: mulberry32(99) }
+      )
+    )
+  );
+  console.log("19. stepFactionPlanning (no DB) finances, border tension, actions & war conquest... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
@@ -1481,6 +1654,7 @@ function main() {
   testBurgExpansionUnit();
   testChroniclerUnit();
   testParagonsUnit();
+  testFactionPlanningUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 

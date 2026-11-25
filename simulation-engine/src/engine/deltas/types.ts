@@ -18,6 +18,9 @@ export interface BurgSetFields {
   urban_tier?: number | undefined;
   occupier_faction_id?: number | null | undefined;
   name?: string | undefined;
+  military_forces?: string | undefined;
+  occupation_ticks?: number | undefined;
+  resistance_strength?: number | undefined;
 }
 
 export interface CellSetFields {
@@ -453,6 +456,26 @@ export type Delta =
       kind: "paragon.setCorruption";
       paragonId: number;
       corruptionScore: number;
+    }
+  | {
+      kind: "faction.update";
+      factionId: number;
+      treasurySet?: number | undefined;
+      treasuryDelta?: number | undefined;
+      fiscalEconomy?: Record<string, any> | undefined;
+    }
+  | {
+      kind: "factionUnit.update";
+      unitId: number;
+      count: number;
+      status: string;
+    }
+  | {
+      kind: "diplomacy.upsert";
+      factionAId: number;
+      factionBId: number;
+      status: string;
+      tension: number;
     };
 
 export type DeltaEmitter = (delta: Delta) => void;
