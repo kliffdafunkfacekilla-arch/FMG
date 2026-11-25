@@ -1,15 +1,19 @@
 /**
- * "What-if" Story Previews (Phase 11.4): runs each option over the next N days inside an
- * isolated rolled-back transaction (with nested BEGIN/COMMIT/ROLLBACK rewritten to SAVEPOINTs)
- * using the exact same seeded simulation step, never persisting any database mutation.
+ * "What-if" Story Previews (Phase 11.4, after 2.4): runs each option over the next N days purely
+ * in memory over a cloned world snapshot using the exact same seeded simulation step, never
+ * opening a PostgreSQL transaction or writing any row.
  */
 import crypto from "node:crypto";
 import pool from "../../db/pool.js";
 import type { Delta } from "../deltas/types.js";
-import { flushStepDeltas } from "../deltas/index.js";
-import { executeMasterTick } from "../masterOrchestrator.js";
-import { decideProposal } from "./storylines.js";
-import { resolveStorylineFromActions } from "./resolve.js";
+import { applyDeltasInMemory } from "../macro/inMemoryDay/applyMemory.js";
+import { cloneWorldSnapshot } from "../macro/inMemoryDay/cloneWorld.js";
+import { loadWorldSnapshot } from "../macro/inMemoryDay/loadWorld.js";
+import { runInMemoryDay } from "../macro/inMemoryDay/runDay.js";
+import type { InMemoryBurg, WorldSnapshot } from "../macro/inMemoryDay/types.js";
+import { LIVE_TRADE_ROUTER } from "../macro/trade/load.js";
+import { mulberry32, tickSeed } from "../rng.js";
+import { computeStorylineConsequences } from "./resolve.js";
 
 export const MAX_PREVIEW_DAYS = 10;
 export const MAX_PREVIEW_OPTIONS = 3;
@@ -50,15 +54,142 @@ export interface PreviewStoryResult {
   options: PreviewOptionOutcome[];
 }
 
-let previewMutex: Promise<void> = Promise.resolve();
+function findPrimaryBurgAtCell(world: WorldSnapshot, cellId: number): InMemoryBurg | null {
+  let match: InMemoryBurg | null = null;
+  for (const b of world.mutable.burgs.values()) {
+    if (b.cellId === cellId && (!match || b.burgId < match.burgId)) {
+      match = b;
+    }
+  }
+  return match;
+}
 
-function withPreviewLock<T>(fn: () => Promise<T>): Promise<T> {
-  const next = previewMutex.then(fn, fn);
-  previewMutex = next.then(
-    () => undefined,
-    () => undefined
-  );
-  return next;
+function applyPreviewOptionInMemory(
+  branch: WorldSnapshot,
+  opt: PreviewOptionInput,
+  fallbackProposalId: number | undefined,
+  actionTick: number
+): void {
+  const proposalId = opt.proposalId ?? fallbackProposalId;
+
+  if (opt.action === "accept_proposal" && proposalId) {
+    const st = branch.mutable.storylines.get(Number(proposalId));
+    if (st) {
+      st.state = "open";
+      const hook = st.hook || {};
+      const clueName = String(hook.clueName || `Hook Clue: ${st.question.slice(0, 48)}`);
+      const clueDesc = String(hook.clueDescription || st.stakes);
+      const rumorMsg = String(hook.rumor || `Rumor spreads regarding "${st.question}": ${st.stakes}`);
+      const burg = findPrimaryBurgAtCell(branch, st.cellId);
+      const deltas: Delta[] = [
+        {
+          kind: "overlay.add",
+          cellId: st.cellId,
+          rx: st.rx,
+          ry: st.ry,
+          z: st.z,
+          x: 128,
+          y: 128,
+          objectRef: hook.targetObjectRef ?? null,
+          change: "placed",
+          payload: {
+            storylineId: st.id,
+            dialogueLine: hook.dialogueLine || null,
+            prop: {
+              id: `prop_story_clue_${st.id}`,
+              name: clueName,
+              pos: [128, 128],
+              tags: ["clue", "inspectable", "story_hook"],
+              hp: 10,
+              description: clueDesc,
+              storylineId: st.id,
+            },
+          },
+          tick: actionTick,
+          minute: 0,
+          source: "story_desk",
+        },
+        {
+          kind: "event.log",
+          tick: actionTick,
+          type: "STORY_HOOK_RUMOR",
+          message: rumorMsg,
+          tier: "MINOR",
+          burgId: burg?.burgId,
+          cellId: st.cellId,
+        },
+      ];
+      applyDeltasInMemory(branch, deltas);
+    }
+  } else if (opt.action === "reject_proposal" && proposalId) {
+    const st = branch.mutable.storylines.get(Number(proposalId));
+    if (st) {
+      st.state = "rejected";
+    }
+  } else if ((opt.action === "resolve_diplomatic" || opt.action === "resolve_violent") && opt.storylineId) {
+    const st = branch.mutable.storylines.get(Number(opt.storylineId));
+    if (st) {
+      const partyRef = opt.partyRef || "player:1";
+      const burg = findPrimaryBurgAtCell(branch, st.cellId);
+      const cellIdx = branch.static.cellIndexById.get(st.cellId);
+      const rawFactionId = cellIdx !== undefined ? (branch.mutable.factionId[cellIdx] ?? 0) : 0;
+      const targetFactionId = rawFactionId > 0 ? rawFactionId : null;
+      const witnessRefs = st.actorIds.map(String);
+      const targetRef = witnessRefs[0] ?? null;
+      const citizenWitnessIds: number[] = [];
+      for (const wRef of witnessRefs) {
+        const m = /^citizen:(\d+)$/.exec(wRef);
+        if (m) citizenWitnessIds.push(Number(m[1]));
+      }
+
+      const computed = computeStorylineConsequences({
+        storylineId: st.id,
+        question: st.question,
+        cellId: st.cellId,
+        rx: st.rx,
+        ry: st.ry,
+        burgId: burg?.burgId ?? null,
+        burgName: burg?.name || `Cell #${st.cellId}`,
+        targetRef,
+        targetFactionId,
+        partyRef,
+        tick: actionTick,
+        mode: opt.action === "resolve_diplomatic" ? "diplomatic" : "violent",
+        witnessRefs,
+        citizenWitnessIds,
+      });
+
+      if (computed.deltas.length > 0) {
+        applyDeltasInMemory(branch, computed.deltas);
+      }
+      st.state = "resolved";
+
+      if (computed.followUpProposal) {
+        const fu = computed.followUpProposal;
+        const nextId = branch.mutable.nextStorylineId++;
+        branch.mutable.storylines.set(nextId, {
+          id: nextId,
+          scale: fu.scale,
+          state: "proposed",
+          cellId: Number(fu.cell_id ?? st.cellId),
+          rx: Number(fu.rx ?? st.rx),
+          ry: Number(fu.ry ?? st.ry),
+          z: Number(fu.z ?? st.z),
+          ruleId: fu.rule_id ?? null,
+          question: fu.question,
+          stakes: fu.stakes,
+          actorIds: Array.isArray(fu.actor_ids) ? fu.actor_ids.map(String) : [],
+          hook: fu.hook || {},
+          clock: 0,
+          clockMax: Number(fu.clock_max ?? 6),
+        });
+      }
+    }
+  }
+
+  if (Array.isArray(opt.deltas) && opt.deltas.length > 0) {
+    applyDeltasInMemory(branch, opt.deltas);
+  }
 }
 
 export async function previewStoryOptions(input: {
@@ -77,181 +208,89 @@ export async function previewStoryOptions(input: {
     rawOptions = [{ label: "Baseline (no intervention)", action: "do_nothing" }];
   }
 
-  return withPreviewLock(async () => {
-    const client = await pool.connect();
-    const p = pool as any;
-    const orig = { query: p.query, connect: p.connect };
-    const savepoints: string[] = [];
-    let counter = 0;
+  const baseWorld = await loadWorldSnapshot(pool);
+  const startTick = Number(baseWorld.mutable.calendar.tick || 0);
+  const actionTick = startTick || 1;
 
-    const rewrite = (text: string): string => {
-      const t = text.trim().replace(/;$/, "").toUpperCase();
-      if (t === "BEGIN" || t === "START TRANSACTION") {
-        const sp = `prv_iso_${++counter}`;
-        savepoints.push(sp);
-        return `SAVEPOINT ${sp}`;
-      }
-      if (t === "COMMIT" || t === "END") {
-        const sp = savepoints.pop();
-        return sp ? `RELEASE SAVEPOINT ${sp}` : "SELECT 1";
-      }
-      if (t === "ROLLBACK") {
-        const sp = savepoints.pop();
-        return sp ? `ROLLBACK TO SAVEPOINT ${sp}` : "SELECT 1";
-      }
-      return text;
-    };
+  const baseBurgs = new Map<number, { name: string; unrest: number; wealth: number; food: number; crime: number }>();
+  for (const b of baseWorld.mutable.burgs.values()) {
+    baseBurgs.set(b.burgId, {
+      name: b.name,
+      unrest: Number(b.unrest || 0),
+      wealth: Number(b.wealth || 0),
+      food: Number(b.food || 0),
+      crime: Number(b.crimeRate || 0),
+    });
+  }
 
-    const routedQuery = (text: any, params?: any) =>
-      typeof text === "string" ? client.query(rewrite(text), params) : client.query(text, params);
+  const outcomes: PreviewOptionOutcome[] = [];
 
-    const prevLlm = process.env.STORY_LLM;
-    process.env.STORY_LLM = "off";
+  for (let i = 0; i < rawOptions.length; i++) {
+    const opt = rawOptions[i]!;
+    const branch = cloneWorldSnapshot(baseWorld);
+    applyPreviewOptionInMemory(branch, opt, input.proposalId, actionTick);
 
-    await client.query("BEGIN");
-    p.query = routedQuery;
-    p.connect = async () => ({ query: routedQuery, release: () => {} });
+    let endTick = startTick;
+    for (let d = 0; d < days; d++) {
+      endTick += 1;
+      runInMemoryDay(branch, endTick, {
+        random: mulberry32(tickSeed(endTick)),
+        tradeRouter: LIVE_TRADE_ROUTER,
+      });
+    }
 
-    try {
-      const startTickRes = await routedQuery(`SELECT COALESCE(MAX(tick), 0)::int AS t FROM sim_calendar`);
-      const startTick = Number(startTickRes.rows[0]?.t || 0);
-
-      const baseBurgsRes = await routedQuery(
-        `SELECT burg_id, name, unrest, wealth, food, crime_rate FROM sim_burg_economy ORDER BY burg_id ASC`
-      );
-      const baseBurgs = new Map<number, { name: string; unrest: number; wealth: number; food: number; crime: number }>();
-      for (const r of baseBurgsRes.rows) {
-        baseBurgs.set(Number(r.burg_id), {
-          name: String(r.name),
-          unrest: Number(r.unrest || 0),
-          wealth: Number(r.wealth || 0),
-          food: Number(r.food || 0),
-          crime: Number(r.crime_rate || 0),
+    const sortedBurgs = Array.from(branch.mutable.burgs.values()).sort((a, b) => a.burgId - b.burgId);
+    const burgDiffs: PreviewBurgDiff[] = [];
+    for (const endBurg of sortedBurgs) {
+      const b = baseBurgs.get(endBurg.burgId);
+      if (!b) continue;
+      const unrestDelta = Number((Number(endBurg.unrest || 0) - b.unrest).toFixed(2));
+      const wealthDelta = Number((Number(endBurg.wealth || 0) - b.wealth).toFixed(2));
+      const foodDelta = Number((Number(endBurg.food || 0) - b.food).toFixed(2));
+      const crimeDelta = Number((Number(endBurg.crimeRate || 0) - b.crime).toFixed(2));
+      if (unrestDelta !== 0 || wealthDelta !== 0 || foodDelta !== 0 || crimeDelta !== 0) {
+        burgDiffs.push({
+          burgId: endBurg.burgId,
+          name: b.name,
+          unrestDelta,
+          wealthDelta,
+          foodDelta,
+          crimeDelta,
         });
       }
-
-      const outcomes: PreviewOptionOutcome[] = [];
-
-      for (let i = 0; i < rawOptions.length; i++) {
-        const opt = rawOptions[i]!;
-        const spName = `preview_opt_${i}`;
-        await client.query(`SAVEPOINT ${spName}`);
-        try {
-          if (opt.action === "accept_proposal" && (opt.proposalId ?? input.proposalId)) {
-            await decideProposal(client as any, Number(opt.proposalId ?? input.proposalId), {
-              decision: "accept",
-              tick: startTick || 1,
-            });
-          } else if (opt.action === "reject_proposal" && (opt.proposalId ?? input.proposalId)) {
-            await decideProposal(client as any, Number(opt.proposalId ?? input.proposalId), {
-              decision: "reject",
-              tick: startTick || 1,
-            });
-          } else if ((opt.action === "resolve_diplomatic" || opt.action === "resolve_violent") && opt.storylineId) {
-            const partyRef = opt.partyRef || "player:1";
-            const verb = opt.action === "resolve_diplomatic" ? "persuade" : "attack";
-            const stRow = await routedQuery(`SELECT cell_id, rx, ry, actor_ids FROM storylines WHERE id = $1 LIMIT 1`, [opt.storylineId]);
-            const st = stRow.rows[0];
-            if (st) {
-              const targetRef = Array.isArray(st.actor_ids) && st.actor_ids[0] ? String(st.actor_ids[0]) : null;
-              await routedQuery(
-                `INSERT INTO actions (tick, minute, actor_ref, verb, target_ref, location, method, result, storyline_id, witnesses)
-                 VALUES ($1, 0, $2, $3, $4, $5::jsonb, 'PREVIEW', 'success:margin=4', $6, $7::text[])`,
-                [
-                  startTick || 1,
-                  partyRef,
-                  verb,
-                  targetRef,
-                  JSON.stringify({ cellId: Number(st.cell_id || 0), rx: Number(st.rx || 50), ry: Number(st.ry || 50) }),
-                  opt.storylineId,
-                  st.actor_ids || [],
-                ]
-              );
-              await resolveStorylineFromActions(client as any, {
-                storylineId: opt.storylineId,
-                partyRef,
-                tick: startTick || 1,
-              });
-            }
-          }
-
-          if (Array.isArray(opt.deltas) && opt.deltas.length > 0) {
-            await flushStepDeltas(client as any, "story_preview", startTick || 1, opt.deltas, 0);
-          }
-
-          let endTick = startTick;
-          for (let d = 0; d < days; d++) {
-            const tr = await executeMasterTick();
-            endTick = tr.currentTick;
-          }
-
-          const endBurgsRes = await routedQuery(
-            `SELECT burg_id, name, unrest, wealth, food, crime_rate FROM sim_burg_economy ORDER BY burg_id ASC`
-          );
-          const burgDiffs: PreviewBurgDiff[] = [];
-          for (const r of endBurgsRes.rows) {
-            const b = baseBurgs.get(Number(r.burg_id));
-            if (!b) continue;
-            const unrestDelta = Number((Number(r.unrest || 0) - b.unrest).toFixed(2));
-            const wealthDelta = Number((Number(r.wealth || 0) - b.wealth).toFixed(2));
-            const foodDelta = Number((Number(r.food || 0) - b.food).toFixed(2));
-            const crimeDelta = Number((Number(r.crime_rate || 0) - b.crime).toFixed(2));
-            if (unrestDelta !== 0 || wealthDelta !== 0 || foodDelta !== 0 || crimeDelta !== 0) {
-              burgDiffs.push({
-                burgId: Number(r.burg_id),
-                name: b.name,
-                unrestDelta,
-                wealthDelta,
-                foodDelta,
-                crimeDelta,
-              });
-            }
-          }
-          burgDiffs.sort((a, b) => Math.abs(b.unrestDelta) + Math.abs(b.wealthDelta) - (Math.abs(a.unrestDelta) + Math.abs(a.wealthDelta)));
-
-          const evRes = await routedQuery(
-            `SELECT tick, type, message FROM sim_events WHERE tick > $1 ORDER BY tick ASC, id ASC LIMIT 20`,
-            [startTick]
-          );
-          const majorEvents = evRes.rows.map((e: any) => ({
-            tick: Number(e.tick),
-            type: String(e.type),
-            message: String(e.message),
-          }));
-
-          const digest = crypto
-            .createHash("md5")
-            .update(JSON.stringify({ endTick, burgDiffs, majorEvents }))
-            .digest("hex");
-
-          const topParts = burgDiffs.slice(0, 3).map(
-            (bd) => `${bd.name}: unrest ${bd.unrestDelta >= 0 ? "+" : ""}${bd.unrestDelta}, wealth ${bd.wealthDelta >= 0 ? "+" : ""}${bd.wealthDelta}`
-          );
-          outcomes.push({
-            label: opt.label || `Option ${i + 1}`,
-            action: opt.action || "custom",
-            daysSimulated: days,
-            startTick,
-            endTick,
-            burgDiffs: burgDiffs.slice(0, 12),
-            majorEvents,
-            fingerprintHash: digest,
-            summary: `In ${days}d: ${topParts.length > 0 ? topParts.join("; ") : "no burg metric shift"}`,
-          });
-        } finally {
-          await client.query(`ROLLBACK TO SAVEPOINT ${spName}`);
-          await client.query(`RELEASE SAVEPOINT ${spName}`);
-        }
-      }
-
-      return { startTick, days, options: outcomes };
-    } finally {
-      await client.query("ROLLBACK").catch(() => {});
-      p.query = orig.query;
-      p.connect = orig.connect;
-      if (prevLlm === undefined) delete process.env.STORY_LLM;
-      else process.env.STORY_LLM = prevLlm;
-      client.release();
     }
-  });
+    burgDiffs.sort((a, b) => Math.abs(b.unrestDelta) + Math.abs(b.wealthDelta) - (Math.abs(a.unrestDelta) + Math.abs(a.wealthDelta)));
+
+    const majorEvents = branch.mutable.events
+      .filter((e) => e.tick > startTick)
+      .sort((a, b) => a.tick - b.tick || a.id - b.id)
+      .slice(0, 20)
+      .map((e) => ({
+        tick: Number(e.tick),
+        type: String(e.type),
+        message: String(e.message),
+      }));
+
+    const digest = crypto
+      .createHash("md5")
+      .update(JSON.stringify({ endTick, burgDiffs, majorEvents }))
+      .digest("hex");
+
+    const topParts = burgDiffs.slice(0, 3).map(
+      (bd) => `${bd.name}: unrest ${bd.unrestDelta >= 0 ? "+" : ""}${bd.unrestDelta}, wealth ${bd.wealthDelta >= 0 ? "+" : ""}${bd.wealthDelta}`
+    );
+    outcomes.push({
+      label: opt.label || `Option ${i + 1}`,
+      action: opt.action || "custom",
+      daysSimulated: days,
+      startTick,
+      endTick,
+      burgDiffs: burgDiffs.slice(0, 12),
+      majorEvents,
+      fingerprintHash: digest,
+      summary: `In ${days}d: ${topParts.length > 0 ? topParts.join("; ") : "no burg metric shift"}`,
+    });
+  }
+
+  return { startTick, days, options: outcomes };
 }
