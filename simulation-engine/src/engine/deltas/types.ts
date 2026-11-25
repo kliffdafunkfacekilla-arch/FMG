@@ -476,6 +476,30 @@ export type Delta =
       factionBId: number;
       status: string;
       tension: number;
+    }
+  | {
+      kind: "fringeLair.update";
+      lairId: number;
+      heat?: number | undefined;
+      cellId?: number | undefined;
+      burgId?: number | null | undefined;
+    }
+  | {
+      kind: "fringeLair.delete";
+      lairId: number;
+    }
+  | {
+      kind: "ghostwindDrop.create";
+      createdTick: number;
+      clientFactionId: number;
+      targetFactionId: number;
+      targetBurgId: number;
+      bountyGold: number;
+    }
+  | {
+      kind: "ghostwindDrop.execute";
+      dropId: number;
+      executedTick: number;
     };
 
 export type DeltaEmitter = (delta: Delta) => void;

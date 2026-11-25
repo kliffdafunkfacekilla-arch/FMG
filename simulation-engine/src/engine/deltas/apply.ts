@@ -176,6 +176,10 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   const factionUpdates = new Map<number, { treasury: NumAcc; fiscalSet: boolean; fiscalJson: string | null }>();
   const factionUnitUpdates = new Map<number, { count: number; status: string }>();
   const diplomacyUpserts = new Map<string, { factionAId: number; factionBId: number; status: string; tension: number }>();
+  const lairUpdates = new Map<number, { heat?: number; cellId?: number; burgIdSet?: boolean; burgId?: number | null }>();
+  const lairDeleteIds = new Set<number>();
+  const ghostwindDropCreates: Array<Extract<Delta, { kind: "ghostwindDrop.create" }>> = [];
+  const ghostwindDropExecutes = new Map<number, number>();
   let wardRechargeTick: number | null = null;
   let lastCalendar: Extract<Delta, { kind: "calendar.set" }> | null = null;
 
@@ -496,6 +500,26 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
           status: d.status,
           tension: d.tension,
         });
+        break;
+      case "fringeLair.update": {
+        const cur = lairUpdates.get(d.lairId) || {};
+        if (d.heat !== undefined) cur.heat = d.heat;
+        if (d.cellId !== undefined) cur.cellId = d.cellId;
+        if (d.burgId !== undefined) {
+          cur.burgIdSet = true;
+          cur.burgId = d.burgId;
+        }
+        lairUpdates.set(d.lairId, cur);
+        break;
+      }
+      case "fringeLair.delete":
+        lairDeleteIds.add(d.lairId);
+        break;
+      case "ghostwindDrop.create":
+        ghostwindDropCreates.push(d);
+        break;
+      case "ghostwindDrop.execute":
+        ghostwindDropExecutes.set(d.dropId, d.executedTick);
         break;
     }
   }
@@ -1941,6 +1965,87 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
       ]
     );
     counts.sim_diplomacy = (counts.sim_diplomacy || 0) + (res.rowCount || list.length);
+  }
+
+  // 33. sim_fringe_lairs updates & deletes by ID
+  if (lairDeleteIds.size > 0) {
+    const ids = Array.from(lairDeleteIds).sort((a, b) => a - b);
+    const res = await db.query(`DELETE FROM sim_fringe_lairs WHERE id = ANY($1::int[])`, [ids]);
+    counts.sim_fringe_lairs = (counts.sim_fringe_lairs || 0) + (res.rowCount || 0);
+  }
+  const activeLairUpdateIds = Array.from(lairUpdates.keys())
+    .filter((id) => !lairDeleteIds.has(id))
+    .sort((a, b) => a - b);
+  if (activeLairUpdateIds.length > 0) {
+    const list = activeLairUpdateIds.map((id) => lairUpdates.get(id)!);
+    const res = await db.query(
+      `WITH v AS (
+         SELECT
+           unnest($1::int[]) AS id,
+           unnest($2::boolean[]) AS h_set, unnest($3::int[]) AS h_val,
+           unnest($4::boolean[]) AS c_set, unnest($5::int[]) AS c_val,
+           unnest($6::boolean[]) AS b_set, unnest($7::int[]) AS b_val
+       ),
+       computed AS (
+         SELECT
+           l.id,
+           CASE WHEN v.h_set THEN v.h_val ELSE l.heat END AS next_heat,
+           CASE WHEN v.c_set THEN v.c_val ELSE l.cell_id END AS next_cell,
+           CASE WHEN v.b_set THEN v.b_val ELSE l.burg_id END AS next_burg
+         FROM v
+         JOIN sim_fringe_lairs l ON l.id = v.id
+       )
+       UPDATE sim_fringe_lairs l SET
+         heat = u.next_heat,
+         cell_id = u.next_cell,
+         burg_id = u.next_burg
+       FROM computed u
+       WHERE l.id = u.id
+         AND (
+           l.heat IS DISTINCT FROM u.next_heat OR
+           l.cell_id IS DISTINCT FROM u.next_cell OR
+           l.burg_id IS DISTINCT FROM u.next_burg
+         )`,
+      [
+        activeLairUpdateIds,
+        list.map((r) => r.heat !== undefined),
+        list.map((r) => r.heat ?? null),
+        list.map((r) => r.cellId !== undefined),
+        list.map((r) => r.cellId ?? null),
+        list.map((r) => Boolean(r.burgIdSet)),
+        list.map((r) => r.burgId ?? null),
+      ]
+    );
+    counts.sim_fringe_lairs = (counts.sim_fringe_lairs || 0) + (res.rowCount || 0);
+  }
+
+  // 34. sim_ghostwind_dead_drops
+  if (ghostwindDropCreates.length > 0) {
+    const res = await db.query(
+      `INSERT INTO sim_ghostwind_dead_drops (created_tick, client_faction_id, target_faction_id, target_burg_id, bounty_gold, status)
+       SELECT unnest($1::int[]), unnest($2::int[]), unnest($3::int[]), unnest($4::int[]), unnest($5::int[]), 'PENDING'`,
+      [
+        ghostwindDropCreates.map((g) => g.createdTick),
+        ghostwindDropCreates.map((g) => g.clientFactionId),
+        ghostwindDropCreates.map((g) => g.targetFactionId),
+        ghostwindDropCreates.map((g) => g.targetBurgId),
+        ghostwindDropCreates.map((g) => g.bountyGold),
+      ]
+    );
+    counts.sim_ghostwind_dead_drops =
+      (counts.sim_ghostwind_dead_drops || 0) + (res.rowCount || ghostwindDropCreates.length);
+  }
+
+  if (ghostwindDropExecutes.size > 0) {
+    const dIds = Array.from(ghostwindDropExecutes.keys()).sort((a, b) => a - b);
+    const res = await db.query(
+      `UPDATE sim_ghostwind_dead_drops AS d
+       SET status = 'EXECUTED', executed_tick = v.tick
+       FROM (SELECT unnest($1::int[]) AS id, unnest($2::int[]) AS tick) AS v
+       WHERE d.id = v.id`,
+      [dIds, dIds.map((id) => ghostwindDropExecutes.get(id)!)]
+    );
+    counts.sim_ghostwind_dead_drops = (counts.sim_ghostwind_dead_drops || 0) + (res.rowCount || 0);
   }
 
   return counts;

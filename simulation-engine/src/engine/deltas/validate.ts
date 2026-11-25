@@ -53,6 +53,10 @@ const KNOWN_KINDS = new Set<string>([
   "faction.update",
   "factionUnit.update",
   "diplomacy.upsert",
+  "fringeLair.update",
+  "fringeLair.delete",
+  "ghostwindDrop.create",
+  "ghostwindDrop.execute",
 ]);
 
 function clamp(v: number, min: number, max: number): number {
@@ -93,6 +97,8 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   const groveIds = new Set<number>();
   const ancientWardIds = new Set<number>();
   const factionUnitIds = new Set<number>();
+  const fringeLairIds = new Set<number>();
+  const ghostwindDropIds = new Set<number>();
 
   const structuralErrors = new Map<number, string>();
 
@@ -302,6 +308,7 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
           if (d.burgId !== undefined && d.burgId > 0) burgIds.add(d.burgId);
           if (d.cellId !== undefined && d.cellId > 0) cellIds.add(d.cellId);
           if (d.factionId !== undefined && d.factionId > 0) factionIds.add(d.factionId);
+          if (d.outlawId !== undefined && d.outlawId > 0) outlawIds.add(d.outlawId);
         }
         break;
       }
@@ -679,6 +686,52 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         }
         break;
       }
+      case "fringeLair.update": {
+        const err = finiteOrReject([
+          ["lairId", d.lairId],
+          ["heat", d.heat],
+          ["cellId", d.cellId],
+          ["burgId", d.burgId ?? undefined],
+        ]);
+        if (err) structuralErrors.set(i, err);
+        else {
+          fringeLairIds.add(d.lairId);
+          if (d.cellId !== undefined) cellIds.add(d.cellId);
+          if (typeof d.burgId === "number" && d.burgId > 0) burgIds.add(d.burgId);
+        }
+        break;
+      }
+      case "fringeLair.delete": {
+        const err = finiteOrReject([["lairId", d.lairId]]);
+        if (err) structuralErrors.set(i, err);
+        else fringeLairIds.add(d.lairId);
+        break;
+      }
+      case "ghostwindDrop.create": {
+        const err = finiteOrReject([
+          ["createdTick", d.createdTick],
+          ["clientFactionId", d.clientFactionId],
+          ["targetFactionId", d.targetFactionId],
+          ["targetBurgId", d.targetBurgId],
+          ["bountyGold", d.bountyGold],
+        ]);
+        if (err) structuralErrors.set(i, err);
+        else {
+          factionIds.add(d.clientFactionId);
+          factionIds.add(d.targetFactionId);
+          burgIds.add(d.targetBurgId);
+        }
+        break;
+      }
+      case "ghostwindDrop.execute": {
+        const err = finiteOrReject([
+          ["dropId", d.dropId],
+          ["executedTick", d.executedTick],
+        ]);
+        if (err) structuralErrors.set(i, err);
+        else ghostwindDropIds.add(d.dropId);
+        break;
+      }
     }
   }
 
@@ -782,6 +835,18 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   if (factionUnitIds.size > 0) {
     const res = await db.query(`SELECT id FROM sim_faction_units WHERE id = ANY($1::int[])`, [Array.from(factionUnitIds)]);
     for (const r of res.rows) validFactionUnits.add(Number(r.id));
+  }
+
+  const validFringeLairs = new Set<number>();
+  if (fringeLairIds.size > 0) {
+    const res = await db.query(`SELECT id FROM sim_fringe_lairs WHERE id = ANY($1::int[])`, [Array.from(fringeLairIds)]);
+    for (const r of res.rows) validFringeLairs.add(Number(r.id));
+  }
+
+  const validGhostwindDrops = new Set<number>();
+  if (ghostwindDropIds.size > 0) {
+    const res = await db.query(`SELECT id FROM sim_ghostwind_dead_drops WHERE id = ANY($1::int[])`, [Array.from(ghostwindDropIds)]);
+    for (const r of res.rows) validGhostwindDrops.add(Number(r.id));
   }
 
   const validStandingEntities = new Set<string>();
@@ -958,6 +1023,10 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         }
         if (d.factionId !== undefined && d.factionId > 0 && !validFactions.has(d.factionId)) {
           rejected.push({ delta: d, reason: `Unknown factionId ${d.factionId}` });
+          break;
+        }
+        if (d.outlawId !== undefined && d.outlawId > 0 && !validOutlaws.has(d.outlawId)) {
+          rejected.push({ delta: d, reason: `Unknown outlawId ${d.outlawId}` });
           break;
         }
         ok.push(d);
@@ -1254,6 +1323,64 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
           status: d.status,
           tension: clamp(Math.round(d.tension), 0, 100),
         });
+        break;
+
+      case "fringeLair.update":
+        if (!validFringeLairs.has(d.lairId)) {
+          rejected.push({ delta: d, reason: `Unknown fringeLair id ${d.lairId}` });
+          break;
+        }
+        if (d.cellId !== undefined && !validCells.has(d.cellId)) {
+          rejected.push({ delta: d, reason: `Unknown fringeLair cellId ${d.cellId}` });
+          break;
+        }
+        if (typeof d.burgId === "number" && d.burgId > 0 && !validBurgs.has(d.burgId)) {
+          rejected.push({ delta: d, reason: `Unknown fringeLair burgId ${d.burgId}` });
+          break;
+        }
+        ok.push({
+          ...d,
+          heat: d.heat !== undefined ? clamp(Math.round(d.heat), 0, 100) : undefined,
+        });
+        break;
+
+      case "fringeLair.delete":
+        if (!validFringeLairs.has(d.lairId)) {
+          rejected.push({ delta: d, reason: `Unknown fringeLair id ${d.lairId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "ghostwindDrop.create":
+        if (!validFactions.has(d.clientFactionId)) {
+          rejected.push({ delta: d, reason: `Unknown clientFactionId ${d.clientFactionId}` });
+          break;
+        }
+        if (!validFactions.has(d.targetFactionId)) {
+          rejected.push({ delta: d, reason: `Unknown targetFactionId ${d.targetFactionId}` });
+          break;
+        }
+        if (!validBurgs.has(d.targetBurgId)) {
+          rejected.push({ delta: d, reason: `Unknown targetBurgId ${d.targetBurgId}` });
+          break;
+        }
+        ok.push({
+          kind: "ghostwindDrop.create",
+          createdTick: Math.round(d.createdTick),
+          clientFactionId: d.clientFactionId,
+          targetFactionId: d.targetFactionId,
+          targetBurgId: d.targetBurgId,
+          bountyGold: Math.max(0, Math.round(d.bountyGold)),
+        });
+        break;
+
+      case "ghostwindDrop.execute":
+        if (!validGhostwindDrops.has(d.dropId)) {
+          rejected.push({ delta: d, reason: `Unknown ghostwindDrop id ${d.dropId}` });
+          break;
+        }
+        ok.push({ kind: "ghostwindDrop.execute", dropId: d.dropId, executedTick: Math.round(d.executedTick) });
         break;
 
       default:
