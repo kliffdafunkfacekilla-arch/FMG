@@ -142,6 +142,8 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   const overlayAdds: Array<Extract<Delta, { kind: "overlay.add" }>> = [];
   const standingAdjusts: Array<Extract<Delta, { kind: "standing.adjust" }>> = [];
   const endWarFactions = new Set<number>();
+  const cultureCellDeltas = new Map<number, number>();
+  const religionCellDeltas = new Map<number, number>();
   let lastCalendar: Extract<Delta, { kind: "calendar.set" }> | null = null;
 
   for (const d of deltas) {
@@ -384,6 +386,16 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
             manpower: Math.round(d.manpower ?? 10),
             heat: Math.round(d.heat ?? 10),
           });
+        }
+        break;
+      case "culture.adjustCells":
+        if (d.delta !== 0) {
+          cultureCellDeltas.set(d.cultureId, (cultureCellDeltas.get(d.cultureId) || 0) + Math.round(d.delta));
+        }
+        break;
+      case "religion.adjustCells":
+        if (d.delta !== 0) {
+          religionCellDeltas.set(d.religionId, (religionCellDeltas.get(d.religionId) || 0) + Math.round(d.delta));
         }
         break;
     }
@@ -1460,6 +1472,33 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
       ]
     );
     counts.sim_fringe_lairs = (counts.sim_fringe_lairs || 0) + (res.rowCount || lairUpserts.length);
+  }
+
+  // 23. culture & religion cell counts
+  if (cultureCellDeltas.size > 0) {
+    const cIds = Array.from(cultureCellDeltas.keys()).sort((a, b) => a - b);
+    const res = await db.query(
+      `UPDATE sim_cultures AS cu
+       SET cells = GREATEST(0, COALESCE(cu.cells, 0) + v.delta)
+       FROM (SELECT unnest($1::int[]) AS id, unnest($2::int[]) AS delta) AS v
+       WHERE cu.id = v.id
+         AND cu.cells IS DISTINCT FROM GREATEST(0, COALESCE(cu.cells, 0) + v.delta)`,
+      [cIds, cIds.map((id) => cultureCellDeltas.get(id)!)]
+    );
+    counts.sim_cultures = (counts.sim_cultures || 0) + (res.rowCount || 0);
+  }
+
+  if (religionCellDeltas.size > 0) {
+    const rIds = Array.from(religionCellDeltas.keys()).sort((a, b) => a - b);
+    const res = await db.query(
+      `UPDATE sim_religions AS r
+       SET cells = GREATEST(0, COALESCE(r.cells, 0) + v.delta)
+       FROM (SELECT unnest($1::int[]) AS id, unnest($2::int[]) AS delta) AS v
+       WHERE r.id = v.id
+         AND r.cells IS DISTINCT FROM GREATEST(0, COALESCE(r.cells, 0) + v.delta)`,
+      [rIds, rIds.map((id) => religionCellDeltas.get(id)!)]
+    );
+    counts.sim_religions = (counts.sim_religions || 0) + (res.rowCount || 0);
   }
 
   return counts;

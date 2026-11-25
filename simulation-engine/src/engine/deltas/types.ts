@@ -370,6 +370,16 @@ export type Delta =
       lairType?: string;
       manpower?: number;
       heat?: number;
+    }
+  | {
+      kind: "culture.adjustCells";
+      cultureId: number;
+      delta: number;
+    }
+  | {
+      kind: "religion.adjustCells";
+      religionId: number;
+      delta: number;
     };
 
 export type DeltaEmitter = (delta: Delta) => void;

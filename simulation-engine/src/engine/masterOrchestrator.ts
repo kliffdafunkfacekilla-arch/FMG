@@ -28,7 +28,8 @@ import { stepEcology } from "./macro/ecology/step.js";
 import { runNPCRoutineAgent } from "./agents/npcRoutineAgent";
 import { loadChaosFlow } from "./macro/chaosFlow/load.js";
 import { stepChaosFlow } from "./macro/chaosFlow/step.js";
-import { runCultureReligionAgent } from "./agents/cultureReligionAgent";
+import { loadCultureReligion } from "./macro/cultureReligion/load.js";
+import { stepCultureReligion } from "./macro/cultureReligion/step.js";
 import { runBackgroundDirectorAgent } from "./agents/backgroundDirector";
 import { backfillBlankPersonas } from "./agents/citizenPersonaHelper";
 import { initSpatialCache } from "./agents/agentMovementHelper";
@@ -223,7 +224,11 @@ async function runTick(): Promise<TickResult> {
             });
             await step('factionPlanning', () => runFactionPlanningAgent(client, tick, loreDate));
             await step('burgExpansion', () => runBurgExpansionAgent(client, tick, loreDate));
-            await step('cultureReligion', () => runCultureReligionAgent(client, tick, loreDate));
+            await step('cultureReligion', async (emit) => {
+                const snap = await loadCultureReligion(client, tick, loreDate);
+                const out = stepCultureReligion(snap);
+                for (const d of out.deltas) emit(d);
+            });
             await step('trade', () => runInterFactionTradeEngine(client, tick, loreDate));
             await step('market', async () => {
                 const snap = await loadMarket(client, tick);

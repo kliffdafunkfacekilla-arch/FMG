@@ -40,6 +40,8 @@ const KNOWN_KINDS = new Set<string>([
   "grindCanyon.create",
   "outlawFaction.adjust",
   "fringeLair.mutate",
+  "culture.adjustCells",
+  "religion.adjustCells",
 ]);
 
 function clamp(v: number, min: number, max: number): number {
@@ -74,6 +76,8 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   const canyonIds = new Set<number>();
   const outlawIds = new Set<number>();
   const chaosFlowIds = new Set<number>();
+  const cultureIds = new Set<number>();
+  const religionIds = new Set<number>();
 
   const structuralErrors = new Map<number, string>();
 
@@ -513,6 +517,18 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         }
         break;
       }
+      case "culture.adjustCells": {
+        const err = finiteOrReject([["cultureId", d.cultureId], ["delta", d.delta]]);
+        if (err) structuralErrors.set(i, err);
+        else cultureIds.add(d.cultureId);
+        break;
+      }
+      case "religion.adjustCells": {
+        const err = finiteOrReject([["religionId", d.religionId], ["delta", d.delta]]);
+        if (err) structuralErrors.set(i, err);
+        else religionIds.add(d.religionId);
+        break;
+      }
     }
   }
 
@@ -580,6 +596,18 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   if (chaosFlowIds.size > 0) {
     const res = await db.query(`SELECT flow_id FROM sim_chaos_flows WHERE flow_id = ANY($1::int[])`, [Array.from(chaosFlowIds)]);
     for (const r of res.rows) validChaosFlows.add(Number(r.flow_id));
+  }
+
+  const validCultures = new Set<number>();
+  if (cultureIds.size > 0) {
+    const res = await db.query(`SELECT id FROM sim_cultures WHERE id = ANY($1::int[])`, [Array.from(cultureIds)]);
+    for (const r of res.rows) validCultures.add(Number(r.id));
+  }
+
+  const validReligions = new Set<number>();
+  if (religionIds.size > 0) {
+    const res = await db.query(`SELECT id FROM sim_religions WHERE id = ANY($1::int[])`, [Array.from(religionIds)]);
+    for (const r of res.rows) validReligions.add(Number(r.id));
   }
 
   const validStandingEntities = new Set<string>();
@@ -908,6 +936,22 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         }
         if (typeof d.burgId === "number" && d.burgId > 0 && !validBurgs.has(d.burgId)) {
           rejected.push({ delta: d, reason: `Unknown fringeLair burgId ${d.burgId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "culture.adjustCells":
+        if (!validCultures.has(d.cultureId)) {
+          rejected.push({ delta: d, reason: `Unknown cultureId ${d.cultureId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "religion.adjustCells":
+        if (!validReligions.has(d.religionId)) {
+          rejected.push({ delta: d, reason: `Unknown religionId ${d.religionId}` });
           break;
         }
         ok.push(d);

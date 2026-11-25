@@ -12,6 +12,7 @@ import { DAYS_PER_WEEK } from "../engine/canon/calendar.js";
 import { stepCalendar } from "../engine/macro/calendar/step.js";
 import { computeChaosFlowState, stepChaosFlow } from "../engine/macro/chaosFlow/step.js";
 import { stepAutonomousDrama } from "../engine/macro/autonomousDrama/step.js";
+import { seededFraction, stepCultureReligion } from "../engine/macro/cultureReligion/step.js";
 
 function testEncounterUnit() {
   const emptyDeltas = stepEncounter({ agents: [], cellIds: [10, 20, 30] }, { tick: 2, random: mulberry32(42) });
@@ -553,6 +554,82 @@ function testAutonomousDramaUnit() {
   console.log("9. stepAutonomousDrama (no DB) paragon/citizen pairing, dice & clash threads... PASSED");
 }
 
+function testCultureReligionUnit() {
+  // Find deterministic cellIds that satisfy seededFraction < 0.55 (culture) and < 0.35 / 0.80 (heresy)
+  const tick = 10;
+  let cultCid = 1;
+  while (seededFraction(cultCid, tick, 0x51a1) >= 0.55) cultCid++;
+  let heresyCid = 100;
+  while (seededFraction(heresyCid, tick, 0x73e2) >= 0.35) heresyCid++;
+  let chaosHeresyCid = 200;
+  while (seededFraction(chaosHeresyCid, tick, 0x73e2) >= 0.80) chaosHeresyCid++;
+
+  const snap = {
+    tick,
+    loreDate: "10th Day",
+    cultures: [
+      { id: 1, name: "Highlander" },
+      { id: 2, name: "Imperial" },
+    ],
+    religions: [
+      { id: 0, name: "Unaffiliated", type: "Folk" },
+      { id: 1, name: "Eternal Dawn", type: "Organized" },
+      { id: 2, name: "Cult of the Crushed", type: "Cult" },
+    ],
+    templeProtectedCenters: [{ cx: 500, cy: 500 }],
+    chaosByCell: [{ cellId: 902, intensity: 80 }],
+    cultFrontierRows: [
+      { cellId: cultCid, oldCultureId: 1, targetCultureId: 2, factionName: "Avian Empire", burgId: 10, burgName: "Redwatch" },
+    ],
+    cleanseRows: [
+      {
+        burgId: 1,
+        burgName: "Excelsis",
+        orthoReligionId: 1,
+        orthoReligionName: "Eternal Dawn",
+        targetCellId: 300,
+        oldReligionId: 2,
+      },
+    ],
+    heresyRows: [
+      // Protected by temple center (dist^2 = 100 <= 400): skipped
+      { srcId: 901, srcReligionId: 2, targetCellId: 301, oldReligionId: 1, tx: 510, ty: 500, burgId: null, burgName: null },
+      // Normal adjacent heresy spread
+      { srcId: 901, srcReligionId: 2, targetCellId: heresyCid, oldReligionId: 1, tx: 100, ty: 100, burgId: 11, burgName: "Fenwick" },
+      // Chaos-boosted spread (fallback cult assignment since srcReligionId is non-cult)
+      { srcId: 902, srcReligionId: 0, targetCellId: chaosHeresyCid, oldReligionId: 0, tx: 150, ty: 150, burgId: null, burgName: null },
+    ],
+  };
+
+  const out = stepCultureReligion(snap);
+  assert.equal(out.result.cultureConversions, 1);
+  assert.equal(out.result.templeReconversions, 1);
+  assert.equal(out.result.heresyConversions, 2);
+
+  type D = (typeof out.deltas)[number];
+  const cellSets = out.deltas.filter((d): d is Extract<D, { kind: "cell.set" }> => d.kind === "cell.set");
+  assert.ok(cellSets.some((d) => d.cellId === cultCid && d.fields.culture_id === 2));
+  assert.ok(cellSets.some((d) => d.cellId === 300 && d.fields.religion_id === 1));
+  assert.ok(!cellSets.some((d) => d.cellId === 301), "Temple shield within 20 units must block heresy");
+  assert.ok(cellSets.some((d) => d.cellId === heresyCid && d.fields.religion_id === 2));
+  assert.ok(cellSets.some((d) => d.cellId === chaosHeresyCid && d.fields.religion_id === 2));
+
+  const cAdj = out.deltas.filter((d): d is Extract<D, { kind: "culture.adjustCells" }> => d.kind === "culture.adjustCells");
+  assert.ok(cAdj.some((c) => c.cultureId === 1 && c.delta === -1));
+  assert.ok(cAdj.some((c) => c.cultureId === 2 && c.delta === 1));
+
+  const rAdj = out.deltas.filter((d): d is Extract<D, { kind: "religion.adjustCells" }> => d.kind === "religion.adjustCells");
+  assert.ok(rAdj.some((r) => r.religionId === 0 && r.delta === -1));
+  assert.ok(rAdj.some((r) => r.religionId === 1 && r.delta === 0) === false, "Net zero delta must be omitted");
+
+  const bAdj = out.deltas.filter((d): d is Extract<D, { kind: "burg.adjust" }> => d.kind === "burg.adjust");
+  assert.ok(bAdj.some((b) => b.burgId === 1 && b.unrest === -1));
+  assert.ok(bAdj.some((b) => b.burgId === 11 && b.unrest === 2));
+
+  assert.equal(JSON.stringify(out), JSON.stringify(stepCultureReligion(snap)));
+  console.log("10. stepCultureReligion (no DB) assimilation, temple pushback & heresy spread... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
@@ -564,6 +641,7 @@ function main() {
   testGrindCanyonUnit();
   testChaosFlowUnit();
   testAutonomousDramaUnit();
+  testCultureReligionUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 
