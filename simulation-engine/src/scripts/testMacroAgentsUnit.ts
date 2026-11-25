@@ -23,6 +23,8 @@ import { stepChronicler } from "../engine/macro/chronicler/step.js";
 import { stepParagons } from "../engine/macro/paragons/step.js";
 import { stepFactionPlanning } from "../engine/macro/factions/step.js";
 import { stepCartels } from "../engine/macro/cartels/step.js";
+import { materializeTradeDispatchDeltas, stepTrade } from "../engine/macro/trade/step.js";
+import type { TradeRouter, TradeSnapshot } from "../engine/macro/trade/types.js";
 
 function testEncounterUnit() {
   const emptyDeltas = stepEncounter({ agents: [], cellIds: [10, 20, 30] }, { tick: 2, random: mulberry32(42) });
@@ -1709,6 +1711,293 @@ function testCartelsUnit() {
   console.log("20. stepCartels (no DB) split cartels, lair bust/bribe, upkeep & live transfers... PASSED");
 }
 
+function testTradeUnit() {
+  const coords: Record<number, { x: number; y: number }> = {
+    100: { x: 0, y: 0 },
+    101: { x: 20, y: 0 },
+    102: { x: 40, y: 0 },
+    200: { x: 200, y: 200 },
+    201: { x: 220, y: 200 },
+    202: { x: 240, y: 200 },
+    300: { x: 400, y: 400 },
+    301: { x: 420, y: 400 },
+  };
+  const mockRouter: TradeRouter = {
+    getCellCoords: (cid) => coords[cid] ?? null,
+    distBetweenCells: (a, b) => {
+      if (a === b) return 0;
+      const ca = coords[a];
+      const cb = coords[b];
+      return ca && cb ? Math.hypot(cb.x - ca.x, cb.y - ca.y) : 9999;
+    },
+    advanceAlongPath: (pathCells, idx) => {
+      const nextIndex = Math.min(pathCells.length - 1, idx + 1);
+      const nextCellId = pathCells[nextIndex]!;
+      return {
+        nextIndex,
+        nextCellId,
+        visitedCells: idx < nextIndex ? [nextCellId] : [],
+        arrived: nextIndex >= pathCells.length - 1,
+        stepDist: 20,
+      };
+    },
+    findTradeRoute: (opts) => {
+      if (opts.blockedCells?.has(opts.fromCellId) || opts.blockedCells?.has(opts.toCellId)) return null;
+      return {
+        mode: opts.allowedModes[0]!,
+        pathCells: [opts.fromCellId, opts.toCellId],
+        totalDist: 20,
+        etaTicks: 1,
+        usesSea: opts.allowedModes[0] === "SEA",
+        usesRoad: true,
+      };
+    },
+    computeRiverTollForPath: () => ({ crossings: 0, riverTollGold: 0 }),
+    createRouteSearchMemo: () => ({ goalReach: new Map(), dynamicPaths: new Map() }),
+  };
+
+  const snap: TradeSnapshot = {
+    tick: 12,
+    loreDate: "Day 12",
+    diplomacy: [{ factionAId: 29, factionBId: 31, status: "WAR" }],
+    factions: [
+      { id: 29, name: "Avian", fiscalEconomy: {} },
+      { id: 30, name: "Allies", fiscalEconomy: {} },
+      { id: 31, name: "Rival", fiscalEconomy: {} },
+    ],
+    cellFactionEntries: [],
+    blockedCellIds: [],
+    lairs: [
+      {
+        id: 77,
+        factionId: 6,
+        cellId: 201,
+        burgId: 12,
+        lairType: "TOLL_BLOCKADE",
+        manpower: 200,
+        heat: 10,
+        syndicateName: "The Obsidian Cartel",
+        inventory: {},
+      },
+    ],
+    goods: [
+      { id: 1, name: "Wood", key: "wood", value: 4, carriage: 1, recipes: [] },
+      { id: 4, name: "Iron", key: "iron", value: 5, carriage: 1, recipes: [] },
+      { id: 9, name: "Grain", key: "grain", value: 3, carriage: 1, recipes: [] },
+      { id: 20, name: "Spears", key: "spears", value: 12, carriage: 1, recipes: [{ "1": 2 }] },
+      { id: 34, name: "Coal", key: "coal", value: 6, carriage: 1, recipes: [] },
+    ],
+    markets: [{ id: 1, centerBurgId: 1, goods: {} }],
+    burgs: [
+      {
+        burgId: 1,
+        name: "Excelsis",
+        cellId: 100,
+        factionId: 29,
+        factionName: "Avian",
+        marketId: 1,
+        wealth: 200,
+        food: 500,
+        urbanTier: 2,
+        unrest: 5,
+        port: false,
+        inventory: { wood: 2 },
+        profile: { crafted: [{ goodId: 20, key: "spears", targetOutput: 10 }] },
+      },
+      {
+        burgId: 2,
+        name: "WarBorder",
+        cellId: 102,
+        factionId: 29,
+        factionName: "Avian",
+        marketId: 1,
+        wealth: 5, // skips dispatch
+        food: 800,
+        urbanTier: 1,
+        unrest: 10,
+        port: false,
+        inventory: {},
+        profile: {},
+      },
+      {
+        burgId: 10,
+        name: "Grainvale",
+        cellId: 101,
+        factionId: 30,
+        factionName: "Allies",
+        marketId: 1,
+        wealth: 100,
+        food: 900,
+        urbanTier: 1,
+        unrest: 0,
+        port: false,
+        inventory: { grain: 10 },
+        profile: {},
+      },
+      {
+        burgId: 11,
+        name: "Coalfield",
+        cellId: 200,
+        factionId: 31,
+        factionName: "Rival",
+        marketId: 1,
+        wealth: 100,
+        food: 900,
+        urbanTier: 1,
+        unrest: 0,
+        port: false,
+        inventory: { coal: 10 },
+        profile: {},
+      },
+      {
+        burgId: 12,
+        name: "Timberford",
+        cellId: 300,
+        factionId: 30,
+        factionName: "Allies",
+        marketId: 1,
+        wealth: 100,
+        food: 900,
+        urbanTier: 1,
+        unrest: 0,
+        port: false,
+        inventory: { wood: 40 },
+        profile: {},
+      },
+    ],
+    inTransitShipments: [
+      {
+        id: 1,
+        sourceBurgId: 10,
+        destBurgId: 1,
+        sourceFactionId: 30,
+        destFactionId: 29,
+        transportMode: "LAND",
+        goodId: 9,
+        goodKey: "grain",
+        goodName: "Grain",
+        quantity: 10,
+        totalGold: 60,
+        tariffGold: 6,
+        guardCount: 0,
+        pathCells: [101, 100],
+        pathIndex: 0,
+        currentCellId: 101,
+        etaTicks: 1,
+        crewIds: [501, 502],
+      },
+      {
+        id: 2,
+        sourceBurgId: 11,
+        destBurgId: 2,
+        sourceFactionId: 31,
+        destFactionId: 29,
+        transportMode: "LAND",
+        goodId: 34,
+        goodKey: "coal",
+        goodName: "Coal",
+        quantity: 10,
+        totalGold: 50,
+        tariffGold: 5,
+        guardCount: 0,
+        pathCells: [200, 102],
+        pathIndex: 0,
+        currentCellId: 200,
+        etaTicks: 1,
+        crewIds: [503],
+      },
+      {
+        id: 3,
+        sourceBurgId: 12,
+        destBurgId: 1,
+        sourceFactionId: 30,
+        destFactionId: 29,
+        transportMode: "LAND",
+        goodId: 4,
+        goodKey: "iron",
+        goodName: "Iron",
+        quantity: 8,
+        totalGold: 40,
+        tariffGold: 2,
+        guardCount: 0,
+        pathCells: [200, 201, 100],
+        pathIndex: 0,
+        currentCellId: 200,
+        etaTicks: 2,
+        crewIds: [504],
+      },
+    ],
+    inTransitCrewMeta: [
+      { citizenId: 501, settlementId: 10, profession: "Merchant Factor", lifeStage: "ADULT", allegianceStatus: "ON_CARAVAN" },
+      { citizenId: 502, settlementId: 10, profession: "Caravan Drover", lifeStage: "ADULT", allegianceStatus: "ON_CARAVAN" },
+      { citizenId: 503, settlementId: 11, profession: "Merchant Factor", lifeStage: "ADULT", allegianceStatus: "ON_CARAVAN" },
+      { citizenId: 504, settlementId: 12, profession: "Merchant Factor", lifeStage: "ADULT", allegianceStatus: "ON_CARAVAN" },
+    ],
+    livingCrew: [{ citizenId: 701, settlementId: 12, profession: "Merchant Factor" }],
+    cohortCrewCounts: [{ burgId: 12, profession: "Caravan Drover", count: 2 }],
+    tradeDeals: [],
+  };
+
+  const snapBefore = JSON.stringify(snap);
+  const out = stepTrade(snap, { random: () => 0.1, router: mockRouter });
+  assert.equal(JSON.stringify(snap), snapBefore, "stepTrade must not mutate caller snapshot");
+
+  assert.equal(out.result.shipmentsDelivered, 1);
+  assert.equal(out.result.shipmentsAborted, 1);
+  assert.equal(out.result.shipmentsIntercepted, 1);
+  assert.equal(out.result.shipmentsDispatched, 1);
+  assert.equal(out.result.embargoStalls.length, 1);
+
+  assert.ok(out.deltas.some((d) => d.kind === "tradeShipment.update" && d.shipmentId === 1 && d.status === "DELIVERED"));
+  assert.ok(out.deltas.some((d) => d.kind === "tradeShipment.update" && d.shipmentId === 2 && d.status === "ABORTED"));
+  assert.ok(out.deltas.some((d) => d.kind === "tradeShipment.update" && d.shipmentId === 3 && d.status === "INTERCEPTED"));
+
+  const b1Inv = out.deltas.find((d) => d.kind === "burgStockpile.setInventory" && d.burgId === 1) as any;
+  assert.ok(b1Inv && b1Inv.inventory.grain === 10 && b1Inv.inventory.wood === 2);
+  const b1Stats = out.deltas.find((d) => d.kind === "burg.set" && d.burgId === 1) as any;
+  assert.ok(b1Stats && b1Stats.fields.wealth === 140 && b1Stats.fields.food === 640);
+  const b10Stats = out.deltas.find((d) => d.kind === "burg.set" && d.burgId === 10) as any;
+  assert.ok(b10Stats && b10Stats.fields.wealth === 154);
+  assert.ok(out.deltas.some((d) => d.kind === "faction.update" && d.factionId === 29 && d.treasuryDelta === 6));
+  const b11Inv = out.deltas.find((d) => d.kind === "burgStockpile.setInventory" && d.burgId === 11) as any;
+  assert.ok(b11Inv && b11Inv.inventory.coal === 20); // salvaged 10 back onto 10
+  const b2Stats = out.deltas.find((d) => d.kind === "burg.set" && d.burgId === 2) as any;
+  assert.ok(b2Stats && b2Stats.fields.unrest === 11);
+
+  const lairUpd = out.deltas.find((d) => d.kind === "fringeLair.update" && d.lairId === 77) as any;
+  assert.ok(lairUpd && lairUpd.heat === 18 && lairUpd.inventory.iron === 8);
+  assert.ok(out.deltas.some((d) => d.kind === "outlawFaction.adjust" && d.outlawId === 6 && d.wealthDelta === 20));
+  assert.ok(out.deltas.some((d) => d.kind === "event.log" && d.type === "CARAVAN_RAIDED" && d.outlawId === 6));
+
+  // Timberford (12) escrows 16 wood (40% of 40 = 16 -> 24 remaining), reuses released merchant 504,
+  // and requests 2 cohort drover tokens (since quantity >= 12 and 2 cohort drovers exist)
+  const b12Inv = out.deltas.find((d) => d.kind === "burgStockpile.setInventory" && d.burgId === 12) as any;
+  assert.ok(b12Inv && b12Inv.inventory.wood === 24);
+  assert.equal(out.cohortPromotions.length, 2);
+  const tokMap = new Map<number, number>([
+    [out.cohortPromotions[0]!.token, 9001],
+    [out.cohortPromotions[1]!.token, 9002],
+  ]);
+  const dispatchDeltas = materializeTradeDispatchDeltas(out.pendingDispatches, tokMap, snap.tick);
+  const shipCreate = dispatchDeltas.find((d) => d.kind === "tradeShipment.create") as any;
+  assert.ok(
+    shipCreate &&
+      shipCreate.merchantCitizenId === 504 &&
+      shipCreate.crewCitizenIds.length === 2 &&
+      shipCreate.crewCitizenIds[0] === 9001 &&
+      shipCreate.crewCitizenIds[1] === 9002
+  );
+  assert.ok(dispatchDeltas.some((d) => d.kind === "citizen.status" && d.citizenId === 504 && d.status === "ON_CARAVAN"));
+  assert.ok(dispatchDeltas.some((d) => d.kind === "citizen.status" && d.citizenId === 9001 && d.status === "ON_CARAVAN"));
+  assert.ok(dispatchDeltas.some((d) => d.kind === "citizen.status" && d.citizenId === 9002 && d.status === "ON_CARAVAN"));
+
+  assert.equal(
+    JSON.stringify(stepTrade(snap, { random: mulberry32(77), router: mockRouter })),
+    JSON.stringify(stepTrade(snap, { random: mulberry32(77), router: mockRouter }))
+  );
+  console.log("21. stepTrade (no DB) transit, embargo, raid, dispatch & cohort tokens... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
@@ -1731,6 +2020,7 @@ function main() {
   testParagonsUnit();
   testFactionPlanningUnit();
   testCartelsUnit();
+  testTradeUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 

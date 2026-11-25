@@ -27,7 +27,7 @@ const QUERY_CEILINGS: Record<string, number> = {
   cultists: 25,
   backgroundDirector: 35,
   autonomousDrama: 35,
-  trade: 35,
+  trade: 32,
   weather: 30,
   threadClocks: 25,
   paragons: 20,
