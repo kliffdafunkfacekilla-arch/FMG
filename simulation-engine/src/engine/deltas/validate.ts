@@ -42,6 +42,8 @@ const KNOWN_KINDS = new Set<string>([
   "fringeLair.mutate",
   "culture.adjustCells",
   "religion.adjustCells",
+  "npcInstance.update",
+  "fringeLair.addRations",
 ]);
 
 function clamp(v: number, min: number, max: number): number {
@@ -78,6 +80,7 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   const chaosFlowIds = new Set<number>();
   const cultureIds = new Set<number>();
   const religionIds = new Set<number>();
+  const npcInstanceIds = new Set<string>();
 
   const structuralErrors = new Map<number, string>();
 
@@ -98,6 +101,7 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
           ["health", d.health],
           ["crime", d.crime],
           ["rawMaterials", d.rawMaterials],
+          ["refinedGoods", d.refinedGoods],
           ["popNull", d.popNull],
           ["popAttuned", d.popAttuned],
         ]);
@@ -115,6 +119,7 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
           ["health", f.health],
           ["crime_rate", f.crime_rate],
           ["raw_materials", f.raw_materials],
+          ["refined_goods", f.refined_goods],
           ["pop_null", f.pop_null],
           ["pop_attuned", f.pop_attuned],
           ["urban_tier", f.urban_tier],
@@ -529,6 +534,27 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         else religionIds.add(d.religionId);
         break;
       }
+      case "npcInstance.update": {
+        const err = finiteOrReject([
+          ["disposition", d.disposition],
+          ["tradePriceMult", d.tradePriceMult],
+        ]);
+        if (err || !d.npcId || typeof d.npcId !== "string") {
+          structuralErrors.set(i, err || "Invalid npcInstance.update payload");
+        } else {
+          npcInstanceIds.add(d.npcId);
+        }
+        break;
+      }
+      case "fringeLair.addRations": {
+        const err = finiteOrReject([["burgId", d.burgId], ["rations", d.rations]]);
+        if (err || d.rations <= 0) {
+          structuralErrors.set(i, err || "Invalid fringeLair.addRations payload");
+        } else {
+          burgIds.add(d.burgId);
+        }
+        break;
+      }
     }
   }
 
@@ -610,6 +636,12 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
     for (const r of res.rows) validReligions.add(Number(r.id));
   }
 
+  const validNpcInstances = new Set<string>();
+  if (npcInstanceIds.size > 0) {
+    const res = await db.query(`SELECT id FROM sim_npc_instances WHERE id = ANY($1::text[])`, [Array.from(npcInstanceIds)]);
+    for (const r of res.rows) validNpcInstances.add(String(r.id));
+  }
+
   const validStandingEntities = new Set<string>();
   if (standingEntityRefs.size > 0) {
     const entCheck = await db.query(`SELECT to_regclass('entities') IS NOT NULL AS ready`);
@@ -649,6 +681,7 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         if (f.health !== undefined) f.health = clamp(Math.round(f.health), 0, 100);
         if (f.crime_rate !== undefined) f.crime_rate = clamp(f.crime_rate, 0, 100);
         if (f.raw_materials !== undefined) f.raw_materials = Math.max(0, Math.round(f.raw_materials));
+        if (f.refined_goods !== undefined) f.refined_goods = Math.max(0, Math.round(f.refined_goods));
         if (f.pop_null !== undefined) f.pop_null = Math.max(0, Math.round(f.pop_null));
         if (f.pop_attuned !== undefined) f.pop_attuned = Math.max(0, Math.round(f.pop_attuned));
         if (f.urban_tier !== undefined) f.urban_tier = Math.max(0, Math.round(f.urban_tier));
@@ -952,6 +985,22 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
       case "religion.adjustCells":
         if (!validReligions.has(d.religionId)) {
           rejected.push({ delta: d, reason: `Unknown religionId ${d.religionId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "npcInstance.update":
+        if (!validNpcInstances.has(d.npcId)) {
+          rejected.push({ delta: d, reason: `Unknown npcInstance id ${d.npcId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "fringeLair.addRations":
+        if (!validBurgs.has(d.burgId)) {
+          rejected.push({ delta: d, reason: `Unknown fringeLair.addRations burgId ${d.burgId}` });
           break;
         }
         ok.push(d);

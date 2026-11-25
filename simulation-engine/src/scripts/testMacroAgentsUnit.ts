@@ -13,6 +13,7 @@ import { stepCalendar } from "../engine/macro/calendar/step.js";
 import { computeChaosFlowState, stepChaosFlow } from "../engine/macro/chaosFlow/step.js";
 import { stepAutonomousDrama } from "../engine/macro/autonomousDrama/step.js";
 import { seededFraction, stepCultureReligion } from "../engine/macro/cultureReligion/step.js";
+import { stepNpcRoutines } from "../engine/macro/npcRoutines/step.js";
 
 function testEncounterUnit() {
   const emptyDeltas = stepEncounter({ agents: [], cellIds: [10, 20, 30] }, { tick: 2, random: mulberry32(42) });
@@ -630,6 +631,71 @@ function testCultureReligionUnit() {
   console.log("10. stepCultureReligion (no DB) assimilation, temple pushback & heresy spread... PASSED");
 }
 
+function testNpcRoutinesUnit() {
+  let rollIdx = 0;
+  const rolls = [0.05, 0.9]; // Route 1 ambushed (5 < 30), Route 2 delivered (90 >= 15)
+  const rng = () => rolls[rollIdx++] ?? 0.99;
+
+  const snap = {
+    tick: 12,
+    loreDate: "Day 12",
+    livingNpcs: [
+      {
+        id: "npc_1",
+        cellId: 10,
+        role: "Blacksmith",
+        instinct: "WARY" as const,
+        temper: "STOIC" as const,
+        needs: { food: 0.8, rest: 0.8, coin: 0.5, safety: 0.8, company: 0.5 },
+        mood: { fear: 0.1, anger: 0.1, joy: 0.2 },
+        beliefs: [],
+        socialLinks: [],
+        scheduleState: "ROUTINE_WORK" as const,
+        burgFood: 250,
+        burgWealth: 400,
+        burgUnrest: 25,
+        burgCrime: 10,
+      },
+    ],
+    recentEvents: [],
+    activeRoutes: [
+      { sourceBurgId: 1, destBurgId: 2, volume: 100, riskLevel: 2, srcFood: 500, dstFood: 100 }, // 40 food, risk cutoff 30
+      { sourceBurgId: 3, destBurgId: 4, volume: 200, riskLevel: 1, srcFood: 600, dstFood: 150 }, // 60 food (capped), risk cutoff 15
+    ],
+    deceasedNpcs: [
+      { id: "dead_smith", cellId: 10, burgId: 5, role: "Master Smith", recent: true },
+      { id: "dead_farmer", cellId: 11, burgId: 6, role: "Village Farmer", recent: true },
+      { id: "old_dead", cellId: 12, burgId: 7, role: "Artisan", recent: false },
+    ],
+  };
+
+  const deltas = stepNpcRoutines(snap, { random: rng });
+  type D = (typeof deltas)[number];
+
+  const npcUpd = deltas.filter((d): d is Extract<D, { kind: "npcInstance.update" }> => d.kind === "npcInstance.update");
+  assert.ok(npcUpd.some((u) => u.npcId === "npc_1" && u.needs !== undefined && u.disposition !== undefined));
+  assert.ok(npcUpd.some((u) => u.npcId === "dead_smith" && u.processedForEconomy === true));
+  assert.ok(npcUpd.some((u) => u.npcId === "old_dead" && u.processedForEconomy === true));
+
+  const lairRations = deltas.find((d): d is Extract<D, { kind: "fringeLair.addRations" }> => d.kind === "fringeLair.addRations");
+  assert.ok(lairRations && lairRations.burgId === 2 && lairRations.rations === 40);
+
+  const ambushEv = deltas.find((d): d is Extract<D, { kind: "event.log" }> => d.kind === "event.log");
+  assert.ok(ambushEv && ambushEv.type === "CARAVAN_AMBUSH" && ambushEv.burgId === 2);
+
+  const bAdj = deltas.filter((d): d is Extract<D, { kind: "burg.adjust" }> => d.kind === "burg.adjust");
+  assert.ok(bAdj.some((b) => b.burgId === 4 && b.food === 60 && b.unrest === -2));
+  assert.ok(bAdj.some((b) => b.burgId === 5 && b.refinedGoods === -15));
+  assert.ok(bAdj.some((b) => b.burgId === 6 && b.food === -10));
+  assert.ok(!bAdj.some((b) => b.burgId === 7), "Stale deceased NPC (> 1 day) must not penalize economy");
+
+  assert.equal(
+    JSON.stringify(stepNpcRoutines(snap, { random: mulberry32(31) })),
+    JSON.stringify(stepNpcRoutines(snap, { random: mulberry32(31) }))
+  );
+  console.log("11. stepNpcRoutines (no DB) mind eval, caravan ambush/delivery & casualty penalties... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
@@ -642,6 +708,7 @@ function main() {
   testChaosFlowUnit();
   testAutonomousDramaUnit();
   testCultureReligionUnit();
+  testNpcRoutinesUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 

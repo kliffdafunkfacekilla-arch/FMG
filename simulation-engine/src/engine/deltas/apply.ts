@@ -29,6 +29,7 @@ interface BurgMerged {
   health: NumAcc;
   crimeRate: NumAcc;
   rawMaterials: NumAcc;
+  refinedGoods: NumAcc;
   popNull: NumAcc;
   popAttuned: NumAcc;
   urbanTierSet: boolean;
@@ -47,6 +48,7 @@ function emptyBurgMerged(): BurgMerged {
     health: zeroAcc(),
     crimeRate: zeroAcc(),
     rawMaterials: zeroAcc(),
+    refinedGoods: zeroAcc(),
     popNull: zeroAcc(),
     popAttuned: zeroAcc(),
     urbanTierSet: false,
@@ -144,6 +146,16 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   const endWarFactions = new Set<number>();
   const cultureCellDeltas = new Map<number, number>();
   const religionCellDeltas = new Map<number, number>();
+  const npcInstanceUpdates = new Map<string, {
+    needs?: string;
+    mood?: string;
+    beliefs?: string;
+    disposition?: number;
+    tradePriceMult?: number;
+    processedForEconomy?: boolean;
+    touchUpdated: boolean;
+  }>();
+  const lairRationsByBurg = new Map<number, number>();
   let lastCalendar: Extract<Delta, { kind: "calendar.set" }> | null = null;
 
   for (const d of deltas) {
@@ -157,6 +169,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         applyNumAdjust(m.health, d.health);
         applyNumAdjust(m.crimeRate, d.crime);
         applyNumAdjust(m.rawMaterials, d.rawMaterials);
+        applyNumAdjust(m.refinedGoods, d.refinedGoods);
         applyNumAdjust(m.popNull, d.popNull);
         applyNumAdjust(m.popAttuned, d.popAttuned);
         break;
@@ -171,6 +184,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         applyNumSet(m.health, f.health);
         applyNumSet(m.crimeRate, f.crime_rate);
         applyNumSet(m.rawMaterials, f.raw_materials);
+        applyNumSet(m.refinedGoods, f.refined_goods);
         applyNumSet(m.popNull, f.pop_null);
         applyNumSet(m.popAttuned, f.pop_attuned);
         if (f.urban_tier !== undefined) { m.urbanTierSet = true; m.urbanTierVal = f.urban_tier; }
@@ -398,6 +412,22 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
           religionCellDeltas.set(d.religionId, (religionCellDeltas.get(d.religionId) || 0) + Math.round(d.delta));
         }
         break;
+      case "npcInstance.update": {
+        const cur = npcInstanceUpdates.get(d.npcId) || { touchUpdated: false };
+        if (d.needs !== undefined) { cur.needs = JSON.stringify(d.needs); cur.touchUpdated = true; }
+        if (d.mood !== undefined) { cur.mood = JSON.stringify(d.mood); cur.touchUpdated = true; }
+        if (d.beliefs !== undefined) { cur.beliefs = JSON.stringify(d.beliefs); cur.touchUpdated = true; }
+        if (d.disposition !== undefined) { cur.disposition = Math.round(d.disposition); cur.touchUpdated = true; }
+        if (d.tradePriceMult !== undefined) { cur.tradePriceMult = d.tradePriceMult; cur.touchUpdated = true; }
+        if (d.processedForEconomy !== undefined) { cur.processedForEconomy = d.processedForEconomy; }
+        npcInstanceUpdates.set(d.npcId, cur);
+        break;
+      }
+      case "fringeLair.addRations": {
+        const amt = Math.round(d.rations);
+        if (amt > 0) lairRationsByBurg.set(d.burgId, (lairRationsByBurg.get(d.burgId) || 0) + amt);
+        break;
+      }
     }
   }
 
@@ -596,7 +626,8 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
            unnest($30::boolean[]) AS popa_act, unnest($31::boolean[]) AS popa_set, unnest($32::float8[]) AS popa_base, unnest($33::float8[]) AS popa_delta,
            unnest($34::boolean[]) AS tier_set, unnest($35::int[]) AS tier_val,
            unnest($36::boolean[]) AS occ_set, unnest($37::int[]) AS occ_val,
-           unnest($38::boolean[]) AS name_set, unnest($39::text[]) AS name_val
+           unnest($38::boolean[]) AS name_set, unnest($39::text[]) AS name_val,
+           unnest($40::boolean[]) AS ref_act, unnest($41::boolean[]) AS ref_set, unnest($42::float8[]) AS ref_base, unnest($43::float8[]) AS ref_delta
        ),
        computed AS (
          SELECT
@@ -607,6 +638,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
            CASE WHEN v.health_act THEN LEAST(100, GREATEST(0, ROUND((CASE WHEN v.health_set THEN v.health_base + v.health_delta ELSE COALESCE(b.health, 90) + v.health_delta END)::numeric)))::int ELSE b.health END AS next_health,
            CASE WHEN v.crime_act THEN LEAST(100.0, GREATEST(0.0, CASE WHEN v.crime_set THEN v.crime_base + v.crime_delta ELSE COALESCE(b.crime_rate, 0) + v.crime_delta END))::real ELSE b.crime_rate END AS next_crime,
            CASE WHEN v.raw_act THEN GREATEST(0, ROUND((CASE WHEN v.raw_set THEN v.raw_base + v.raw_delta ELSE COALESCE(b.raw_materials, 0) + v.raw_delta END)::numeric))::int ELSE b.raw_materials END AS next_raw,
+           CASE WHEN v.ref_act THEN GREATEST(0, ROUND((CASE WHEN v.ref_set THEN v.ref_base + v.ref_delta ELSE COALESCE(b.refined_goods, 0) + v.ref_delta END)::numeric))::int ELSE b.refined_goods END AS next_refined,
            CASE WHEN v.popn_act THEN GREATEST(0, ROUND((CASE WHEN v.popn_set THEN v.popn_base + v.popn_delta ELSE COALESCE(b.pop_null, 0) + v.popn_delta END)::numeric))::int ELSE b.pop_null END AS next_pop_null,
            CASE WHEN v.popa_act THEN GREATEST(0, ROUND((CASE WHEN v.popa_set THEN v.popa_base + v.popa_delta ELSE COALESCE(b.pop_attuned, 0) + v.popa_delta END)::numeric))::int ELSE b.pop_attuned END AS next_pop_attuned,
            CASE WHEN v.tier_set THEN GREATEST(0, v.tier_val) ELSE b.urban_tier END AS next_tier,
@@ -622,6 +654,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
          health = u.next_health,
          crime_rate = u.next_crime,
          raw_materials = u.next_raw,
+         refined_goods = u.next_refined,
          pop_null = u.next_pop_null,
          pop_attuned = u.next_pop_attuned,
          urban_tier = u.next_tier,
@@ -636,6 +669,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
            b.health IS DISTINCT FROM u.next_health OR
            b.crime_rate IS DISTINCT FROM u.next_crime OR
            b.raw_materials IS DISTINCT FROM u.next_raw OR
+           b.refined_goods IS DISTINCT FROM u.next_refined OR
            b.pop_null IS DISTINCT FROM u.next_pop_null OR
            b.pop_attuned IS DISTINCT FROM u.next_pop_attuned OR
            b.urban_tier IS DISTINCT FROM u.next_tier OR
@@ -655,6 +689,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         rows.map((r) => r.urbanTierSet), rows.map((r) => r.urbanTierVal),
         rows.map((r) => r.occSet), rows.map((r) => r.occVal),
         rows.map((r) => r.nameSet), rows.map((r) => r.nameVal),
+        rows.map((r) => numActive(r.refinedGoods)), rows.map((r) => r.refinedGoods.hasSet), rows.map((r) => r.refinedGoods.setVal), rows.map((r) => r.refinedGoods.delta),
       ]
     );
     counts.sim_burg_economy = res.rowCount || 0;
@@ -1499,6 +1534,62 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
       [rIds, rIds.map((id) => religionCellDeltas.get(id)!)]
     );
     counts.sim_religions = (counts.sim_religions || 0) + (res.rowCount || 0);
+  }
+
+  if (lairRationsByBurg.size > 0) {
+    const bIds = Array.from(lairRationsByBurg.keys()).sort((a, b) => a - b);
+    const res = await db.query(
+      `UPDATE sim_fringe_lairs AS l
+       SET inventory = jsonb_set(
+         COALESCE(l.inventory, '{}'::jsonb),
+         '{stolen_rations}',
+         (COALESCE(l.inventory->>'stolen_rations', '0')::int + v.rations)::text::jsonb
+       )
+       FROM (SELECT unnest($1::int[]) AS burg_id, unnest($2::int[]) AS rations) AS v
+       LEFT JOIN sim_burg_economy b ON b.burg_id = v.burg_id
+       WHERE l.burg_id = v.burg_id OR (b.cell_id IS NOT NULL AND l.cell_id = b.cell_id)`,
+      [bIds, bIds.map((id) => lairRationsByBurg.get(id)!)]
+    );
+    counts.sim_fringe_lairs = (counts.sim_fringe_lairs || 0) + (res.rowCount || 0);
+  }
+
+  // 24. sim_npc_instances
+  if (npcInstanceUpdates.size > 0) {
+    const ids = Array.from(npcInstanceUpdates.keys()).sort();
+    const list = ids.map((id) => npcInstanceUpdates.get(id)!);
+    const res = await db.query(
+      `UPDATE sim_npc_instances AS n
+       SET needs = CASE WHEN v.needs_set THEN v.needs_val ELSE n.needs END,
+           mood = CASE WHEN v.mood_set THEN v.mood_val ELSE n.mood END,
+           beliefs = CASE WHEN v.beliefs_set THEN v.beliefs_val ELSE n.beliefs END,
+           disposition = CASE WHEN v.disp_set THEN v.disp_val ELSE n.disposition END,
+           trade_price_mult = CASE WHEN v.mult_set THEN v.mult_val ELSE n.trade_price_mult END,
+           processed_for_economy = CASE WHEN v.proc_set THEN v.proc_val ELSE n.processed_for_economy END,
+           updated_at = CASE WHEN v.touch_updated THEN NOW() ELSE n.updated_at END
+       FROM (
+         SELECT
+           unnest($1::text[]) AS id,
+           unnest($2::boolean[]) AS needs_set, unnest($3::jsonb[]) AS needs_val,
+           unnest($4::boolean[]) AS mood_set, unnest($5::jsonb[]) AS mood_val,
+           unnest($6::boolean[]) AS beliefs_set, unnest($7::jsonb[]) AS beliefs_val,
+           unnest($8::boolean[]) AS disp_set, unnest($9::int[]) AS disp_val,
+           unnest($10::boolean[]) AS mult_set, unnest($11::float8[]) AS mult_val,
+           unnest($12::boolean[]) AS proc_set, unnest($13::boolean[]) AS proc_val,
+           unnest($14::boolean[]) AS touch_updated
+       ) AS v
+       WHERE n.id = v.id`,
+      [
+        ids,
+        list.map((r) => r.needs !== undefined), list.map((r) => r.needs ?? null),
+        list.map((r) => r.mood !== undefined), list.map((r) => r.mood ?? null),
+        list.map((r) => r.beliefs !== undefined), list.map((r) => r.beliefs ?? null),
+        list.map((r) => r.disposition !== undefined), list.map((r) => r.disposition ?? null),
+        list.map((r) => r.tradePriceMult !== undefined), list.map((r) => r.tradePriceMult ?? null),
+        list.map((r) => r.processedForEconomy !== undefined), list.map((r) => r.processedForEconomy ?? null),
+        list.map((r) => r.touchUpdated),
+      ]
+    );
+    counts.sim_npc_instances = (counts.sim_npc_instances || 0) + (res.rowCount || 0);
   }
 
   return counts;

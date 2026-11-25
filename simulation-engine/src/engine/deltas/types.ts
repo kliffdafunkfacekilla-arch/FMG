@@ -12,6 +12,7 @@ export interface BurgSetFields {
   health?: number | undefined;
   crime_rate?: number | undefined;
   raw_materials?: number | undefined;
+  refined_goods?: number | undefined;
   pop_null?: number | undefined;
   pop_attuned?: number | undefined;
   urban_tier?: number | undefined;
@@ -68,6 +69,7 @@ export type Delta =
       health?: number | undefined;
       crime?: number | undefined;
       rawMaterials?: number | undefined;
+      refinedGoods?: number | undefined;
       popNull?: number | undefined;
       popAttuned?: number | undefined;
     }
@@ -380,6 +382,21 @@ export type Delta =
       kind: "religion.adjustCells";
       religionId: number;
       delta: number;
+    }
+  | {
+      kind: "npcInstance.update";
+      npcId: string;
+      needs?: Record<string, number> | undefined;
+      mood?: Record<string, number> | undefined;
+      beliefs?: unknown[] | undefined;
+      disposition?: number | undefined;
+      tradePriceMult?: number | undefined;
+      processedForEconomy?: boolean | undefined;
+    }
+  | {
+      kind: "fringeLair.addRations";
+      burgId: number;
+      rations: number;
     };
 
 export type DeltaEmitter = (delta: Delta) => void;

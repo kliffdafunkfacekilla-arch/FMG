@@ -25,7 +25,8 @@ import { runInterFactionTradeEngine } from "./economy/interFactionTradeEngine";
 import { runTrophicEcologyAgent } from "./agents/trophicEcologyAgent";
 import { loadEcology } from "./macro/ecology/load.js";
 import { stepEcology } from "./macro/ecology/step.js";
-import { runNPCRoutineAgent } from "./agents/npcRoutineAgent";
+import { loadNpcRoutines } from "./macro/npcRoutines/load.js";
+import { stepNpcRoutines } from "./macro/npcRoutines/step.js";
 import { loadChaosFlow } from "./macro/chaosFlow/load.js";
 import { stepChaosFlow } from "./macro/chaosFlow/step.js";
 import { loadCultureReligion } from "./macro/cultureReligion/load.js";
@@ -258,7 +259,10 @@ async function runTick(): Promise<TickResult> {
                 const snap = await loadEncounter(client);
                 for (const d of stepEncounter(snap, { tick, random: Math.random })) emit(d);
             });
-            await step('npcRoutines', () => runNPCRoutineAgent(client, tick, loreDate));
+            await step('npcRoutines', async (emit) => {
+                const snap = await loadNpcRoutines(client, tick, loreDate);
+                for (const d of stepNpcRoutines(snap, { random: Math.random })) emit(d);
+            });
             await step('backgroundDirector', () => runBackgroundDirectorAgent(client, tick, loreDate));
             await step('autonomousDrama', async (emit) => {
                 const snap = await loadAutonomousDrama(client, tick, loreDate);
