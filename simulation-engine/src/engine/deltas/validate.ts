@@ -48,6 +48,7 @@ const KNOWN_KINDS = new Set<string>([
   "grove.adjust",
   "ancientWard.recharge",
   "ancientWard.discharge",
+  "burg.createSatellite",
 ]);
 
 function clamp(v: number, min: number, max: number): number {
@@ -595,6 +596,35 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         else ancientWardIds.add(d.wardId);
         break;
       }
+      case "burg.createSatellite": {
+        const err = finiteOrReject([
+          ["burgId", d.burgId],
+          ["cellId", d.cellId],
+          ["parentBurgId", d.parentBurgId],
+          ["parentCellId", d.parentCellId],
+          ["popNull", d.popNull],
+          ["popAttuned", d.popAttuned],
+          ["wealth", d.wealth],
+          ["food", d.food],
+        ]);
+        const validTypes = new Set(["HAMLET", "FARMLAND", "LOGGING", "WATCHTOWER"]);
+        if (
+          err ||
+          d.burgId <= 0 ||
+          !d.name ||
+          !d.name.trim() ||
+          !d.roadName ||
+          !d.roadName.trim() ||
+          !validTypes.has(d.settlementType)
+        ) {
+          structuralErrors.set(i, err || "Invalid burg.createSatellite payload");
+        } else {
+          burgIds.add(d.parentBurgId);
+          cellIds.add(d.cellId);
+          cellIds.add(d.parentCellId);
+        }
+        break;
+      }
     }
   }
 
@@ -1084,6 +1114,29 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
           break;
         }
         ok.push({ kind: "ancientWard.discharge", wardId: d.wardId, tick: Math.round(d.tick) });
+        break;
+
+      case "burg.createSatellite":
+        if (!validBurgs.has(d.parentBurgId)) {
+          rejected.push({ delta: d, reason: `Unknown parentBurgId ${d.parentBurgId}` });
+          break;
+        }
+        if (!validCells.has(d.cellId)) {
+          rejected.push({ delta: d, reason: `Unknown satellite cellId ${d.cellId}` });
+          break;
+        }
+        if (!validCells.has(d.parentCellId)) {
+          rejected.push({ delta: d, reason: `Unknown satellite parentCellId ${d.parentCellId}` });
+          break;
+        }
+        ok.push({
+          ...d,
+          burgId: Math.round(d.burgId),
+          popNull: Math.max(0, Math.round(d.popNull)),
+          popAttuned: Math.max(0, Math.round(d.popAttuned)),
+          wealth: Math.max(0, Math.round(d.wealth)),
+          food: Math.max(0, Math.round(d.food)),
+        });
         break;
 
       default:

@@ -434,6 +434,20 @@ export type Delta =
       kind: "ancientWard.discharge";
       wardId: number;
       tick: number;
+    }
+  | {
+      kind: "burg.createSatellite";
+      burgId: number;
+      cellId: number;
+      name: string;
+      parentBurgId: number;
+      parentCellId: number;
+      settlementType: "HAMLET" | "FARMLAND" | "LOGGING" | "WATCHTOWER";
+      popNull: number;
+      popAttuned: number;
+      wealth: number;
+      food: number;
+      roadName: string;
     };
 
 export type DeltaEmitter = (delta: Delta) => void;

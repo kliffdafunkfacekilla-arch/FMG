@@ -18,6 +18,7 @@ import { BLEED_TAG, stepBackgroundDirector } from "../engine/macro/backgroundDir
 import { buildMandateRecruitDeltas, planMandateRecruits, stepMandateWarbands } from "../engine/macro/mandate/step.js";
 import { stepCultistRecruitment, stepCultists } from "../engine/macro/cultist/step.js";
 import { planWardenAwakening, stepWardenAwakening, stepWardens } from "../engine/macro/warden/step.js";
+import { stepBurgExpansion, uniqueBurgName } from "../engine/macro/burgExpansion/step.js";
 
 function testEncounterUnit() {
   const emptyDeltas = stepEncounter({ agents: [], cellIds: [10, 20, 30] }, { tick: 2, random: mulberry32(42) });
@@ -1106,6 +1107,126 @@ function testWardenUnit() {
   console.log("15. stepWardens (no DB) awakening, staffing, crypt, seal defense & sacrifice... PASSED");
 }
 
+function testBurgExpansionUnit() {
+  const skipped = stepBurgExpansion(
+    {
+      tick: 7,
+      loreDate: "Day 7",
+      maxBurgId: 1350,
+      takenNames: ["Ironhold"],
+      candidates: [
+        {
+          burgId: 1,
+          name: "Ironhold",
+          cellId: 100,
+          wealth: 1200,
+          food: 900,
+          unrest: 10,
+          popNull: 1000,
+          popAttuned: 100,
+          factionId: 2,
+          existingSatellites: 0,
+          neighborCandidates: [{ id: 101, biome: 4, elevation: 25 }],
+        },
+      ],
+    },
+    { random: () => 0.1 }
+  );
+  assert.equal(skipped.deltas.length, 0);
+  assert.equal(skipped.founded.length, 0);
+
+  assert.equal(uniqueBurgName("Iron Timberlands", new Set(["Iron Timberlands"])), "Upper Iron Timberlands");
+
+  const snap = {
+    tick: 10,
+    loreDate: "Day 10",
+    maxBurgId: 1350,
+    takenNames: ["Upper-Ironcroft", "High-Pinehurststead", "Oak Timberlands"],
+    candidates: [
+      // Parent 1: already at max 3 satellites -> skipped
+      {
+        burgId: 10,
+        name: "Fullburg",
+        cellId: 200,
+        wealth: 2000,
+        food: 1000,
+        unrest: 5,
+        popNull: 1000,
+        popAttuned: 50,
+        factionId: 1,
+        existingSatellites: 3,
+        neighborCandidates: [{ id: 201, biome: 4, elevation: 20 }],
+      },
+      // Parent 2: Grassland (biome 4) -> FARMLAND, claims cell 301
+      {
+        burgId: 11,
+        name: "Greenford",
+        cellId: 300,
+        wealth: 1000,
+        food: 900,
+        unrest: 10,
+        popNull: 1000,
+        popAttuned: 100,
+        factionId: 2,
+        existingSatellites: 1,
+        neighborCandidates: [{ id: 301, biome: 4, elevation: 30 }],
+      },
+      // Parent 3: Forest (biome 6) -> LOGGING (rng=0.1 < 0.5), avoids already-claimed 301 -> claims 302, dedupes "Oak Timberlands"
+      {
+        burgId: 12,
+        name: "Oak Hold",
+        cellId: 305,
+        wealth: 900,
+        food: 800,
+        unrest: 15,
+        popNull: 300,
+        popAttuned: 5,
+        factionId: 2,
+        existingSatellites: 0,
+        neighborCandidates: [
+          { id: 301, biome: 6, elevation: 25 },
+          { id: 302, biome: 6, elevation: 25 },
+        ],
+      },
+    ],
+  };
+
+  const out = stepBurgExpansion(snap, { random: () => 0.1 });
+  assert.equal(out.founded.length, 2);
+  assert.equal(out.founded[0]!.type, "FARMLAND");
+  assert.equal(out.founded[0]!.cellId, 301);
+  assert.equal(out.founded[0]!.burgId, 1351);
+
+  assert.equal(out.founded[1]!.type, "LOGGING");
+  assert.equal(out.founded[1]!.cellId, 302, "Second parent must skip cell claimed earlier in same tick");
+  assert.equal(out.founded[1]!.burgId, 1352);
+  assert.notEqual(out.founded[1]!.name, "Oak Timberlands", "uniqueBurgName must prevent takenNames collision");
+
+  type D = (typeof out.deltas)[number];
+  const creates = out.deltas.filter((d): d is Extract<D, { kind: "burg.createSatellite" }> => d.kind === "burg.createSatellite");
+  assert.equal(creates.length, 2);
+
+  const fClaims = out.deltas.filter((d): d is Extract<D, { kind: "cell.setFaction" }> => d.kind === "cell.setFaction");
+  assert.equal(fClaims.length, 2);
+  assert.ok(fClaims.some((c) => c.cellId === 301 && c.factionId === 2));
+
+  const parentSets = out.deltas.filter((d): d is Extract<D, { kind: "burg.set" }> => d.kind === "burg.set");
+  const parent3Set = parentSets.find((b) => b.burgId === 12);
+  assert.ok(
+    parent3Set &&
+      parent3Set.fields.pop_null === 280 &&
+      parent3Set.fields.pop_attuned === 1 &&
+      parent3Set.fields.wealth === 810 &&
+      parent3Set.fields.food === 512
+  );
+
+  assert.equal(
+    JSON.stringify(stepBurgExpansion(snap, { random: mulberry32(77) })),
+    JSON.stringify(stepBurgExpansion(snap, { random: mulberry32(77) }))
+  );
+  console.log("16. stepBurgExpansion (no DB) cadence, biome type, cell dedup & name uniqueness... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
@@ -1123,6 +1244,7 @@ function main() {
   testMandateUnit();
   testCultistUnit();
   testWardenUnit();
+  testBurgExpansionUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 

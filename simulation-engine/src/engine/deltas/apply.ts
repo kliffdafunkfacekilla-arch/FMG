@@ -159,6 +159,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   const sectorLayerUpdates = new Map<string, Extract<Delta, { kind: "sectorLayer.update" }>>();
   const groveSealDeltas = new Map<number, number>();
   const wardDischarges = new Map<number, number>();
+  const satelliteCreates: Array<Extract<Delta, { kind: "burg.createSatellite" }>> = [];
   let wardRechargeTick: number | null = null;
   let lastCalendar: Extract<Delta, { kind: "calendar.set" }> | null = null;
 
@@ -445,6 +446,9 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         break;
       case "ancientWard.discharge":
         wardDischarges.set(d.wardId, Math.round(d.tick));
+        break;
+      case "burg.createSatellite":
+        satelliteCreates.push(d);
         break;
     }
   }
@@ -1722,6 +1726,71 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
       [wIds, wIds.map((id) => wardDischarges.get(id)!)]
     );
     counts.sim_ancient_path_wards = (counts.sim_ancient_path_wards || 0) + (res.rowCount || 0);
+  }
+
+  // 28. burg.createSatellite
+  if (satelliteCreates.length > 0) {
+    const burgRes = await db.query(
+      `INSERT INTO sim_burg_economy (
+         burg_id, cell_id, name, parent_burg_id, settlement_type,
+         pop_null, pop_attuned, wealth, food, unrest, health, crime_rate,
+         urban_tier, military_forces, demographics, species_demographics
+       )
+       SELECT
+         unnest($1::int[]),
+         unnest($2::int[]),
+         unnest($3::text[]),
+         unnest($4::int[]),
+         unnest($5::text[]),
+         unnest($6::int[]),
+         unnest($7::int[]),
+         unnest($8::int[]),
+         unnest($9::int[]),
+         0, 85, 0, 1, '{"militia":6}'::jsonb, '{}', '{}'
+       ON CONFLICT (burg_id) DO NOTHING
+       RETURNING burg_id`,
+      [
+        satelliteCreates.map((s) => s.burgId),
+        satelliteCreates.map((s) => s.cellId),
+        satelliteCreates.map((s) => s.name),
+        satelliteCreates.map((s) => s.parentBurgId),
+        satelliteCreates.map((s) => s.settlementType),
+        satelliteCreates.map((s) => s.popNull),
+        satelliteCreates.map((s) => s.popAttuned),
+        satelliteCreates.map((s) => s.wealth),
+        satelliteCreates.map((s) => s.food),
+      ]
+    );
+    const insertedSet =
+      burgRes.rows.length > 0
+        ? new Set(burgRes.rows.map((r: any) => Number(r.burg_id)))
+        : (burgRes.rowCount || 0) > 0
+          ? new Set(satelliteCreates.map((s) => s.burgId))
+          : new Set<number>();
+    const insertedSats = satelliteCreates.filter((s) => insertedSet.has(s.burgId));
+    counts.sim_burg_economy = (counts.sim_burg_economy || 0) + insertedSats.length;
+
+    if (insertedSats.length > 0) {
+      const stockRes = await db.query(
+        `INSERT INTO sim_industrial_stockpiles (burg_id, complex_inventory)
+         SELECT unnest($1::int[]), '{}'
+         ON CONFLICT DO NOTHING`,
+        [insertedSats.map((s) => s.burgId)]
+      );
+      counts.sim_industrial_stockpiles =
+        (counts.sim_industrial_stockpiles || 0) + (stockRes.rowCount || insertedSats.length);
+
+      const roadRes = await db.query(
+        `INSERT INTO sim_roads (name, source_cell_id, dest_cell_id, road_group)
+         SELECT unnest($1::text[]), unnest($2::int[]), unnest($3::int[]), 'HAMLET_TRAIL'`,
+        [
+          insertedSats.map((s) => s.roadName),
+          insertedSats.map((s) => s.parentCellId),
+          insertedSats.map((s) => s.cellId),
+        ]
+      );
+      counts.sim_roads = (counts.sim_roads || 0) + (roadRes.rowCount || insertedSats.length);
+    }
   }
 
   return counts;
