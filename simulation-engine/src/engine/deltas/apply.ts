@@ -44,6 +44,15 @@ interface BurgMerged {
   occTicksVal: number;
   resSet: boolean;
   resVal: number;
+  archSet: boolean;
+  archVal: string | null;
+  demoSet: boolean;
+  demoVal: string | null;
+  gpSet: boolean;
+  gpVal: number;
+  dpSet: boolean;
+  dpVal: number;
+  wfClr: boolean;
 }
 
 function emptyBurgMerged(): BurgMerged {
@@ -69,6 +78,15 @@ function emptyBurgMerged(): BurgMerged {
     occTicksVal: 0,
     resSet: false,
     resVal: 0,
+    archSet: false,
+    archVal: null,
+    demoSet: false,
+    demoVal: null,
+    gpSet: false,
+    gpVal: 0,
+    dpSet: false,
+    dpVal: 0,
+    wfClr: false,
   };
 }
 
@@ -193,6 +211,8 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   const stockpileInventories = new Map<number, string>();
   const tradeShipmentUpdates = new Map<number, Extract<Delta, { kind: "tradeShipment.update" }>>();
   const tradeShipmentCreates: Array<Extract<Delta, { kind: "tradeShipment.create" }>> = [];
+  let advanceActiveProjects = false;
+  const activeProjectCreates: Array<Extract<Delta, { kind: "activeProject.create" }>> = [];
   let wardRechargeTick: number | null = null;
   let lastCalendar: Extract<Delta, { kind: "calendar.set" }> | null = null;
 
@@ -231,6 +251,11 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         if (f.military_forces !== undefined) { m.milSet = true; m.milVal = f.military_forces; }
         if (f.occupation_ticks !== undefined) { m.occTicksSet = true; m.occTicksVal = f.occupation_ticks; }
         if (f.resistance_strength !== undefined) { m.resSet = true; m.resVal = f.resistance_strength; }
+        if (f.architecture_type !== undefined) { m.archSet = true; m.archVal = f.architecture_type; }
+        if (f.demographics !== undefined) { m.demoSet = true; m.demoVal = f.demographics; }
+        if (f.pop_growth_pool !== undefined) { m.gpSet = true; m.gpVal = f.pop_growth_pool; }
+        if (f.pop_departure_pool !== undefined) { m.dpSet = true; m.dpVal = f.pop_departure_pool; }
+        if (f.clear_workforce) { m.wfClr = true; }
         break;
       }
       case "cell.adjust": {
@@ -547,6 +572,12 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
       case "tradeShipment.create":
         tradeShipmentCreates.push(d);
         break;
+      case "activeProject.advanceAll":
+        advanceActiveProjects = true;
+        break;
+      case "activeProject.create":
+        activeProjectCreates.push(d);
+        break;
     }
   }
 
@@ -749,7 +780,12 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
            unnest($40::boolean[]) AS ref_act, unnest($41::boolean[]) AS ref_set, unnest($42::float8[]) AS ref_base, unnest($43::float8[]) AS ref_delta,
            unnest($44::boolean[]) AS mil_set, unnest($45::text[]) AS mil_val,
            unnest($46::boolean[]) AS ot_set, unnest($47::int[]) AS ot_val,
-           unnest($48::boolean[]) AS rs_set, unnest($49::int[]) AS rs_val
+           unnest($48::boolean[]) AS rs_set, unnest($49::int[]) AS rs_val,
+           unnest($50::boolean[]) AS arch_set, unnest($51::text[]) AS arch_val,
+           unnest($52::boolean[]) AS demo_set, unnest($53::text[]) AS demo_val,
+           unnest($54::boolean[]) AS gp_set, unnest($55::float8[]) AS gp_val,
+           unnest($56::boolean[]) AS dp_set, unnest($57::float8[]) AS dp_val,
+           unnest($58::boolean[]) AS wf_clr
        ),
        computed AS (
          SELECT
@@ -768,7 +804,12 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
            CASE WHEN v.name_set THEN v.name_val ELSE b.name END AS next_name,
            CASE WHEN v.mil_set THEN v.mil_val ELSE b.military_forces END AS next_mil,
            CASE WHEN v.ot_set THEN GREATEST(0, v.ot_val) ELSE b.occupation_ticks END AS next_ot,
-           CASE WHEN v.rs_set THEN GREATEST(0, v.rs_val) ELSE b.resistance_strength END AS next_rs
+           CASE WHEN v.rs_set THEN GREATEST(0, v.rs_val) ELSE b.resistance_strength END AS next_rs,
+           CASE WHEN v.arch_set THEN v.arch_val ELSE b.architecture_type END AS next_arch,
+           CASE WHEN v.demo_set THEN v.demo_val ELSE b.demographics END AS next_demo,
+           CASE WHEN v.gp_set THEN v.gp_val ELSE b.pop_growth_pool END AS next_gp,
+           CASE WHEN v.dp_set THEN v.dp_val ELSE b.pop_departure_pool END AS next_dp,
+           v.wf_clr AS wf_clr
          FROM v
          JOIN sim_burg_economy b ON b.burg_id = v.burg_id
        )
@@ -787,7 +828,12 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
          name = u.next_name,
          military_forces = u.next_mil,
          occupation_ticks = u.next_ot,
-         resistance_strength = u.next_rs
+         resistance_strength = u.next_rs,
+         architecture_type = u.next_arch,
+         demographics = u.next_demo,
+         pop_growth_pool = u.next_gp,
+         pop_departure_pool = u.next_dp,
+         workforce = CASE WHEN u.wf_clr THEN NULL ELSE b.workforce END
        FROM computed u
        WHERE b.burg_id = u.burg_id
          AND (
@@ -805,7 +851,12 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
            b.name IS DISTINCT FROM u.next_name OR
            b.military_forces IS DISTINCT FROM u.next_mil OR
            b.occupation_ticks IS DISTINCT FROM u.next_ot OR
-           b.resistance_strength IS DISTINCT FROM u.next_rs
+           b.resistance_strength IS DISTINCT FROM u.next_rs OR
+           b.architecture_type IS DISTINCT FROM u.next_arch OR
+           b.demographics IS DISTINCT FROM u.next_demo OR
+           b.pop_growth_pool IS DISTINCT FROM u.next_gp OR
+           b.pop_departure_pool IS DISTINCT FROM u.next_dp OR
+           (u.wf_clr AND b.workforce IS NOT NULL)
          )`,
       [
         ids,
@@ -824,6 +875,11 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         rows.map((r) => r.milSet), rows.map((r) => r.milVal),
         rows.map((r) => r.occTicksSet), rows.map((r) => r.occTicksVal),
         rows.map((r) => r.resSet), rows.map((r) => r.resVal),
+        rows.map((r) => r.archSet), rows.map((r) => r.archVal),
+        rows.map((r) => r.demoSet), rows.map((r) => r.demoVal),
+        rows.map((r) => r.gpSet), rows.map((r) => r.gpVal),
+        rows.map((r) => r.dpSet), rows.map((r) => r.dpVal),
+        rows.map((r) => r.wfClr),
       ]
     );
     counts.sim_burg_economy = res.rowCount || 0;
@@ -1400,10 +1456,18 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
     }
   }
 
-  // 15. infrastructure.adjust
+  // 15. infrastructure.adjust (batched ON CONFLICT upserts + existing targeted updates)
   if (infraAdjusts.length > 0) {
+    const upserts = new Map<string, { burgId: number; cellId: number; infraType: string; levelDelta: number }>();
     const mergedInf = new Map<string, { burgId: number; infraType: string; levelDelta: number; status: string | null }>();
     for (const inf of infraAdjusts) {
+      if (inf.upsert && inf.cellId) {
+        const key = `${inf.burgId}:${inf.infraType}`;
+        const cur = upserts.get(key);
+        if (cur) cur.levelDelta += inf.levelDelta ?? 0;
+        else upserts.set(key, { burgId: inf.burgId, cellId: inf.cellId, infraType: inf.infraType, levelDelta: inf.levelDelta ?? 0 });
+        continue;
+      }
       const upperType = inf.infraType.toUpperCase();
       const key = `${inf.burgId}:${upperType}`;
       const cur = mergedInf.get(key);
@@ -1418,6 +1482,23 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
           status: inf.status ?? null,
         });
       }
+    }
+    if (upserts.size > 0) {
+      const items = Array.from(upserts.values()).sort(
+        (a, b) => (a.burgId - b.burgId) || a.infraType.localeCompare(b.infraType)
+      );
+      const res = await db.query(
+        `INSERT INTO sim_infrastructure (burg_id, cell_id, type, level)
+         SELECT unnest($1::int[]), unnest($2::int[]), unnest($3::text[]), unnest($4::int[])
+         ON CONFLICT (burg_id, type) DO UPDATE SET level = sim_infrastructure.level + EXCLUDED.level`,
+        [
+          items.map((i) => i.burgId),
+          items.map((i) => i.cellId),
+          items.map((i) => i.infraType),
+          items.map((i) => i.levelDelta),
+        ]
+      );
+      counts.sim_infrastructure = (counts.sim_infrastructure || 0) + (res.rowCount || items.length);
     }
     for (const k of Array.from(mergedInf.keys()).sort()) {
       const item = mergedInf.get(k)!;
@@ -2167,6 +2248,27 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
       ]
     );
     counts.sim_trade_shipments = (counts.sim_trade_shipments || 0) + (res.rowCount || tradeShipmentCreates.length);
+  }
+
+  // 37. sim_active_projects
+  if (advanceActiveProjects) {
+    await db.query(`UPDATE sim_active_projects SET ticks_remaining = ticks_remaining - 1`);
+    const pruned = await db.query(`DELETE FROM sim_active_projects WHERE ticks_remaining <= 0`);
+    counts.sim_active_projects = (counts.sim_active_projects || 0) + (pruned.rowCount || 0);
+  }
+
+  if (activeProjectCreates.length > 0) {
+    const res = await db.query(
+      `INSERT INTO sim_active_projects (burg_id, project_type, target_tier, ticks_remaining)
+       SELECT unnest($1::int[]), unnest($2::text[]), unnest($3::int[]), unnest($4::int[])`,
+      [
+        activeProjectCreates.map((p) => p.burgId),
+        activeProjectCreates.map((p) => p.projectType),
+        activeProjectCreates.map((p) => p.targetTier),
+        activeProjectCreates.map((p) => p.ticksRemaining),
+      ]
+    );
+    counts.sim_active_projects = (counts.sim_active_projects || 0) + (res.rowCount || activeProjectCreates.length);
   }
 
   return counts;

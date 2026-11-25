@@ -60,6 +60,8 @@ const KNOWN_KINDS = new Set<string>([
   "burgStockpile.setInventory",
   "tradeShipment.update",
   "tradeShipment.create",
+  "activeProject.advanceAll",
+  "activeProject.create",
 ]);
 
 function clamp(v: number, min: number, max: number): number {
@@ -155,10 +157,16 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
           ["urban_tier", f.urban_tier],
           ["occupation_ticks", f.occupation_ticks],
           ["resistance_strength", f.resistance_strength],
+          ["pop_growth_pool", f.pop_growth_pool],
+          ["pop_departure_pool", f.pop_departure_pool],
         ]);
         if (err) structuralErrors.set(i, err);
         else if (f.military_forces !== undefined && typeof f.military_forces !== "string") {
           structuralErrors.set(i, "Invalid military_forces in burg.set");
+        } else if (f.architecture_type !== undefined && typeof f.architecture_type !== "string") {
+          structuralErrors.set(i, "Invalid architecture_type in burg.set");
+        } else if (f.demographics !== undefined && typeof f.demographics !== "string") {
+          structuralErrors.set(i, "Invalid demographics in burg.set");
         } else {
           burgIds.add(d.burgId);
           if (typeof f.occupier_faction_id === "number" && f.occupier_faction_id > 0) {
@@ -404,9 +412,19 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         break;
       }
       case "infrastructure.adjust": {
-        const err = finiteOrReject([["burgId", d.burgId], ["levelDelta", d.levelDelta]]);
-        if (err || !d.infraType) structuralErrors.set(i, err || "Missing infraType in infrastructure.adjust");
-        else burgIds.add(d.burgId);
+        const err = finiteOrReject([
+          ["burgId", d.burgId],
+          ["levelDelta", d.levelDelta],
+          ["cellId", d.cellId],
+        ]);
+        if (err || !d.infraType) {
+          structuralErrors.set(i, err || "Missing infraType in infrastructure.adjust");
+        } else if (d.upsert && (d.cellId === undefined || d.cellId <= 0 || !Number.isInteger(d.cellId) || d.levelDelta === undefined || d.levelDelta <= 0)) {
+          structuralErrors.set(i, "Upsert infrastructure.adjust requires positive integer cellId and positive levelDelta");
+        } else {
+          burgIds.add(d.burgId);
+          if (d.upsert && d.cellId !== undefined) cellIds.add(d.cellId);
+        }
         break;
       }
       case "overlay.add": {
@@ -831,6 +849,21 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         }
         break;
       }
+      case "activeProject.advanceAll":
+        break;
+      case "activeProject.create": {
+        const err = finiteOrReject([
+          ["burgId", d.burgId],
+          ["targetTier", d.targetTier],
+          ["ticksRemaining", d.ticksRemaining],
+        ]);
+        if (err || !d.projectType || d.targetTier <= 0 || d.ticksRemaining <= 0) {
+          structuralErrors.set(i, err || "Invalid activeProject.create payload");
+        } else {
+          burgIds.add(d.burgId);
+        }
+        break;
+      }
     }
   }
 
@@ -1203,7 +1236,14 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
           rejected.push({ delta: d, reason: `Unknown burgId ${d.burgId}` });
           break;
         }
-        ok.push(d);
+        if (d.upsert && (d.cellId === undefined || !validCells.has(d.cellId))) {
+          rejected.push({ delta: d, reason: `Unknown infrastructure cellId ${d.cellId}` });
+          break;
+        }
+        ok.push({
+          ...d,
+          ...(d.levelDelta !== undefined ? { levelDelta: Math.round(d.levelDelta) } : {}),
+        });
         break;
 
       case "overlay.add":
@@ -1560,6 +1600,22 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         });
         break;
       }
+
+      case "activeProject.advanceAll":
+        ok.push(d);
+        break;
+
+      case "activeProject.create":
+        if (!validBurgs.has(d.burgId)) {
+          rejected.push({ delta: d, reason: `Unknown activeProject burgId ${d.burgId}` });
+          break;
+        }
+        ok.push({
+          ...d,
+          targetTier: Math.max(1, Math.round(d.targetTier)),
+          ticksRemaining: Math.max(1, Math.round(d.ticksRemaining)),
+        });
+        break;
 
       default:
         ok.push(d);

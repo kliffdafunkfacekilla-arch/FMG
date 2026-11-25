@@ -21,6 +21,11 @@ export interface BurgSetFields {
   military_forces?: string | undefined;
   occupation_ticks?: number | undefined;
   resistance_strength?: number | undefined;
+  architecture_type?: string | undefined;
+  demographics?: string | undefined;
+  pop_growth_pool?: number | undefined;
+  pop_departure_pool?: number | undefined;
+  clear_workforce?: boolean | undefined;
 }
 
 export interface CellSetFields {
@@ -305,6 +310,8 @@ export type Delta =
       infraType: string;
       levelDelta?: number | undefined;
       status?: string | undefined;
+      cellId?: number | undefined;
+      upsert?: boolean | undefined;
     }
   | {
       kind: "overlay.add";
@@ -539,6 +546,16 @@ export type Delta =
       startCellId: number;
       dispatchedTick: number;
       etaTicks: number;
+    }
+  | {
+      kind: "activeProject.advanceAll";
+    }
+  | {
+      kind: "activeProject.create";
+      burgId: number;
+      projectType: string;
+      targetTier: number;
+      ticksRemaining: number;
     };
 
 export type DeltaEmitter = (delta: Delta) => void;

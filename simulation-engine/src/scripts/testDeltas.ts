@@ -240,6 +240,68 @@ async function main() {
   await pool.query("ROLLBACK TO SAVEPOINT delta_trade");
   console.log("6. Trade shipment, stockpile & lair inventory deltas + Rule 7 rejection... PASSED");
 
+  // 7. Extended burg.set (architecture, demographics, float pools, clear_workforce), infrastructure upsert & active projects
+  await pool.query("SAVEPOINT delta_burg_ops");
+  const prevInfra = await pool.query(
+    `SELECT level FROM sim_infrastructure WHERE burg_id = $1 AND type = 'TEST_MILL'`,
+    [b1]
+  );
+  const baseLevel = Number(prevInfra.rows[0]?.level || 0);
+  const demoStr = '{"nulls":50,"sparkborn_total":50,"dormant_sparks":25,"sensitives":24,"adepts":1}';
+  const v7 = await validateDeltas(
+    [
+      {
+        kind: "burg.set",
+        burgId: b1,
+        fields: {
+          architecture_type: "STONE",
+          demographics: demoStr,
+          pop_growth_pool: 1.75,
+          pop_departure_pool: 2.25,
+          clear_workforce: true,
+        },
+      },
+      { kind: "infrastructure.adjust", burgId: b1, cellId: c1, infraType: "TEST_MILL", levelDelta: 2, upsert: true },
+      { kind: "infrastructure.adjust", burgId: b1, cellId: c1, infraType: "TEST_MILL", levelDelta: 1, upsert: true },
+      { kind: "activeProject.create", burgId: b1, projectType: "TEST_TIER", targetTier: 3, ticksRemaining: 2 },
+      { kind: "activeProject.create", burgId: 99999999, projectType: "URBAN_TIER", targetTier: 2, ticksRemaining: 20 },
+      { kind: "infrastructure.adjust", burgId: b1, cellId: 99999999, infraType: "FARM", levelDelta: 1, upsert: true },
+    ],
+    pool
+  );
+  assert.equal(v7.ok.length, 4, `Expected 4 valid burg-ops deltas, got ${v7.ok.length}`);
+  assert.equal(v7.rejected.length, 2, "Expected 2 invalid burg-ops deltas rejected by Rule 7");
+  await applyDeltas(v7.ok, pool);
+
+  const bAfter7 = (
+    await pool.query(
+      `SELECT architecture_type, demographics, pop_growth_pool, pop_departure_pool, workforce FROM sim_burg_economy WHERE burg_id = $1`,
+      [b1]
+    )
+  ).rows[0];
+  assert.equal(bAfter7.architecture_type, "STONE");
+  assert.equal(bAfter7.demographics, demoStr);
+  assert.equal(Number(bAfter7.pop_growth_pool), 1.75);
+  assert.equal(Number(bAfter7.pop_departure_pool), 2.25);
+  assert.equal(bAfter7.workforce, null);
+
+  const infAfter = (
+    await pool.query(`SELECT level FROM sim_infrastructure WHERE burg_id = $1 AND type = 'TEST_MILL'`, [b1])
+  ).rows[0];
+  assert.equal(Number(infAfter.level), baseLevel + 3);
+
+  await applyDeltas([{ kind: "activeProject.advanceAll" }], pool);
+  const pMid = (
+    await pool.query(`SELECT ticks_remaining FROM sim_active_projects WHERE burg_id = $1 AND project_type = 'TEST_TIER'`, [b1])
+  ).rows[0];
+  assert.equal(Number(pMid.ticks_remaining), 1);
+
+  await applyDeltas([{ kind: "activeProject.advanceAll" }], pool);
+  const pEnd = await pool.query(`SELECT ticks_remaining FROM sim_active_projects WHERE burg_id = $1 AND project_type = 'TEST_TIER'`, [b1]);
+  assert.equal(pEnd.rows.length, 0, "Completed project should be pruned after ticks_remaining <= 0");
+  await pool.query("ROLLBACK TO SAVEPOINT delta_burg_ops");
+  console.log("7. Extended burg.set, infra upsert & activeProject deltas + Rule 7 rejection... PASSED");
+
   console.log("\nALL DELTA TESTS PASSED");
 }
 
