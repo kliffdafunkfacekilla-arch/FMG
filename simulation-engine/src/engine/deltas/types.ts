@@ -26,6 +26,8 @@ export interface BurgSetFields {
   pop_growth_pool?: number | undefined;
   pop_departure_pool?: number | undefined;
   clear_workforce?: boolean | undefined;
+  record_unit?: number | undefined;
+  workforce_empty?: boolean | undefined;
 }
 
 export interface CellSetFields {
@@ -52,6 +54,13 @@ export interface AgentUpdateFields {
   drained_power?: number | undefined;
   active_plot?: string | null | undefined;
   age_ticks?: number | undefined;
+  name?: string | undefined;
+  citizen_name?: string | null | undefined;
+  profession?: string | null | undefined;
+  species?: string | null | undefined;
+  personality_temper?: string | null | undefined;
+  personality_instinct?: string | null | undefined;
+  motivation?: string | null | undefined;
 }
 
 export type TagTarget =
@@ -556,6 +565,10 @@ export type Delta =
       projectType: string;
       targetTier: number;
       ticksRemaining: number;
+    }
+  | {
+      kind: "burg.stripRuin";
+      burgId: number;
     };
 
 export type DeltaEmitter = (delta: Delta) => void;

@@ -42,7 +42,8 @@ import { loadFactionCollapse } from "./macro/factionCollapse/load.js";
 import { stepFactionCollapse } from "./macro/factionCollapse/step.js";
 import { migrate } from "../db/migrate.js";
 import { flushStepDeltas, type Delta, type DeltaEmitter } from "./deltas/index.js";
-import { markEntitiesDeadBatch } from "./entities/registry.js";
+import { loadReaper } from "./macro/reaper/load.js";
+import { stepReaper } from "./macro/reaper/step.js";
 import { runSeeded, seedSql, tickSeed } from "./rng.js";
 import { loadAutonomousDrama } from "./macro/autonomousDrama/load.js";
 import { stepAutonomousDrama } from "./macro/autonomousDrama/step.js";
@@ -272,60 +273,13 @@ async function runTick(): Promise<TickResult> {
             await step('chronicler', () => runChroniclerAgent(client, tick, loreDate));
 
             // 11. The Reaper: a burg with nobody left stays as a ruin, stripped of its agents and assets
-            await step('reaper', async () => {
-                const ghosts = await client.query("SELECT burg_id FROM sim_burg_economy WHERE pop_null <= 0 AND COALESCE(pop_attuned, 0) <= 0");
-                const ids = ghosts.rows.map((r: any) => r.burg_id);
-                if (ids.length === 0) return;
-
-                // Abort any in-transit convoys belonging to ruined burgs and release surviving crew
-                const ghostShipments = await client.query(
-                    `SELECT id, merchant_citizen_id, crew_citizen_ids FROM sim_trade_shipments
-                     WHERE status = 'IN_TRANSIT' AND (source_burg_id = ANY($1) OR dest_burg_id = ANY($1)) ORDER BY id`,
-                    [ids]
-                );
-                if (ghostShipments.rows.length > 0) {
-                    const releaseIds: number[] = [];
-                    const abortIds: number[] = [];
-                    for (const s of ghostShipments.rows) {
-                        abortIds.push(Number(s.id));
-                        if (Number(s.merchant_citizen_id) > 0) releaseIds.push(Number(s.merchant_citizen_id));
-                        const crewArr = Array.isArray(s.crew_citizen_ids) ? s.crew_citizen_ids : [];
-                        for (const cid of crewArr) {
-                            if (Number(cid) > 0) releaseIds.push(Number(cid));
-                        }
-                    }
-                    if (releaseIds.length > 0) {
-                        await client.query(
-                            `UPDATE population_demographics SET allegiance_status = 'CIVILIAN'
-                             WHERE citizen_id = ANY($1::int[]) AND allegiance_status = 'ON_CARAVAN'`,
-                            [releaseIds]
-                        );
-                    }
-                    await client.query(
-                        `UPDATE sim_trade_shipments SET status = 'ABORTED', resolved_tick = $2 WHERE id = ANY($1::int[])`,
-                        [abortIds, tick]
-                    );
+            await step('reaper', async (emit) => {
+                const snap = await loadReaper(client, tick);
+                const out = stepReaper(snap);
+                for (const d of out.deltas) emit(d);
+                if (out.ruinedBurgIds.length > 0) {
+                    await zeroBurgsCohorts(client, out.ruinedBurgIds, "DEPARTED", "Abandoned a ruined settlement.");
                 }
-
-                const delParagons = await client.query(`DELETE FROM sim_paragons WHERE burg_id = ANY($1) RETURNING id`, [ids]);
-                if (delParagons.rows.length > 0) {
-                    await markEntitiesDeadBatch(client, delParagons.rows.map((r: any) => `paragon:${r.id}`), tick);
-                }
-                for (const table of ["sim_infrastructure", "sim_fringe_lairs", "sim_industrial_stockpiles"]) {
-                    await client.query(`DELETE FROM ${table} WHERE burg_id = ANY($1)`, [ids]);
-                }
-                await zeroBurgsCohorts(client, ids, "DEPARTED", "Abandoned a ruined settlement.");
-                // Ruins stay on the map as neutral, uninhabited shells
-                await client.query(
-                    `UPDATE sim_burg_economy
-                     SET occupier_faction_id = NULL,
-                         urban_tier = 0,
-                         workforce = '{}'::jsonb,
-                         name = CASE WHEN name LIKE '[Ruin] %' THEN name ELSE '[Ruin] ' || name END
-                     WHERE burg_id = ANY($1)
-                       AND (occupier_faction_id IS NOT NULL OR COALESCE(urban_tier, 0) > 0 OR name NOT LIKE '[Ruin] %')`,
-                    [ids]
-                );
             });
 
             // 12. Once a month keep a rolling buffer of ~25,000 MINOR and ~25,000 MAJOR events; CRITICAL lore stays forever,

@@ -62,6 +62,7 @@ const KNOWN_KINDS = new Set<string>([
   "tradeShipment.create",
   "activeProject.advanceAll",
   "activeProject.create",
+  "burg.stripRuin",
 ]);
 
 function clamp(v: number, min: number, max: number): number {
@@ -159,6 +160,7 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
           ["resistance_strength", f.resistance_strength],
           ["pop_growth_pool", f.pop_growth_pool],
           ["pop_departure_pool", f.pop_departure_pool],
+          ["record_unit", f.record_unit],
         ]);
         if (err) structuralErrors.set(i, err);
         else if (f.military_forces !== undefined && typeof f.military_forces !== "string") {
@@ -864,6 +866,12 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         }
         break;
       }
+      case "burg.stripRuin": {
+        const err = finiteOrReject([["burgId", d.burgId]]);
+        if (err) structuralErrors.set(i, err);
+        else burgIds.add(d.burgId);
+        break;
+      }
     }
   }
 
@@ -1032,6 +1040,7 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         if (f.urban_tier !== undefined) f.urban_tier = Math.max(0, Math.round(f.urban_tier));
         if (f.occupation_ticks !== undefined) f.occupation_ticks = Math.max(0, Math.round(f.occupation_ticks));
         if (f.resistance_strength !== undefined) f.resistance_strength = Math.max(0, Math.round(f.resistance_strength));
+        if (f.record_unit !== undefined) f.record_unit = clamp(Math.round(f.record_unit), 3, 40);
         ok.push({ kind: "burg.set", burgId: d.burgId, fields: f });
         break;
       }
@@ -1615,6 +1624,14 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
           targetTier: Math.max(1, Math.round(d.targetTier)),
           ticksRemaining: Math.max(1, Math.round(d.ticksRemaining)),
         });
+        break;
+
+      case "burg.stripRuin":
+        if (!validBurgs.has(d.burgId)) {
+          rejected.push({ delta: d, reason: `Unknown burg.stripRuin burgId ${d.burgId}` });
+          break;
+        }
+        ok.push(d);
         break;
 
       default:
