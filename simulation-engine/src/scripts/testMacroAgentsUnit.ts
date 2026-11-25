@@ -19,6 +19,7 @@ import { buildMandateRecruitDeltas, planMandateRecruits, stepMandateWarbands } f
 import { stepCultistRecruitment, stepCultists } from "../engine/macro/cultist/step.js";
 import { planWardenAwakening, stepWardenAwakening, stepWardens } from "../engine/macro/warden/step.js";
 import { stepBurgExpansion, uniqueBurgName } from "../engine/macro/burgExpansion/step.js";
+import { stepChronicler } from "../engine/macro/chronicler/step.js";
 
 function testEncounterUnit() {
   const emptyDeltas = stepEncounter({ agents: [], cellIds: [10, 20, 30] }, { tick: 2, random: mulberry32(42) });
@@ -1227,6 +1228,65 @@ function testBurgExpansionUnit() {
   console.log("16. stepBurgExpansion (no DB) cadence, biome type, cell dedup & name uniqueness... PASSED");
 }
 
+function testChroniclerUnit() {
+  // Day 1 -> TURN_LOG; 2 drama events -> REGIONAL_RUMOR
+  const d1 = stepChronicler({
+    tick: 1,
+    loreDate: "Day 1, Sunmelt",
+    hasRecentRumor: false,
+    dramaEvents: [
+      { burgId: 12, cellId: 300, type: "AUTONOMOUS_CLASH", message: "[CLASH] Brawlers clashed in Ironford." },
+      { burgId: 15, cellId: 305, type: "BURG_FAMINE", message: "[FAMINE] Granaries emptied in Oakhaven." },
+    ],
+  });
+  type C = (typeof d1)[number];
+  const logs = d1.filter((d): d is Extract<C, { kind: "event.log" }> => d.kind === "event.log");
+  assert.equal(logs.length, 2);
+  assert.equal(logs[0]!.type, "TURN_LOG");
+  assert.equal(logs[1]!.type, "REGIONAL_RUMOR");
+  assert.equal(logs[1]!.burgId, 12);
+  assert.equal(logs[1]!.cellId, 300);
+  assert.ok(logs[1]!.message.includes("Brawlers clashed in Ironford.") && logs[1]!.message.includes("Meanwhile, Granaries emptied in Oakhaven."));
+
+  // Cooldown active & non-1st day -> no output
+  const d2 = stepChronicler({
+    tick: 2,
+    loreDate: "Day 2, Sunmelt",
+    hasRecentRumor: true,
+    dramaEvents: [
+      { burgId: 12, cellId: 300, type: "AUTONOMOUS_CLASH", message: "Test A" },
+      { burgId: 15, cellId: 305, type: "BURG_FAMINE", message: "Test B" },
+    ],
+  });
+  assert.equal(d2.length, 0);
+
+  assert.equal(
+    JSON.stringify(
+      stepChronicler({
+        tick: 49,
+        loreDate: "Day 1, Month 2",
+        hasRecentRumor: false,
+        dramaEvents: [
+          { burgId: null, cellId: 100, type: "THREAD_RESOLVED", message: "[END] Guild dispute settled." },
+          { burgId: 8, cellId: null, type: "THREAD_THWARTED_BY_LOCALS", message: "Watch foiled smuggling ring." },
+        ],
+      })
+    ),
+    JSON.stringify(
+      stepChronicler({
+        tick: 49,
+        loreDate: "Day 1, Month 2",
+        hasRecentRumor: false,
+        dramaEvents: [
+          { burgId: null, cellId: 100, type: "THREAD_RESOLVED", message: "[END] Guild dispute settled." },
+          { burgId: 8, cellId: null, type: "THREAD_THWARTED_BY_LOCALS", message: "Watch foiled smuggling ring." },
+        ],
+      })
+    )
+  );
+  console.log("17. stepChronicler (no DB) monthly TURN_LOG, rumor clustering & cooldown... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
@@ -1245,6 +1305,7 @@ function main() {
   testCultistUnit();
   testWardenUnit();
   testBurgExpansionUnit();
+  testChroniclerUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 
