@@ -16,6 +16,7 @@ import { seededFraction, stepCultureReligion } from "../engine/macro/cultureReli
 import { stepNpcRoutines } from "../engine/macro/npcRoutines/step.js";
 import { BLEED_TAG, stepBackgroundDirector } from "../engine/macro/backgroundDirector/step.js";
 import { buildMandateRecruitDeltas, planMandateRecruits, stepMandateWarbands } from "../engine/macro/mandate/step.js";
+import { stepCultistRecruitment, stepCultists } from "../engine/macro/cultist/step.js";
 
 function testEncounterUnit() {
   const emptyDeltas = stepEncounter({ agents: [], cellIds: [10, 20, 30] }, { tick: 2, random: mulberry32(42) });
@@ -859,6 +860,107 @@ function testMandateUnit() {
   console.log("13. stepMandateWarbands (no DB) recruit planner, witch hunt, pilgrimage & seal reinforce... PASSED");
 }
 
+function testCultistUnit() {
+  const recDeltas = stepCultistRecruitment(
+    {
+      tick: 5,
+      loreDate: "Day 5",
+      candidates: [{ burgId: 10, cellId: 200, wealth: 500, unrest: 25, burgName: "Ashenford", citizen: null }],
+    },
+    { random: () => 0.1 }
+  );
+  type R = (typeof recDeltas)[number];
+  const created = recDeltas.find((d): d is Extract<R, { kind: "agent.create" }> => d.kind === "agent.create");
+  assert.ok(created && created.role === "Cultist" && created.state === "INFILTRATING" && created.corruption === 5);
+
+  const stepDeltas = stepCultists(
+    {
+      tick: 6,
+      loreDate: "Day 6",
+      isShadowWeek: false,
+      groves: [
+        { id: 1, cellId: 500, dragonName: "Ulex", powerDomain: "Flux", sealStrength: 1, x: 200, y: 0, repairRoll: false },
+        { id: 2, cellId: 501, dragonName: "Eldra", powerDomain: "Ratio", sealStrength: 80, x: 500, y: 500, repairRoll: true },
+      ],
+      cultists: [
+        // 1. Infiltrator transitioning to TRAVELING_TO_SEAL (needsBesiegers < 144)
+        {
+          id: 10,
+          name: "Cultist A",
+          citizenName: "Mara",
+          profession: "Weaver",
+          temper: "GREEDY",
+          subRole: "Cultist_Infiltrator",
+          homeBurgId: 10,
+          locationCellId: 200,
+          targetCellId: null,
+          targetGroveId: null,
+          state: "INFILTRATING",
+          corruption: 10,
+          ageTicks: 2,
+        },
+        // 2. Traveler colliding with Warden at next cell and arriving at grove 1
+        {
+          id: 11,
+          name: "Cultist B",
+          citizenName: "Silas",
+          profession: "Scribe",
+          temper: "DESPERATE",
+          subRole: "Cultist_Zealot",
+          homeBurgId: 10,
+          locationCellId: 499,
+          targetCellId: 500,
+          targetGroveId: 1,
+          state: "TRAVELING_TO_SEAL",
+          corruption: 20,
+          ageTicks: 5,
+        },
+        // 3. Veteran besieger shattering grove 1 (sealStrength 1 -> 0 -> apocalypse + chaos zone + ascension)
+        {
+          id: 12,
+          name: "Cultist C",
+          citizenName: "Vaelen",
+          profession: "Scholar",
+          temper: "SCHOLARLY",
+          subRole: "Cultist_Zealot",
+          homeBurgId: 10,
+          locationCellId: 500,
+          targetCellId: 500,
+          targetGroveId: 1,
+          state: "BESIEGING_SEAL",
+          corruption: 75,
+          ageTicks: 10,
+        },
+      ],
+      wardens: [{ id: 99, name: "Sentinel Kael", role: "Warden", locationCellId: 500 }],
+      cellCoords: { 200: { x: 190, y: 0 }, 499: { x: 0, y: 0 }, 500: { x: 200, y: 0 }, 501: { x: 500, y: 500 } },
+      findNearestCell: () => 500,
+      apocalypseLoggedMessages: [],
+      allBurgIds: [10],
+    },
+    { random: () => 0.1 }
+  );
+
+  type C = (typeof stepDeltas)[number];
+  const upd10 = stepDeltas.find((d): d is Extract<C, { kind: "agent.update" }> => d.kind === "agent.update" && d.agentId === 10);
+  assert.ok(upd10 && upd10.fields.state === "TRAVELING_TO_SEAL" && upd10.fields.sub_role === "Cultist_Zealot");
+
+  const skirmish = stepDeltas.find((d): d is Extract<C, { kind: "event.log" }> => d.kind === "event.log" && d.type === "CULT_WARDEN_SKIRMISH");
+  assert.ok(skirmish);
+
+  const asc = stepDeltas.find((d): d is Extract<C, { kind: "event.log" }> => d.kind === "event.log" && d.type === "CULT_PRIEST_ASCENSION");
+  assert.ok(asc);
+
+  const apoc = stepDeltas.find((d): d is Extract<C, { kind: "event.log" }> => d.kind === "event.log" && d.type === "WORLD_ENDING_APOCALYPSE");
+  assert.ok(apoc && apoc.tier === "CRITICAL");
+
+  const gAdj1 = stepDeltas.find((d): d is Extract<C, { kind: "grove.adjust" }> => d.kind === "grove.adjust" && d.groveId === 1);
+  const gAdj2 = stepDeltas.find((d): d is Extract<C, { kind: "grove.adjust" }> => d.kind === "grove.adjust" && d.groveId === 2);
+  assert.ok(gAdj1 && gAdj1.sealDelta < 0);
+  assert.ok(gAdj2 && gAdj2.sealDelta === 1, "Unbesieged grove with repairRoll must gain +1 outside Shadowfall");
+  console.log("14. stepCultists (no DB) recharge, infiltration, skirmish, siege & apocalypse... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
@@ -874,6 +976,7 @@ function main() {
   testNpcRoutinesUnit();
   testBackgroundDirectorUnit();
   testMandateUnit();
+  testCultistUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 
