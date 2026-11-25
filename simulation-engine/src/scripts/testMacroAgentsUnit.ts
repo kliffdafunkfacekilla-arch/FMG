@@ -19,6 +19,9 @@ import { buildMandateRecruitDeltas, planMandateRecruits, stepMandateWarbands } f
 import { stepCultistRecruitment, stepCultists } from "../engine/macro/cultist/step.js";
 import { planWardenAwakening, stepWardenAwakening, stepWardens } from "../engine/macro/warden/step.js";
 import { stepBurgExpansion, uniqueBurgName } from "../engine/macro/burgExpansion/step.js";
+import { stepChronicler } from "../engine/macro/chronicler/step.js";
+import { stepParagons } from "../engine/macro/paragons/step.js";
+import { stepFactionPlanning } from "../engine/macro/factions/step.js";
 
 function testEncounterUnit() {
   const emptyDeltas = stepEncounter({ agents: [], cellIds: [10, 20, 30] }, { tick: 2, random: mulberry32(42) });
@@ -1227,6 +1230,410 @@ function testBurgExpansionUnit() {
   console.log("16. stepBurgExpansion (no DB) cadence, biome type, cell dedup & name uniqueness... PASSED");
 }
 
+function testChroniclerUnit() {
+  // Day 1 -> TURN_LOG; 2 drama events -> REGIONAL_RUMOR
+  const d1 = stepChronicler({
+    tick: 1,
+    loreDate: "Day 1, Sunmelt",
+    hasRecentRumor: false,
+    dramaEvents: [
+      { burgId: 12, cellId: 300, type: "AUTONOMOUS_CLASH", message: "[CLASH] Brawlers clashed in Ironford." },
+      { burgId: 15, cellId: 305, type: "BURG_FAMINE", message: "[FAMINE] Granaries emptied in Oakhaven." },
+    ],
+  });
+  type C = (typeof d1)[number];
+  const logs = d1.filter((d): d is Extract<C, { kind: "event.log" }> => d.kind === "event.log");
+  assert.equal(logs.length, 2);
+  assert.equal(logs[0]!.type, "TURN_LOG");
+  assert.equal(logs[1]!.type, "REGIONAL_RUMOR");
+  assert.equal(logs[1]!.burgId, 12);
+  assert.equal(logs[1]!.cellId, 300);
+  assert.ok(logs[1]!.message.includes("Brawlers clashed in Ironford.") && logs[1]!.message.includes("Meanwhile, Granaries emptied in Oakhaven."));
+
+  // Cooldown active & non-1st day -> no output
+  const d2 = stepChronicler({
+    tick: 2,
+    loreDate: "Day 2, Sunmelt",
+    hasRecentRumor: true,
+    dramaEvents: [
+      { burgId: 12, cellId: 300, type: "AUTONOMOUS_CLASH", message: "Test A" },
+      { burgId: 15, cellId: 305, type: "BURG_FAMINE", message: "Test B" },
+    ],
+  });
+  assert.equal(d2.length, 0);
+
+  assert.equal(
+    JSON.stringify(
+      stepChronicler({
+        tick: 49,
+        loreDate: "Day 1, Month 2",
+        hasRecentRumor: false,
+        dramaEvents: [
+          { burgId: null, cellId: 100, type: "THREAD_RESOLVED", message: "[END] Guild dispute settled." },
+          { burgId: 8, cellId: null, type: "THREAD_THWARTED_BY_LOCALS", message: "Watch foiled smuggling ring." },
+        ],
+      })
+    ),
+    JSON.stringify(
+      stepChronicler({
+        tick: 49,
+        loreDate: "Day 1, Month 2",
+        hasRecentRumor: false,
+        dramaEvents: [
+          { burgId: null, cellId: 100, type: "THREAD_RESOLVED", message: "[END] Guild dispute settled." },
+          { burgId: 8, cellId: null, type: "THREAD_THWARTED_BY_LOCALS", message: "Watch foiled smuggling ring." },
+        ],
+      })
+    )
+  );
+  console.log("17. stepChronicler (no DB) monthly TURN_LOG, rumor clustering & cooldown... PASSED");
+}
+
+function testParagonsUnit() {
+  // Choose tick=14 so (tick + p.id * 5) % 14 === 0 triggers only when p.id % 14 === 0 -> use p.id = 14 & 28
+  const greedyHoarder = stepParagons(
+    {
+      tick: 14,
+      loreDate: "Day 14",
+      burgs: [
+        {
+          burgId: 1,
+          name: "Ashport",
+          cellId: 100,
+          popNull: 1000,
+          food: 500, // famine (< 0.6 * 2000)
+          health: 90,
+          unrest: 10,
+          wealth: 500,
+          crimeRate: 10,
+          port: true,
+        },
+      ],
+      paragons: [
+        {
+          id: 14,
+          burgId: 1,
+          outlawId: null,
+          domain: "Civil",
+          title: "Mayor",
+          name: "Vane",
+          traits: JSON.stringify(["GREEDY", "USURIOUS"]),
+          corruptionScore: 63, // +2 drift -> 65 -> COMPASS_TRADE_EMBARGO, hoards grain (+4 -> 67)
+        },
+      ],
+      cellTagsByCell: {},
+    },
+    { random: () => 0.25 }
+  );
+
+  type P = (typeof greedyHoarder)[number];
+  assert.ok(greedyHoarder.some((d) => d.kind === "paragon.setCorruption" && d.paragonId === 14 && d.corruptionScore === 67));
+  assert.ok(greedyHoarder.some((d) => d.kind === "event.log" && d.type === "COMPASS_TRADE_EMBARGO"));
+  assert.ok(greedyHoarder.some((d) => d.kind === "event.log" && d.type === "MAYOR_HOARD_GRAIN_SPECULATION"));
+  assert.ok(greedyHoarder.some((d) => d.kind === "tags.add" && d.tags.includes("#CompassEmbargo")));
+  assert.ok(greedyHoarder.some((d) => d.kind === "citizen.tagBurg" && d.burgId === 1));
+  const bAdj = greedyHoarder.find((d): d is Extract<P, { kind: "burg.adjust" }> => d.kind === "burg.adjust");
+  assert.ok(bAdj && bAdj.wealth === 85 && bAdj.unrest === 12);
+
+  // Compassionate Mayor with #Line_NeverTaxTheStarving helps starving & Security lifts active curfew when unrest drops
+  const reliefAndLift = stepParagons(
+    {
+      tick: 14,
+      loreDate: "Day 14",
+      burgs: [
+        {
+          burgId: 2,
+          name: "Brightwater",
+          cellId: 200,
+          popNull: 1000,
+          food: 500,
+          health: 90,
+          unrest: 5, // calm -> lift active curfew
+          wealth: 500,
+          crimeRate: 5,
+          port: false,
+        },
+      ],
+      paragons: [
+        {
+          id: 14,
+          burgId: 2,
+          outlawId: null,
+          domain: "Civil",
+          title: "Burgomaster",
+          name: "Clara",
+          traits: JSON.stringify(["COMPASSIONATE"]),
+          corruptionScore: 4,
+        },
+        {
+          id: 28,
+          burgId: 2,
+          outlawId: null,
+          domain: "Security",
+          title: "Watch Commander",
+          name: "Dorian",
+          traits: JSON.stringify(["STOIC"]),
+          corruptionScore: 0,
+        },
+      ],
+      cellTagsByCell: { 200: ["#NightfallCurfewActive"] },
+    },
+    { random: () => 0.1 }
+  );
+
+  assert.ok(reliefAndLift.some((d) => d.kind === "event.log" && d.type === "MAYOR_EXPAND_GRANARY"));
+  assert.ok(reliefAndLift.some((d) => d.kind === "event.log" && d.type === "COMMANDER_LIFT_CURFEW"));
+  assert.ok(reliefAndLift.some((d) => d.kind === "tags.remove" && d.tags.includes("#NightfallCurfewActive")));
+
+  assert.equal(
+    JSON.stringify(
+      stepParagons(
+        {
+          tick: 14,
+          loreDate: "Day 14",
+          burgs: [
+            {
+              burgId: 1,
+              name: "Ashport",
+              cellId: 100,
+              popNull: 1000,
+              food: 500,
+              health: 90,
+              unrest: 10,
+              wealth: 500,
+              crimeRate: 10,
+              port: true,
+            },
+          ],
+          paragons: [
+            {
+              id: 14,
+              burgId: 1,
+              outlawId: null,
+              domain: "Civil",
+              title: "Mayor",
+              name: "Vane",
+              traits: JSON.stringify(["GREEDY"]),
+              corruptionScore: 20,
+            },
+          ],
+          cellTagsByCell: {},
+        },
+        { random: mulberry32(88) }
+      )
+    ),
+    JSON.stringify(
+      stepParagons(
+        {
+          tick: 14,
+          loreDate: "Day 14",
+          burgs: [
+            {
+              burgId: 1,
+              name: "Ashport",
+              cellId: 100,
+              popNull: 1000,
+              food: 500,
+              health: 90,
+              unrest: 10,
+              wealth: 500,
+              crimeRate: 10,
+              port: true,
+            },
+          ],
+          paragons: [
+            {
+              id: 14,
+              burgId: 1,
+              outlawId: null,
+              domain: "Civil",
+              title: "Mayor",
+              name: "Vane",
+              traits: JSON.stringify(["GREEDY"]),
+              corruptionScore: 20,
+            },
+          ],
+          cellTagsByCell: {},
+        },
+        { random: mulberry32(88) }
+      )
+    )
+  );
+  console.log("18. stepParagons (no DB) greedy hoarding, embargo, relief & curfew lift... PASSED");
+}
+
+function testFactionPlanningUnit() {
+  // Weekly tick 7 with faction 1 + 2 at war, faction 1 bankrupt with unit desertion, and conquest outcome
+  const deltas = stepFactionPlanning(
+    {
+      tick: 7,
+      loreDate: "Day 7",
+      factions: [
+        {
+          id: 1,
+          name: "Avian Empire",
+          treasury: 0,
+          trait_aggression: 7,
+          trait_economy: 5,
+          trait_magic: 5,
+          fiscal_economy: { pollTax: 0, salesTax: 0, collected: 0, budget: { corruption: 35 } },
+        },
+        {
+          id: 2,
+          name: "Hound March",
+          treasury: 5000,
+          trait_aggression: 8,
+          trait_economy: 4,
+          trait_magic: 3,
+          fiscal_economy: { budget: { corruption: 10 } },
+        },
+      ],
+      burgs: [
+        {
+          burg_id: 10,
+          cell_id: 100,
+          faction_id: 1,
+          pop_null: 1000,
+          pop_attuned: 50,
+          wealth: 200,
+          food: 800,
+          unrest: 10,
+          crime_rate: 5,
+          health: 90,
+          military_forces: JSON.stringify({ infantry: 40, airship: 10 }),
+          citadel: true,
+          walls: true,
+          is_capital: true,
+        },
+        {
+          burg_id: 20,
+          cell_id: 200,
+          faction_id: 2,
+          pop_null: 500,
+          pop_attuned: 0,
+          wealth: 400,
+          food: 500,
+          unrest: 10,
+          crime_rate: 5,
+          health: 90,
+          military_forces: JSON.stringify({ infantry: 1 }),
+        },
+      ],
+      units: [
+        { id: 101, faction_id: 1, count: 12, status: "ACTIVE" }, // insolvent -> disbands
+      ],
+      paragons: [
+        { id: 1, faction_id: 1, title: "EMPEROR", name: "Kael", traits: ["CONQUEROR"], corruption_score: 0 },
+        { id: 2, faction_id: 2, title: "WARLORD", name: "Brak", traits: ["CONQUEROR"], corruption_score: 0 },
+      ],
+      diplomacy: [
+        { factionAId: 2, factionBId: 1, status: "WAR", tension: 100 },
+      ],
+      borders: [{ factionA: 1, factionB: 2 }],
+      cellTagsByCell: {},
+    },
+    { random: () => 0.1 } // aggressor = 1 (0.1 < 0.5), war roll passes (0.1 <= 0.4), conquers weak burg 20
+  );
+
+  type F = (typeof deltas)[number];
+  assert.ok(deltas.some((d) => d.kind === "factionUnit.update" && d.unitId === 101 && d.count === 0 && d.status === "DISBANDED"));
+  assert.ok(deltas.some((d) => d.kind === "event.log" && d.type === "FACTION_TROOP_DESERTION"));
+  assert.ok(deltas.some((d) => d.kind === "event.log" && d.type === "FACTION_CORRUPTION_UNREST"));
+  assert.ok(deltas.some((d) => d.kind === "cell.setFaction" && d.cellId === 200 && d.factionId === 1));
+  assert.ok(deltas.some((d) => d.kind === "event.log" && d.type === "SIEGE_WON"));
+  assert.ok(deltas.some((d) => d.kind === "citizen.tagBurg" && d.burgId === 20));
+  const f1Upd = deltas.find((d): d is Extract<F, { kind: "faction.update" }> => d.kind === "faction.update" && d.factionId === 1);
+  assert.ok(f1Upd && f1Upd.treasurySet === 200, `Expected conquest loot +200 treasurySet, got ${f1Upd?.treasurySet}`);
+
+  // Border tension escalation PEACE -> COLD_WAR on tick 7 when tension >= 62
+  const chillDeltas = stepFactionPlanning(
+    {
+      tick: 7,
+      loreDate: "Day 7",
+      factions: [
+        { id: 1, name: "Realm A", treasury: 5000, fiscal_economy: {} },
+        { id: 2, name: "Realm B", treasury: 5000, fiscal_economy: {} },
+      ],
+      burgs: [
+        { burg_id: 1, cell_id: 10, faction_id: 1, pop_null: 2000, wealth: 500, unrest: 0, military_forces: '{"infantry":40}' },
+        { burg_id: 2, cell_id: 20, faction_id: 2, pop_null: 2000, wealth: 500, unrest: 0, military_forces: "{}" },
+      ],
+      units: [],
+      paragons: [
+        { id: 1, faction_id: 1, title: "EMPEROR", name: "Vance", traits: ["CONQUEROR"], corruption_score: 0 },
+      ],
+      diplomacy: [{ factionAId: 1, factionBId: 2, status: "PEACE", tension: 63 }],
+      borders: [{ factionA: 1, factionB: 2 }],
+      cellTagsByCell: {},
+    },
+    { random: () => 0.5 }
+  );
+  assert.ok(chillDeltas.some((d) => d.kind === "diplomacy.upsert" && d.status === "COLD_WAR" && d.tension === 65));
+  assert.ok(chillDeltas.some((d) => d.kind === "event.log" && d.type === "COLD_WAR_CHILL"));
+
+  // Monthly sovereign action on tick where (tick + 1*7) % 48 === 0 (tick = 41)
+  const monthlyDeltas = stepFactionPlanning(
+    {
+      tick: 41,
+      loreDate: "Day 41",
+      factions: [
+        { id: 1, name: "Empire", treasury: 6000, trait_aggression: 10, trait_economy: 2, trait_magic: 2, fiscal_economy: {} },
+        { id: 2, name: "Rival", treasury: 6000, fiscal_economy: {} },
+      ],
+      burgs: [
+        { burg_id: 1, cell_id: 10, faction_id: 1, pop_null: 3000, wealth: 800, unrest: 5, military_forces: '{"infantry":40}' },
+        { burg_id: 2, cell_id: 20, faction_id: 2, pop_null: 3000, wealth: 800, unrest: 5, military_forces: '{"infantry":10}' },
+      ],
+      units: [],
+      paragons: [
+        { id: 1, faction_id: 1, title: "EMPEROR", name: "Titus", traits: ["CONQUEROR"], corruption_score: 0 },
+      ],
+      diplomacy: [],
+      borders: [{ factionA: 1, factionB: 2 }],
+      cellTagsByCell: {},
+    },
+    { random: () => 0.1 }
+  );
+  assert.ok(monthlyDeltas.some((d) => d.kind === "diplomacy.upsert" && d.status === "WAR" && d.tension === 100));
+  assert.ok(monthlyDeltas.some((d) => d.kind === "event.log" && d.type === "DECLARE_WAR"));
+
+  assert.equal(
+    JSON.stringify(
+      stepFactionPlanning(
+        {
+          tick: 7,
+          loreDate: "Day 7",
+          factions: [{ id: 1, name: "A", treasury: 3000, fiscal_economy: {} }],
+          burgs: [{ burg_id: 1, cell_id: 10, faction_id: 1, pop_null: 500, wealth: 100, military_forces: "{}" }],
+          units: [],
+          paragons: [],
+          diplomacy: [],
+          borders: [],
+          cellTagsByCell: {},
+        },
+        { random: mulberry32(99) }
+      )
+    ),
+    JSON.stringify(
+      stepFactionPlanning(
+        {
+          tick: 7,
+          loreDate: "Day 7",
+          factions: [{ id: 1, name: "A", treasury: 3000, fiscal_economy: {} }],
+          burgs: [{ burg_id: 1, cell_id: 10, faction_id: 1, pop_null: 500, wealth: 100, military_forces: "{}" }],
+          units: [],
+          paragons: [],
+          diplomacy: [],
+          borders: [],
+          cellTagsByCell: {},
+        },
+        { random: mulberry32(99) }
+      )
+    )
+  );
+  console.log("19. stepFactionPlanning (no DB) finances, border tension, actions & war conquest... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
@@ -1245,6 +1652,9 @@ function main() {
   testCultistUnit();
   testWardenUnit();
   testBurgExpansionUnit();
+  testChroniclerUnit();
+  testParagonsUnit();
+  testFactionPlanningUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 

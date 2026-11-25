@@ -49,6 +49,10 @@ const KNOWN_KINDS = new Set<string>([
   "ancientWard.recharge",
   "ancientWard.discharge",
   "burg.createSatellite",
+  "paragon.setCorruption",
+  "faction.update",
+  "factionUnit.update",
+  "diplomacy.upsert",
 ]);
 
 function clamp(v: number, min: number, max: number): number {
@@ -88,6 +92,7 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   const npcInstanceIds = new Set<string>();
   const groveIds = new Set<number>();
   const ancientWardIds = new Set<number>();
+  const factionUnitIds = new Set<number>();
 
   const structuralErrors = new Map<number, string>();
 
@@ -130,9 +135,13 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
           ["pop_null", f.pop_null],
           ["pop_attuned", f.pop_attuned],
           ["urban_tier", f.urban_tier],
+          ["occupation_ticks", f.occupation_ticks],
+          ["resistance_strength", f.resistance_strength],
         ]);
         if (err) structuralErrors.set(i, err);
-        else {
+        else if (f.military_forces !== undefined && typeof f.military_forces !== "string") {
+          structuralErrors.set(i, "Invalid military_forces in burg.set");
+        } else {
           burgIds.add(d.burgId);
           if (typeof f.occupier_faction_id === "number" && f.occupier_faction_id > 0) {
             factionIds.add(f.occupier_faction_id);
@@ -625,6 +634,51 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         }
         break;
       }
+      case "paragon.setCorruption": {
+        const err = finiteOrReject([
+          ["paragonId", d.paragonId],
+          ["corruptionScore", d.corruptionScore],
+        ]);
+        if (err) structuralErrors.set(i, err);
+        else paragonIds.add(d.paragonId);
+        break;
+      }
+      case "faction.update": {
+        const err = finiteOrReject([
+          ["factionId", d.factionId],
+          ["treasurySet", d.treasurySet],
+          ["treasuryDelta", d.treasuryDelta],
+        ]);
+        if (err) structuralErrors.set(i, err);
+        else factionIds.add(d.factionId);
+        break;
+      }
+      case "factionUnit.update": {
+        const err = finiteOrReject([
+          ["unitId", d.unitId],
+          ["count", d.count],
+        ]);
+        if (err || !d.status || !d.status.trim()) {
+          structuralErrors.set(i, err || "Invalid factionUnit.update payload");
+        } else {
+          factionUnitIds.add(d.unitId);
+        }
+        break;
+      }
+      case "diplomacy.upsert": {
+        const err = finiteOrReject([
+          ["factionAId", d.factionAId],
+          ["factionBId", d.factionBId],
+          ["tension", d.tension],
+        ]);
+        if (err || !d.status || !d.status.trim() || d.factionAId === d.factionBId) {
+          structuralErrors.set(i, err || "Invalid diplomacy.upsert payload");
+        } else {
+          factionIds.add(d.factionAId);
+          factionIds.add(d.factionBId);
+        }
+        break;
+      }
     }
   }
 
@@ -724,6 +778,12 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
     for (const r of res.rows) validAncientWards.add(Number(r.id));
   }
 
+  const validFactionUnits = new Set<number>();
+  if (factionUnitIds.size > 0) {
+    const res = await db.query(`SELECT id FROM sim_faction_units WHERE id = ANY($1::int[])`, [Array.from(factionUnitIds)]);
+    for (const r of res.rows) validFactionUnits.add(Number(r.id));
+  }
+
   const validStandingEntities = new Set<string>();
   if (standingEntityRefs.size > 0) {
     const entCheck = await db.query(`SELECT to_regclass('entities') IS NOT NULL AS ready`);
@@ -767,6 +827,8 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         if (f.pop_null !== undefined) f.pop_null = Math.max(0, Math.round(f.pop_null));
         if (f.pop_attuned !== undefined) f.pop_attuned = Math.max(0, Math.round(f.pop_attuned));
         if (f.urban_tier !== undefined) f.urban_tier = Math.max(0, Math.round(f.urban_tier));
+        if (f.occupation_ticks !== undefined) f.occupation_ticks = Math.max(0, Math.round(f.occupation_ticks));
+        if (f.resistance_strength !== undefined) f.resistance_strength = Math.max(0, Math.round(f.resistance_strength));
         ok.push({ kind: "burg.set", burgId: d.burgId, fields: f });
         break;
       }
@@ -1136,6 +1198,61 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
           popAttuned: Math.max(0, Math.round(d.popAttuned)),
           wealth: Math.max(0, Math.round(d.wealth)),
           food: Math.max(0, Math.round(d.food)),
+        });
+        break;
+
+      case "paragon.setCorruption":
+        if (!validParagons.has(d.paragonId)) {
+          rejected.push({ delta: d, reason: `Unknown paragonId ${d.paragonId}` });
+          break;
+        }
+        ok.push({
+          kind: "paragon.setCorruption",
+          paragonId: d.paragonId,
+          corruptionScore: clamp(Math.round(d.corruptionScore), 0, 100),
+        });
+        break;
+
+      case "faction.update":
+        if (!validFactions.has(d.factionId)) {
+          rejected.push({ delta: d, reason: `Unknown factionId ${d.factionId}` });
+          break;
+        }
+        ok.push({
+          ...d,
+          treasurySet: d.treasurySet !== undefined ? Math.max(0, Math.round(d.treasurySet)) : undefined,
+          treasuryDelta: d.treasuryDelta !== undefined ? Math.round(d.treasuryDelta) : undefined,
+        });
+        break;
+
+      case "factionUnit.update":
+        if (!validFactionUnits.has(d.unitId)) {
+          rejected.push({ delta: d, reason: `Unknown factionUnit id ${d.unitId}` });
+          break;
+        }
+        ok.push({
+          kind: "factionUnit.update",
+          unitId: d.unitId,
+          count: Math.max(0, Math.round(d.count)),
+          status: d.status,
+        });
+        break;
+
+      case "diplomacy.upsert":
+        if (!validFactions.has(d.factionAId)) {
+          rejected.push({ delta: d, reason: `Unknown diplomacy factionAId ${d.factionAId}` });
+          break;
+        }
+        if (!validFactions.has(d.factionBId)) {
+          rejected.push({ delta: d, reason: `Unknown diplomacy factionBId ${d.factionBId}` });
+          break;
+        }
+        ok.push({
+          kind: "diplomacy.upsert",
+          factionAId: d.factionAId,
+          factionBId: d.factionBId,
+          status: d.status,
+          tension: clamp(Math.round(d.tension), 0, 100),
         });
         break;
 

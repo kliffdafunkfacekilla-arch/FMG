@@ -17,9 +17,11 @@
         attackerTraits?: string[];
         defenderTraits?: string[];
         defenderFortifications?: Partial<BurgCivicFlags>;
+        random?: () => number;
     }
 
     export function resolveCombat(attackerForces: any, defenderForces: any, options: CombatOptions = {}) {
+        const random = options.random ?? Math.random;
         const UnitTypes = ["infantry", "ranged", "mounted", "airship", "mage"];
         const aName = (options.attackerName || "").toLowerCase();
         const bName = (options.defenderName || "").toLowerCase();
@@ -27,7 +29,7 @@
 
         // Asymmetric Doctrine 1: Meridian / Dusthusk Desert Sand Evasion & Supply Siphon
         // 30% chance to slip past open field battle lines and plunder supplies instead
-        if ((aName.includes('meridian') || aName.includes('dusthusk')) && Math.random() < 0.30) {
+        if ((aName.includes('meridian') || aName.includes('dusthusk')) && random() < 0.30) {
             return {
                 attackerTotal: 50,
                 defenderTotal: 50,
@@ -40,7 +42,7 @@
                 siphonFood: 100,
                 doctrineApplied: "Dusthusk Sand Evasion (Siphoned supplies instead of open field battle)"
             };
-        } else if ((bName.includes('meridian') || bName.includes('dusthusk')) && Math.random() < 0.30) {
+        } else if ((bName.includes('meridian') || bName.includes('dusthusk')) && random() < 0.30) {
             return {
                 attackerTotal: 50,
                 defenderTotal: 50,
@@ -79,7 +81,7 @@
         function getRandomTarget(army: any): string {
             const types = Object.keys(army).filter(k => (army[k] || 0) > 0);
             if (types.length === 0) return "infantry";
-            return types[Math.floor(Math.random() * types.length)] || "infantry";
+            return types[Math.floor(random() * types.length)] || "infantry";
         }
 
         let attackerTotal = 0;
@@ -89,7 +91,7 @@
             const numUnits = Math.floor(count as number);
             for (let i = 0; i < numUnits; i++) {
                 const enemy = getRandomTarget(defenderForces);
-                const roll = Math.floor(Math.random() * 100) + 1;
+                const roll = Math.floor(random() * 100) + 1;
                 attackerTotal += Math.max(0, roll + getModifier(true, unitType, enemy));
             }
         }
@@ -98,7 +100,7 @@
             const numUnits = Math.floor(count as number);
             for (let i = 0; i < numUnits; i++) {
                 const enemy = getRandomTarget(attackerForces);
-                const roll = Math.floor(Math.random() * 100) + 1;
+                const roll = Math.floor(random() * 100) + 1;
                 defenderTotal += Math.max(0, roll + getModifier(false, unitType, enemy));
             }
         }
