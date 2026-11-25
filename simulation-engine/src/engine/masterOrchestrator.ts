@@ -42,7 +42,8 @@ import { migrate } from "../db/migrate.js";
 import { flushStepDeltas, type Delta, type DeltaEmitter } from "./deltas/index.js";
 import { markEntitiesDeadBatch } from "./entities/registry.js";
 import { runSeeded, seedSql, tickSeed } from "./rng.js";
-import { runAutonomousDramaAgent } from "./agents/autonomousDramaAgent.js";
+import { loadAutonomousDrama } from "./macro/autonomousDrama/load.js";
+import { stepAutonomousDrama } from "./macro/autonomousDrama/step.js";
 import { advanceThreadClocks } from "./threads/threadEngine.js";
 import { checkStoryEscalations } from "./story/storylines.js";
 import { getFocusedCellIds } from "./meso/region.js";
@@ -254,7 +255,11 @@ async function runTick(): Promise<TickResult> {
             });
             await step('npcRoutines', () => runNPCRoutineAgent(client, tick, loreDate));
             await step('backgroundDirector', () => runBackgroundDirectorAgent(client, tick, loreDate));
-            await step('autonomousDrama', () => runAutonomousDramaAgent(client, tick, loreDate));
+            await step('autonomousDrama', async (emit) => {
+                const snap = await loadAutonomousDrama(client, tick, loreDate);
+                const out = stepAutonomousDrama(snap);
+                for (const d of out.deltas) emit(d);
+            });
             await step('threadClocks', async () => {
                 await advanceThreadClocks(client, tick, loreDate);
                 await checkStoryEscalations(client, tick);

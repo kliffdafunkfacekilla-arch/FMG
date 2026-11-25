@@ -11,6 +11,7 @@ import type { EcologySnapshot } from "../engine/macro/ecology/load.js";
 import { DAYS_PER_WEEK } from "../engine/canon/calendar.js";
 import { stepCalendar } from "../engine/macro/calendar/step.js";
 import { computeChaosFlowState, stepChaosFlow } from "../engine/macro/chaosFlow/step.js";
+import { stepAutonomousDrama } from "../engine/macro/autonomousDrama/step.js";
 
 function testEncounterUnit() {
   const emptyDeltas = stepEncounter({ agents: [], cellIds: [10, 20, 30] }, { tick: 2, random: mulberry32(42) });
@@ -464,6 +465,94 @@ function testChaosFlowUnit() {
   console.log("8. stepChaosFlow (no DB) meander, prune, bank blight & agent spawns... PASSED");
 }
 
+function testAutonomousDramaUnit() {
+  const empty = stepAutonomousDrama({ tick: 1, loreDate: "Day 1", burgs: [] });
+  assert.equal(empty.clashesOpened, 0);
+  assert.equal(empty.deltas.length, 0);
+
+  const out = stepAutonomousDrama({
+    tick: 10,
+    loreDate: "10th Day",
+    burgs: [
+      {
+        burgId: 4, // (10 + 4) % 2 === 0 -> rival paragon branch
+        name: "Ashenford",
+        cellId: 200,
+        unrest: 60, // > 55 -> oathBroken
+        crimeRate: 25,
+        food: 300,
+        wealth: 500,
+        paragons: [
+          {
+            id: 11,
+            name: "Veylan",
+            title: "Magistrate",
+            want: "seize the grain ledgers.",
+            flaw: "pride.",
+            lineWontCross: "burning granaries.",
+            corruptionScore: 50,
+          },
+          {
+            id: 12,
+            name: "Talia",
+            title: "Captain",
+            want: "hold the square",
+            flaw: "rigidity",
+            lineWontCross: "bribery",
+            corruptionScore: 20,
+          },
+        ],
+        citizens: [],
+        cellTags: ["#GrainShortage", "#MartialPatrol"],
+      },
+      {
+        burgId: 5, // (10 + 5) % 2 === 1 -> citizen branch
+        name: "Millbrook",
+        cellId: 201,
+        unrest: 30,
+        crimeRate: 10,
+        food: 500,
+        wealth: 200,
+        paragons: [
+          {
+            id: 21,
+            name: "Kael",
+            title: null,
+            want: null,
+            flaw: null,
+            lineWontCross: null,
+            corruptionScore: 0,
+          },
+        ],
+        citizens: [{ targetTypedId: "citizen:77", name: "Bram", profession: "Miller" }],
+        cellTags: [],
+      },
+    ],
+  });
+
+  assert.equal(out.clashesOpened, 2);
+  type D = (typeof out.deltas)[number];
+  const threads = out.deltas.filter((d): d is Extract<D, { kind: "thread.open" }> => d.kind === "thread.open");
+  assert.equal(threads.length, 2);
+  assert.deepEqual(threads[0]?.spec.actor_ids, ["paragon:11", "paragon:12"]);
+  assert.equal(threads[0]?.spec.rule_id, "AUTONOMOUS_CLASH");
+  assert.ok(threads[0]?.spec.stakes.includes("[#GrainShortage, #MartialPatrol]"));
+  assert.ok(threads[0]?.spec.stakes.includes("Pressure pushed past their line"));
+  assert.deepEqual(threads[1]?.spec.actor_ids, ["paragon:21", "citizen:77"]);
+
+  const adj = out.deltas.filter((d): d is Extract<D, { kind: "burg.adjust" }> => d.kind === "burg.adjust");
+  assert.equal(adj.length, 2);
+
+  const evts = out.deltas.filter((d): d is Extract<D, { kind: "event.log" }> => d.kind === "event.log");
+  assert.equal(evts.length, 2);
+  assert.equal(evts[0]?.type, "AUTONOMOUS_CLASH");
+
+  const replayA = stepAutonomousDrama({ tick: 10, loreDate: "10th Day", burgs: [] });
+  const replayB = stepAutonomousDrama({ tick: 10, loreDate: "10th Day", burgs: [] });
+  assert.equal(JSON.stringify(replayA), JSON.stringify(replayB));
+  console.log("9. stepAutonomousDrama (no DB) paragon/citizen pairing, dice & clash threads... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
@@ -474,6 +563,7 @@ function main() {
   testMarketUnit();
   testGrindCanyonUnit();
   testChaosFlowUnit();
+  testAutonomousDramaUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 

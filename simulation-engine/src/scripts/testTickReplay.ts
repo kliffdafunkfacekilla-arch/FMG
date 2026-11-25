@@ -26,7 +26,7 @@ const QUERY_CEILINGS: Record<string, number> = {
   npcRoutines: 70,
   cultists: 70,
   backgroundDirector: 70,
-  autonomousDrama: 40,
+  autonomousDrama: 35,
   trade: 35,
   weather: 30,
   threadClocks: 25,
