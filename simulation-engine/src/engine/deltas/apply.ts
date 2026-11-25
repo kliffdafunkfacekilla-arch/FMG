@@ -125,6 +125,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   const infraAdjusts: Array<Extract<Delta, { kind: "infrastructure.adjust" }>> = [];
   const overlayAdds: Array<Extract<Delta, { kind: "overlay.add" }>> = [];
   const standingAdjusts: Array<Extract<Delta, { kind: "standing.adjust" }>> = [];
+  const endWarFactions = new Set<number>();
   let lastCalendar: Extract<Delta, { kind: "calendar.set" }> | null = null;
 
   for (const d of deltas) {
@@ -297,6 +298,9 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         break;
       case "standing.adjust":
         standingAdjusts.push(d);
+        break;
+      case "diplomacy.endWars":
+        endWarFactions.add(d.factionId);
         break;
     }
   }
@@ -582,6 +586,16 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
       ]
     );
     counts.sim_cells = (counts.sim_cells || 0) + (res.rowCount || 0);
+  }
+
+  if (endWarFactions.size > 0) {
+    const fids = Array.from(endWarFactions).sort((a, b) => a - b);
+    const res = await db.query(
+      `UPDATE sim_diplomacy SET status = 'PEACE', tension = 0
+       WHERE (faction_a_id = ANY($1::int[]) OR faction_b_id = ANY($1::int[])) AND status = 'WAR'`,
+      [fids]
+    );
+    counts.sim_diplomacy = (counts.sim_diplomacy || 0) + (res.rowCount || 0);
   }
 
   if (cellFactions.size > 0) {

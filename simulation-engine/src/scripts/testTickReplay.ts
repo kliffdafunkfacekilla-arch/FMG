@@ -39,7 +39,7 @@ const QUERY_CEILINGS: Record<string, number> = {
   encounters: 15,
   chronicler: 15,
   reaper: 20,
-  factionCollapse: 15,
+  factionCollapse: 8,
   ecology: 20,
   burgExpansion: 20,
   cultureReligion: 25,

@@ -268,6 +268,10 @@ export type Delta =
       source: string;
     }
   | {
+      kind: "diplomacy.endWars";
+      factionId: number;
+    }
+  | {
       kind: "standing.adjust";
       subjectRef: string;
       partyRef: string;

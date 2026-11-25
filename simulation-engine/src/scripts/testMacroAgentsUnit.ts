@@ -211,12 +211,45 @@ function testCalendarUnit() {
   console.log("4. stepCalendar (no DB) Day 1, Day 48 hemorrhage & Shadowfall... PASSED");
 }
 
+import { stepFactionCollapse } from "../engine/macro/factionCollapse/step.js";
+
+function testFactionCollapseUnit() {
+  const deltas = stepFactionCollapse({
+    tick: 12,
+    loreDate: "Day 12 of Frost",
+    candidates: [
+      { id: 10, name: "Kragmere", treasury: 0, cellIds: [101, 102], wars: 2 },
+      { id: 11, name: "Ashen Pact", treasury: 500, cellIds: [], wars: 1 },
+      { id: 12, name: "Iron Horde", treasury: 250, cellIds: [201], wars: 1 },
+      { id: 13, name: "Quiet Remnant", treasury: 100, cellIds: [], wars: 0 },
+    ],
+  });
+
+  type D = (typeof deltas)[number];
+  const endWars = deltas.filter((d): d is Extract<D, { kind: "diplomacy.endWars" }> => d.kind === "diplomacy.endWars");
+  assert.deepEqual(endWars.map((d) => d.factionId), [10, 11]);
+
+  const wildCells = deltas.filter((d): d is Extract<D, { kind: "cell.setFaction" }> => d.kind === "cell.setFaction");
+  assert.deepEqual(
+    wildCells.map((d) => [d.cellId, d.factionId]),
+    [[101, null], [102, null]]
+  );
+
+  const events = deltas.filter((d): d is Extract<D, { kind: "event.log" }> => d.kind === "event.log");
+  assert.deepEqual(
+    events.map((d) => [d.type, d.factionId]),
+    [["FACTION_COLLAPSED", 10], ["FACTION_WARS_ENDED", 11]]
+  );
+  console.log("5. stepFactionCollapse (no DB) bankrupt collapse, landless peace & funded nomad skip... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
   testWeatherUnit();
   testEcologyUnit();
   testCalendarUnit();
+  testFactionCollapseUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 

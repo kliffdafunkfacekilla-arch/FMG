@@ -29,6 +29,7 @@ const KNOWN_KINDS = new Set<string>([
   "infrastructure.adjust",
   "overlay.add",
   "standing.adjust",
+  "diplomacy.endWars",
 ]);
 
 function clamp(v: number, min: number, max: number): number {
@@ -149,6 +150,11 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
           cellIds.add(d.cellId);
           if (typeof d.factionId === "number" && d.factionId > 0) factionIds.add(d.factionId);
         }
+        break;
+      }
+      case "diplomacy.endWars": {
+        if (!Number.isFinite(d.factionId) || d.factionId <= 0) structuralErrors.set(i, "Invalid diplomacy.endWars factionId");
+        else factionIds.add(d.factionId);
         break;
       }
       case "citizen.status": {
@@ -466,6 +472,11 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
           rejected.push({ delta: d, reason: `Unknown factionId ${d.factionId}` });
           break;
         }
+        ok.push(d);
+        break;
+
+      case "diplomacy.endWars":
+        if (!validFactions.has(d.factionId)) { rejected.push({ delta: d, reason: `Unknown factionId ${d.factionId}` }); break; }
         ok.push(d);
         break;
 

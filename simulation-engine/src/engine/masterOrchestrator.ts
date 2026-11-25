@@ -32,7 +32,8 @@ import { initSpatialCache } from "./agents/agentMovementHelper";
 import { stepActiveRegions } from "../api/regionalRouter";
 import { DAYS_PER_MONTH } from "./canon/calendar.js";
 import { runMarketAgent } from "./economy/marketAgent.js";
-import { runFactionCollapse } from "./agents/factionCollapse.js";
+import { loadFactionCollapse } from "./macro/factionCollapse/load.js";
+import { stepFactionCollapse } from "./macro/factionCollapse/step.js";
 import { migrate } from "../db/migrate.js";
 import { flushStepDeltas, type Delta, type DeltaEmitter } from "./deltas/index.js";
 import { markEntitiesDeadBatch } from "./entities/registry.js";
@@ -207,7 +208,10 @@ async function runTick(): Promise<TickResult> {
 
             // 4-5. Paragons, factions, expansion, trade, market
             await step('paragons', () => runLocalParagonAgent(client, tick, loreDate));
-            await step('factionCollapse', () => runFactionCollapse(client, tick, loreDate));
+            await step('factionCollapse', async (emit) => {
+                const snap = await loadFactionCollapse(client, tick, loreDate);
+                for (const d of stepFactionCollapse(snap)) emit(d);
+            });
             await step('factionPlanning', () => runFactionPlanningAgent(client, tick, loreDate));
             await step('burgExpansion', () => runBurgExpansionAgent(client, tick, loreDate));
             await step('cultureReligion', () => runCultureReligionAgent(client, tick, loreDate));
@@ -236,8 +240,8 @@ async function runTick(): Promise<TickResult> {
             await step('backgroundDirector', () => runBackgroundDirectorAgent(client, tick, loreDate));
             await step('autonomousDrama', () => runAutonomousDramaAgent(client, tick, loreDate));
             await step('threadClocks', async () => {
-              await advanceThreadClocks(client, tick, loreDate);
-              await checkStoryEscalations(client, tick);
+                await advanceThreadClocks(client, tick, loreDate);
+                await checkStoryEscalations(client, tick);
             });
 
             // 10. Chronicler
@@ -336,11 +340,13 @@ async function runTick(): Promise<TickResult> {
             if (failedQueries.length) {
                 console.warn(`[tick ${tick}] ${failedQueries.length} quer${failedQueries.length === 1 ? 'y' : 'ies'} failed:\n  ` + failedQueries.slice(0, 12).join('\n  '));
             }
-            return { status: failedAgents.length ? "partial" : "success", currentTick: tick, failedAgents, timings, queries, totalMs,
-                profile: profiling ? [...shapes.values()].reduce((acc: any, s) => { (acc[s.step] ||= []).push({ sql: s.sql, ms: Math.round(s.ms), calls: s.calls }); acc[s.step].sort((a: any, b: any) => b.ms - a.ms); acc[s.step].splice(5); return acc; }, {}) : undefined } as TickResult;
+            return {
+                status: failedAgents.length ? "partial" : "success", currentTick: tick, failedAgents, timings, queries, totalMs,
+                profile: profiling ? [...shapes.values()].reduce((acc: any, s) => { (acc[s.step] ||= []).push({ sql: s.sql, ms: Math.round(s.ms), calls: s.calls }); acc[s.step].sort((a: any, b: any) => b.ms - a.ms); acc[s.step].splice(5); return acc; }, {}) : undefined
+            } as TickResult;
         });
     } catch (e) {
-        await rawQuery('ROLLBACK').catch(() => {});
+        await rawQuery('ROLLBACK').catch(() => { });
         console.error("Master tick failed:", e);
         throw e;
     } finally {
