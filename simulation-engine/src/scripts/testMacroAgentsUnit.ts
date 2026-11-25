@@ -15,6 +15,7 @@ import { stepAutonomousDrama } from "../engine/macro/autonomousDrama/step.js";
 import { seededFraction, stepCultureReligion } from "../engine/macro/cultureReligion/step.js";
 import { stepNpcRoutines } from "../engine/macro/npcRoutines/step.js";
 import { BLEED_TAG, stepBackgroundDirector } from "../engine/macro/backgroundDirector/step.js";
+import { buildMandateRecruitDeltas, planMandateRecruits, stepMandateWarbands } from "../engine/macro/mandate/step.js";
 
 function testEncounterUnit() {
   const emptyDeltas = stepEncounter({ agents: [], cellIds: [10, 20, 30] }, { tick: 2, random: mulberry32(42) });
@@ -771,6 +772,93 @@ function testBackgroundDirectorUnit() {
   console.log("12. stepBackgroundDirector (no DB) immutable reactions, bestEffort threads & layer deltas... PASSED");
 }
 
+function testMandateUnit() {
+  const chosen = planMandateRecruits(
+    [
+      { burgId: 1, cellId: 100, unrest: 40, name: "Ironhold", popNull: 200, hasWarband: false },
+      { burgId: 2, cellId: 101, unrest: 35, name: "Oakhaven", popNull: 200, hasWarband: true },
+    ],
+    new Set(),
+    { random: () => 0.1 }
+  );
+  assert.equal(chosen.length, 1);
+  assert.equal(chosen[0]?.burgId, 1);
+
+  const recruitDeltas = buildMandateRecruitDeltas(
+    10,
+    "Day 10",
+    [{ burg: chosen[0]!, citizen: null }],
+    { random: () => 0.1 }
+  );
+  type D = (typeof recruitDeltas)[number];
+  const created = recruitDeltas.find((d): d is Extract<D, { kind: "agent.create" }> => d.kind === "agent.create");
+  assert.ok(created && created.role === "Chain_Zealot" && created.homeBurgId === 1 && created.citizenName);
+  const forgedEvt = recruitDeltas.find((d): d is Extract<D, { kind: "event.log" }> => d.kind === "event.log");
+  assert.ok(forgedEvt && forgedEvt.type === "CHAIN_WARBAND_FORGED");
+
+  const wbDeltas = stepMandateWarbands(
+    {
+      tick: 15,
+      loreDate: "Day 15",
+      warbands: [
+        // Hunting in home cell -> saturates -> enters PILGRIMAGE_TO_SEAL
+        {
+          id: 1,
+          name: "Inquisitor A",
+          citizenName: "Lucian",
+          profession: "Mason",
+          temper: "VENGEFUL",
+          subRole: "Chain_Inquisitor",
+          homeBurgId: 10,
+          locationCellId: 200,
+          targetCellId: 200,
+          targetGroveId: null,
+          state: "WITCH_HUNTING",
+          drainedPower: 40,
+          ageTicks: 1,
+        },
+        // Discharging at weak seal -> grove.adjust + reset + CHAIN_PURIFICATION_IRON event
+        {
+          id: 2,
+          name: "Inquisitor B",
+          citizenName: "Mara",
+          profession: "Cobbler",
+          temper: "BITTER",
+          subRole: "Chain_Inquisitor",
+          homeBurgId: 10,
+          locationCellId: 500,
+          targetCellId: 500,
+          targetGroveId: 3,
+          state: "DISCHARGING_CHAINS",
+          drainedPower: 60,
+          ageTicks: 5,
+        },
+      ],
+      groves: [
+        { id: 3, cellId: 500, dragonName: "Lophex", powerDomain: "Lux", sealStrength: 30, x: 50, y: 50 },
+      ],
+      homeCellByBurg: { 10: 200 },
+      cellCoords: { 200: { x: 40, y: 40 }, 500: { x: 50, y: 50 } },
+      findNearestCell: () => 500,
+    },
+    { random: () => 0.1 }
+  );
+
+  type W = (typeof wbDeltas)[number];
+  const upd1 = wbDeltas.find((d): d is Extract<W, { kind: "agent.update" }> => d.kind === "agent.update" && d.agentId === 1);
+  assert.ok(upd1 && upd1.fields.state === "PILGRIMAGE_TO_SEAL" && upd1.fields.target_grove_id === 3);
+
+  const upd2 = wbDeltas.find((d): d is Extract<W, { kind: "agent.update" }> => d.kind === "agent.update" && d.agentId === 2);
+  assert.ok(upd2 && upd2.fields.state === "WITCH_HUNTING" && upd2.fields.drained_power === 0 && upd2.fields.target_cell_id === 200);
+
+  const gAdj = wbDeltas.find((d): d is Extract<W, { kind: "grove.adjust" }> => d.kind === "grove.adjust");
+  assert.ok(gAdj && gAdj.groveId === 3 && gAdj.sealDelta === 5);
+
+  const purEvt = wbDeltas.find((d): d is Extract<W, { kind: "event.log" }> => d.kind === "event.log" && d.type === "CHAIN_PURIFICATION_IRON");
+  assert.ok(purEvt);
+  console.log("13. stepMandateWarbands (no DB) recruit planner, witch hunt, pilgrimage & seal reinforce... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
@@ -785,6 +873,7 @@ function main() {
   testCultureReligionUnit();
   testNpcRoutinesUnit();
   testBackgroundDirectorUnit();
+  testMandateUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 

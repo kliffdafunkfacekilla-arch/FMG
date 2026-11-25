@@ -45,6 +45,7 @@ const KNOWN_KINDS = new Set<string>([
   "npcInstance.update",
   "fringeLair.addRations",
   "sectorLayer.update",
+  "grove.adjust",
 ]);
 
 function clamp(v: number, min: number, max: number): number {
@@ -82,6 +83,7 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   const cultureIds = new Set<number>();
   const religionIds = new Set<number>();
   const npcInstanceIds = new Set<string>();
+  const groveIds = new Set<number>();
 
   const structuralErrors = new Map<number, string>();
 
@@ -217,6 +219,7 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         const err = finiteOrReject([
           ["agentId", d.agentId],
           ["location_cell_id", f.location_cell_id],
+          ["target_grove_id", f.target_grove_id ?? undefined],
           ["corruption", f.corruption],
           ["drained_power", f.drained_power],
           ["age_ticks", f.age_ticks],
@@ -252,7 +255,8 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         break;
       }
       case "agent.remove": {
-        if (!Number.isFinite(d.agentId)) structuralErrors.set(i, "Non-finite agentId");
+        const err = finiteOrReject([["agentId", d.agentId], ["diedTick", d.diedTick]]);
+        if (err) structuralErrors.set(i, err);
         else agentIds.add(d.agentId);
         break;
       }
@@ -571,6 +575,12 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         }
         break;
       }
+      case "grove.adjust": {
+        const err = finiteOrReject([["groveId", d.groveId], ["sealDelta", d.sealDelta]]);
+        if (err) structuralErrors.set(i, err);
+        else groveIds.add(d.groveId);
+        break;
+      }
     }
   }
 
@@ -656,6 +666,12 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   if (npcInstanceIds.size > 0) {
     const res = await db.query(`SELECT id FROM sim_npc_instances WHERE id = ANY($1::text[])`, [Array.from(npcInstanceIds)]);
     for (const r of res.rows) validNpcInstances.add(String(r.id));
+  }
+
+  const validGroves = new Set<number>();
+  if (groveIds.size > 0) {
+    const res = await db.query(`SELECT id FROM sim_sacred_groves WHERE id = ANY($1::int[])`, [Array.from(groveIds)]);
+    for (const r of res.rows) validGroves.add(Number(r.id));
   }
 
   const validStandingEntities = new Set<string>();
@@ -1025,6 +1041,14 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
       case "sectorLayer.update":
         if (!validCells.has(d.cellId)) {
           rejected.push({ delta: d, reason: `Unknown sectorLayer cellId ${d.cellId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "grove.adjust":
+        if (!validGroves.has(d.groveId)) {
+          rejected.push({ delta: d, reason: `Unknown groveId ${d.groveId}` });
           break;
         }
         ok.push(d);
