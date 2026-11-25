@@ -36,7 +36,10 @@ export interface CellSetFields {
 export interface AgentUpdateFields {
   location_cell_id?: number | undefined;
   target_cell_id?: number | null | undefined;
+  target_grove_id?: number | null | undefined;
   state?: string | undefined;
+  sub_role?: string | null | undefined;
+  spark_tier?: string | null | undefined;
   corruption?: number | undefined;
   drained_power?: number | undefined;
   active_plot?: string | null | undefined;
@@ -133,6 +136,13 @@ export type Delta =
       name: string;
       role: string;
       subRole?: string | undefined;
+      citizenName?: string | null | undefined;
+      profession?: string | null | undefined;
+      species?: string | null | undefined;
+      sparkTier?: string | null | undefined;
+      personalityTemper?: string | null | undefined;
+      personalityInstinct?: string | null | undefined;
+      motivation?: string | null | undefined;
       locationCellId: number;
       targetCellId?: number | null | undefined;
       targetGroveId?: number | null | undefined;
@@ -149,6 +159,7 @@ export type Delta =
       kind: "agent.remove";
       agentId: number;
       reason: string;
+      diedTick?: number | undefined;
     }
   | {
       kind: "tags.add";
@@ -409,6 +420,34 @@ export type Delta =
       npcs: unknown[];
       props: unknown[];
       features: Record<string, any>;
+    }
+  | {
+      kind: "grove.adjust";
+      groveId: number;
+      sealDelta: number;
+    }
+  | {
+      kind: "ancientWard.recharge";
+      tick: number;
+    }
+  | {
+      kind: "ancientWard.discharge";
+      wardId: number;
+      tick: number;
+    }
+  | {
+      kind: "burg.createSatellite";
+      burgId: number;
+      cellId: number;
+      name: string;
+      parentBurgId: number;
+      parentCellId: number;
+      settlementType: "HAMLET" | "FARMLAND" | "LOGGING" | "WATCHTOWER";
+      popNull: number;
+      popAttuned: number;
+      wealth: number;
+      food: number;
+      roadName: string;
     };
 
 export type DeltaEmitter = (delta: Delta) => void;

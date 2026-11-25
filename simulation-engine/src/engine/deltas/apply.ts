@@ -120,7 +120,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   const citizenMoves = new Map<number, { settlementId: number; homeCellId: number }>();
   const agentUpdates = new Map<number, AgentUpdateFields>();
   const agentCreates: Array<Extract<Delta, { kind: "agent.create" }>> = [];
-  const agentRemovals = new Set<number>();
+  const agentRemovals = new Map<number, number>();
   const cellTagsByLayer = new Map<number, Array<{ cellId: number; tags: string[] }>>();
   const cellTagRemovesByLayer = new Map<number, Array<{ cellId: number; tags: string[] }>>();
   const citizenTags: Array<{ citizenId: number; tags: string[]; temper: string | null; motivation: string | null }> = [];
@@ -157,6 +157,10 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   }>();
   const lairRationsByBurg = new Map<number, number>();
   const sectorLayerUpdates = new Map<string, Extract<Delta, { kind: "sectorLayer.update" }>>();
+  const groveSealDeltas = new Map<number, number>();
+  const wardDischarges = new Map<number, number>();
+  const satelliteCreates: Array<Extract<Delta, { kind: "burg.createSatellite" }>> = [];
+  let wardRechargeTick: number | null = null;
   let lastCalendar: Extract<Delta, { kind: "calendar.set" }> | null = null;
 
   for (const d of deltas) {
@@ -247,7 +251,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         agentCreates.push(d);
         break;
       case "agent.remove":
-        agentRemovals.add(d.agentId);
+        agentRemovals.set(d.agentId, d.diedTick ?? 0);
         agentUpdates.delete(d.agentId);
         break;
       case "tags.add":
@@ -431,6 +435,20 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
       }
       case "sectorLayer.update":
         sectorLayerUpdates.set(`${d.cellId}:${Math.round(d.rx)}:${Math.round(d.ry)}:${Math.round(d.zLayer)}`, d);
+        break;
+      case "grove.adjust":
+        if (d.sealDelta !== 0) {
+          groveSealDeltas.set(d.groveId, (groveSealDeltas.get(d.groveId) || 0) + Math.round(d.sealDelta));
+        }
+        break;
+      case "ancientWard.recharge":
+        wardRechargeTick = wardRechargeTick === null ? Math.round(d.tick) : Math.max(wardRechargeTick, Math.round(d.tick));
+        break;
+      case "ancientWard.discharge":
+        wardDischarges.set(d.wardId, Math.round(d.tick));
+        break;
+      case "burg.createSatellite":
+        satelliteCreates.push(d);
         break;
     }
   }
@@ -941,13 +959,16 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
     const res = await db.query(
       `INSERT INTO sim_agents (
          name, role, sub_role, location_cell_id, target_cell_id, target_grove_id,
-         home_burg_id, faction_id, state, corruption, drained_power, age_ticks, active_plot
+         home_burg_id, faction_id, state, corruption, drained_power, age_ticks, active_plot,
+         citizen_name, profession, species, spark_tier, personality_temper, personality_instinct, motivation
        )
        SELECT
          unnest($1::text[]), unnest($2::text[]), unnest($3::text[]),
          unnest($4::int[]), unnest($5::int[]), unnest($6::int[]),
          unnest($7::int[]), unnest($8::int[]), unnest($9::text[]),
-         unnest($10::int[]), unnest($11::real[]), unnest($12::int[]), unnest($13::text[])
+         unnest($10::int[]), unnest($11::real[]), unnest($12::int[]), unnest($13::text[]),
+         unnest($14::text[]), unnest($15::text[]), unnest($16::text[]), unnest($17::text[]),
+         unnest($18::text[]), unnest($19::text[]), unnest($20::text[])
        RETURNING id`,
       [
         agentCreates.map((c) => c.name),
@@ -963,6 +984,13 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         agentCreates.map((c) => c.drainedPower ?? 0),
         agentCreates.map((c) => Math.round(c.ageTicks ?? 0)),
         agentCreates.map((c) => c.activePlot ?? null),
+        agentCreates.map((c) => c.citizenName ?? null),
+        agentCreates.map((c) => c.profession ?? null),
+        agentCreates.map((c) => c.species ?? null),
+        agentCreates.map((c) => c.sparkTier ?? null),
+        agentCreates.map((c) => c.personalityTemper ?? null),
+        agentCreates.map((c) => c.personalityInstinct ?? null),
+        agentCreates.map((c) => c.motivation ?? null),
       ]
     );
     counts.sim_agents = (counts.sim_agents || 0) + (res.rowCount || 0);
@@ -998,7 +1026,10 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
          corruption = CASE WHEN v.cor_set THEN v.cor_val ELSE a.corruption END,
          drained_power = CASE WHEN v.dp_set THEN v.dp_val ELSE a.drained_power END,
          active_plot = CASE WHEN v.ap_set THEN v.ap_val ELSE a.active_plot END,
-         age_ticks = CASE WHEN v.age_set THEN v.age_val ELSE a.age_ticks END
+         age_ticks = CASE WHEN v.age_set THEN v.age_val ELSE a.age_ticks END,
+         target_grove_id = CASE WHEN v.tg_set THEN v.tg_val ELSE a.target_grove_id END,
+         sub_role = CASE WHEN v.sr_set THEN v.sr_val ELSE a.sub_role END,
+         spark_tier = CASE WHEN v.spk_set THEN v.spk_val ELSE a.spark_tier END
        FROM (
          SELECT
            unnest($1::int[]) AS id,
@@ -1008,7 +1039,10 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
            unnest($8::boolean[]) AS cor_set, unnest($9::int[]) AS cor_val,
            unnest($10::boolean[]) AS dp_set, unnest($11::real[]) AS dp_val,
            unnest($12::boolean[]) AS ap_set, unnest($13::text[]) AS ap_val,
-           unnest($14::boolean[]) AS age_set, unnest($15::int[]) AS age_val
+           unnest($14::boolean[]) AS age_set, unnest($15::int[]) AS age_val,
+           unnest($16::boolean[]) AS tg_set, unnest($17::int[]) AS tg_val,
+           unnest($18::boolean[]) AS sr_set, unnest($19::text[]) AS sr_val,
+           unnest($20::boolean[]) AS spk_set, unnest($21::text[]) AS spk_val
        ) v
        WHERE a.id = v.id`,
       [
@@ -1020,18 +1054,30 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         fields.map((f) => f.drained_power !== undefined), fields.map((f) => f.drained_power ?? null),
         fields.map((f) => f.active_plot !== undefined), fields.map((f) => f.active_plot ?? null),
         fields.map((f) => f.age_ticks !== undefined), fields.map((f) => f.age_ticks ?? null),
+        fields.map((f) => f.target_grove_id !== undefined), fields.map((f) => f.target_grove_id ?? null),
+        fields.map((f) => f.sub_role !== undefined), fields.map((f) => f.sub_role ?? null),
+        fields.map((f) => f.spark_tier !== undefined), fields.map((f) => f.spark_tier ?? null),
       ]
     );
     counts.sim_agents = (counts.sim_agents || 0) + (res.rowCount || 0);
   }
   if (agentRemovals.size > 0) {
-    const rmIds = Array.from(agentRemovals).sort((a, b) => a - b);
+    const rmIds = Array.from(agentRemovals.keys()).sort((a, b) => a - b);
     const res = await db.query(
       `DELETE FROM sim_agents WHERE id = ANY($1::int[])`,
       [rmIds]
     );
     counts.sim_agents = (counts.sim_agents || 0) + (res.rowCount || 0);
-    await markEntitiesDeadBatch(db, rmIds.map((id) => `agent:${id}`), 0);
+    const refsByTick = new Map<number, string[]>();
+    for (const id of rmIds) {
+      const dt = agentRemovals.get(id) ?? 0;
+      let arr = refsByTick.get(dt);
+      if (!arr) { arr = []; refsByTick.set(dt, arr); }
+      arr.push(`agent:${id}`);
+    }
+    for (const dt of Array.from(refsByTick.keys()).sort((a, b) => a - b)) {
+      await markEntitiesDeadBatch(db, refsByTick.get(dt)!, dt);
+    }
   }
 
   // 8. sim_cell_tags
@@ -1643,6 +1689,108 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
       ]
     );
     counts.sim_sector_layers = (counts.sim_sector_layers || 0) + (res.rowCount || 0);
+  }
+
+  // 26. sim_sacred_groves
+  if (groveSealDeltas.size > 0) {
+    const gIds = Array.from(groveSealDeltas.keys()).sort((a, b) => a - b);
+    const res = await db.query(
+      `UPDATE sim_sacred_groves AS g
+       SET seal_strength = LEAST(100, GREATEST(0, COALESCE(g.seal_strength, 0) + v.delta))
+       FROM (SELECT unnest($1::int[]) AS id, unnest($2::int[]) AS delta) AS v
+       WHERE g.id = v.id
+         AND g.seal_strength IS DISTINCT FROM LEAST(100, GREATEST(0, COALESCE(g.seal_strength, 0) + v.delta))`,
+      [gIds, gIds.map((id) => groveSealDeltas.get(id)!)]
+    );
+    counts.sim_sacred_groves = (counts.sim_sacred_groves || 0) + (res.rowCount || 0);
+  }
+
+  // 27. sim_ancient_path_wards
+  if (wardRechargeTick !== null) {
+    const res = await db.query(
+      `UPDATE sim_ancient_path_wards
+       SET is_charged = true
+       WHERE is_charged = false AND ($1 - last_triggered_tick) >= recharge_ticks`,
+      [wardRechargeTick]
+    );
+    counts.sim_ancient_path_wards = (counts.sim_ancient_path_wards || 0) + (res.rowCount || 0);
+  }
+
+  if (wardDischarges.size > 0) {
+    const wIds = Array.from(wardDischarges.keys()).sort((a, b) => a - b);
+    const res = await db.query(
+      `UPDATE sim_ancient_path_wards AS w
+       SET is_charged = false, last_triggered_tick = v.tick
+       FROM (SELECT unnest($1::int[]) AS id, unnest($2::int[]) AS tick) AS v
+       WHERE w.id = v.id`,
+      [wIds, wIds.map((id) => wardDischarges.get(id)!)]
+    );
+    counts.sim_ancient_path_wards = (counts.sim_ancient_path_wards || 0) + (res.rowCount || 0);
+  }
+
+  // 28. burg.createSatellite
+  if (satelliteCreates.length > 0) {
+    const burgRes = await db.query(
+      `INSERT INTO sim_burg_economy (
+         burg_id, cell_id, name, parent_burg_id, settlement_type,
+         pop_null, pop_attuned, wealth, food, unrest, health, crime_rate,
+         urban_tier, military_forces, demographics, species_demographics
+       )
+       SELECT
+         unnest($1::int[]),
+         unnest($2::int[]),
+         unnest($3::text[]),
+         unnest($4::int[]),
+         unnest($5::text[]),
+         unnest($6::int[]),
+         unnest($7::int[]),
+         unnest($8::int[]),
+         unnest($9::int[]),
+         0, 85, 0, 1, '{"militia":6}'::jsonb, '{}', '{}'
+       ON CONFLICT (burg_id) DO NOTHING
+       RETURNING burg_id`,
+      [
+        satelliteCreates.map((s) => s.burgId),
+        satelliteCreates.map((s) => s.cellId),
+        satelliteCreates.map((s) => s.name),
+        satelliteCreates.map((s) => s.parentBurgId),
+        satelliteCreates.map((s) => s.settlementType),
+        satelliteCreates.map((s) => s.popNull),
+        satelliteCreates.map((s) => s.popAttuned),
+        satelliteCreates.map((s) => s.wealth),
+        satelliteCreates.map((s) => s.food),
+      ]
+    );
+    const insertedSet =
+      burgRes.rows.length > 0
+        ? new Set(burgRes.rows.map((r: any) => Number(r.burg_id)))
+        : (burgRes.rowCount || 0) > 0
+          ? new Set(satelliteCreates.map((s) => s.burgId))
+          : new Set<number>();
+    const insertedSats = satelliteCreates.filter((s) => insertedSet.has(s.burgId));
+    counts.sim_burg_economy = (counts.sim_burg_economy || 0) + insertedSats.length;
+
+    if (insertedSats.length > 0) {
+      const stockRes = await db.query(
+        `INSERT INTO sim_industrial_stockpiles (burg_id, complex_inventory)
+         SELECT unnest($1::int[]), '{}'
+         ON CONFLICT DO NOTHING`,
+        [insertedSats.map((s) => s.burgId)]
+      );
+      counts.sim_industrial_stockpiles =
+        (counts.sim_industrial_stockpiles || 0) + (stockRes.rowCount || insertedSats.length);
+
+      const roadRes = await db.query(
+        `INSERT INTO sim_roads (name, source_cell_id, dest_cell_id, road_group)
+         SELECT unnest($1::text[]), unnest($2::int[]), unnest($3::int[]), 'HAMLET_TRAIL'`,
+        [
+          insertedSats.map((s) => s.roadName),
+          insertedSats.map((s) => s.parentCellId),
+          insertedSats.map((s) => s.cellId),
+        ]
+      );
+      counts.sim_roads = (counts.sim_roads || 0) + (roadRes.rowCount || insertedSats.length);
+    }
   }
 
   return counts;

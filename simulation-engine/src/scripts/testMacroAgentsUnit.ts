@@ -15,6 +15,10 @@ import { stepAutonomousDrama } from "../engine/macro/autonomousDrama/step.js";
 import { seededFraction, stepCultureReligion } from "../engine/macro/cultureReligion/step.js";
 import { stepNpcRoutines } from "../engine/macro/npcRoutines/step.js";
 import { BLEED_TAG, stepBackgroundDirector } from "../engine/macro/backgroundDirector/step.js";
+import { buildMandateRecruitDeltas, planMandateRecruits, stepMandateWarbands } from "../engine/macro/mandate/step.js";
+import { stepCultistRecruitment, stepCultists } from "../engine/macro/cultist/step.js";
+import { planWardenAwakening, stepWardenAwakening, stepWardens } from "../engine/macro/warden/step.js";
+import { stepBurgExpansion, uniqueBurgName } from "../engine/macro/burgExpansion/step.js";
 
 function testEncounterUnit() {
   const emptyDeltas = stepEncounter({ agents: [], cellIds: [10, 20, 30] }, { tick: 2, random: mulberry32(42) });
@@ -771,6 +775,458 @@ function testBackgroundDirectorUnit() {
   console.log("12. stepBackgroundDirector (no DB) immutable reactions, bestEffort threads & layer deltas... PASSED");
 }
 
+function testMandateUnit() {
+  const chosen = planMandateRecruits(
+    [
+      { burgId: 1, cellId: 100, unrest: 40, name: "Ironhold", popNull: 200, hasWarband: false },
+      { burgId: 2, cellId: 101, unrest: 35, name: "Oakhaven", popNull: 200, hasWarband: true },
+    ],
+    new Set(),
+    { random: () => 0.1 }
+  );
+  assert.equal(chosen.length, 1);
+  assert.equal(chosen[0]?.burgId, 1);
+
+  const recruitDeltas = buildMandateRecruitDeltas(
+    10,
+    "Day 10",
+    [{ burg: chosen[0]!, citizen: null }],
+    { random: () => 0.1 }
+  );
+  type D = (typeof recruitDeltas)[number];
+  const created = recruitDeltas.find((d): d is Extract<D, { kind: "agent.create" }> => d.kind === "agent.create");
+  assert.ok(created && created.role === "Chain_Zealot" && created.homeBurgId === 1 && created.citizenName);
+  const forgedEvt = recruitDeltas.find((d): d is Extract<D, { kind: "event.log" }> => d.kind === "event.log");
+  assert.ok(forgedEvt && forgedEvt.type === "CHAIN_WARBAND_FORGED");
+
+  const wbDeltas = stepMandateWarbands(
+    {
+      tick: 15,
+      loreDate: "Day 15",
+      warbands: [
+        // Hunting in home cell -> saturates -> enters PILGRIMAGE_TO_SEAL
+        {
+          id: 1,
+          name: "Inquisitor A",
+          citizenName: "Lucian",
+          profession: "Mason",
+          temper: "VENGEFUL",
+          subRole: "Chain_Inquisitor",
+          homeBurgId: 10,
+          locationCellId: 200,
+          targetCellId: 200,
+          targetGroveId: null,
+          state: "WITCH_HUNTING",
+          drainedPower: 40,
+          ageTicks: 1,
+        },
+        // Discharging at weak seal -> grove.adjust + reset + CHAIN_PURIFICATION_IRON event
+        {
+          id: 2,
+          name: "Inquisitor B",
+          citizenName: "Mara",
+          profession: "Cobbler",
+          temper: "BITTER",
+          subRole: "Chain_Inquisitor",
+          homeBurgId: 10,
+          locationCellId: 500,
+          targetCellId: 500,
+          targetGroveId: 3,
+          state: "DISCHARGING_CHAINS",
+          drainedPower: 60,
+          ageTicks: 5,
+        },
+      ],
+      groves: [
+        { id: 3, cellId: 500, dragonName: "Lophex", powerDomain: "Lux", sealStrength: 30, x: 50, y: 50 },
+      ],
+      homeCellByBurg: { 10: 200 },
+      cellCoords: { 200: { x: 40, y: 40 }, 500: { x: 50, y: 50 } },
+      findNearestCell: () => 500,
+    },
+    { random: () => 0.1 }
+  );
+
+  type W = (typeof wbDeltas)[number];
+  const upd1 = wbDeltas.find((d): d is Extract<W, { kind: "agent.update" }> => d.kind === "agent.update" && d.agentId === 1);
+  assert.ok(upd1 && upd1.fields.state === "PILGRIMAGE_TO_SEAL" && upd1.fields.target_grove_id === 3);
+
+  const upd2 = wbDeltas.find((d): d is Extract<W, { kind: "agent.update" }> => d.kind === "agent.update" && d.agentId === 2);
+  assert.ok(upd2 && upd2.fields.state === "WITCH_HUNTING" && upd2.fields.drained_power === 0 && upd2.fields.target_cell_id === 200);
+
+  const gAdj = wbDeltas.find((d): d is Extract<W, { kind: "grove.adjust" }> => d.kind === "grove.adjust");
+  assert.ok(gAdj && gAdj.groveId === 3 && gAdj.sealDelta === 5);
+
+  const purEvt = wbDeltas.find((d): d is Extract<W, { kind: "event.log" }> => d.kind === "event.log" && d.type === "CHAIN_PURIFICATION_IRON");
+  assert.ok(purEvt);
+  console.log("13. stepMandateWarbands (no DB) recruit planner, witch hunt, pilgrimage & seal reinforce... PASSED");
+}
+
+function testCultistUnit() {
+  const recDeltas = stepCultistRecruitment(
+    {
+      tick: 5,
+      loreDate: "Day 5",
+      candidates: [{ burgId: 10, cellId: 200, wealth: 500, unrest: 25, burgName: "Ashenford", citizen: null }],
+    },
+    { random: () => 0.1 }
+  );
+  type R = (typeof recDeltas)[number];
+  const created = recDeltas.find((d): d is Extract<R, { kind: "agent.create" }> => d.kind === "agent.create");
+  assert.ok(created && created.role === "Cultist" && created.state === "INFILTRATING" && created.corruption === 5);
+
+  const stepDeltas = stepCultists(
+    {
+      tick: 6,
+      loreDate: "Day 6",
+      isShadowWeek: false,
+      groves: [
+        { id: 1, cellId: 500, dragonName: "Ulex", powerDomain: "Flux", sealStrength: 1, x: 200, y: 0, repairRoll: false },
+        { id: 2, cellId: 501, dragonName: "Eldra", powerDomain: "Ratio", sealStrength: 80, x: 500, y: 500, repairRoll: true },
+      ],
+      cultists: [
+        // 1. Infiltrator transitioning to TRAVELING_TO_SEAL (needsBesiegers < 144)
+        {
+          id: 10,
+          name: "Cultist A",
+          citizenName: "Mara",
+          profession: "Weaver",
+          temper: "GREEDY",
+          subRole: "Cultist_Infiltrator",
+          homeBurgId: 10,
+          locationCellId: 200,
+          targetCellId: null,
+          targetGroveId: null,
+          state: "INFILTRATING",
+          corruption: 10,
+          ageTicks: 2,
+        },
+        // 2. Traveler colliding with Warden at next cell and arriving at grove 1
+        {
+          id: 11,
+          name: "Cultist B",
+          citizenName: "Silas",
+          profession: "Scribe",
+          temper: "DESPERATE",
+          subRole: "Cultist_Zealot",
+          homeBurgId: 10,
+          locationCellId: 499,
+          targetCellId: 500,
+          targetGroveId: 1,
+          state: "TRAVELING_TO_SEAL",
+          corruption: 20,
+          ageTicks: 5,
+        },
+        // 3. Veteran besieger shattering grove 1 (sealStrength 1 -> 0 -> apocalypse + chaos zone + ascension)
+        {
+          id: 12,
+          name: "Cultist C",
+          citizenName: "Vaelen",
+          profession: "Scholar",
+          temper: "SCHOLARLY",
+          subRole: "Cultist_Zealot",
+          homeBurgId: 10,
+          locationCellId: 500,
+          targetCellId: 500,
+          targetGroveId: 1,
+          state: "BESIEGING_SEAL",
+          corruption: 75,
+          ageTicks: 10,
+        },
+      ],
+      wardens: [{ id: 99, name: "Sentinel Kael", role: "Warden", locationCellId: 500 }],
+      cellCoords: { 200: { x: 190, y: 0 }, 499: { x: 0, y: 0 }, 500: { x: 200, y: 0 }, 501: { x: 500, y: 500 } },
+      findNearestCell: () => 500,
+      apocalypseLoggedMessages: [],
+      allBurgIds: [10],
+    },
+    { random: () => 0.1 }
+  );
+
+  type C = (typeof stepDeltas)[number];
+  const upd10 = stepDeltas.find((d): d is Extract<C, { kind: "agent.update" }> => d.kind === "agent.update" && d.agentId === 10);
+  assert.ok(upd10 && upd10.fields.state === "TRAVELING_TO_SEAL" && upd10.fields.sub_role === "Cultist_Zealot");
+
+  const skirmish = stepDeltas.find((d): d is Extract<C, { kind: "event.log" }> => d.kind === "event.log" && d.type === "CULT_WARDEN_SKIRMISH");
+  assert.ok(skirmish);
+
+  const asc = stepDeltas.find((d): d is Extract<C, { kind: "event.log" }> => d.kind === "event.log" && d.type === "CULT_PRIEST_ASCENSION");
+  assert.ok(asc);
+
+  const apoc = stepDeltas.find((d): d is Extract<C, { kind: "event.log" }> => d.kind === "event.log" && d.type === "WORLD_ENDING_APOCALYPSE");
+  assert.ok(apoc && apoc.tier === "CRITICAL");
+
+  const gAdj1 = stepDeltas.find((d): d is Extract<C, { kind: "grove.adjust" }> => d.kind === "grove.adjust" && d.groveId === 1);
+  const gAdj2 = stepDeltas.find((d): d is Extract<C, { kind: "grove.adjust" }> => d.kind === "grove.adjust" && d.groveId === 2);
+  assert.ok(gAdj1 && gAdj1.sealDelta < 0);
+  assert.ok(gAdj2 && gAdj2.sealDelta === 1, "Unbesieged grove with repairRoll must gain +1 outside Shadowfall");
+  console.log("14. stepCultists (no DB) recharge, infiltration, skirmish, siege & apocalypse... PASSED");
+}
+
+function testWardenUnit() {
+  assert.equal(planWardenAwakening(24, { random: () => 0.01 }), true);
+  assert.equal(planWardenAwakening(72, { random: () => 0.5 }), false);
+
+  const awakeDeltas = stepWardenAwakening(
+    {
+      tick: 12,
+      loreDate: "Day 12",
+      shouldRecharge: true,
+      ward: { id: 7, cellId: 300, flowId: 1, pathName: "Old Pilgrim Road" },
+      dbCitizen: {
+        id: 55,
+        name: "Cassian",
+        profession: "Scribe",
+        species: "Human",
+        sparkTier: "SENSITIVE",
+        temper: "STOIC",
+        instinct: "WARY",
+        motivation: "Keep the peace",
+      },
+    },
+    { random: () => 0.5 }
+  );
+  type A = (typeof awakeDeltas)[number];
+  assert.ok(awakeDeltas.some((d) => d.kind === "ancientWard.recharge"));
+  assert.ok(awakeDeltas.some((d) => d.kind === "ancientWard.discharge" && d.wardId === 7));
+  const awWarden = awakeDeltas.find((d): d is Extract<A, { kind: "agent.create" }> => d.kind === "agent.create");
+  assert.ok(awWarden && awWarden.role === "Warden" && awWarden.state === "PILGRIMAGE_TO_SPIRE");
+
+  const wDeltas = stepWardens(
+    {
+      tick: 20,
+      loreDate: "Day 20",
+      groves: [
+        { id: 1, cellId: 500, dragonName: "Eldra", powerDomain: "Ratio", sealStrength: 95, x: 50, y: 50 },
+        { id: 2, cellId: 501, dragonName: "Vecelo", powerDomain: "Motus", sealStrength: 80, x: 200, y: 200 },
+      ],
+      wardens: [
+        // 1. Defending seal -> slays cultists and repairs grove 2
+        {
+          id: 101,
+          name: "Warden A",
+          citizenName: "Theron",
+          profession: "Guardian",
+          temper: "STOIC",
+          sparkTier: "SENSITIVE",
+          subRole: "Warden_Sentinel",
+          locationCellId: 501,
+          targetCellId: 501,
+          targetGroveId: 2,
+          state: "DEFENDING_SEAL",
+          corruption: 10,
+          ageTicks: 5,
+        },
+        // 2. Hunting cultists at terminal corruption -> supernova sacrifice
+        {
+          id: 102,
+          name: "Warden B",
+          citizenName: "Kael",
+          profession: "Templar",
+          temper: "FANATICAL",
+          sparkTier: "CHANNELER",
+          subRole: "Warden_Sentinel",
+          locationCellId: 600,
+          targetCellId: 600,
+          targetGroveId: 1,
+          state: "HUNTING_CULTS",
+          corruption: 86,
+          ageTicks: 10,
+        },
+        // 3. Veteran ascending to Eyeless Elder + retiring to crypt tomb on arrival
+        {
+          id: 103,
+          name: "Warden C",
+          citizenName: "Orla",
+          profession: "Watchman",
+          temper: "STOIC",
+          sparkTier: "ADEPT",
+          subRole: "Warden_Sentinel",
+          locationCellId: 10, // VERGE_COORD.cell = 13537, step <= 75 -> arrives
+          targetCellId: 13537,
+          targetGroveId: 1,
+          state: "PATROLLING_FLOW",
+          corruption: 5,
+          ageTicks: 220,
+        },
+      ],
+      cultists: [
+        {
+          id: 201,
+          name: "Besieger 1",
+          role: "Cultist",
+          locationCellId: 501,
+          cellId: 501,
+          state: "BESIEGING_SEAL",
+          targetGroveId: 2,
+          x: 200,
+          y: 200,
+        },
+        {
+          id: 202,
+          name: "Prey 1",
+          role: "Cultist",
+          locationCellId: 600,
+          cellId: 600,
+          state: "TRAVELING_TO_SEAL",
+          targetGroveId: 1,
+          x: 300,
+          y: 300,
+        },
+      ],
+      flowWaypoints: { 1: [500], 2: [501] },
+      hermits: [{ id: 301, name: "Mad Hermit", locationCellId: 400, ageTicks: 1 }],
+      hermitCandidatesByMod: { 0: [400, 450] },
+      cellCoords: {
+        10: { x: 10, y: 10 },
+        500: { x: 50, y: 50 },
+        501: { x: 200, y: 200 },
+        600: { x: 300, y: 300 },
+        13537: { x: 15, y: 15 },
+      },
+      findNearestCell: () => 500,
+    },
+    { random: () => 0.05 }
+  );
+
+  type W = (typeof wDeltas)[number];
+  const rms = wDeltas.filter((d): d is Extract<W, { kind: "agent.remove" }> => d.kind === "agent.remove");
+  assert.ok(rms.some((r) => r.agentId === 201 && r.diedTick === 20));
+  assert.ok(rms.some((r) => r.agentId === 202 && r.diedTick === 20));
+  assert.ok(rms.some((r) => r.agentId === 102 && r.reason === "warden_final_sacrifice"));
+
+  const gAdj = wDeltas.find((d): d is Extract<W, { kind: "grove.adjust" }> => d.kind === "grove.adjust");
+  assert.ok(gAdj && gAdj.groveId === 2 && gAdj.sealDelta === 1);
+
+  const ascEvt = wDeltas.find((d): d is Extract<W, { kind: "event.log" }> => d.kind === "event.log" && d.type === "WARDEN_BECOMES_EYELESS_ELDER");
+  const cryptEvt = wDeltas.find((d): d is Extract<W, { kind: "event.log" }> => d.kind === "event.log" && d.type === "EYELESS_ELDER_CRYPT_VIGIL");
+  assert.ok(ascEvt && cryptEvt);
+
+  const hermUpd = wDeltas.find((d): d is Extract<W, { kind: "agent.update" }> => d.kind === "agent.update" && d.agentId === 301);
+  assert.ok(hermUpd && hermUpd.fields.location_cell_id === 450);
+  console.log("15. stepWardens (no DB) awakening, staffing, crypt, seal defense & sacrifice... PASSED");
+}
+
+function testBurgExpansionUnit() {
+  const skipped = stepBurgExpansion(
+    {
+      tick: 7,
+      loreDate: "Day 7",
+      maxBurgId: 1350,
+      takenNames: ["Ironhold"],
+      candidates: [
+        {
+          burgId: 1,
+          name: "Ironhold",
+          cellId: 100,
+          wealth: 1200,
+          food: 900,
+          unrest: 10,
+          popNull: 1000,
+          popAttuned: 100,
+          factionId: 2,
+          existingSatellites: 0,
+          neighborCandidates: [{ id: 101, biome: 4, elevation: 25 }],
+        },
+      ],
+    },
+    { random: () => 0.1 }
+  );
+  assert.equal(skipped.deltas.length, 0);
+  assert.equal(skipped.founded.length, 0);
+
+  assert.equal(uniqueBurgName("Iron Timberlands", new Set(["Iron Timberlands"])), "Upper Iron Timberlands");
+
+  const snap = {
+    tick: 10,
+    loreDate: "Day 10",
+    maxBurgId: 1350,
+    takenNames: ["Upper-Ironcroft", "High-Pinehurststead", "Oak Timberlands"],
+    candidates: [
+      // Parent 1: already at max 3 satellites -> skipped
+      {
+        burgId: 10,
+        name: "Fullburg",
+        cellId: 200,
+        wealth: 2000,
+        food: 1000,
+        unrest: 5,
+        popNull: 1000,
+        popAttuned: 50,
+        factionId: 1,
+        existingSatellites: 3,
+        neighborCandidates: [{ id: 201, biome: 4, elevation: 20 }],
+      },
+      // Parent 2: Grassland (biome 4) -> FARMLAND, claims cell 301
+      {
+        burgId: 11,
+        name: "Greenford",
+        cellId: 300,
+        wealth: 1000,
+        food: 900,
+        unrest: 10,
+        popNull: 1000,
+        popAttuned: 100,
+        factionId: 2,
+        existingSatellites: 1,
+        neighborCandidates: [{ id: 301, biome: 4, elevation: 30 }],
+      },
+      // Parent 3: Forest (biome 6) -> LOGGING (rng=0.1 < 0.5), avoids already-claimed 301 -> claims 302, dedupes "Oak Timberlands"
+      {
+        burgId: 12,
+        name: "Oak Hold",
+        cellId: 305,
+        wealth: 900,
+        food: 800,
+        unrest: 15,
+        popNull: 300,
+        popAttuned: 5,
+        factionId: 2,
+        existingSatellites: 0,
+        neighborCandidates: [
+          { id: 301, biome: 6, elevation: 25 },
+          { id: 302, biome: 6, elevation: 25 },
+        ],
+      },
+    ],
+  };
+
+  const out = stepBurgExpansion(snap, { random: () => 0.1 });
+  assert.equal(out.founded.length, 2);
+  assert.equal(out.founded[0]!.type, "FARMLAND");
+  assert.equal(out.founded[0]!.cellId, 301);
+  assert.equal(out.founded[0]!.burgId, 1351);
+
+  assert.equal(out.founded[1]!.type, "LOGGING");
+  assert.equal(out.founded[1]!.cellId, 302, "Second parent must skip cell claimed earlier in same tick");
+  assert.equal(out.founded[1]!.burgId, 1352);
+  assert.notEqual(out.founded[1]!.name, "Oak Timberlands", "uniqueBurgName must prevent takenNames collision");
+
+  type D = (typeof out.deltas)[number];
+  const creates = out.deltas.filter((d): d is Extract<D, { kind: "burg.createSatellite" }> => d.kind === "burg.createSatellite");
+  assert.equal(creates.length, 2);
+
+  const fClaims = out.deltas.filter((d): d is Extract<D, { kind: "cell.setFaction" }> => d.kind === "cell.setFaction");
+  assert.equal(fClaims.length, 2);
+  assert.ok(fClaims.some((c) => c.cellId === 301 && c.factionId === 2));
+
+  const parentSets = out.deltas.filter((d): d is Extract<D, { kind: "burg.set" }> => d.kind === "burg.set");
+  const parent3Set = parentSets.find((b) => b.burgId === 12);
+  assert.ok(
+    parent3Set &&
+      parent3Set.fields.pop_null === 280 &&
+      parent3Set.fields.pop_attuned === 1 &&
+      parent3Set.fields.wealth === 810 &&
+      parent3Set.fields.food === 512
+  );
+
+  assert.equal(
+    JSON.stringify(stepBurgExpansion(snap, { random: mulberry32(77) })),
+    JSON.stringify(stepBurgExpansion(snap, { random: mulberry32(77) }))
+  );
+  console.log("16. stepBurgExpansion (no DB) cadence, biome type, cell dedup & name uniqueness... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
@@ -785,6 +1241,10 @@ function main() {
   testCultureReligionUnit();
   testNpcRoutinesUnit();
   testBackgroundDirectorUnit();
+  testMandateUnit();
+  testCultistUnit();
+  testWardenUnit();
+  testBurgExpansionUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 

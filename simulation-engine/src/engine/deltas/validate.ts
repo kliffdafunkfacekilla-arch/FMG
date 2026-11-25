@@ -45,6 +45,10 @@ const KNOWN_KINDS = new Set<string>([
   "npcInstance.update",
   "fringeLair.addRations",
   "sectorLayer.update",
+  "grove.adjust",
+  "ancientWard.recharge",
+  "ancientWard.discharge",
+  "burg.createSatellite",
 ]);
 
 function clamp(v: number, min: number, max: number): number {
@@ -82,6 +86,8 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   const cultureIds = new Set<number>();
   const religionIds = new Set<number>();
   const npcInstanceIds = new Set<string>();
+  const groveIds = new Set<number>();
+  const ancientWardIds = new Set<number>();
 
   const structuralErrors = new Map<number, string>();
 
@@ -217,6 +223,7 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         const err = finiteOrReject([
           ["agentId", d.agentId],
           ["location_cell_id", f.location_cell_id],
+          ["target_grove_id", f.target_grove_id ?? undefined],
           ["corruption", f.corruption],
           ["drained_power", f.drained_power],
           ["age_ticks", f.age_ticks],
@@ -252,7 +259,8 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         break;
       }
       case "agent.remove": {
-        if (!Number.isFinite(d.agentId)) structuralErrors.set(i, "Non-finite agentId");
+        const err = finiteOrReject([["agentId", d.agentId], ["diedTick", d.diedTick]]);
+        if (err) structuralErrors.set(i, err);
         else agentIds.add(d.agentId);
         break;
       }
@@ -571,6 +579,52 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         }
         break;
       }
+      case "grove.adjust": {
+        const err = finiteOrReject([["groveId", d.groveId], ["sealDelta", d.sealDelta]]);
+        if (err) structuralErrors.set(i, err);
+        else groveIds.add(d.groveId);
+        break;
+      }
+      case "ancientWard.recharge": {
+        const err = finiteOrReject([["tick", d.tick]]);
+        if (err) structuralErrors.set(i, err);
+        break;
+      }
+      case "ancientWard.discharge": {
+        const err = finiteOrReject([["wardId", d.wardId], ["tick", d.tick]]);
+        if (err) structuralErrors.set(i, err);
+        else ancientWardIds.add(d.wardId);
+        break;
+      }
+      case "burg.createSatellite": {
+        const err = finiteOrReject([
+          ["burgId", d.burgId],
+          ["cellId", d.cellId],
+          ["parentBurgId", d.parentBurgId],
+          ["parentCellId", d.parentCellId],
+          ["popNull", d.popNull],
+          ["popAttuned", d.popAttuned],
+          ["wealth", d.wealth],
+          ["food", d.food],
+        ]);
+        const validTypes = new Set(["HAMLET", "FARMLAND", "LOGGING", "WATCHTOWER"]);
+        if (
+          err ||
+          d.burgId <= 0 ||
+          !d.name ||
+          !d.name.trim() ||
+          !d.roadName ||
+          !d.roadName.trim() ||
+          !validTypes.has(d.settlementType)
+        ) {
+          structuralErrors.set(i, err || "Invalid burg.createSatellite payload");
+        } else {
+          burgIds.add(d.parentBurgId);
+          cellIds.add(d.cellId);
+          cellIds.add(d.parentCellId);
+        }
+        break;
+      }
     }
   }
 
@@ -656,6 +710,18 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   if (npcInstanceIds.size > 0) {
     const res = await db.query(`SELECT id FROM sim_npc_instances WHERE id = ANY($1::text[])`, [Array.from(npcInstanceIds)]);
     for (const r of res.rows) validNpcInstances.add(String(r.id));
+  }
+
+  const validGroves = new Set<number>();
+  if (groveIds.size > 0) {
+    const res = await db.query(`SELECT id FROM sim_sacred_groves WHERE id = ANY($1::int[])`, [Array.from(groveIds)]);
+    for (const r of res.rows) validGroves.add(Number(r.id));
+  }
+
+  const validAncientWards = new Set<number>();
+  if (ancientWardIds.size > 0) {
+    const res = await db.query(`SELECT id FROM sim_ancient_path_wards WHERE id = ANY($1::int[])`, [Array.from(ancientWardIds)]);
+    for (const r of res.rows) validAncientWards.add(Number(r.id));
   }
 
   const validStandingEntities = new Set<string>();
@@ -1028,6 +1094,49 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
           break;
         }
         ok.push(d);
+        break;
+
+      case "grove.adjust":
+        if (!validGroves.has(d.groveId)) {
+          rejected.push({ delta: d, reason: `Unknown groveId ${d.groveId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "ancientWard.recharge":
+        ok.push({ kind: "ancientWard.recharge", tick: Math.round(d.tick) });
+        break;
+
+      case "ancientWard.discharge":
+        if (!validAncientWards.has(d.wardId)) {
+          rejected.push({ delta: d, reason: `Unknown ancientWard id ${d.wardId}` });
+          break;
+        }
+        ok.push({ kind: "ancientWard.discharge", wardId: d.wardId, tick: Math.round(d.tick) });
+        break;
+
+      case "burg.createSatellite":
+        if (!validBurgs.has(d.parentBurgId)) {
+          rejected.push({ delta: d, reason: `Unknown parentBurgId ${d.parentBurgId}` });
+          break;
+        }
+        if (!validCells.has(d.cellId)) {
+          rejected.push({ delta: d, reason: `Unknown satellite cellId ${d.cellId}` });
+          break;
+        }
+        if (!validCells.has(d.parentCellId)) {
+          rejected.push({ delta: d, reason: `Unknown satellite parentCellId ${d.parentCellId}` });
+          break;
+        }
+        ok.push({
+          ...d,
+          burgId: Math.round(d.burgId),
+          popNull: Math.max(0, Math.round(d.popNull)),
+          popAttuned: Math.max(0, Math.round(d.popAttuned)),
+          wealth: Math.max(0, Math.round(d.wealth)),
+          food: Math.max(0, Math.round(d.food)),
+        });
         break;
 
       default:
