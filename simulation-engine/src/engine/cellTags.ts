@@ -104,6 +104,58 @@ export async function addCellTagsBatch(
   );
 }
 
+/** Removes tags from many cells in two bulk queries. */
+export async function removeCellTagsBatch(
+  db: Db,
+  entries: Array<{ cellId: number; tags: string[] }>,
+  zLayer = 0
+): Promise<void> {
+  if (!entries.length) return;
+  await ensureCellTagsTable(db);
+  const byCell = new Map<number, Set<string>>();
+  for (const e of entries) {
+    if (!e.tags.length) continue;
+    let set = byCell.get(e.cellId);
+    if (!set) {
+      set = new Set<string>();
+      byCell.set(e.cellId, set);
+    }
+    for (const t of e.tags) set.add(t);
+  }
+  if (byCell.size === 0) return;
+  const cellIds = Array.from(byCell.keys()).sort((a, b) => a - b);
+  const tagJsons = cellIds.map((cid) => JSON.stringify(Array.from(byCell.get(cid)!)));
+  await db.query(
+    `UPDATE sim_cell_tags AS t
+     SET tags = COALESCE((
+       SELECT jsonb_agg(e ORDER BY ord)
+       FROM jsonb_array_elements_text(t.tags) WITH ORDINALITY AS x(e, ord)
+       WHERE NOT (v.rm_tags ? e)
+     ), '[]'::jsonb)
+     FROM (SELECT unnest($1::int[]) AS cell_id, unnest($3::jsonb[]) AS rm_tags) v
+     WHERE t.cell_id = v.cell_id
+       AND t.z_layer = $2::int
+       AND t.tags ?| ARRAY(SELECT jsonb_array_elements_text(v.rm_tags))`,
+    [cellIds, zLayer, tagJsons]
+  );
+  await db.query(
+    `UPDATE sim_sector_layers AS s
+     SET features = jsonb_set(
+       COALESCE(s.features, '{}'::jsonb), '{environmental_tags}',
+       COALESCE((
+         SELECT jsonb_agg(e ORDER BY ord)
+         FROM jsonb_array_elements_text(COALESCE(s.features->'environmental_tags', '[]'::jsonb)) WITH ORDINALITY AS x(e, ord)
+         WHERE NOT (v.rm_tags ? e)
+       ), '[]'::jsonb)
+     )
+     FROM (SELECT unnest($1::int[]) AS cell_id, unnest($3::jsonb[]) AS rm_tags) v
+     WHERE s.cell_id = v.cell_id
+       AND s.z_layer = $2::int
+       AND COALESCE(s.features->'environmental_tags', '[]'::jsonb) ?| ARRAY(SELECT jsonb_array_elements_text(v.rm_tags))`,
+    [cellIds, zLayer, tagJsons]
+  );
+}
+
 /** Removes tags from a cell. */
 export async function removeCellTags(db: Db, cellId: number, tags: string[], zLayer = 0): Promise<void> {
   if (!tags.length) return;

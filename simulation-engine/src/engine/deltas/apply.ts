@@ -1,4 +1,4 @@
-import { addCellTagsBatch } from "../cellTags.js";
+import { addCellTagsBatch, removeCellTagsBatch } from "../cellTags.js";
 import { markEntitiesDeadBatch, upsertEntitiesBatch, type UpsertEntityInput } from "../entities/registry.js";
 import { createThread } from "../threads/threadEngine.js";
 import type { AgentUpdateFields, Db, Delta } from "./types.js";
@@ -117,8 +117,10 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   const citizenStatuses = new Map<number, { status: string; cause: string | null; motivation: string | null }>();
   const citizenMoves = new Map<number, { settlementId: number; homeCellId: number }>();
   const agentUpdates = new Map<number, AgentUpdateFields>();
+  const agentCreates: Array<Extract<Delta, { kind: "agent.create" }>> = [];
   const agentRemovals = new Set<number>();
   const cellTagsByLayer = new Map<number, Array<{ cellId: number; tags: string[] }>>();
+  const cellTagRemovesByLayer = new Map<number, Array<{ cellId: number; tags: string[] }>>();
   const citizenTags: Array<{ citizenId: number; tags: string[]; temper: string | null; motivation: string | null }> = [];
   const citizenTagBurgs: Array<Extract<Delta, { kind: "citizen.tagBurg" }>> = [];
   const events: Array<Extract<Delta, { kind: "event.log" }>> = [];
@@ -129,6 +131,8 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   const frontRemoves = new Set<number>();
   const chaosUpserts: Array<Extract<Delta, { kind: "chaosZone.upsert" }>> = [];
   const chaosAdjusts: Array<Extract<Delta, { kind: "chaosZone.adjust" }>> = [];
+  const chaosRemoves: Array<Extract<Delta, { kind: "chaosZone.remove" }>> = [];
+  const chaosFlowUpdates = new Map<number, Extract<Delta, { kind: "chaosFlow.update" }>>();
   const entityCreates: UpsertEntityInput[] = [];
   const entityDeaths: Array<{ ref: string; diedTick: number }> = [];
   const citizenKillOnes: Array<Extract<Delta, { kind: "citizen.killOne" }>> = [];
@@ -222,6 +226,9 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         agentUpdates.set(d.agentId, { ...prev, ...d.fields });
         break;
       }
+      case "agent.create":
+        agentCreates.push(d);
+        break;
       case "agent.remove":
         agentRemovals.add(d.agentId);
         agentUpdates.delete(d.agentId);
@@ -239,6 +246,14 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
             temper: d.target.temper ?? null,
             motivation: d.target.motivation ?? null,
           });
+        }
+        break;
+      case "tags.remove":
+        if (d.target.kind === "cell") {
+          const z = d.target.zLayer ?? 0;
+          let list = cellTagRemovesByLayer.get(z);
+          if (!list) { list = []; cellTagRemovesByLayer.set(z, list); }
+          list.push({ cellId: d.target.cellId, tags: d.tags });
         }
         break;
       case "event.log":
@@ -267,6 +282,12 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         break;
       case "chaosZone.adjust":
         chaosAdjusts.push(d);
+        break;
+      case "chaosZone.remove":
+        chaosRemoves.push(d);
+        break;
+      case "chaosFlow.update":
+        chaosFlowUpdates.set(d.flowId, d);
         break;
       case "calendar.set":
         lastCalendar = d;
@@ -446,19 +467,51 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   }
 
   // 3. sim_chaos_zones
-  if (chaosUpserts.length > 0) {
-    const byKey = new Map<string, { cellId: number; intensity: number; type: string }>();
-    for (const z of chaosUpserts) {
-      byKey.set(`${z.cellId}|${z.type}`, { cellId: z.cellId, intensity: z.intensity, type: z.type });
-    }
-    const vals = Array.from(byKey.values());
+  if (chaosRemoves.length > 0) {
+    const uniq = new Map<string, { cellId: number; type: string }>();
+    for (const r of chaosRemoves) uniq.set(`${r.cellId}|${r.type}`, { cellId: r.cellId, type: r.type });
+    const list = Array.from(uniq.values()).sort((a, b) => a.cellId - b.cellId || a.type.localeCompare(b.type));
     const res = await db.query(
-      `INSERT INTO sim_chaos_zones (cell_id, intensity, type)
-       SELECT unnest($1::int[]), unnest($2::real[]), unnest($3::text[])
-       ON CONFLICT DO NOTHING`,
-      [vals.map((v) => v.cellId), vals.map((v) => v.intensity), vals.map((v) => v.type)]
+      `DELETE FROM sim_chaos_zones AS z
+       USING (SELECT unnest($1::int[]) AS cell_id, unnest($2::text[]) AS type) AS v
+       WHERE z.cell_id = v.cell_id AND z.type = v.type`,
+      [list.map((v) => v.cellId), list.map((v) => v.type)]
     );
     counts.sim_chaos_zones = (counts.sim_chaos_zones || 0) + (res.rowCount || 0);
+  }
+  if (chaosUpserts.length > 0) {
+    const byKey = new Map<string, { cellId: number; intensity: number; type: string; updateOnConflict: boolean }>();
+    for (const z of chaosUpserts) {
+      const k = `${z.cellId}|${z.type}`;
+      const prev = byKey.get(k);
+      byKey.set(k, {
+        cellId: z.cellId,
+        intensity: z.intensity,
+        type: z.type,
+        updateOnConflict: Boolean(z.updateOnConflict || prev?.updateOnConflict),
+      });
+    }
+    const vals = Array.from(byKey.values());
+    const noUpdate = vals.filter((v) => !v.updateOnConflict);
+    const doUpdate = vals.filter((v) => v.updateOnConflict);
+    if (noUpdate.length > 0) {
+      const res = await db.query(
+        `INSERT INTO sim_chaos_zones (cell_id, intensity, type)
+         SELECT unnest($1::int[]), unnest($2::real[]), unnest($3::text[])
+         ON CONFLICT DO NOTHING`,
+        [noUpdate.map((v) => v.cellId), noUpdate.map((v) => v.intensity), noUpdate.map((v) => v.type)]
+      );
+      counts.sim_chaos_zones = (counts.sim_chaos_zones || 0) + (res.rowCount || 0);
+    }
+    if (doUpdate.length > 0) {
+      const res = await db.query(
+        `INSERT INTO sim_chaos_zones (cell_id, intensity, type)
+         SELECT unnest($1::int[]), unnest($2::real[]), unnest($3::text[])
+         ON CONFLICT (cell_id, type) DO UPDATE SET intensity = EXCLUDED.intensity`,
+        [doUpdate.map((v) => v.cellId), doUpdate.map((v) => v.intensity), doUpdate.map((v) => v.type)]
+      );
+      counts.sim_chaos_zones = (counts.sim_chaos_zones || 0) + (res.rowCount || 0);
+    }
   }
   if (chaosAdjusts.length > 0) {
     for (const adj of chaosAdjusts) {
@@ -481,6 +534,36 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
       }
       counts.sim_chaos_zones = (counts.sim_chaos_zones || 0) + 1;
     }
+  }
+
+  // 3b. sim_chaos_flows
+  if (chaosFlowUpdates.size > 0) {
+    const ids = Array.from(chaosFlowUpdates.keys()).sort((a, b) => a - b);
+    const list = ids.map((id) => chaosFlowUpdates.get(id)!);
+    const res = await db.query(
+      `UPDATE sim_chaos_flows AS f SET
+         current_surge = v.surge,
+         current_width = v.width,
+         waypoints = v.waypoints,
+         narrow_spots = v.narrow_spots,
+         updated_at = CURRENT_TIMESTAMP
+       FROM (
+         SELECT unnest($1::int[]) AS flow_id,
+                unnest($2::float[]) AS surge,
+                unnest($3::float[]) AS width,
+                unnest($4::jsonb[]) AS waypoints,
+                unnest($5::jsonb[]) AS narrow_spots
+       ) AS v
+       WHERE f.flow_id = v.flow_id`,
+      [
+        list.map((r) => r.flowId),
+        list.map((r) => r.currentSurge),
+        list.map((r) => r.currentWidth),
+        list.map((r) => JSON.stringify(r.waypoints)),
+        list.map((r) => JSON.stringify(r.narrowSpots)),
+      ]
+    );
+    counts.sim_chaos_flows = (counts.sim_chaos_flows || 0) + (res.rowCount || ids.length);
   }
 
   // 4. sim_burg_economy (batched unnest with IS DISTINCT FROM)
@@ -803,6 +886,56 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   }
 
   // 7. sim_agents
+  if (agentCreates.length > 0) {
+    const res = await db.query(
+      `INSERT INTO sim_agents (
+         name, role, sub_role, location_cell_id, target_cell_id, target_grove_id,
+         home_burg_id, faction_id, state, corruption, drained_power, age_ticks, active_plot
+       )
+       SELECT
+         unnest($1::text[]), unnest($2::text[]), unnest($3::text[]),
+         unnest($4::int[]), unnest($5::int[]), unnest($6::int[]),
+         unnest($7::int[]), unnest($8::int[]), unnest($9::text[]),
+         unnest($10::int[]), unnest($11::real[]), unnest($12::int[]), unnest($13::text[])
+       RETURNING id`,
+      [
+        agentCreates.map((c) => c.name),
+        agentCreates.map((c) => c.role),
+        agentCreates.map((c) => c.subRole ?? null),
+        agentCreates.map((c) => c.locationCellId),
+        agentCreates.map((c) => c.targetCellId ?? null),
+        agentCreates.map((c) => c.targetGroveId ?? null),
+        agentCreates.map((c) => c.homeBurgId ?? null),
+        agentCreates.map((c) => c.factionId ?? null),
+        agentCreates.map((c) => c.state),
+        agentCreates.map((c) => Math.round(c.corruption ?? 0)),
+        agentCreates.map((c) => c.drainedPower ?? 0),
+        agentCreates.map((c) => Math.round(c.ageTicks ?? 0)),
+        agentCreates.map((c) => c.activePlot ?? null),
+      ]
+    );
+    counts.sim_agents = (counts.sim_agents || 0) + (res.rowCount || 0);
+    const entityEntries: UpsertEntityInput[] = [];
+    for (let idx = 0; idx < res.rows.length; idx++) {
+      const id = Number(res.rows[idx]?.id);
+      const spec = agentCreates[idx];
+      if (!id || !spec) continue;
+      entityEntries.push({
+        ref: `agent:${id}`,
+        kind: "person",
+        name: spec.name,
+        alive: true,
+        lod: "macro",
+        cellId: spec.locationCellId,
+        sourceTable: "sim_agents",
+        sourceId: String(id),
+        createdTick: spec.createdTick ?? 0,
+      });
+    }
+    if (entityEntries.length > 0) {
+      counts.entities = (counts.entities || 0) + (await upsertEntitiesBatch(db, entityEntries));
+    }
+  }
   if (agentUpdates.size > 0) {
     const ids = Array.from(agentUpdates.keys()).sort((a, b) => a - b);
     const fields = ids.map((id) => agentUpdates.get(id)!);
@@ -851,6 +984,10 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   }
 
   // 8. sim_cell_tags
+  for (const [zLayer, entries] of cellTagRemovesByLayer.entries()) {
+    await removeCellTagsBatch(db, entries, zLayer);
+    counts.sim_cell_tags = (counts.sim_cell_tags || 0) + entries.length;
+  }
   for (const [zLayer, entries] of cellTagsByLayer.entries()) {
     await addCellTagsBatch(db, entries, zLayer);
     counts.sim_cell_tags = (counts.sim_cell_tags || 0) + entries.length;

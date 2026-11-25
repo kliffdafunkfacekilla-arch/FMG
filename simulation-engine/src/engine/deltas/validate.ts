@@ -10,8 +10,10 @@ const KNOWN_KINDS = new Set<string>([
   "citizen.move",
   "citizen.tagBurg",
   "agent.update",
+  "agent.create",
   "agent.remove",
   "tags.add",
+  "tags.remove",
   "event.log",
   "thread.open",
   "scheduled.add",
@@ -20,6 +22,8 @@ const KNOWN_KINDS = new Set<string>([
   "weatherFront.remove",
   "chaosZone.upsert",
   "chaosZone.adjust",
+  "chaosZone.remove",
+  "chaosFlow.update",
   "calendar.set",
   "entity.create",
   "entity.die",
@@ -69,6 +73,7 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   const commodityNames = new Set<string>();
   const canyonIds = new Set<number>();
   const outlawIds = new Set<number>();
+  const chaosFlowIds = new Set<number>();
 
   const structuralErrors = new Map<number, string>();
 
@@ -214,22 +219,45 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         }
         break;
       }
+      case "agent.create": {
+        const err = finiteOrReject([
+          ["locationCellId", d.locationCellId],
+          ["targetCellId", d.targetCellId ?? undefined],
+          ["targetGroveId", d.targetGroveId ?? undefined],
+          ["homeBurgId", d.homeBurgId ?? undefined],
+          ["factionId", d.factionId ?? undefined],
+          ["corruption", d.corruption],
+          ["drainedPower", d.drainedPower],
+          ["ageTicks", d.ageTicks],
+          ["createdTick", d.createdTick],
+        ]);
+        if (err || !d.name || !d.role || !d.state) {
+          structuralErrors.set(i, err || "Invalid agent.create payload");
+        } else {
+          cellIds.add(d.locationCellId);
+          if (typeof d.targetCellId === "number") cellIds.add(d.targetCellId);
+          if (typeof d.homeBurgId === "number" && d.homeBurgId > 0) burgIds.add(d.homeBurgId);
+          if (typeof d.factionId === "number" && d.factionId > 0) factionIds.add(d.factionId);
+        }
+        break;
+      }
       case "agent.remove": {
         if (!Number.isFinite(d.agentId)) structuralErrors.set(i, "Non-finite agentId");
         else agentIds.add(d.agentId);
         break;
       }
-      case "tags.add": {
+      case "tags.add":
+      case "tags.remove": {
         if (!Array.isArray(d.tags) || d.tags.length === 0) {
-          structuralErrors.set(i, "Empty tags in tags.add");
+          structuralErrors.set(i, `Empty tags in ${d.kind}`);
         } else if (d.target.kind === "cell") {
           if (!Number.isFinite(d.target.cellId)) structuralErrors.set(i, "Non-finite cellId");
           else cellIds.add(d.target.cellId);
-        } else if (d.target.kind === "citizen") {
+        } else if (d.kind === "tags.add" && d.target.kind === "citizen") {
           if (!Number.isFinite(d.target.citizenId)) structuralErrors.set(i, "Non-finite citizenId");
           else citizenIds.add(d.target.citizenId);
         } else {
-          structuralErrors.set(i, "Unknown tags.add target");
+          structuralErrors.set(i, `Unsupported ${d.kind} target`);
         }
         break;
       }
@@ -464,6 +492,27 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         }
         break;
       }
+      case "chaosZone.remove": {
+        if (!Number.isFinite(d.cellId) || !d.type) {
+          structuralErrors.set(i, "Invalid chaosZone.remove payload");
+        } else {
+          cellIds.add(d.cellId);
+        }
+        break;
+      }
+      case "chaosFlow.update": {
+        const err = finiteOrReject([
+          ["flowId", d.flowId],
+          ["currentSurge", d.currentSurge],
+          ["currentWidth", d.currentWidth],
+        ]);
+        if (err || !Array.isArray(d.waypoints) || !Array.isArray(d.narrowSpots)) {
+          structuralErrors.set(i, err || "Invalid chaosFlow.update payload");
+        } else {
+          chaosFlowIds.add(d.flowId);
+        }
+        break;
+      }
     }
   }
 
@@ -525,6 +574,12 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   if (outlawIds.size > 0) {
     const res = await db.query(`SELECT id FROM sim_outlaw_factions WHERE id = ANY($1::int[])`, [Array.from(outlawIds)]);
     for (const r of res.rows) validOutlaws.add(Number(r.id));
+  }
+
+  const validChaosFlows = new Set<number>();
+  if (chaosFlowIds.size > 0) {
+    const res = await db.query(`SELECT flow_id FROM sim_chaos_flows WHERE flow_id = ANY($1::int[])`, [Array.from(chaosFlowIds)]);
+    for (const r of res.rows) validChaosFlows.add(Number(r.flow_id));
   }
 
   const validStandingEntities = new Set<string>();
@@ -639,6 +694,29 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         break;
       }
 
+      case "agent.create":
+        if (!validCells.has(d.locationCellId)) {
+          rejected.push({ delta: d, reason: `Unknown agent locationCellId ${d.locationCellId}` });
+          break;
+        }
+        if (typeof d.targetCellId === "number" && !validCells.has(d.targetCellId)) {
+          rejected.push({ delta: d, reason: `Unknown agent targetCellId ${d.targetCellId}` });
+          break;
+        }
+        if (typeof d.homeBurgId === "number" && d.homeBurgId > 0 && !validBurgs.has(d.homeBurgId)) {
+          rejected.push({ delta: d, reason: `Unknown agent homeBurgId ${d.homeBurgId}` });
+          break;
+        }
+        if (typeof d.factionId === "number" && d.factionId > 0 && !validFactions.has(d.factionId)) {
+          rejected.push({ delta: d, reason: `Unknown agent factionId ${d.factionId}` });
+          break;
+        }
+        ok.push({
+          ...d,
+          corruption: d.corruption !== undefined ? clamp(Math.round(d.corruption), 0, 100) : undefined,
+        });
+        break;
+
       case "agent.remove":
         if (!validAgents.has(d.agentId)) { rejected.push({ delta: d, reason: `Unknown agentId ${d.agentId}` }); break; }
         ok.push(d);
@@ -651,6 +729,14 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         }
         if (d.target.kind === "citizen" && !validCitizens.has(d.target.citizenId)) {
           rejected.push({ delta: d, reason: `Unknown citizenId ${d.target.citizenId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "tags.remove":
+        if (d.target.kind === "cell" && !validCells.has(d.target.cellId)) {
+          rejected.push({ delta: d, reason: `Unknown cellId ${d.target.cellId}` });
           break;
         }
         ok.push(d);
@@ -688,6 +774,22 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
       case "chaosZone.adjust":
         if (d.cellId !== undefined && !validCells.has(d.cellId)) {
           rejected.push({ delta: d, reason: `Unknown cellId ${d.cellId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "chaosZone.remove":
+        if (!validCells.has(d.cellId)) {
+          rejected.push({ delta: d, reason: `Unknown cellId ${d.cellId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "chaosFlow.update":
+        if (!validChaosFlows.has(d.flowId)) {
+          rejected.push({ delta: d, reason: `Unknown chaosFlow flowId ${d.flowId}` });
           break;
         }
         ok.push(d);

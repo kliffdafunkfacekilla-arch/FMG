@@ -26,7 +26,8 @@ import { runTrophicEcologyAgent } from "./agents/trophicEcologyAgent";
 import { loadEcology } from "./macro/ecology/load.js";
 import { stepEcology } from "./macro/ecology/step.js";
 import { runNPCRoutineAgent } from "./agents/npcRoutineAgent";
-import { runChaosFlowAgent } from "./agents/chaosFlowAgent";
+import { loadChaosFlow } from "./macro/chaosFlow/load.js";
+import { stepChaosFlow } from "./macro/chaosFlow/step.js";
 import { runCultureReligionAgent } from "./agents/cultureReligionAgent";
 import { runBackgroundDirectorAgent } from "./agents/backgroundDirector";
 import { backfillBlankPersonas } from "./agents/citizenPersonaHelper";
@@ -200,11 +201,15 @@ async function runTick(): Promise<TickResult> {
                     await runFocusedMesoDay(client, tick, cal.season, loreDate, emit);
                 });
             }
-            await step('chaosFlows', () => runChaosFlowAgent(client, tick, {
-                active_flow: cal.activeFlow.domain,
-                dragon_domain: cal.activeFlow.dragon,
-                moon_phase: cal.cruorbusPhase
-            }));
+            await step('chaosFlows', async (emit) => {
+                const snap = await loadChaosFlow(client, tick, {
+                    active_flow: cal.activeFlow.domain,
+                    dragon_domain: cal.activeFlow.dragon,
+                    moon_phase: cal.cruorbusPhase
+                });
+                const out = stepChaosFlow(snap, { random: Math.random });
+                for (const d of out.deltas) emit(d);
+            });
 
             // 3. Burgs: production, food, health, births and deaths
             await step('burgOperations', () => runBurgOperationsAgent(client, tick, loreDate));

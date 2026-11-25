@@ -19,7 +19,7 @@ function check(cond: unknown, msg: string): asserts cond {
 
 const QUERY_CEILINGS: Record<string, number> = {
   burgOperations: 120,
-  chaosFlows: 130,
+  chaosFlows: 25,
   cartels: 120,
   wardens: 100,
   factionPlanning: 75,

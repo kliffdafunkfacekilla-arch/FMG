@@ -8,7 +8,9 @@ import { stepWeather } from "../engine/macro/weather/step.js";
 import type { WeatherBurgRow, WeatherSnapshot } from "../engine/macro/weather/load.js";
 import { stepEcology } from "../engine/macro/ecology/step.js";
 import type { EcologySnapshot } from "../engine/macro/ecology/load.js";
+import { DAYS_PER_WEEK } from "../engine/canon/calendar.js";
 import { stepCalendar } from "../engine/macro/calendar/step.js";
+import { computeChaosFlowState, stepChaosFlow } from "../engine/macro/chaosFlow/step.js";
 
 function testEncounterUnit() {
   const emptyDeltas = stepEncounter({ agents: [], cellIds: [10, 20, 30] }, { tick: 2, random: mulberry32(42) });
@@ -373,6 +375,95 @@ function testGrindCanyonUnit() {
   console.log("7. stepGrindCanyon (no DB) extraction, collapse, seal & highland spawn... PASSED");
 }
 
+function testChaosFlowUnit() {
+  const empty = stepChaosFlow({
+    tick: 1,
+    ctx: { activeFlow: "Mass", dragonDomain: "Tiraton", lunarSurgeMod: 0 },
+    anchors: [],
+    liveFlows: [],
+    pruneCandidates: [],
+    shoreCells: [],
+    sampleCellsByPoint: [],
+    agentCounts: { cultist: 0, warden: 0, chainZealot: 0 },
+  });
+  assert.equal(empty.deltas.length, 0);
+  assert.equal(empty.liveFlows.length, 0);
+
+  const anchor = {
+    flowId: 12,
+    name: "The Iron Gravity",
+    dragonName: "Tiraton",
+    elementalPower: "Mass",
+    source: { x: 100, y: 100 },
+    sink: { x: 900, y: 100 },
+  };
+  const ctx = { activeFlow: "Mass", dragonDomain: "Tiraton", lunarSurgeMod: 1.2 };
+  const testTick = DAYS_PER_WEEK * 14;
+  const live = computeChaosFlowState(anchor, testTick, ctx);
+  assert.ok(live.currentSurge >= 2.4);
+  const bankPt = live.waypoints[2]!;
+
+  let call = 0;
+  const seq = [0.05, 0.2, 0.05, 0.6]; // first spawn < 0.10 & < 0.50 (Cultist), second < 0.10 & < 0.80 (Warden)
+  const rng = () => seq[call++] ?? 0.99;
+
+  const snap = {
+    tick: testTick, // divisible by DAYS_PER_WEEK, 7, and 2
+    ctx,
+    anchors: [anchor],
+    liveFlows: [live],
+    pruneCandidates: [
+      { flowId: 12, cellId: 50, centerX: bankPt.x, centerY: bankPt.y }, // kept inside corridor
+      { flowId: 12, cellId: 51, centerX: 5000, centerY: 5000 }, // drifted outside corridor
+    ],
+    shoreCells: [
+      { cellId: 51, leyTags: ["#DragonLeys_Tiraton"] },
+      { cellId: 50, leyTags: ["#DragonLeys_Tiraton"] },
+    ],
+    sampleCellsByPoint: [
+      [
+        { id: 101, centerX: bankPt.x, centerY: bankPt.y, ecoBlight: 5 },
+        { id: 102, centerX: bankPt.x + 2, centerY: bankPt.y + 2, ecoBlight: 5 },
+      ],
+      [],
+      [],
+    ],
+    agentCounts: { cultist: 287, warden: 71, chainZealot: 20 },
+  };
+
+  const out = stepChaosFlow(snap, { random: rng });
+  type D = (typeof out.deltas)[number];
+
+  const flowUpd = out.deltas.find((d): d is Extract<D, { kind: "chaosFlow.update" }> => d.kind === "chaosFlow.update");
+  assert.ok(flowUpd && flowUpd.flowId === 12);
+
+  const surgeEvt = out.deltas.find((d): d is Extract<D, { kind: "event.log" }> => d.kind === "event.log");
+  assert.ok(surgeEvt && surgeEvt.type === "CHAOS_SURGE" && surgeEvt.tier === "CRITICAL");
+
+  const tagsRm = out.deltas.filter((d): d is Extract<D, { kind: "tags.remove" }> => d.kind === "tags.remove");
+  assert.ok(tagsRm.some((t) => t.target.kind === "cell" && t.target.cellId === 51 && t.tags.includes("#DragonLeys_Tiraton")));
+  assert.ok(tagsRm.some((t) => t.target.kind === "cell" && t.target.cellId === 51 && t.tags.includes("#ChaosFlowShores")));
+  assert.ok(!tagsRm.some((t) => t.target.kind === "cell" && t.target.cellId === 50));
+
+  const zoneRm = out.deltas.find((d): d is Extract<D, { kind: "chaosZone.remove" }> => d.kind === "chaosZone.remove");
+  assert.ok(zoneRm && zoneRm.cellId === 51 && zoneRm.type === "MASS_CHAOS_LEYS");
+
+  const zoneUp = out.deltas.filter((d): d is Extract<D, { kind: "chaosZone.upsert" }> => d.kind === "chaosZone.upsert");
+  assert.equal(zoneUp.length, 2);
+  assert.equal(zoneUp[0]?.updateOnConflict, true);
+
+  const created = out.deltas.filter((d): d is Extract<D, { kind: "agent.create" }> => d.kind === "agent.create");
+  assert.equal(created.length, 2);
+  assert.equal(created[0]?.role, "Cultist");
+  assert.equal(created[1]?.role, "Warden");
+
+  // Determinism check
+  const replayA = stepChaosFlow(snap, { random: mulberry32(77) });
+  const replayB = stepChaosFlow(snap, { random: mulberry32(77) });
+  assert.equal(JSON.stringify(replayA.deltas), JSON.stringify(replayB.deltas));
+  console.log("8. stepChaosFlow (no DB) meander, prune, bank blight & agent spawns... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
@@ -382,6 +473,7 @@ function main() {
   testFactionCollapseUnit();
   testMarketUnit();
   testGrindCanyonUnit();
+  testChaosFlowUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 

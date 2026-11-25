@@ -127,12 +127,34 @@ export type Delta =
       fields: Partial<AgentUpdateFields>;
     }
   | {
+      kind: "agent.create";
+      name: string;
+      role: string;
+      subRole?: string | undefined;
+      locationCellId: number;
+      targetCellId?: number | null | undefined;
+      targetGroveId?: number | null | undefined;
+      homeBurgId?: number | null | undefined;
+      factionId?: number | null | undefined;
+      state: string;
+      corruption?: number | undefined;
+      drainedPower?: number | undefined;
+      ageTicks?: number | undefined;
+      activePlot?: string | null | undefined;
+      createdTick?: number | undefined;
+    }
+  | {
       kind: "agent.remove";
       agentId: number;
       reason: string;
     }
   | {
       kind: "tags.add";
+      target: TagTarget;
+      tags: string[];
+    }
+  | {
+      kind: "tags.remove";
       target: TagTarget;
       tags: string[];
     }
@@ -183,12 +205,26 @@ export type Delta =
       cellId: number;
       intensity: number;
       type: string;
+      updateOnConflict?: boolean | undefined;
     }
   | {
       kind: "chaosZone.adjust";
       cellId?: number | undefined;
       intensityDelta: number;
       deleteAtOrBelowZero?: boolean | undefined;
+    }
+  | {
+      kind: "chaosZone.remove";
+      cellId: number;
+      type: string;
+    }
+  | {
+      kind: "chaosFlow.update";
+      flowId: number;
+      currentSurge: number;
+      currentWidth: number;
+      waypoints: unknown[];
+      narrowSpots: unknown[];
     }
   | {
       kind: "calendar.set";
