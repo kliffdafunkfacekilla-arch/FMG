@@ -14,6 +14,7 @@ import { computeChaosFlowState, stepChaosFlow } from "../engine/macro/chaosFlow/
 import { stepAutonomousDrama } from "../engine/macro/autonomousDrama/step.js";
 import { seededFraction, stepCultureReligion } from "../engine/macro/cultureReligion/step.js";
 import { stepNpcRoutines } from "../engine/macro/npcRoutines/step.js";
+import { BLEED_TAG, stepBackgroundDirector } from "../engine/macro/backgroundDirector/step.js";
 
 function testEncounterUnit() {
   const emptyDeltas = stepEncounter({ agents: [], cellIds: [10, 20, 30] }, { tick: 2, random: mulberry32(42) });
@@ -696,6 +697,80 @@ function testNpcRoutinesUnit() {
   console.log("11. stepNpcRoutines (no DB) mind eval, caravan ambush/delivery & casualty penalties... PASSED");
 }
 
+function testBackgroundDirectorUnit() {
+  const inputSnap = {
+    tick: 15,
+    loreDate: "Day 15",
+    moonPhase: "The Open Eye", // isChaosPeak -> BLEED_TAG
+    isShadowWeek: false,
+    burgsByCell: {
+      30627: {
+        burgId: 81,
+        cellId: 30627,
+        name: "Excelsis Citadel",
+        unrest: 45, // #MartialLaw, #HighUnrest
+        food: 800, // #Famine, #ResourceScarcity
+        wealth: 500,
+        crimeRate: 10,
+      },
+    },
+    sectors: [
+      {
+        cellId: 30627,
+        rx: 50,
+        ry: 50,
+        zLayer: 0,
+        npcs: [
+          {
+            id: "1",
+            name: "Doran Iron-Bender",
+            type: "NPC" as const,
+            role: "Blacksmith",
+            tags: ["artisan", "#RebelInformant", "craftsman"],
+            coords: { x: 20, y: 20 },
+          },
+        ],
+        props: [
+          {
+            id: "prop_forge_01",
+            name: "Artisan Smithy Forge",
+            type: "PROP" as const,
+            tags: ["forge", "anvil", "workstation"],
+            coords: { x: 22, y: 22 },
+          },
+        ],
+        features: { terrain: "urban" },
+      },
+    ],
+  };
+
+  const originalTagsCopy = JSON.stringify(inputSnap.sectors[0]!.npcs[0]!.tags);
+  const out = stepBackgroundDirector(inputSnap);
+
+  assert.equal(out.sectorsEvaluated, 1);
+  assert.equal(out.sectorsFailed, 0);
+  assert.ok(out.sectorsMutated === 1 && out.reactionsFired >= 1, "Expected sector reaction to mutate");
+  assert.equal(
+    JSON.stringify(inputSnap.sectors[0]!.npcs[0]!.tags),
+    originalTagsCopy,
+    "stepBackgroundDirector must not mutate caller snapshot entities"
+  );
+
+  type D = (typeof out.deltas)[number];
+  const layerUpd = out.deltas.find((d): d is Extract<D, { kind: "sectorLayer.update" }> => d.kind === "sectorLayer.update");
+  assert.ok(layerUpd && layerUpd.cellId === 30627 && layerUpd.zLayer === 0);
+  assert.ok(Array.isArray(layerUpd.features.environmental_tags) && layerUpd.features.environmental_tags.includes(BLEED_TAG));
+
+  const thOpen = out.deltas.find((d): d is Extract<D, { kind: "thread.open" }> => d.kind === "thread.open");
+  assert.ok(thOpen && thOpen.bestEffort === true && thOpen.spec.created_tick === 15);
+
+  const evLog = out.deltas.find((d): d is Extract<D, { kind: "event.log" }> => d.kind === "event.log");
+  assert.ok(evLog && evLog.zLayer === 0);
+
+  assert.equal(JSON.stringify(out), JSON.stringify(stepBackgroundDirector(inputSnap)));
+  console.log("12. stepBackgroundDirector (no DB) immutable reactions, bestEffort threads & layer deltas... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
@@ -709,6 +784,7 @@ function main() {
   testAutonomousDramaUnit();
   testCultureReligionUnit();
   testNpcRoutinesUnit();
+  testBackgroundDirectorUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 

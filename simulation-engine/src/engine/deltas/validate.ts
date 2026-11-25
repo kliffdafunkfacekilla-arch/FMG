@@ -44,6 +44,7 @@ const KNOWN_KINDS = new Set<string>([
   "religion.adjustCells",
   "npcInstance.update",
   "fringeLair.addRations",
+  "sectorLayer.update",
 ]);
 
 function clamp(v: number, min: number, max: number): number {
@@ -277,6 +278,7 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
           ["cellId", d.cellId],
           ["factionId", d.factionId],
           ["outlawId", d.outlawId],
+          ["zLayer", d.zLayer],
         ]);
         if (err || !d.type || !d.message) structuralErrors.set(i, err || "Missing type/message in event.log");
         else {
@@ -552,6 +554,20 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
           structuralErrors.set(i, err || "Invalid fringeLair.addRations payload");
         } else {
           burgIds.add(d.burgId);
+        }
+        break;
+      }
+      case "sectorLayer.update": {
+        const err = finiteOrReject([
+          ["cellId", d.cellId],
+          ["rx", d.rx],
+          ["ry", d.ry],
+          ["zLayer", d.zLayer],
+        ]);
+        if (err || !Array.isArray(d.npcs) || !Array.isArray(d.props) || !d.features || typeof d.features !== "object") {
+          structuralErrors.set(i, err || "Invalid sectorLayer.update payload");
+        } else {
+          cellIds.add(d.cellId);
         }
         break;
       }
@@ -1001,6 +1017,14 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
       case "fringeLair.addRations":
         if (!validBurgs.has(d.burgId)) {
           rejected.push({ delta: d, reason: `Unknown fringeLair.addRations burgId ${d.burgId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "sectorLayer.update":
+        if (!validCells.has(d.cellId)) {
+          rejected.push({ delta: d, reason: `Unknown sectorLayer cellId ${d.cellId}` });
           break;
         }
         ok.push(d);

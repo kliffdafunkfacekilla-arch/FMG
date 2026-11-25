@@ -156,6 +156,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
     touchUpdated: boolean;
   }>();
   const lairRationsByBurg = new Map<number, number>();
+  const sectorLayerUpdates = new Map<string, Extract<Delta, { kind: "sectorLayer.update" }>>();
   let lastCalendar: Extract<Delta, { kind: "calendar.set" }> | null = null;
 
   for (const d of deltas) {
@@ -428,6 +429,9 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         if (amt > 0) lairRationsByBurg.set(d.burgId, (lairRationsByBurg.get(d.burgId) || 0) + amt);
         break;
       }
+      case "sectorLayer.update":
+        sectorLayerUpdates.set(`${d.cellId}:${Math.round(d.rx)}:${Math.round(d.ry)}:${Math.round(d.zLayer)}`, d);
+        break;
     }
   }
 
@@ -1043,7 +1047,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   // 9. sim_events (multi-row unnest insert)
   if (events.length > 0) {
     const res = await db.query(
-      `INSERT INTO sim_events (tick, type, message, tier, lore_date, burg_id, cell_id, faction_id, outlaw_id)
+      `INSERT INTO sim_events (tick, type, message, tier, lore_date, burg_id, cell_id, faction_id, outlaw_id, z_layer)
        SELECT
          unnest($1::int[]),
          unnest($2::text[]),
@@ -1053,7 +1057,8 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
          unnest($6::int[]),
          unnest($7::int[]),
          unnest($8::int[]),
-         unnest($9::int[])`,
+         unnest($9::int[]),
+         unnest($10::int[])`,
       [
         events.map((e) => e.tick),
         events.map((e) => e.type),
@@ -1064,6 +1069,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         events.map((e) => e.cellId ?? null),
         events.map((e) => e.factionId ?? null),
         events.map((e) => e.outlawId ?? null),
+        events.map((e) => e.zLayer ?? 0),
       ]
     );
     counts.sim_events = res.rowCount || events.length;
@@ -1071,8 +1077,21 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
 
   // 10. sim_threads
   for (const t of threads) {
-    await createThread(db as any, t.spec);
-    counts.sim_threads = (counts.sim_threads || 0) + 1;
+    if (!t.bestEffort) {
+      await createThread(db as any, t.spec);
+      counts.sim_threads = (counts.sim_threads || 0) + 1;
+      continue;
+    }
+    let savepoint = true;
+    try { await db.query("SAVEPOINT bd_thread"); } catch { savepoint = false; }
+    try {
+      await createThread(db as any, t.spec);
+      if (savepoint) await db.query("RELEASE SAVEPOINT bd_thread");
+      counts.sim_threads = (counts.sim_threads || 0) + 1;
+    } catch (err: any) {
+      if (savepoint) await db.query("ROLLBACK TO SAVEPOINT bd_thread").catch(() => {});
+      console.warn(`[Background Director] Could not open thread: ${err?.message || err}`);
+    }
   }
 
   // 11. scheduled_events
@@ -1590,6 +1609,40 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
       ]
     );
     counts.sim_npc_instances = (counts.sim_npc_instances || 0) + (res.rowCount || 0);
+  }
+
+  // 25. sim_sector_layers
+  if (sectorLayerUpdates.size > 0) {
+    const list = Array.from(sectorLayerUpdates.values()).sort(
+      (a, b) => a.cellId - b.cellId || a.rx - b.rx || a.ry - b.ry || a.zLayer - b.zLayer
+    );
+    const res = await db.query(
+      `UPDATE sim_sector_layers AS s
+       SET npcs = v.npcs,
+           props = v.props,
+           features = v.features
+       FROM (
+         SELECT
+           unnest($1::int[]) AS cell_id,
+           unnest($2::int[]) AS rx,
+           unnest($3::int[]) AS ry,
+           unnest($4::int[]) AS z_layer,
+           unnest($5::jsonb[]) AS npcs,
+           unnest($6::jsonb[]) AS props,
+           unnest($7::jsonb[]) AS features
+       ) AS v
+       WHERE s.cell_id = v.cell_id AND s.rx = v.rx AND s.ry = v.ry AND s.z_layer = v.z_layer`,
+      [
+        list.map((s) => s.cellId),
+        list.map((s) => Math.round(s.rx)),
+        list.map((s) => Math.round(s.ry)),
+        list.map((s) => Math.round(s.zLayer)),
+        list.map((s) => JSON.stringify(s.npcs)),
+        list.map((s) => JSON.stringify(s.props)),
+        list.map((s) => JSON.stringify(s.features)),
+      ]
+    );
+    counts.sim_sector_layers = (counts.sim_sector_layers || 0) + (res.rowCount || 0);
   }
 
   return counts;

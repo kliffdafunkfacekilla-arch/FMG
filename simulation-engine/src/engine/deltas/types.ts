@@ -165,16 +165,18 @@ export type Delta =
       tick: number;
       type: string;
       message: string;
-      tier: "MINOR" | "MAJOR" | "CRITICAL";
+      tier: "BACKGROUND" | "MINOR" | "MAJOR" | "CRITICAL";
       loreDate?: string | undefined;
       burgId?: number | undefined;
       cellId?: number | undefined;
       factionId?: number | undefined;
       outlawId?: number | undefined;
+      zLayer?: number | undefined;
     }
   | {
       kind: "thread.open";
       spec: CreateThreadInput;
+      bestEffort?: boolean | undefined;
     }
   | {
       kind: "scheduled.add";
@@ -397,6 +399,16 @@ export type Delta =
       kind: "fringeLair.addRations";
       burgId: number;
       rations: number;
+    }
+  | {
+      kind: "sectorLayer.update";
+      cellId: number;
+      rx: number;
+      ry: number;
+      zLayer: number;
+      npcs: unknown[];
+      props: unknown[];
+      features: Record<string, any>;
     };
 
 export type DeltaEmitter = (delta: Delta) => void;
