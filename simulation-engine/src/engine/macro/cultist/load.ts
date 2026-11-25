@@ -225,6 +225,7 @@ export async function loadCultists(
     cultists,
     wardens,
     cellCoords,
+    getCoord: getCellCoords,
     findNearestCell,
     apocalypseLoggedMessages,
     allBurgIds,

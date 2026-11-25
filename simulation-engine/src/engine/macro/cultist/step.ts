@@ -62,6 +62,7 @@ export interface CultistsSnapshot {
   cultists: CultistAgentSnapshot[];
   wardens: OpposingAgentSnap[];
   cellCoords: Record<number, CellPoint>;
+  getCoord?: (cellId: number) => CellPoint | null;
   findNearestCell?: (x: number, y: number) => number | null;
   apocalypseLoggedMessages: string[];
   allBurgIds: number[];
@@ -178,7 +179,7 @@ export function stepCultists(
     groveById.set(g.id, g);
   }
 
-  const getCoord = (cid: number): CellPoint | null => snap.cellCoords[cid] || null;
+  const getCoord = snap.getCoord ?? ((cid: number): CellPoint | null => snap.cellCoords[cid] || null);
   const findNearest = snap.findNearestCell ?? (() => null);
 
   const wardensByCell = new Map<number, OpposingAgentSnap[]>();

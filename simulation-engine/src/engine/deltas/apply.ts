@@ -158,6 +158,8 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   const lairRationsByBurg = new Map<number, number>();
   const sectorLayerUpdates = new Map<string, Extract<Delta, { kind: "sectorLayer.update" }>>();
   const groveSealDeltas = new Map<number, number>();
+  const wardDischarges = new Map<number, number>();
+  let wardRechargeTick: number | null = null;
   let lastCalendar: Extract<Delta, { kind: "calendar.set" }> | null = null;
 
   for (const d of deltas) {
@@ -437,6 +439,12 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         if (d.sealDelta !== 0) {
           groveSealDeltas.set(d.groveId, (groveSealDeltas.get(d.groveId) || 0) + Math.round(d.sealDelta));
         }
+        break;
+      case "ancientWard.recharge":
+        wardRechargeTick = wardRechargeTick === null ? Math.round(d.tick) : Math.max(wardRechargeTick, Math.round(d.tick));
+        break;
+      case "ancientWard.discharge":
+        wardDischarges.set(d.wardId, Math.round(d.tick));
         break;
     }
   }
@@ -1691,6 +1699,29 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
       [gIds, gIds.map((id) => groveSealDeltas.get(id)!)]
     );
     counts.sim_sacred_groves = (counts.sim_sacred_groves || 0) + (res.rowCount || 0);
+  }
+
+  // 27. sim_ancient_path_wards
+  if (wardRechargeTick !== null) {
+    const res = await db.query(
+      `UPDATE sim_ancient_path_wards
+       SET is_charged = true
+       WHERE is_charged = false AND ($1 - last_triggered_tick) >= recharge_ticks`,
+      [wardRechargeTick]
+    );
+    counts.sim_ancient_path_wards = (counts.sim_ancient_path_wards || 0) + (res.rowCount || 0);
+  }
+
+  if (wardDischarges.size > 0) {
+    const wIds = Array.from(wardDischarges.keys()).sort((a, b) => a - b);
+    const res = await db.query(
+      `UPDATE sim_ancient_path_wards AS w
+       SET is_charged = false, last_triggered_tick = v.tick
+       FROM (SELECT unnest($1::int[]) AS id, unnest($2::int[]) AS tick) AS v
+       WHERE w.id = v.id`,
+      [wIds, wIds.map((id) => wardDischarges.get(id)!)]
+    );
+    counts.sim_ancient_path_wards = (counts.sim_ancient_path_wards || 0) + (res.rowCount || 0);
   }
 
   return counts;

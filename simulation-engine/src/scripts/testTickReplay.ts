@@ -21,7 +21,7 @@ const QUERY_CEILINGS: Record<string, number> = {
   burgOperations: 120,
   chaosFlows: 25,
   cartels: 120,
-  wardens: 100,
+  wardens: 25,
   factionPlanning: 75,
   npcRoutines: 16,
   cultists: 25,

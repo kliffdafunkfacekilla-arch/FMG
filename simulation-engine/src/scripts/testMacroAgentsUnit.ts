@@ -17,6 +17,7 @@ import { stepNpcRoutines } from "../engine/macro/npcRoutines/step.js";
 import { BLEED_TAG, stepBackgroundDirector } from "../engine/macro/backgroundDirector/step.js";
 import { buildMandateRecruitDeltas, planMandateRecruits, stepMandateWarbands } from "../engine/macro/mandate/step.js";
 import { stepCultistRecruitment, stepCultists } from "../engine/macro/cultist/step.js";
+import { planWardenAwakening, stepWardenAwakening, stepWardens } from "../engine/macro/warden/step.js";
 
 function testEncounterUnit() {
   const emptyDeltas = stepEncounter({ agents: [], cellIds: [10, 20, 30] }, { tick: 2, random: mulberry32(42) });
@@ -961,6 +962,150 @@ function testCultistUnit() {
   console.log("14. stepCultists (no DB) recharge, infiltration, skirmish, siege & apocalypse... PASSED");
 }
 
+function testWardenUnit() {
+  assert.equal(planWardenAwakening(24, { random: () => 0.01 }), true);
+  assert.equal(planWardenAwakening(72, { random: () => 0.5 }), false);
+
+  const awakeDeltas = stepWardenAwakening(
+    {
+      tick: 12,
+      loreDate: "Day 12",
+      shouldRecharge: true,
+      ward: { id: 7, cellId: 300, flowId: 1, pathName: "Old Pilgrim Road" },
+      dbCitizen: {
+        id: 55,
+        name: "Cassian",
+        profession: "Scribe",
+        species: "Human",
+        sparkTier: "SENSITIVE",
+        temper: "STOIC",
+        instinct: "WARY",
+        motivation: "Keep the peace",
+      },
+    },
+    { random: () => 0.5 }
+  );
+  type A = (typeof awakeDeltas)[number];
+  assert.ok(awakeDeltas.some((d) => d.kind === "ancientWard.recharge"));
+  assert.ok(awakeDeltas.some((d) => d.kind === "ancientWard.discharge" && d.wardId === 7));
+  const awWarden = awakeDeltas.find((d): d is Extract<A, { kind: "agent.create" }> => d.kind === "agent.create");
+  assert.ok(awWarden && awWarden.role === "Warden" && awWarden.state === "PILGRIMAGE_TO_SPIRE");
+
+  const wDeltas = stepWardens(
+    {
+      tick: 20,
+      loreDate: "Day 20",
+      groves: [
+        { id: 1, cellId: 500, dragonName: "Eldra", powerDomain: "Ratio", sealStrength: 95, x: 50, y: 50 },
+        { id: 2, cellId: 501, dragonName: "Vecelo", powerDomain: "Motus", sealStrength: 80, x: 200, y: 200 },
+      ],
+      wardens: [
+        // 1. Defending seal -> slays cultists and repairs grove 2
+        {
+          id: 101,
+          name: "Warden A",
+          citizenName: "Theron",
+          profession: "Guardian",
+          temper: "STOIC",
+          sparkTier: "SENSITIVE",
+          subRole: "Warden_Sentinel",
+          locationCellId: 501,
+          targetCellId: 501,
+          targetGroveId: 2,
+          state: "DEFENDING_SEAL",
+          corruption: 10,
+          ageTicks: 5,
+        },
+        // 2. Hunting cultists at terminal corruption -> supernova sacrifice
+        {
+          id: 102,
+          name: "Warden B",
+          citizenName: "Kael",
+          profession: "Templar",
+          temper: "FANATICAL",
+          sparkTier: "CHANNELER",
+          subRole: "Warden_Sentinel",
+          locationCellId: 600,
+          targetCellId: 600,
+          targetGroveId: 1,
+          state: "HUNTING_CULTS",
+          corruption: 86,
+          ageTicks: 10,
+        },
+        // 3. Veteran ascending to Eyeless Elder + retiring to crypt tomb on arrival
+        {
+          id: 103,
+          name: "Warden C",
+          citizenName: "Orla",
+          profession: "Watchman",
+          temper: "STOIC",
+          sparkTier: "ADEPT",
+          subRole: "Warden_Sentinel",
+          locationCellId: 10, // VERGE_COORD.cell = 13537, step <= 75 -> arrives
+          targetCellId: 13537,
+          targetGroveId: 1,
+          state: "PATROLLING_FLOW",
+          corruption: 5,
+          ageTicks: 220,
+        },
+      ],
+      cultists: [
+        {
+          id: 201,
+          name: "Besieger 1",
+          role: "Cultist",
+          locationCellId: 501,
+          cellId: 501,
+          state: "BESIEGING_SEAL",
+          targetGroveId: 2,
+          x: 200,
+          y: 200,
+        },
+        {
+          id: 202,
+          name: "Prey 1",
+          role: "Cultist",
+          locationCellId: 600,
+          cellId: 600,
+          state: "TRAVELING_TO_SEAL",
+          targetGroveId: 1,
+          x: 300,
+          y: 300,
+        },
+      ],
+      flowWaypoints: { 1: [500], 2: [501] },
+      hermits: [{ id: 301, name: "Mad Hermit", locationCellId: 400, ageTicks: 1 }],
+      hermitCandidatesByMod: { 0: [400, 450] },
+      cellCoords: {
+        10: { x: 10, y: 10 },
+        500: { x: 50, y: 50 },
+        501: { x: 200, y: 200 },
+        600: { x: 300, y: 300 },
+        13537: { x: 15, y: 15 },
+      },
+      findNearestCell: () => 500,
+    },
+    { random: () => 0.05 }
+  );
+
+  type W = (typeof wDeltas)[number];
+  const rms = wDeltas.filter((d): d is Extract<W, { kind: "agent.remove" }> => d.kind === "agent.remove");
+  assert.ok(rms.some((r) => r.agentId === 201 && r.diedTick === 20));
+  assert.ok(rms.some((r) => r.agentId === 202 && r.diedTick === 20));
+  assert.ok(rms.some((r) => r.agentId === 102 && r.reason === "warden_final_sacrifice"));
+
+  const gAdj = wDeltas.find((d): d is Extract<W, { kind: "grove.adjust" }> => d.kind === "grove.adjust");
+  assert.ok(gAdj && gAdj.groveId === 2 && gAdj.sealDelta === 1);
+
+  const ascEvt = wDeltas.find((d): d is Extract<W, { kind: "event.log" }> => d.kind === "event.log" && d.type === "WARDEN_BECOMES_EYELESS_ELDER");
+  const cryptEvt = wDeltas.find((d): d is Extract<W, { kind: "event.log" }> => d.kind === "event.log" && d.type === "EYELESS_ELDER_CRYPT_VIGIL");
+  assert.ok(ascEvt && cryptEvt);
+
+  const hermUpd = wDeltas.find((d): d is Extract<W, { kind: "agent.update" }> => d.kind === "agent.update" && d.agentId === 301);
+  assert.ok(hermUpd && hermUpd.fields.location_cell_id === 450);
+  console.log("15. stepWardens (no DB) awakening, staffing, crypt, seal defense & sacrifice... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
@@ -977,6 +1122,7 @@ function main() {
   testBackgroundDirectorUnit();
   testMandateUnit();
   testCultistUnit();
+  testWardenUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 

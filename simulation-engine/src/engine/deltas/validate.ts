@@ -46,6 +46,8 @@ const KNOWN_KINDS = new Set<string>([
   "fringeLair.addRations",
   "sectorLayer.update",
   "grove.adjust",
+  "ancientWard.recharge",
+  "ancientWard.discharge",
 ]);
 
 function clamp(v: number, min: number, max: number): number {
@@ -84,6 +86,7 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   const religionIds = new Set<number>();
   const npcInstanceIds = new Set<string>();
   const groveIds = new Set<number>();
+  const ancientWardIds = new Set<number>();
 
   const structuralErrors = new Map<number, string>();
 
@@ -581,6 +584,17 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         else groveIds.add(d.groveId);
         break;
       }
+      case "ancientWard.recharge": {
+        const err = finiteOrReject([["tick", d.tick]]);
+        if (err) structuralErrors.set(i, err);
+        break;
+      }
+      case "ancientWard.discharge": {
+        const err = finiteOrReject([["wardId", d.wardId], ["tick", d.tick]]);
+        if (err) structuralErrors.set(i, err);
+        else ancientWardIds.add(d.wardId);
+        break;
+      }
     }
   }
 
@@ -672,6 +686,12 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   if (groveIds.size > 0) {
     const res = await db.query(`SELECT id FROM sim_sacred_groves WHERE id = ANY($1::int[])`, [Array.from(groveIds)]);
     for (const r of res.rows) validGroves.add(Number(r.id));
+  }
+
+  const validAncientWards = new Set<number>();
+  if (ancientWardIds.size > 0) {
+    const res = await db.query(`SELECT id FROM sim_ancient_path_wards WHERE id = ANY($1::int[])`, [Array.from(ancientWardIds)]);
+    for (const r of res.rows) validAncientWards.add(Number(r.id));
   }
 
   const validStandingEntities = new Set<string>();
@@ -1052,6 +1072,18 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
           break;
         }
         ok.push(d);
+        break;
+
+      case "ancientWard.recharge":
+        ok.push({ kind: "ancientWard.recharge", tick: Math.round(d.tick) });
+        break;
+
+      case "ancientWard.discharge":
+        if (!validAncientWards.has(d.wardId)) {
+          rejected.push({ delta: d, reason: `Unknown ancientWard id ${d.wardId}` });
+          break;
+        }
+        ok.push({ kind: "ancientWard.discharge", wardId: d.wardId, tick: Math.round(d.tick) });
         break;
 
       default:

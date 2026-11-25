@@ -201,6 +201,7 @@ export async function loadMandateWarbands(
     groves,
     homeCellByBurg,
     cellCoords,
+    getCoord: getCellCoords,
     findNearestCell,
   };
 }

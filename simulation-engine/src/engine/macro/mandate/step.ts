@@ -50,6 +50,7 @@ export interface MandateWarbandsSnapshot {
   groves: GroveCoord[];
   homeCellByBurg: Record<number, number>;
   cellCoords: Record<number, CellPoint>;
+  getCoord?: (cellId: number) => CellPoint | null;
   findNearestCell?: (x: number, y: number) => number | null;
 }
 
@@ -159,7 +160,7 @@ export function stepMandateWarbands(
 
   if (snap.warbands.length === 0) return deltas;
 
-  const getCoord = (cid: number): CellPoint | null => snap.cellCoords[cid] || null;
+  const getCoord = snap.getCoord ?? ((cid: number): CellPoint | null => snap.cellCoords[cid] || null);
   const findNearest = snap.findNearestCell ?? (() => null);
 
   const groveStrengths = new Map<number, number>();

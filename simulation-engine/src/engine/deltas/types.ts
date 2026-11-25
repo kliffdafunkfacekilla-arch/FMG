@@ -425,6 +425,15 @@ export type Delta =
       kind: "grove.adjust";
       groveId: number;
       sealDelta: number;
+    }
+  | {
+      kind: "ancientWard.recharge";
+      tick: number;
+    }
+  | {
+      kind: "ancientWard.discharge";
+      wardId: number;
+      tick: number;
     };
 
 export type DeltaEmitter = (delta: Delta) => void;
