@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { Client } from "pg";
 import pool from "./pool.js";
 
 export interface Queryable {
@@ -85,8 +86,12 @@ async function ensureSchemaVersionTable(db: Queryable): Promise<void> {
 }
 
 async function withDbClient<T>(db: Queryable, fn: (c: Queryable) => Promise<T>): Promise<T> {
-  if (typeof db.connect === "function") {
-    const client = await db.connect();
+  const isPool =
+    typeof db.connect === "function" &&
+    typeof (db as any).release !== "function" &&
+    !(db instanceof Client);
+  if (isPool) {
+    const client = await db.connect!();
     try {
       return await fn(client);
     } finally {

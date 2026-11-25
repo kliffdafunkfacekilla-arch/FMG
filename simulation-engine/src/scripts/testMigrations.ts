@@ -60,7 +60,20 @@ async function main() {
   console.log("\nALL MIGRATION TESTS PASSED");
 }
 
-isolateTest()
+async function verifyRealPoolClientMigrate(): Promise<void> {
+  const realClient = await pool.connect();
+  try {
+    const res = await migrate(realClient);
+    assert.ok(res.currentVersion >= 1, `Expected migrate(realClient) currentVersion >= 1, got ${res.currentVersion}`);
+    assert.equal(res.applied.length, 0, `Expected migrate(realClient) on live DB to apply 0 pending migrations, got ${JSON.stringify(res.applied)}`);
+    console.log(`0. migrate(real pg.PoolClient) succeeded at version ${res.currentVersion} without reconnect error... PASSED`);
+  } finally {
+    realClient.release();
+  }
+}
+
+verifyRealPoolClientMigrate()
+  .then(() => isolateTest())
   .then((done) => main().then(done, async (e: unknown) => { await done(); throw e; }))
   .then(() => process.exit(0))
   .catch((err) => {
