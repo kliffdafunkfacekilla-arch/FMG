@@ -10,8 +10,10 @@ const KNOWN_KINDS = new Set<string>([
   "citizen.move",
   "citizen.tagBurg",
   "agent.update",
+  "agent.create",
   "agent.remove",
   "tags.add",
+  "tags.remove",
   "event.log",
   "thread.open",
   "scheduled.add",
@@ -20,6 +22,8 @@ const KNOWN_KINDS = new Set<string>([
   "weatherFront.remove",
   "chaosZone.upsert",
   "chaosZone.adjust",
+  "chaosZone.remove",
+  "chaosFlow.update",
   "calendar.set",
   "entity.create",
   "entity.die",
@@ -36,6 +40,11 @@ const KNOWN_KINDS = new Set<string>([
   "grindCanyon.create",
   "outlawFaction.adjust",
   "fringeLair.mutate",
+  "culture.adjustCells",
+  "religion.adjustCells",
+  "npcInstance.update",
+  "fringeLair.addRations",
+  "sectorLayer.update",
 ]);
 
 function clamp(v: number, min: number, max: number): number {
@@ -69,6 +78,10 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   const commodityNames = new Set<string>();
   const canyonIds = new Set<number>();
   const outlawIds = new Set<number>();
+  const chaosFlowIds = new Set<number>();
+  const cultureIds = new Set<number>();
+  const religionIds = new Set<number>();
+  const npcInstanceIds = new Set<string>();
 
   const structuralErrors = new Map<number, string>();
 
@@ -89,6 +102,7 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
           ["health", d.health],
           ["crime", d.crime],
           ["rawMaterials", d.rawMaterials],
+          ["refinedGoods", d.refinedGoods],
           ["popNull", d.popNull],
           ["popAttuned", d.popAttuned],
         ]);
@@ -106,6 +120,7 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
           ["health", f.health],
           ["crime_rate", f.crime_rate],
           ["raw_materials", f.raw_materials],
+          ["refined_goods", f.refined_goods],
           ["pop_null", f.pop_null],
           ["pop_attuned", f.pop_attuned],
           ["urban_tier", f.urban_tier],
@@ -214,22 +229,45 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         }
         break;
       }
+      case "agent.create": {
+        const err = finiteOrReject([
+          ["locationCellId", d.locationCellId],
+          ["targetCellId", d.targetCellId ?? undefined],
+          ["targetGroveId", d.targetGroveId ?? undefined],
+          ["homeBurgId", d.homeBurgId ?? undefined],
+          ["factionId", d.factionId ?? undefined],
+          ["corruption", d.corruption],
+          ["drainedPower", d.drainedPower],
+          ["ageTicks", d.ageTicks],
+          ["createdTick", d.createdTick],
+        ]);
+        if (err || !d.name || !d.role || !d.state) {
+          structuralErrors.set(i, err || "Invalid agent.create payload");
+        } else {
+          cellIds.add(d.locationCellId);
+          if (typeof d.targetCellId === "number") cellIds.add(d.targetCellId);
+          if (typeof d.homeBurgId === "number" && d.homeBurgId > 0) burgIds.add(d.homeBurgId);
+          if (typeof d.factionId === "number" && d.factionId > 0) factionIds.add(d.factionId);
+        }
+        break;
+      }
       case "agent.remove": {
         if (!Number.isFinite(d.agentId)) structuralErrors.set(i, "Non-finite agentId");
         else agentIds.add(d.agentId);
         break;
       }
-      case "tags.add": {
+      case "tags.add":
+      case "tags.remove": {
         if (!Array.isArray(d.tags) || d.tags.length === 0) {
-          structuralErrors.set(i, "Empty tags in tags.add");
+          structuralErrors.set(i, `Empty tags in ${d.kind}`);
         } else if (d.target.kind === "cell") {
           if (!Number.isFinite(d.target.cellId)) structuralErrors.set(i, "Non-finite cellId");
           else cellIds.add(d.target.cellId);
-        } else if (d.target.kind === "citizen") {
+        } else if (d.kind === "tags.add" && d.target.kind === "citizen") {
           if (!Number.isFinite(d.target.citizenId)) structuralErrors.set(i, "Non-finite citizenId");
           else citizenIds.add(d.target.citizenId);
         } else {
-          structuralErrors.set(i, "Unknown tags.add target");
+          structuralErrors.set(i, `Unsupported ${d.kind} target`);
         }
         break;
       }
@@ -240,6 +278,7 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
           ["cellId", d.cellId],
           ["factionId", d.factionId],
           ["outlawId", d.outlawId],
+          ["zLayer", d.zLayer],
         ]);
         if (err || !d.type || !d.message) structuralErrors.set(i, err || "Missing type/message in event.log");
         else {
@@ -464,6 +503,74 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         }
         break;
       }
+      case "chaosZone.remove": {
+        if (!Number.isFinite(d.cellId) || !d.type) {
+          structuralErrors.set(i, "Invalid chaosZone.remove payload");
+        } else {
+          cellIds.add(d.cellId);
+        }
+        break;
+      }
+      case "chaosFlow.update": {
+        const err = finiteOrReject([
+          ["flowId", d.flowId],
+          ["currentSurge", d.currentSurge],
+          ["currentWidth", d.currentWidth],
+        ]);
+        if (err || !Array.isArray(d.waypoints) || !Array.isArray(d.narrowSpots)) {
+          structuralErrors.set(i, err || "Invalid chaosFlow.update payload");
+        } else {
+          chaosFlowIds.add(d.flowId);
+        }
+        break;
+      }
+      case "culture.adjustCells": {
+        const err = finiteOrReject([["cultureId", d.cultureId], ["delta", d.delta]]);
+        if (err) structuralErrors.set(i, err);
+        else cultureIds.add(d.cultureId);
+        break;
+      }
+      case "religion.adjustCells": {
+        const err = finiteOrReject([["religionId", d.religionId], ["delta", d.delta]]);
+        if (err) structuralErrors.set(i, err);
+        else religionIds.add(d.religionId);
+        break;
+      }
+      case "npcInstance.update": {
+        const err = finiteOrReject([
+          ["disposition", d.disposition],
+          ["tradePriceMult", d.tradePriceMult],
+        ]);
+        if (err || !d.npcId || typeof d.npcId !== "string") {
+          structuralErrors.set(i, err || "Invalid npcInstance.update payload");
+        } else {
+          npcInstanceIds.add(d.npcId);
+        }
+        break;
+      }
+      case "fringeLair.addRations": {
+        const err = finiteOrReject([["burgId", d.burgId], ["rations", d.rations]]);
+        if (err || d.rations <= 0) {
+          structuralErrors.set(i, err || "Invalid fringeLair.addRations payload");
+        } else {
+          burgIds.add(d.burgId);
+        }
+        break;
+      }
+      case "sectorLayer.update": {
+        const err = finiteOrReject([
+          ["cellId", d.cellId],
+          ["rx", d.rx],
+          ["ry", d.ry],
+          ["zLayer", d.zLayer],
+        ]);
+        if (err || !Array.isArray(d.npcs) || !Array.isArray(d.props) || !d.features || typeof d.features !== "object") {
+          structuralErrors.set(i, err || "Invalid sectorLayer.update payload");
+        } else {
+          cellIds.add(d.cellId);
+        }
+        break;
+      }
     }
   }
 
@@ -527,6 +634,30 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
     for (const r of res.rows) validOutlaws.add(Number(r.id));
   }
 
+  const validChaosFlows = new Set<number>();
+  if (chaosFlowIds.size > 0) {
+    const res = await db.query(`SELECT flow_id FROM sim_chaos_flows WHERE flow_id = ANY($1::int[])`, [Array.from(chaosFlowIds)]);
+    for (const r of res.rows) validChaosFlows.add(Number(r.flow_id));
+  }
+
+  const validCultures = new Set<number>();
+  if (cultureIds.size > 0) {
+    const res = await db.query(`SELECT id FROM sim_cultures WHERE id = ANY($1::int[])`, [Array.from(cultureIds)]);
+    for (const r of res.rows) validCultures.add(Number(r.id));
+  }
+
+  const validReligions = new Set<number>();
+  if (religionIds.size > 0) {
+    const res = await db.query(`SELECT id FROM sim_religions WHERE id = ANY($1::int[])`, [Array.from(religionIds)]);
+    for (const r of res.rows) validReligions.add(Number(r.id));
+  }
+
+  const validNpcInstances = new Set<string>();
+  if (npcInstanceIds.size > 0) {
+    const res = await db.query(`SELECT id FROM sim_npc_instances WHERE id = ANY($1::text[])`, [Array.from(npcInstanceIds)]);
+    for (const r of res.rows) validNpcInstances.add(String(r.id));
+  }
+
   const validStandingEntities = new Set<string>();
   if (standingEntityRefs.size > 0) {
     const entCheck = await db.query(`SELECT to_regclass('entities') IS NOT NULL AS ready`);
@@ -566,6 +697,7 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         if (f.health !== undefined) f.health = clamp(Math.round(f.health), 0, 100);
         if (f.crime_rate !== undefined) f.crime_rate = clamp(f.crime_rate, 0, 100);
         if (f.raw_materials !== undefined) f.raw_materials = Math.max(0, Math.round(f.raw_materials));
+        if (f.refined_goods !== undefined) f.refined_goods = Math.max(0, Math.round(f.refined_goods));
         if (f.pop_null !== undefined) f.pop_null = Math.max(0, Math.round(f.pop_null));
         if (f.pop_attuned !== undefined) f.pop_attuned = Math.max(0, Math.round(f.pop_attuned));
         if (f.urban_tier !== undefined) f.urban_tier = Math.max(0, Math.round(f.urban_tier));
@@ -639,6 +771,29 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         break;
       }
 
+      case "agent.create":
+        if (!validCells.has(d.locationCellId)) {
+          rejected.push({ delta: d, reason: `Unknown agent locationCellId ${d.locationCellId}` });
+          break;
+        }
+        if (typeof d.targetCellId === "number" && !validCells.has(d.targetCellId)) {
+          rejected.push({ delta: d, reason: `Unknown agent targetCellId ${d.targetCellId}` });
+          break;
+        }
+        if (typeof d.homeBurgId === "number" && d.homeBurgId > 0 && !validBurgs.has(d.homeBurgId)) {
+          rejected.push({ delta: d, reason: `Unknown agent homeBurgId ${d.homeBurgId}` });
+          break;
+        }
+        if (typeof d.factionId === "number" && d.factionId > 0 && !validFactions.has(d.factionId)) {
+          rejected.push({ delta: d, reason: `Unknown agent factionId ${d.factionId}` });
+          break;
+        }
+        ok.push({
+          ...d,
+          corruption: d.corruption !== undefined ? clamp(Math.round(d.corruption), 0, 100) : undefined,
+        });
+        break;
+
       case "agent.remove":
         if (!validAgents.has(d.agentId)) { rejected.push({ delta: d, reason: `Unknown agentId ${d.agentId}` }); break; }
         ok.push(d);
@@ -651,6 +806,14 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         }
         if (d.target.kind === "citizen" && !validCitizens.has(d.target.citizenId)) {
           rejected.push({ delta: d, reason: `Unknown citizenId ${d.target.citizenId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "tags.remove":
+        if (d.target.kind === "cell" && !validCells.has(d.target.cellId)) {
+          rejected.push({ delta: d, reason: `Unknown cellId ${d.target.cellId}` });
           break;
         }
         ok.push(d);
@@ -688,6 +851,22 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
       case "chaosZone.adjust":
         if (d.cellId !== undefined && !validCells.has(d.cellId)) {
           rejected.push({ delta: d, reason: `Unknown cellId ${d.cellId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "chaosZone.remove":
+        if (!validCells.has(d.cellId)) {
+          rejected.push({ delta: d, reason: `Unknown cellId ${d.cellId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "chaosFlow.update":
+        if (!validChaosFlows.has(d.flowId)) {
+          rejected.push({ delta: d, reason: `Unknown chaosFlow flowId ${d.flowId}` });
           break;
         }
         ok.push(d);
@@ -806,6 +985,46 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         }
         if (typeof d.burgId === "number" && d.burgId > 0 && !validBurgs.has(d.burgId)) {
           rejected.push({ delta: d, reason: `Unknown fringeLair burgId ${d.burgId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "culture.adjustCells":
+        if (!validCultures.has(d.cultureId)) {
+          rejected.push({ delta: d, reason: `Unknown cultureId ${d.cultureId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "religion.adjustCells":
+        if (!validReligions.has(d.religionId)) {
+          rejected.push({ delta: d, reason: `Unknown religionId ${d.religionId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "npcInstance.update":
+        if (!validNpcInstances.has(d.npcId)) {
+          rejected.push({ delta: d, reason: `Unknown npcInstance id ${d.npcId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "fringeLair.addRations":
+        if (!validBurgs.has(d.burgId)) {
+          rejected.push({ delta: d, reason: `Unknown fringeLair.addRations burgId ${d.burgId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "sectorLayer.update":
+        if (!validCells.has(d.cellId)) {
+          rejected.push({ delta: d, reason: `Unknown sectorLayer cellId ${d.cellId}` });
           break;
         }
         ok.push(d);

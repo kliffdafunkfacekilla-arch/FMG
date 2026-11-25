@@ -19,14 +19,14 @@ function check(cond: unknown, msg: string): asserts cond {
 
 const QUERY_CEILINGS: Record<string, number> = {
   burgOperations: 120,
-  chaosFlows: 130,
+  chaosFlows: 25,
   cartels: 120,
   wardens: 100,
   factionPlanning: 75,
-  npcRoutines: 70,
+  npcRoutines: 16,
   cultists: 70,
-  backgroundDirector: 70,
-  autonomousDrama: 40,
+  backgroundDirector: 35,
+  autonomousDrama: 35,
   trade: 35,
   weather: 30,
   threadClocks: 25,
@@ -42,7 +42,7 @@ const QUERY_CEILINGS: Record<string, number> = {
   factionCollapse: 8,
   ecology: 20,
   burgExpansion: 20,
-  cultureReligion: 25,
+  cultureReligion: 22,
   market: 10,
 };
 const DEFAULT_STEP_CEILING = 120;

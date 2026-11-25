@@ -8,7 +8,13 @@ import { stepWeather } from "../engine/macro/weather/step.js";
 import type { WeatherBurgRow, WeatherSnapshot } from "../engine/macro/weather/load.js";
 import { stepEcology } from "../engine/macro/ecology/step.js";
 import type { EcologySnapshot } from "../engine/macro/ecology/load.js";
+import { DAYS_PER_WEEK } from "../engine/canon/calendar.js";
 import { stepCalendar } from "../engine/macro/calendar/step.js";
+import { computeChaosFlowState, stepChaosFlow } from "../engine/macro/chaosFlow/step.js";
+import { stepAutonomousDrama } from "../engine/macro/autonomousDrama/step.js";
+import { seededFraction, stepCultureReligion } from "../engine/macro/cultureReligion/step.js";
+import { stepNpcRoutines } from "../engine/macro/npcRoutines/step.js";
+import { BLEED_TAG, stepBackgroundDirector } from "../engine/macro/backgroundDirector/step.js";
 
 function testEncounterUnit() {
   const emptyDeltas = stepEncounter({ agents: [], cellIds: [10, 20, 30] }, { tick: 2, random: mulberry32(42) });
@@ -373,6 +379,398 @@ function testGrindCanyonUnit() {
   console.log("7. stepGrindCanyon (no DB) extraction, collapse, seal & highland spawn... PASSED");
 }
 
+function testChaosFlowUnit() {
+  const empty = stepChaosFlow({
+    tick: 1,
+    ctx: { activeFlow: "Mass", dragonDomain: "Tiraton", lunarSurgeMod: 0 },
+    anchors: [],
+    liveFlows: [],
+    pruneCandidates: [],
+    shoreCells: [],
+    sampleCellsByPoint: [],
+    agentCounts: { cultist: 0, warden: 0, chainZealot: 0 },
+  });
+  assert.equal(empty.deltas.length, 0);
+  assert.equal(empty.liveFlows.length, 0);
+
+  const anchor = {
+    flowId: 12,
+    name: "The Iron Gravity",
+    dragonName: "Tiraton",
+    elementalPower: "Mass",
+    source: { x: 100, y: 100 },
+    sink: { x: 900, y: 100 },
+  };
+  const ctx = { activeFlow: "Mass", dragonDomain: "Tiraton", lunarSurgeMod: 1.2 };
+  const testTick = DAYS_PER_WEEK * 14;
+  const live = computeChaosFlowState(anchor, testTick, ctx);
+  assert.ok(live.currentSurge >= 2.4);
+  const bankPt = live.waypoints[2]!;
+
+  let call = 0;
+  const seq = [0.05, 0.2, 0.05, 0.6]; // first spawn < 0.10 & < 0.50 (Cultist), second < 0.10 & < 0.80 (Warden)
+  const rng = () => seq[call++] ?? 0.99;
+
+  const snap = {
+    tick: testTick, // divisible by DAYS_PER_WEEK, 7, and 2
+    ctx,
+    anchors: [anchor],
+    liveFlows: [live],
+    pruneCandidates: [
+      { flowId: 12, cellId: 50, centerX: bankPt.x, centerY: bankPt.y }, // kept inside corridor
+      { flowId: 12, cellId: 51, centerX: 5000, centerY: 5000 }, // drifted outside corridor
+    ],
+    shoreCells: [
+      { cellId: 51, leyTags: ["#DragonLeys_Tiraton"] },
+      { cellId: 50, leyTags: ["#DragonLeys_Tiraton"] },
+    ],
+    sampleCellsByPoint: [
+      [
+        { id: 101, centerX: bankPt.x, centerY: bankPt.y, ecoBlight: 5 },
+        { id: 102, centerX: bankPt.x + 2, centerY: bankPt.y + 2, ecoBlight: 5 },
+      ],
+      [],
+      [],
+    ],
+    agentCounts: { cultist: 287, warden: 71, chainZealot: 20 },
+  };
+
+  const out = stepChaosFlow(snap, { random: rng });
+  type D = (typeof out.deltas)[number];
+
+  const flowUpd = out.deltas.find((d): d is Extract<D, { kind: "chaosFlow.update" }> => d.kind === "chaosFlow.update");
+  assert.ok(flowUpd && flowUpd.flowId === 12);
+
+  const surgeEvt = out.deltas.find((d): d is Extract<D, { kind: "event.log" }> => d.kind === "event.log");
+  assert.ok(surgeEvt && surgeEvt.type === "CHAOS_SURGE" && surgeEvt.tier === "CRITICAL");
+
+  const tagsRm = out.deltas.filter((d): d is Extract<D, { kind: "tags.remove" }> => d.kind === "tags.remove");
+  assert.ok(tagsRm.some((t) => t.target.kind === "cell" && t.target.cellId === 51 && t.tags.includes("#DragonLeys_Tiraton")));
+  assert.ok(tagsRm.some((t) => t.target.kind === "cell" && t.target.cellId === 51 && t.tags.includes("#ChaosFlowShores")));
+  assert.ok(!tagsRm.some((t) => t.target.kind === "cell" && t.target.cellId === 50));
+
+  const zoneRm = out.deltas.find((d): d is Extract<D, { kind: "chaosZone.remove" }> => d.kind === "chaosZone.remove");
+  assert.ok(zoneRm && zoneRm.cellId === 51 && zoneRm.type === "MASS_CHAOS_LEYS");
+
+  const zoneUp = out.deltas.filter((d): d is Extract<D, { kind: "chaosZone.upsert" }> => d.kind === "chaosZone.upsert");
+  assert.equal(zoneUp.length, 2);
+  assert.equal(zoneUp[0]?.updateOnConflict, true);
+
+  const created = out.deltas.filter((d): d is Extract<D, { kind: "agent.create" }> => d.kind === "agent.create");
+  assert.equal(created.length, 2);
+  assert.equal(created[0]?.role, "Cultist");
+  assert.equal(created[1]?.role, "Warden");
+
+  // Determinism check
+  const replayA = stepChaosFlow(snap, { random: mulberry32(77) });
+  const replayB = stepChaosFlow(snap, { random: mulberry32(77) });
+  assert.equal(JSON.stringify(replayA.deltas), JSON.stringify(replayB.deltas));
+  console.log("8. stepChaosFlow (no DB) meander, prune, bank blight & agent spawns... PASSED");
+}
+
+function testAutonomousDramaUnit() {
+  const empty = stepAutonomousDrama({ tick: 1, loreDate: "Day 1", burgs: [] });
+  assert.equal(empty.clashesOpened, 0);
+  assert.equal(empty.deltas.length, 0);
+
+  const out = stepAutonomousDrama({
+    tick: 10,
+    loreDate: "10th Day",
+    burgs: [
+      {
+        burgId: 4, // (10 + 4) % 2 === 0 -> rival paragon branch
+        name: "Ashenford",
+        cellId: 200,
+        unrest: 60, // > 55 -> oathBroken
+        crimeRate: 25,
+        food: 300,
+        wealth: 500,
+        paragons: [
+          {
+            id: 11,
+            name: "Veylan",
+            title: "Magistrate",
+            want: "seize the grain ledgers.",
+            flaw: "pride.",
+            lineWontCross: "burning granaries.",
+            corruptionScore: 50,
+          },
+          {
+            id: 12,
+            name: "Talia",
+            title: "Captain",
+            want: "hold the square",
+            flaw: "rigidity",
+            lineWontCross: "bribery",
+            corruptionScore: 20,
+          },
+        ],
+        citizens: [],
+        cellTags: ["#GrainShortage", "#MartialPatrol"],
+      },
+      {
+        burgId: 5, // (10 + 5) % 2 === 1 -> citizen branch
+        name: "Millbrook",
+        cellId: 201,
+        unrest: 30,
+        crimeRate: 10,
+        food: 500,
+        wealth: 200,
+        paragons: [
+          {
+            id: 21,
+            name: "Kael",
+            title: null,
+            want: null,
+            flaw: null,
+            lineWontCross: null,
+            corruptionScore: 0,
+          },
+        ],
+        citizens: [{ targetTypedId: "citizen:77", name: "Bram", profession: "Miller" }],
+        cellTags: [],
+      },
+    ],
+  });
+
+  assert.equal(out.clashesOpened, 2);
+  type D = (typeof out.deltas)[number];
+  const threads = out.deltas.filter((d): d is Extract<D, { kind: "thread.open" }> => d.kind === "thread.open");
+  assert.equal(threads.length, 2);
+  assert.deepEqual(threads[0]?.spec.actor_ids, ["paragon:11", "paragon:12"]);
+  assert.equal(threads[0]?.spec.rule_id, "AUTONOMOUS_CLASH");
+  assert.ok(threads[0]?.spec.stakes.includes("[#GrainShortage, #MartialPatrol]"));
+  assert.ok(threads[0]?.spec.stakes.includes("Pressure pushed past their line"));
+  assert.deepEqual(threads[1]?.spec.actor_ids, ["paragon:21", "citizen:77"]);
+
+  const adj = out.deltas.filter((d): d is Extract<D, { kind: "burg.adjust" }> => d.kind === "burg.adjust");
+  assert.equal(adj.length, 2);
+
+  const evts = out.deltas.filter((d): d is Extract<D, { kind: "event.log" }> => d.kind === "event.log");
+  assert.equal(evts.length, 2);
+  assert.equal(evts[0]?.type, "AUTONOMOUS_CLASH");
+
+  const replayA = stepAutonomousDrama({ tick: 10, loreDate: "10th Day", burgs: [] });
+  const replayB = stepAutonomousDrama({ tick: 10, loreDate: "10th Day", burgs: [] });
+  assert.equal(JSON.stringify(replayA), JSON.stringify(replayB));
+  console.log("9. stepAutonomousDrama (no DB) paragon/citizen pairing, dice & clash threads... PASSED");
+}
+
+function testCultureReligionUnit() {
+  // Find deterministic cellIds that satisfy seededFraction < 0.55 (culture) and < 0.35 / 0.80 (heresy)
+  const tick = 10;
+  let cultCid = 1;
+  while (seededFraction(cultCid, tick, 0x51a1) >= 0.55) cultCid++;
+  let heresyCid = 100;
+  while (seededFraction(heresyCid, tick, 0x73e2) >= 0.35) heresyCid++;
+  let chaosHeresyCid = 200;
+  while (seededFraction(chaosHeresyCid, tick, 0x73e2) >= 0.80) chaosHeresyCid++;
+
+  const snap = {
+    tick,
+    loreDate: "10th Day",
+    cultures: [
+      { id: 1, name: "Highlander" },
+      { id: 2, name: "Imperial" },
+    ],
+    religions: [
+      { id: 0, name: "Unaffiliated", type: "Folk" },
+      { id: 1, name: "Eternal Dawn", type: "Organized" },
+      { id: 2, name: "Cult of the Crushed", type: "Cult" },
+    ],
+    templeProtectedCenters: [{ cx: 500, cy: 500 }],
+    chaosByCell: [{ cellId: 902, intensity: 80 }],
+    cultFrontierRows: [
+      { cellId: cultCid, oldCultureId: 1, targetCultureId: 2, factionName: "Avian Empire", burgId: 10, burgName: "Redwatch" },
+    ],
+    cleanseRows: [
+      {
+        burgId: 1,
+        burgName: "Excelsis",
+        orthoReligionId: 1,
+        orthoReligionName: "Eternal Dawn",
+        targetCellId: 300,
+        oldReligionId: 2,
+      },
+    ],
+    heresyRows: [
+      // Protected by temple center (dist^2 = 100 <= 400): skipped
+      { srcId: 901, srcReligionId: 2, targetCellId: 301, oldReligionId: 1, tx: 510, ty: 500, burgId: null, burgName: null },
+      // Normal adjacent heresy spread
+      { srcId: 901, srcReligionId: 2, targetCellId: heresyCid, oldReligionId: 1, tx: 100, ty: 100, burgId: 11, burgName: "Fenwick" },
+      // Chaos-boosted spread (fallback cult assignment since srcReligionId is non-cult)
+      { srcId: 902, srcReligionId: 0, targetCellId: chaosHeresyCid, oldReligionId: 0, tx: 150, ty: 150, burgId: null, burgName: null },
+    ],
+  };
+
+  const out = stepCultureReligion(snap);
+  assert.equal(out.result.cultureConversions, 1);
+  assert.equal(out.result.templeReconversions, 1);
+  assert.equal(out.result.heresyConversions, 2);
+
+  type D = (typeof out.deltas)[number];
+  const cellSets = out.deltas.filter((d): d is Extract<D, { kind: "cell.set" }> => d.kind === "cell.set");
+  assert.ok(cellSets.some((d) => d.cellId === cultCid && d.fields.culture_id === 2));
+  assert.ok(cellSets.some((d) => d.cellId === 300 && d.fields.religion_id === 1));
+  assert.ok(!cellSets.some((d) => d.cellId === 301), "Temple shield within 20 units must block heresy");
+  assert.ok(cellSets.some((d) => d.cellId === heresyCid && d.fields.religion_id === 2));
+  assert.ok(cellSets.some((d) => d.cellId === chaosHeresyCid && d.fields.religion_id === 2));
+
+  const cAdj = out.deltas.filter((d): d is Extract<D, { kind: "culture.adjustCells" }> => d.kind === "culture.adjustCells");
+  assert.ok(cAdj.some((c) => c.cultureId === 1 && c.delta === -1));
+  assert.ok(cAdj.some((c) => c.cultureId === 2 && c.delta === 1));
+
+  const rAdj = out.deltas.filter((d): d is Extract<D, { kind: "religion.adjustCells" }> => d.kind === "religion.adjustCells");
+  assert.ok(rAdj.some((r) => r.religionId === 0 && r.delta === -1));
+  assert.ok(rAdj.some((r) => r.religionId === 1 && r.delta === 0) === false, "Net zero delta must be omitted");
+
+  const bAdj = out.deltas.filter((d): d is Extract<D, { kind: "burg.adjust" }> => d.kind === "burg.adjust");
+  assert.ok(bAdj.some((b) => b.burgId === 1 && b.unrest === -1));
+  assert.ok(bAdj.some((b) => b.burgId === 11 && b.unrest === 2));
+
+  assert.equal(JSON.stringify(out), JSON.stringify(stepCultureReligion(snap)));
+  console.log("10. stepCultureReligion (no DB) assimilation, temple pushback & heresy spread... PASSED");
+}
+
+function testNpcRoutinesUnit() {
+  let rollIdx = 0;
+  const rolls = [0.05, 0.9]; // Route 1 ambushed (5 < 30), Route 2 delivered (90 >= 15)
+  const rng = () => rolls[rollIdx++] ?? 0.99;
+
+  const snap = {
+    tick: 12,
+    loreDate: "Day 12",
+    livingNpcs: [
+      {
+        id: "npc_1",
+        cellId: 10,
+        role: "Blacksmith",
+        instinct: "WARY" as const,
+        temper: "STOIC" as const,
+        needs: { food: 0.8, rest: 0.8, coin: 0.5, safety: 0.8, company: 0.5 },
+        mood: { fear: 0.1, anger: 0.1, joy: 0.2 },
+        beliefs: [],
+        socialLinks: [],
+        scheduleState: "ROUTINE_WORK" as const,
+        burgFood: 250,
+        burgWealth: 400,
+        burgUnrest: 25,
+        burgCrime: 10,
+      },
+    ],
+    recentEvents: [],
+    activeRoutes: [
+      { sourceBurgId: 1, destBurgId: 2, volume: 100, riskLevel: 2, srcFood: 500, dstFood: 100 }, // 40 food, risk cutoff 30
+      { sourceBurgId: 3, destBurgId: 4, volume: 200, riskLevel: 1, srcFood: 600, dstFood: 150 }, // 60 food (capped), risk cutoff 15
+    ],
+    deceasedNpcs: [
+      { id: "dead_smith", cellId: 10, burgId: 5, role: "Master Smith", recent: true },
+      { id: "dead_farmer", cellId: 11, burgId: 6, role: "Village Farmer", recent: true },
+      { id: "old_dead", cellId: 12, burgId: 7, role: "Artisan", recent: false },
+    ],
+  };
+
+  const deltas = stepNpcRoutines(snap, { random: rng });
+  type D = (typeof deltas)[number];
+
+  const npcUpd = deltas.filter((d): d is Extract<D, { kind: "npcInstance.update" }> => d.kind === "npcInstance.update");
+  assert.ok(npcUpd.some((u) => u.npcId === "npc_1" && u.needs !== undefined && u.disposition !== undefined));
+  assert.ok(npcUpd.some((u) => u.npcId === "dead_smith" && u.processedForEconomy === true));
+  assert.ok(npcUpd.some((u) => u.npcId === "old_dead" && u.processedForEconomy === true));
+
+  const lairRations = deltas.find((d): d is Extract<D, { kind: "fringeLair.addRations" }> => d.kind === "fringeLair.addRations");
+  assert.ok(lairRations && lairRations.burgId === 2 && lairRations.rations === 40);
+
+  const ambushEv = deltas.find((d): d is Extract<D, { kind: "event.log" }> => d.kind === "event.log");
+  assert.ok(ambushEv && ambushEv.type === "CARAVAN_AMBUSH" && ambushEv.burgId === 2);
+
+  const bAdj = deltas.filter((d): d is Extract<D, { kind: "burg.adjust" }> => d.kind === "burg.adjust");
+  assert.ok(bAdj.some((b) => b.burgId === 4 && b.food === 60 && b.unrest === -2));
+  assert.ok(bAdj.some((b) => b.burgId === 5 && b.refinedGoods === -15));
+  assert.ok(bAdj.some((b) => b.burgId === 6 && b.food === -10));
+  assert.ok(!bAdj.some((b) => b.burgId === 7), "Stale deceased NPC (> 1 day) must not penalize economy");
+
+  assert.equal(
+    JSON.stringify(stepNpcRoutines(snap, { random: mulberry32(31) })),
+    JSON.stringify(stepNpcRoutines(snap, { random: mulberry32(31) }))
+  );
+  console.log("11. stepNpcRoutines (no DB) mind eval, caravan ambush/delivery & casualty penalties... PASSED");
+}
+
+function testBackgroundDirectorUnit() {
+  const inputSnap = {
+    tick: 15,
+    loreDate: "Day 15",
+    moonPhase: "The Open Eye", // isChaosPeak -> BLEED_TAG
+    isShadowWeek: false,
+    burgsByCell: {
+      30627: {
+        burgId: 81,
+        cellId: 30627,
+        name: "Excelsis Citadel",
+        unrest: 45, // #MartialLaw, #HighUnrest
+        food: 800, // #Famine, #ResourceScarcity
+        wealth: 500,
+        crimeRate: 10,
+      },
+    },
+    sectors: [
+      {
+        cellId: 30627,
+        rx: 50,
+        ry: 50,
+        zLayer: 0,
+        npcs: [
+          {
+            id: "1",
+            name: "Doran Iron-Bender",
+            type: "NPC" as const,
+            role: "Blacksmith",
+            tags: ["artisan", "#RebelInformant", "craftsman"],
+            coords: { x: 20, y: 20 },
+          },
+        ],
+        props: [
+          {
+            id: "prop_forge_01",
+            name: "Artisan Smithy Forge",
+            type: "PROP" as const,
+            tags: ["forge", "anvil", "workstation"],
+            coords: { x: 22, y: 22 },
+          },
+        ],
+        features: { terrain: "urban" },
+      },
+    ],
+  };
+
+  const originalTagsCopy = JSON.stringify(inputSnap.sectors[0]!.npcs[0]!.tags);
+  const out = stepBackgroundDirector(inputSnap);
+
+  assert.equal(out.sectorsEvaluated, 1);
+  assert.equal(out.sectorsFailed, 0);
+  assert.ok(out.sectorsMutated === 1 && out.reactionsFired >= 1, "Expected sector reaction to mutate");
+  assert.equal(
+    JSON.stringify(inputSnap.sectors[0]!.npcs[0]!.tags),
+    originalTagsCopy,
+    "stepBackgroundDirector must not mutate caller snapshot entities"
+  );
+
+  type D = (typeof out.deltas)[number];
+  const layerUpd = out.deltas.find((d): d is Extract<D, { kind: "sectorLayer.update" }> => d.kind === "sectorLayer.update");
+  assert.ok(layerUpd && layerUpd.cellId === 30627 && layerUpd.zLayer === 0);
+  assert.ok(Array.isArray(layerUpd.features.environmental_tags) && layerUpd.features.environmental_tags.includes(BLEED_TAG));
+
+  const thOpen = out.deltas.find((d): d is Extract<D, { kind: "thread.open" }> => d.kind === "thread.open");
+  assert.ok(thOpen && thOpen.bestEffort === true && thOpen.spec.created_tick === 15);
+
+  const evLog = out.deltas.find((d): d is Extract<D, { kind: "event.log" }> => d.kind === "event.log");
+  assert.ok(evLog && evLog.zLayer === 0);
+
+  assert.equal(JSON.stringify(out), JSON.stringify(stepBackgroundDirector(inputSnap)));
+  console.log("12. stepBackgroundDirector (no DB) immutable reactions, bestEffort threads & layer deltas... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
@@ -382,6 +780,11 @@ function main() {
   testFactionCollapseUnit();
   testMarketUnit();
   testGrindCanyonUnit();
+  testChaosFlowUnit();
+  testAutonomousDramaUnit();
+  testCultureReligionUnit();
+  testNpcRoutinesUnit();
+  testBackgroundDirectorUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 

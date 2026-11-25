@@ -12,6 +12,7 @@ export interface BurgSetFields {
   health?: number | undefined;
   crime_rate?: number | undefined;
   raw_materials?: number | undefined;
+  refined_goods?: number | undefined;
   pop_null?: number | undefined;
   pop_attuned?: number | undefined;
   urban_tier?: number | undefined;
@@ -68,6 +69,7 @@ export type Delta =
       health?: number | undefined;
       crime?: number | undefined;
       rawMaterials?: number | undefined;
+      refinedGoods?: number | undefined;
       popNull?: number | undefined;
       popAttuned?: number | undefined;
     }
@@ -127,6 +129,23 @@ export type Delta =
       fields: Partial<AgentUpdateFields>;
     }
   | {
+      kind: "agent.create";
+      name: string;
+      role: string;
+      subRole?: string | undefined;
+      locationCellId: number;
+      targetCellId?: number | null | undefined;
+      targetGroveId?: number | null | undefined;
+      homeBurgId?: number | null | undefined;
+      factionId?: number | null | undefined;
+      state: string;
+      corruption?: number | undefined;
+      drainedPower?: number | undefined;
+      ageTicks?: number | undefined;
+      activePlot?: string | null | undefined;
+      createdTick?: number | undefined;
+    }
+  | {
       kind: "agent.remove";
       agentId: number;
       reason: string;
@@ -137,20 +156,27 @@ export type Delta =
       tags: string[];
     }
   | {
+      kind: "tags.remove";
+      target: TagTarget;
+      tags: string[];
+    }
+  | {
       kind: "event.log";
       tick: number;
       type: string;
       message: string;
-      tier: "MINOR" | "MAJOR" | "CRITICAL";
+      tier: "BACKGROUND" | "MINOR" | "MAJOR" | "CRITICAL";
       loreDate?: string | undefined;
       burgId?: number | undefined;
       cellId?: number | undefined;
       factionId?: number | undefined;
       outlawId?: number | undefined;
+      zLayer?: number | undefined;
     }
   | {
       kind: "thread.open";
       spec: CreateThreadInput;
+      bestEffort?: boolean | undefined;
     }
   | {
       kind: "scheduled.add";
@@ -183,12 +209,26 @@ export type Delta =
       cellId: number;
       intensity: number;
       type: string;
+      updateOnConflict?: boolean | undefined;
     }
   | {
       kind: "chaosZone.adjust";
       cellId?: number | undefined;
       intensityDelta: number;
       deleteAtOrBelowZero?: boolean | undefined;
+    }
+  | {
+      kind: "chaosZone.remove";
+      cellId: number;
+      type: string;
+    }
+  | {
+      kind: "chaosFlow.update";
+      flowId: number;
+      currentSurge: number;
+      currentWidth: number;
+      waypoints: unknown[];
+      narrowSpots: unknown[];
     }
   | {
       kind: "calendar.set";
@@ -334,6 +374,41 @@ export type Delta =
       lairType?: string;
       manpower?: number;
       heat?: number;
+    }
+  | {
+      kind: "culture.adjustCells";
+      cultureId: number;
+      delta: number;
+    }
+  | {
+      kind: "religion.adjustCells";
+      religionId: number;
+      delta: number;
+    }
+  | {
+      kind: "npcInstance.update";
+      npcId: string;
+      needs?: Record<string, number> | undefined;
+      mood?: Record<string, number> | undefined;
+      beliefs?: unknown[] | undefined;
+      disposition?: number | undefined;
+      tradePriceMult?: number | undefined;
+      processedForEconomy?: boolean | undefined;
+    }
+  | {
+      kind: "fringeLair.addRations";
+      burgId: number;
+      rations: number;
+    }
+  | {
+      kind: "sectorLayer.update";
+      cellId: number;
+      rx: number;
+      ry: number;
+      zLayer: number;
+      npcs: unknown[];
+      props: unknown[];
+      features: Record<string, any>;
     };
 
 export type DeltaEmitter = (delta: Delta) => void;

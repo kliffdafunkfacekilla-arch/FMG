@@ -1,4 +1,4 @@
-import { addCellTagsBatch } from "../cellTags.js";
+import { addCellTagsBatch, removeCellTagsBatch } from "../cellTags.js";
 import { markEntitiesDeadBatch, upsertEntitiesBatch, type UpsertEntityInput } from "../entities/registry.js";
 import { createThread } from "../threads/threadEngine.js";
 import type { AgentUpdateFields, Db, Delta } from "./types.js";
@@ -29,6 +29,7 @@ interface BurgMerged {
   health: NumAcc;
   crimeRate: NumAcc;
   rawMaterials: NumAcc;
+  refinedGoods: NumAcc;
   popNull: NumAcc;
   popAttuned: NumAcc;
   urbanTierSet: boolean;
@@ -47,6 +48,7 @@ function emptyBurgMerged(): BurgMerged {
     health: zeroAcc(),
     crimeRate: zeroAcc(),
     rawMaterials: zeroAcc(),
+    refinedGoods: zeroAcc(),
     popNull: zeroAcc(),
     popAttuned: zeroAcc(),
     urbanTierSet: false,
@@ -117,8 +119,10 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   const citizenStatuses = new Map<number, { status: string; cause: string | null; motivation: string | null }>();
   const citizenMoves = new Map<number, { settlementId: number; homeCellId: number }>();
   const agentUpdates = new Map<number, AgentUpdateFields>();
+  const agentCreates: Array<Extract<Delta, { kind: "agent.create" }>> = [];
   const agentRemovals = new Set<number>();
   const cellTagsByLayer = new Map<number, Array<{ cellId: number; tags: string[] }>>();
+  const cellTagRemovesByLayer = new Map<number, Array<{ cellId: number; tags: string[] }>>();
   const citizenTags: Array<{ citizenId: number; tags: string[]; temper: string | null; motivation: string | null }> = [];
   const citizenTagBurgs: Array<Extract<Delta, { kind: "citizen.tagBurg" }>> = [];
   const events: Array<Extract<Delta, { kind: "event.log" }>> = [];
@@ -129,6 +133,8 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   const frontRemoves = new Set<number>();
   const chaosUpserts: Array<Extract<Delta, { kind: "chaosZone.upsert" }>> = [];
   const chaosAdjusts: Array<Extract<Delta, { kind: "chaosZone.adjust" }>> = [];
+  const chaosRemoves: Array<Extract<Delta, { kind: "chaosZone.remove" }>> = [];
+  const chaosFlowUpdates = new Map<number, Extract<Delta, { kind: "chaosFlow.update" }>>();
   const entityCreates: UpsertEntityInput[] = [];
   const entityDeaths: Array<{ ref: string; diedTick: number }> = [];
   const citizenKillOnes: Array<Extract<Delta, { kind: "citizen.killOne" }>> = [];
@@ -138,6 +144,19 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   const overlayAdds: Array<Extract<Delta, { kind: "overlay.add" }>> = [];
   const standingAdjusts: Array<Extract<Delta, { kind: "standing.adjust" }>> = [];
   const endWarFactions = new Set<number>();
+  const cultureCellDeltas = new Map<number, number>();
+  const religionCellDeltas = new Map<number, number>();
+  const npcInstanceUpdates = new Map<string, {
+    needs?: string;
+    mood?: string;
+    beliefs?: string;
+    disposition?: number;
+    tradePriceMult?: number;
+    processedForEconomy?: boolean;
+    touchUpdated: boolean;
+  }>();
+  const lairRationsByBurg = new Map<number, number>();
+  const sectorLayerUpdates = new Map<string, Extract<Delta, { kind: "sectorLayer.update" }>>();
   let lastCalendar: Extract<Delta, { kind: "calendar.set" }> | null = null;
 
   for (const d of deltas) {
@@ -151,6 +170,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         applyNumAdjust(m.health, d.health);
         applyNumAdjust(m.crimeRate, d.crime);
         applyNumAdjust(m.rawMaterials, d.rawMaterials);
+        applyNumAdjust(m.refinedGoods, d.refinedGoods);
         applyNumAdjust(m.popNull, d.popNull);
         applyNumAdjust(m.popAttuned, d.popAttuned);
         break;
@@ -165,6 +185,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         applyNumSet(m.health, f.health);
         applyNumSet(m.crimeRate, f.crime_rate);
         applyNumSet(m.rawMaterials, f.raw_materials);
+        applyNumSet(m.refinedGoods, f.refined_goods);
         applyNumSet(m.popNull, f.pop_null);
         applyNumSet(m.popAttuned, f.pop_attuned);
         if (f.urban_tier !== undefined) { m.urbanTierSet = true; m.urbanTierVal = f.urban_tier; }
@@ -222,6 +243,9 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         agentUpdates.set(d.agentId, { ...prev, ...d.fields });
         break;
       }
+      case "agent.create":
+        agentCreates.push(d);
+        break;
       case "agent.remove":
         agentRemovals.add(d.agentId);
         agentUpdates.delete(d.agentId);
@@ -239,6 +263,14 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
             temper: d.target.temper ?? null,
             motivation: d.target.motivation ?? null,
           });
+        }
+        break;
+      case "tags.remove":
+        if (d.target.kind === "cell") {
+          const z = d.target.zLayer ?? 0;
+          let list = cellTagRemovesByLayer.get(z);
+          if (!list) { list = []; cellTagRemovesByLayer.set(z, list); }
+          list.push({ cellId: d.target.cellId, tags: d.tags });
         }
         break;
       case "event.log":
@@ -267,6 +299,12 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         break;
       case "chaosZone.adjust":
         chaosAdjusts.push(d);
+        break;
+      case "chaosZone.remove":
+        chaosRemoves.push(d);
+        break;
+      case "chaosFlow.update":
+        chaosFlowUpdates.set(d.flowId, d);
         break;
       case "calendar.set":
         lastCalendar = d;
@@ -365,6 +403,35 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
           });
         }
         break;
+      case "culture.adjustCells":
+        if (d.delta !== 0) {
+          cultureCellDeltas.set(d.cultureId, (cultureCellDeltas.get(d.cultureId) || 0) + Math.round(d.delta));
+        }
+        break;
+      case "religion.adjustCells":
+        if (d.delta !== 0) {
+          religionCellDeltas.set(d.religionId, (religionCellDeltas.get(d.religionId) || 0) + Math.round(d.delta));
+        }
+        break;
+      case "npcInstance.update": {
+        const cur = npcInstanceUpdates.get(d.npcId) || { touchUpdated: false };
+        if (d.needs !== undefined) { cur.needs = JSON.stringify(d.needs); cur.touchUpdated = true; }
+        if (d.mood !== undefined) { cur.mood = JSON.stringify(d.mood); cur.touchUpdated = true; }
+        if (d.beliefs !== undefined) { cur.beliefs = JSON.stringify(d.beliefs); cur.touchUpdated = true; }
+        if (d.disposition !== undefined) { cur.disposition = Math.round(d.disposition); cur.touchUpdated = true; }
+        if (d.tradePriceMult !== undefined) { cur.tradePriceMult = d.tradePriceMult; cur.touchUpdated = true; }
+        if (d.processedForEconomy !== undefined) { cur.processedForEconomy = d.processedForEconomy; }
+        npcInstanceUpdates.set(d.npcId, cur);
+        break;
+      }
+      case "fringeLair.addRations": {
+        const amt = Math.round(d.rations);
+        if (amt > 0) lairRationsByBurg.set(d.burgId, (lairRationsByBurg.get(d.burgId) || 0) + amt);
+        break;
+      }
+      case "sectorLayer.update":
+        sectorLayerUpdates.set(`${d.cellId}:${Math.round(d.rx)}:${Math.round(d.ry)}:${Math.round(d.zLayer)}`, d);
+        break;
     }
   }
 
@@ -446,19 +513,51 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   }
 
   // 3. sim_chaos_zones
-  if (chaosUpserts.length > 0) {
-    const byKey = new Map<string, { cellId: number; intensity: number; type: string }>();
-    for (const z of chaosUpserts) {
-      byKey.set(`${z.cellId}|${z.type}`, { cellId: z.cellId, intensity: z.intensity, type: z.type });
-    }
-    const vals = Array.from(byKey.values());
+  if (chaosRemoves.length > 0) {
+    const uniq = new Map<string, { cellId: number; type: string }>();
+    for (const r of chaosRemoves) uniq.set(`${r.cellId}|${r.type}`, { cellId: r.cellId, type: r.type });
+    const list = Array.from(uniq.values()).sort((a, b) => a.cellId - b.cellId || a.type.localeCompare(b.type));
     const res = await db.query(
-      `INSERT INTO sim_chaos_zones (cell_id, intensity, type)
-       SELECT unnest($1::int[]), unnest($2::real[]), unnest($3::text[])
-       ON CONFLICT DO NOTHING`,
-      [vals.map((v) => v.cellId), vals.map((v) => v.intensity), vals.map((v) => v.type)]
+      `DELETE FROM sim_chaos_zones AS z
+       USING (SELECT unnest($1::int[]) AS cell_id, unnest($2::text[]) AS type) AS v
+       WHERE z.cell_id = v.cell_id AND z.type = v.type`,
+      [list.map((v) => v.cellId), list.map((v) => v.type)]
     );
     counts.sim_chaos_zones = (counts.sim_chaos_zones || 0) + (res.rowCount || 0);
+  }
+  if (chaosUpserts.length > 0) {
+    const byKey = new Map<string, { cellId: number; intensity: number; type: string; updateOnConflict: boolean }>();
+    for (const z of chaosUpserts) {
+      const k = `${z.cellId}|${z.type}`;
+      const prev = byKey.get(k);
+      byKey.set(k, {
+        cellId: z.cellId,
+        intensity: z.intensity,
+        type: z.type,
+        updateOnConflict: Boolean(z.updateOnConflict || prev?.updateOnConflict),
+      });
+    }
+    const vals = Array.from(byKey.values());
+    const noUpdate = vals.filter((v) => !v.updateOnConflict);
+    const doUpdate = vals.filter((v) => v.updateOnConflict);
+    if (noUpdate.length > 0) {
+      const res = await db.query(
+        `INSERT INTO sim_chaos_zones (cell_id, intensity, type)
+         SELECT unnest($1::int[]), unnest($2::real[]), unnest($3::text[])
+         ON CONFLICT DO NOTHING`,
+        [noUpdate.map((v) => v.cellId), noUpdate.map((v) => v.intensity), noUpdate.map((v) => v.type)]
+      );
+      counts.sim_chaos_zones = (counts.sim_chaos_zones || 0) + (res.rowCount || 0);
+    }
+    if (doUpdate.length > 0) {
+      const res = await db.query(
+        `INSERT INTO sim_chaos_zones (cell_id, intensity, type)
+         SELECT unnest($1::int[]), unnest($2::real[]), unnest($3::text[])
+         ON CONFLICT (cell_id, type) DO UPDATE SET intensity = EXCLUDED.intensity`,
+        [doUpdate.map((v) => v.cellId), doUpdate.map((v) => v.intensity), doUpdate.map((v) => v.type)]
+      );
+      counts.sim_chaos_zones = (counts.sim_chaos_zones || 0) + (res.rowCount || 0);
+    }
   }
   if (chaosAdjusts.length > 0) {
     for (const adj of chaosAdjusts) {
@@ -483,6 +582,36 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
     }
   }
 
+  // 3b. sim_chaos_flows
+  if (chaosFlowUpdates.size > 0) {
+    const ids = Array.from(chaosFlowUpdates.keys()).sort((a, b) => a - b);
+    const list = ids.map((id) => chaosFlowUpdates.get(id)!);
+    const res = await db.query(
+      `UPDATE sim_chaos_flows AS f SET
+         current_surge = v.surge,
+         current_width = v.width,
+         waypoints = v.waypoints,
+         narrow_spots = v.narrow_spots,
+         updated_at = CURRENT_TIMESTAMP
+       FROM (
+         SELECT unnest($1::int[]) AS flow_id,
+                unnest($2::float[]) AS surge,
+                unnest($3::float[]) AS width,
+                unnest($4::jsonb[]) AS waypoints,
+                unnest($5::jsonb[]) AS narrow_spots
+       ) AS v
+       WHERE f.flow_id = v.flow_id`,
+      [
+        list.map((r) => r.flowId),
+        list.map((r) => r.currentSurge),
+        list.map((r) => r.currentWidth),
+        list.map((r) => JSON.stringify(r.waypoints)),
+        list.map((r) => JSON.stringify(r.narrowSpots)),
+      ]
+    );
+    counts.sim_chaos_flows = (counts.sim_chaos_flows || 0) + (res.rowCount || ids.length);
+  }
+
   // 4. sim_burg_economy (batched unnest with IS DISTINCT FROM)
   if (burgs.size > 0) {
     const ids = Array.from(burgs.keys()).sort((a, b) => a - b);
@@ -501,7 +630,8 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
            unnest($30::boolean[]) AS popa_act, unnest($31::boolean[]) AS popa_set, unnest($32::float8[]) AS popa_base, unnest($33::float8[]) AS popa_delta,
            unnest($34::boolean[]) AS tier_set, unnest($35::int[]) AS tier_val,
            unnest($36::boolean[]) AS occ_set, unnest($37::int[]) AS occ_val,
-           unnest($38::boolean[]) AS name_set, unnest($39::text[]) AS name_val
+           unnest($38::boolean[]) AS name_set, unnest($39::text[]) AS name_val,
+           unnest($40::boolean[]) AS ref_act, unnest($41::boolean[]) AS ref_set, unnest($42::float8[]) AS ref_base, unnest($43::float8[]) AS ref_delta
        ),
        computed AS (
          SELECT
@@ -512,6 +642,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
            CASE WHEN v.health_act THEN LEAST(100, GREATEST(0, ROUND((CASE WHEN v.health_set THEN v.health_base + v.health_delta ELSE COALESCE(b.health, 90) + v.health_delta END)::numeric)))::int ELSE b.health END AS next_health,
            CASE WHEN v.crime_act THEN LEAST(100.0, GREATEST(0.0, CASE WHEN v.crime_set THEN v.crime_base + v.crime_delta ELSE COALESCE(b.crime_rate, 0) + v.crime_delta END))::real ELSE b.crime_rate END AS next_crime,
            CASE WHEN v.raw_act THEN GREATEST(0, ROUND((CASE WHEN v.raw_set THEN v.raw_base + v.raw_delta ELSE COALESCE(b.raw_materials, 0) + v.raw_delta END)::numeric))::int ELSE b.raw_materials END AS next_raw,
+           CASE WHEN v.ref_act THEN GREATEST(0, ROUND((CASE WHEN v.ref_set THEN v.ref_base + v.ref_delta ELSE COALESCE(b.refined_goods, 0) + v.ref_delta END)::numeric))::int ELSE b.refined_goods END AS next_refined,
            CASE WHEN v.popn_act THEN GREATEST(0, ROUND((CASE WHEN v.popn_set THEN v.popn_base + v.popn_delta ELSE COALESCE(b.pop_null, 0) + v.popn_delta END)::numeric))::int ELSE b.pop_null END AS next_pop_null,
            CASE WHEN v.popa_act THEN GREATEST(0, ROUND((CASE WHEN v.popa_set THEN v.popa_base + v.popa_delta ELSE COALESCE(b.pop_attuned, 0) + v.popa_delta END)::numeric))::int ELSE b.pop_attuned END AS next_pop_attuned,
            CASE WHEN v.tier_set THEN GREATEST(0, v.tier_val) ELSE b.urban_tier END AS next_tier,
@@ -527,6 +658,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
          health = u.next_health,
          crime_rate = u.next_crime,
          raw_materials = u.next_raw,
+         refined_goods = u.next_refined,
          pop_null = u.next_pop_null,
          pop_attuned = u.next_pop_attuned,
          urban_tier = u.next_tier,
@@ -541,6 +673,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
            b.health IS DISTINCT FROM u.next_health OR
            b.crime_rate IS DISTINCT FROM u.next_crime OR
            b.raw_materials IS DISTINCT FROM u.next_raw OR
+           b.refined_goods IS DISTINCT FROM u.next_refined OR
            b.pop_null IS DISTINCT FROM u.next_pop_null OR
            b.pop_attuned IS DISTINCT FROM u.next_pop_attuned OR
            b.urban_tier IS DISTINCT FROM u.next_tier OR
@@ -560,6 +693,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         rows.map((r) => r.urbanTierSet), rows.map((r) => r.urbanTierVal),
         rows.map((r) => r.occSet), rows.map((r) => r.occVal),
         rows.map((r) => r.nameSet), rows.map((r) => r.nameVal),
+        rows.map((r) => numActive(r.refinedGoods)), rows.map((r) => r.refinedGoods.hasSet), rows.map((r) => r.refinedGoods.setVal), rows.map((r) => r.refinedGoods.delta),
       ]
     );
     counts.sim_burg_economy = res.rowCount || 0;
@@ -803,6 +937,56 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   }
 
   // 7. sim_agents
+  if (agentCreates.length > 0) {
+    const res = await db.query(
+      `INSERT INTO sim_agents (
+         name, role, sub_role, location_cell_id, target_cell_id, target_grove_id,
+         home_burg_id, faction_id, state, corruption, drained_power, age_ticks, active_plot
+       )
+       SELECT
+         unnest($1::text[]), unnest($2::text[]), unnest($3::text[]),
+         unnest($4::int[]), unnest($5::int[]), unnest($6::int[]),
+         unnest($7::int[]), unnest($8::int[]), unnest($9::text[]),
+         unnest($10::int[]), unnest($11::real[]), unnest($12::int[]), unnest($13::text[])
+       RETURNING id`,
+      [
+        agentCreates.map((c) => c.name),
+        agentCreates.map((c) => c.role),
+        agentCreates.map((c) => c.subRole ?? null),
+        agentCreates.map((c) => c.locationCellId),
+        agentCreates.map((c) => c.targetCellId ?? null),
+        agentCreates.map((c) => c.targetGroveId ?? null),
+        agentCreates.map((c) => c.homeBurgId ?? null),
+        agentCreates.map((c) => c.factionId ?? null),
+        agentCreates.map((c) => c.state),
+        agentCreates.map((c) => Math.round(c.corruption ?? 0)),
+        agentCreates.map((c) => c.drainedPower ?? 0),
+        agentCreates.map((c) => Math.round(c.ageTicks ?? 0)),
+        agentCreates.map((c) => c.activePlot ?? null),
+      ]
+    );
+    counts.sim_agents = (counts.sim_agents || 0) + (res.rowCount || 0);
+    const entityEntries: UpsertEntityInput[] = [];
+    for (let idx = 0; idx < res.rows.length; idx++) {
+      const id = Number(res.rows[idx]?.id);
+      const spec = agentCreates[idx];
+      if (!id || !spec) continue;
+      entityEntries.push({
+        ref: `agent:${id}`,
+        kind: "person",
+        name: spec.name,
+        alive: true,
+        lod: "macro",
+        cellId: spec.locationCellId,
+        sourceTable: "sim_agents",
+        sourceId: String(id),
+        createdTick: spec.createdTick ?? 0,
+      });
+    }
+    if (entityEntries.length > 0) {
+      counts.entities = (counts.entities || 0) + (await upsertEntitiesBatch(db, entityEntries));
+    }
+  }
   if (agentUpdates.size > 0) {
     const ids = Array.from(agentUpdates.keys()).sort((a, b) => a - b);
     const fields = ids.map((id) => agentUpdates.get(id)!);
@@ -851,6 +1035,10 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   }
 
   // 8. sim_cell_tags
+  for (const [zLayer, entries] of cellTagRemovesByLayer.entries()) {
+    await removeCellTagsBatch(db, entries, zLayer);
+    counts.sim_cell_tags = (counts.sim_cell_tags || 0) + entries.length;
+  }
   for (const [zLayer, entries] of cellTagsByLayer.entries()) {
     await addCellTagsBatch(db, entries, zLayer);
     counts.sim_cell_tags = (counts.sim_cell_tags || 0) + entries.length;
@@ -859,7 +1047,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   // 9. sim_events (multi-row unnest insert)
   if (events.length > 0) {
     const res = await db.query(
-      `INSERT INTO sim_events (tick, type, message, tier, lore_date, burg_id, cell_id, faction_id, outlaw_id)
+      `INSERT INTO sim_events (tick, type, message, tier, lore_date, burg_id, cell_id, faction_id, outlaw_id, z_layer)
        SELECT
          unnest($1::int[]),
          unnest($2::text[]),
@@ -869,7 +1057,8 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
          unnest($6::int[]),
          unnest($7::int[]),
          unnest($8::int[]),
-         unnest($9::int[])`,
+         unnest($9::int[]),
+         unnest($10::int[])`,
       [
         events.map((e) => e.tick),
         events.map((e) => e.type),
@@ -880,6 +1069,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         events.map((e) => e.cellId ?? null),
         events.map((e) => e.factionId ?? null),
         events.map((e) => e.outlawId ?? null),
+        events.map((e) => e.zLayer ?? 0),
       ]
     );
     counts.sim_events = res.rowCount || events.length;
@@ -887,8 +1077,21 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
 
   // 10. sim_threads
   for (const t of threads) {
-    await createThread(db as any, t.spec);
-    counts.sim_threads = (counts.sim_threads || 0) + 1;
+    if (!t.bestEffort) {
+      await createThread(db as any, t.spec);
+      counts.sim_threads = (counts.sim_threads || 0) + 1;
+      continue;
+    }
+    let savepoint = true;
+    try { await db.query("SAVEPOINT bd_thread"); } catch { savepoint = false; }
+    try {
+      await createThread(db as any, t.spec);
+      if (savepoint) await db.query("RELEASE SAVEPOINT bd_thread");
+      counts.sim_threads = (counts.sim_threads || 0) + 1;
+    } catch (err: any) {
+      if (savepoint) await db.query("ROLLBACK TO SAVEPOINT bd_thread").catch(() => {});
+      console.warn(`[Background Director] Could not open thread: ${err?.message || err}`);
+    }
   }
 
   // 11. scheduled_events
@@ -1323,6 +1526,123 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
       ]
     );
     counts.sim_fringe_lairs = (counts.sim_fringe_lairs || 0) + (res.rowCount || lairUpserts.length);
+  }
+
+  // 23. culture & religion cell counts
+  if (cultureCellDeltas.size > 0) {
+    const cIds = Array.from(cultureCellDeltas.keys()).sort((a, b) => a - b);
+    const res = await db.query(
+      `UPDATE sim_cultures AS cu
+       SET cells = GREATEST(0, COALESCE(cu.cells, 0) + v.delta)
+       FROM (SELECT unnest($1::int[]) AS id, unnest($2::int[]) AS delta) AS v
+       WHERE cu.id = v.id
+         AND cu.cells IS DISTINCT FROM GREATEST(0, COALESCE(cu.cells, 0) + v.delta)`,
+      [cIds, cIds.map((id) => cultureCellDeltas.get(id)!)]
+    );
+    counts.sim_cultures = (counts.sim_cultures || 0) + (res.rowCount || 0);
+  }
+
+  if (religionCellDeltas.size > 0) {
+    const rIds = Array.from(religionCellDeltas.keys()).sort((a, b) => a - b);
+    const res = await db.query(
+      `UPDATE sim_religions AS r
+       SET cells = GREATEST(0, COALESCE(r.cells, 0) + v.delta)
+       FROM (SELECT unnest($1::int[]) AS id, unnest($2::int[]) AS delta) AS v
+       WHERE r.id = v.id
+         AND r.cells IS DISTINCT FROM GREATEST(0, COALESCE(r.cells, 0) + v.delta)`,
+      [rIds, rIds.map((id) => religionCellDeltas.get(id)!)]
+    );
+    counts.sim_religions = (counts.sim_religions || 0) + (res.rowCount || 0);
+  }
+
+  if (lairRationsByBurg.size > 0) {
+    const bIds = Array.from(lairRationsByBurg.keys()).sort((a, b) => a - b);
+    const res = await db.query(
+      `UPDATE sim_fringe_lairs AS l
+       SET inventory = jsonb_set(
+         COALESCE(l.inventory, '{}'::jsonb),
+         '{stolen_rations}',
+         (COALESCE(l.inventory->>'stolen_rations', '0')::int + v.rations)::text::jsonb
+       )
+       FROM (SELECT unnest($1::int[]) AS burg_id, unnest($2::int[]) AS rations) AS v
+       LEFT JOIN sim_burg_economy b ON b.burg_id = v.burg_id
+       WHERE l.burg_id = v.burg_id OR (b.cell_id IS NOT NULL AND l.cell_id = b.cell_id)`,
+      [bIds, bIds.map((id) => lairRationsByBurg.get(id)!)]
+    );
+    counts.sim_fringe_lairs = (counts.sim_fringe_lairs || 0) + (res.rowCount || 0);
+  }
+
+  // 24. sim_npc_instances
+  if (npcInstanceUpdates.size > 0) {
+    const ids = Array.from(npcInstanceUpdates.keys()).sort();
+    const list = ids.map((id) => npcInstanceUpdates.get(id)!);
+    const res = await db.query(
+      `UPDATE sim_npc_instances AS n
+       SET needs = CASE WHEN v.needs_set THEN v.needs_val ELSE n.needs END,
+           mood = CASE WHEN v.mood_set THEN v.mood_val ELSE n.mood END,
+           beliefs = CASE WHEN v.beliefs_set THEN v.beliefs_val ELSE n.beliefs END,
+           disposition = CASE WHEN v.disp_set THEN v.disp_val ELSE n.disposition END,
+           trade_price_mult = CASE WHEN v.mult_set THEN v.mult_val ELSE n.trade_price_mult END,
+           processed_for_economy = CASE WHEN v.proc_set THEN v.proc_val ELSE n.processed_for_economy END,
+           updated_at = CASE WHEN v.touch_updated THEN NOW() ELSE n.updated_at END
+       FROM (
+         SELECT
+           unnest($1::text[]) AS id,
+           unnest($2::boolean[]) AS needs_set, unnest($3::jsonb[]) AS needs_val,
+           unnest($4::boolean[]) AS mood_set, unnest($5::jsonb[]) AS mood_val,
+           unnest($6::boolean[]) AS beliefs_set, unnest($7::jsonb[]) AS beliefs_val,
+           unnest($8::boolean[]) AS disp_set, unnest($9::int[]) AS disp_val,
+           unnest($10::boolean[]) AS mult_set, unnest($11::float8[]) AS mult_val,
+           unnest($12::boolean[]) AS proc_set, unnest($13::boolean[]) AS proc_val,
+           unnest($14::boolean[]) AS touch_updated
+       ) AS v
+       WHERE n.id = v.id`,
+      [
+        ids,
+        list.map((r) => r.needs !== undefined), list.map((r) => r.needs ?? null),
+        list.map((r) => r.mood !== undefined), list.map((r) => r.mood ?? null),
+        list.map((r) => r.beliefs !== undefined), list.map((r) => r.beliefs ?? null),
+        list.map((r) => r.disposition !== undefined), list.map((r) => r.disposition ?? null),
+        list.map((r) => r.tradePriceMult !== undefined), list.map((r) => r.tradePriceMult ?? null),
+        list.map((r) => r.processedForEconomy !== undefined), list.map((r) => r.processedForEconomy ?? null),
+        list.map((r) => r.touchUpdated),
+      ]
+    );
+    counts.sim_npc_instances = (counts.sim_npc_instances || 0) + (res.rowCount || 0);
+  }
+
+  // 25. sim_sector_layers
+  if (sectorLayerUpdates.size > 0) {
+    const list = Array.from(sectorLayerUpdates.values()).sort(
+      (a, b) => a.cellId - b.cellId || a.rx - b.rx || a.ry - b.ry || a.zLayer - b.zLayer
+    );
+    const res = await db.query(
+      `UPDATE sim_sector_layers AS s
+       SET npcs = v.npcs,
+           props = v.props,
+           features = v.features
+       FROM (
+         SELECT
+           unnest($1::int[]) AS cell_id,
+           unnest($2::int[]) AS rx,
+           unnest($3::int[]) AS ry,
+           unnest($4::int[]) AS z_layer,
+           unnest($5::jsonb[]) AS npcs,
+           unnest($6::jsonb[]) AS props,
+           unnest($7::jsonb[]) AS features
+       ) AS v
+       WHERE s.cell_id = v.cell_id AND s.rx = v.rx AND s.ry = v.ry AND s.z_layer = v.z_layer`,
+      [
+        list.map((s) => s.cellId),
+        list.map((s) => Math.round(s.rx)),
+        list.map((s) => Math.round(s.ry)),
+        list.map((s) => Math.round(s.zLayer)),
+        list.map((s) => JSON.stringify(s.npcs)),
+        list.map((s) => JSON.stringify(s.props)),
+        list.map((s) => JSON.stringify(s.features)),
+      ]
+    );
+    counts.sim_sector_layers = (counts.sim_sector_layers || 0) + (res.rowCount || 0);
   }
 
   return counts;

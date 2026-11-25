@@ -25,9 +25,12 @@ import { runInterFactionTradeEngine } from "./economy/interFactionTradeEngine";
 import { runTrophicEcologyAgent } from "./agents/trophicEcologyAgent";
 import { loadEcology } from "./macro/ecology/load.js";
 import { stepEcology } from "./macro/ecology/step.js";
-import { runNPCRoutineAgent } from "./agents/npcRoutineAgent";
-import { runChaosFlowAgent } from "./agents/chaosFlowAgent";
-import { runCultureReligionAgent } from "./agents/cultureReligionAgent";
+import { loadNpcRoutines } from "./macro/npcRoutines/load.js";
+import { stepNpcRoutines } from "./macro/npcRoutines/step.js";
+import { loadChaosFlow } from "./macro/chaosFlow/load.js";
+import { stepChaosFlow } from "./macro/chaosFlow/step.js";
+import { loadCultureReligion } from "./macro/cultureReligion/load.js";
+import { stepCultureReligion } from "./macro/cultureReligion/step.js";
 import { runBackgroundDirectorAgent } from "./agents/backgroundDirector";
 import { backfillBlankPersonas } from "./agents/citizenPersonaHelper";
 import { initSpatialCache } from "./agents/agentMovementHelper";
@@ -41,7 +44,8 @@ import { migrate } from "../db/migrate.js";
 import { flushStepDeltas, type Delta, type DeltaEmitter } from "./deltas/index.js";
 import { markEntitiesDeadBatch } from "./entities/registry.js";
 import { runSeeded, seedSql, tickSeed } from "./rng.js";
-import { runAutonomousDramaAgent } from "./agents/autonomousDramaAgent.js";
+import { loadAutonomousDrama } from "./macro/autonomousDrama/load.js";
+import { stepAutonomousDrama } from "./macro/autonomousDrama/step.js";
 import { advanceThreadClocks } from "./threads/threadEngine.js";
 import { checkStoryEscalations } from "./story/storylines.js";
 import { getFocusedCellIds } from "./meso/region.js";
@@ -200,11 +204,15 @@ async function runTick(): Promise<TickResult> {
                     await runFocusedMesoDay(client, tick, cal.season, loreDate, emit);
                 });
             }
-            await step('chaosFlows', () => runChaosFlowAgent(client, tick, {
-                active_flow: cal.activeFlow.domain,
-                dragon_domain: cal.activeFlow.dragon,
-                moon_phase: cal.cruorbusPhase
-            }));
+            await step('chaosFlows', async (emit) => {
+                const snap = await loadChaosFlow(client, tick, {
+                    active_flow: cal.activeFlow.domain,
+                    dragon_domain: cal.activeFlow.dragon,
+                    moon_phase: cal.cruorbusPhase
+                });
+                const out = stepChaosFlow(snap, { random: Math.random });
+                for (const d of out.deltas) emit(d);
+            });
 
             // 3. Burgs: production, food, health, births and deaths
             await step('burgOperations', () => runBurgOperationsAgent(client, tick, loreDate));
@@ -217,7 +225,11 @@ async function runTick(): Promise<TickResult> {
             });
             await step('factionPlanning', () => runFactionPlanningAgent(client, tick, loreDate));
             await step('burgExpansion', () => runBurgExpansionAgent(client, tick, loreDate));
-            await step('cultureReligion', () => runCultureReligionAgent(client, tick, loreDate));
+            await step('cultureReligion', async (emit) => {
+                const snap = await loadCultureReligion(client, tick, loreDate);
+                const out = stepCultureReligion(snap);
+                for (const d of out.deltas) emit(d);
+            });
             await step('trade', () => runInterFactionTradeEngine(client, tick, loreDate));
             await step('market', async () => {
                 const snap = await loadMarket(client, tick);
@@ -247,9 +259,16 @@ async function runTick(): Promise<TickResult> {
                 const snap = await loadEncounter(client);
                 for (const d of stepEncounter(snap, { tick, random: Math.random })) emit(d);
             });
-            await step('npcRoutines', () => runNPCRoutineAgent(client, tick, loreDate));
+            await step('npcRoutines', async (emit) => {
+                const snap = await loadNpcRoutines(client, tick, loreDate);
+                for (const d of stepNpcRoutines(snap, { random: Math.random })) emit(d);
+            });
             await step('backgroundDirector', () => runBackgroundDirectorAgent(client, tick, loreDate));
-            await step('autonomousDrama', () => runAutonomousDramaAgent(client, tick, loreDate));
+            await step('autonomousDrama', async (emit) => {
+                const snap = await loadAutonomousDrama(client, tick, loreDate);
+                const out = stepAutonomousDrama(snap);
+                for (const d of out.deltas) emit(d);
+            });
             await step('threadClocks', async () => {
                 await advanceThreadClocks(client, tick, loreDate);
                 await checkStoryEscalations(client, tick);
