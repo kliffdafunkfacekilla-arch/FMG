@@ -32,6 +32,10 @@ const KNOWN_KINDS = new Set<string>([
   "diplomacy.endWars",
   "market.setGoods",
   "commodity.set",
+  "grindCanyon.update",
+  "grindCanyon.create",
+  "outlawFaction.adjust",
+  "fringeLair.mutate",
 ]);
 
 function clamp(v: number, min: number, max: number): number {
@@ -63,6 +67,8 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   const standingEntityRefs = new Set<string>();
   const marketIds = new Set<number>();
   const commodityNames = new Set<string>();
+  const canyonIds = new Set<number>();
+  const outlawIds = new Set<number>();
 
   const structuralErrors = new Map<number, string>();
 
@@ -396,6 +402,68 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
         }
         break;
       }
+      case "grindCanyon.update": {
+        const err = finiteOrReject([
+          ["canyonId", d.canyonId],
+          ["richnessDelta", d.richnessDelta],
+          ["stabilityTicksRemaining", d.stabilityTicksRemaining],
+          ["closedTick", d.closedTick],
+        ]);
+        const validStatus = d.status === undefined || d.status === "OPEN" || d.status === "COLLAPSING" || d.status === "SEALED";
+        if (err || !validStatus) structuralErrors.set(i, err || "Invalid status in grindCanyon.update");
+        else canyonIds.add(d.canyonId);
+        break;
+      }
+      case "grindCanyon.create": {
+        const err = finiteOrReject([
+          ["cellId", d.cellId],
+          ["sectorX", d.sectorX],
+          ["sectorY", d.sectorY],
+          ["depthMeters", d.depthMeters],
+          ["dragonstoneRichness", d.dragonstoneRichness],
+          ["artifactsRemaining", d.artifactsRemaining],
+          ["stabilityTicksRemaining", d.stabilityTicksRemaining],
+          ["totalDurationTicks", d.totalDurationTicks],
+          ["activeMiners", d.activeMiners],
+          ["openedTick", d.openedTick],
+        ]);
+        const validStatus = d.status === "OPEN" || d.status === "COLLAPSING" || d.status === "SEALED";
+        if (err || !validStatus || !d.name || !d.dragonName || !d.dragonDomain || !d.minerCrewName) {
+          structuralErrors.set(i, err || "Invalid grindCanyon.create payload");
+        } else {
+          cellIds.add(d.cellId);
+        }
+        break;
+      }
+      case "outlawFaction.adjust": {
+        const err = finiteOrReject([
+          ["outlawId", d.outlawId],
+          ["wealthDelta", d.wealthDelta],
+          ["manpowerDelta", d.manpowerDelta],
+          ["heatDelta", d.heatDelta],
+        ]);
+        if (err) structuralErrors.set(i, err);
+        else outlawIds.add(d.outlawId);
+        break;
+      }
+      case "fringeLair.mutate": {
+        const err = finiteOrReject([
+          ["factionId", d.factionId],
+          ["cellId", d.cellId],
+          ["burgId", d.burgId ?? undefined],
+          ["manpower", d.manpower],
+          ["heat", d.heat],
+        ]);
+        const validAction = d.action === "upsert" || d.action === "deleteByFactionCell";
+        if (err || !validAction || (d.action === "upsert" && !d.lairType)) {
+          structuralErrors.set(i, err || "Invalid fringeLair.mutate payload");
+        } else {
+          outlawIds.add(d.factionId);
+          cellIds.add(d.cellId);
+          if (typeof d.burgId === "number" && d.burgId > 0) burgIds.add(d.burgId);
+        }
+        break;
+      }
     }
   }
 
@@ -445,6 +513,18 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
   if (commodityNames.size > 0) {
     const res = await db.query(`SELECT commodity FROM sim_commodity_prices WHERE commodity = ANY($1::text[])`, [Array.from(commodityNames)]);
     for (const r of res.rows) validCommodities.add(String(r.commodity));
+  }
+
+  const validCanyons = new Set<number>();
+  if (canyonIds.size > 0) {
+    const res = await db.query(`SELECT id FROM sim_grind_canyons WHERE id = ANY($1::int[])`, [Array.from(canyonIds)]);
+    for (const r of res.rows) validCanyons.add(Number(r.id));
+  }
+
+  const validOutlaws = new Set<number>();
+  if (outlawIds.size > 0) {
+    const res = await db.query(`SELECT id FROM sim_outlaw_factions WHERE id = ANY($1::int[])`, [Array.from(outlawIds)]);
+    for (const r of res.rows) validOutlaws.add(Number(r.id));
   }
 
   const validStandingEntities = new Set<string>();
@@ -689,6 +769,46 @@ export async function validateDeltas(deltas: Delta[], db: Db): Promise<ValidateR
           globalDemand: clamp(Math.round(d.globalDemand), 0, 2147483647),
           lastUpdatedTick: Math.round(d.lastUpdatedTick),
         });
+        break;
+
+      case "grindCanyon.update":
+        if (!validCanyons.has(d.canyonId)) {
+          rejected.push({ delta: d, reason: `Unknown canyonId ${d.canyonId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "grindCanyon.create":
+        if (!validCells.has(d.cellId)) {
+          rejected.push({ delta: d, reason: `Unknown grindCanyon cellId ${d.cellId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "outlawFaction.adjust":
+        if (!validOutlaws.has(d.outlawId)) {
+          rejected.push({ delta: d, reason: `Unknown outlawId ${d.outlawId}` });
+          break;
+        }
+        ok.push(d);
+        break;
+
+      case "fringeLair.mutate":
+        if (!validOutlaws.has(d.factionId)) {
+          rejected.push({ delta: d, reason: `Unknown fringeLair factionId ${d.factionId}` });
+          break;
+        }
+        if (!validCells.has(d.cellId)) {
+          rejected.push({ delta: d, reason: `Unknown fringeLair cellId ${d.cellId}` });
+          break;
+        }
+        if (typeof d.burgId === "number" && d.burgId > 0 && !validBurgs.has(d.burgId)) {
+          rejected.push({ delta: d, reason: `Unknown fringeLair burgId ${d.burgId}` });
+          break;
+        }
+        ok.push(d);
         break;
 
       default:

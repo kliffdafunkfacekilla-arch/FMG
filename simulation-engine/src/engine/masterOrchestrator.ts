@@ -17,7 +17,8 @@ import { loadEncounter } from "./macro/encounter/load.js";
 import { stepEncounter } from "./macro/encounter/step.js";
 import { runChroniclerAgent } from "./agents/chroniclerAgent";
 import { runCartelAgent } from "./agents/cartelAgent";
-import { runGrindCanyonAgent } from "./agents/grindCanyonAgent";
+import { loadGrindCanyon } from "./macro/grindCanyon/load.js";
+import { stepGrindCanyon } from "./macro/grindCanyon/step.js";
 import { runBurgExpansionAgent } from "./agents/burgExpansionAgent";
 import { runInterFactionTradeEngine } from "./economy/interFactionTradeEngine";
 import { runTrophicEcologyAgent } from "./agents/trophicEcologyAgent";
@@ -234,7 +235,11 @@ async function runTick(): Promise<TickResult> {
                 await runCartelAgent(client, tick, loreDate);
                 await client.query('UPDATE sim_events SET outlaw_id = faction_id, faction_id = NULL WHERE id > $1 AND faction_id IS NOT NULL', [before]);
             });
-            await step('grindCanyon', () => runGrindCanyonAgent(client, tick, loreDate));
+            await step('grindCanyon', async () => {
+                const snap = await loadGrindCanyon(client, tick, loreDate);
+                const deltas = stepGrindCanyon(snap);
+                if (deltas.length > 0) await flushStepDeltas(client, 'grindCanyon', tick, deltas);
+            });
 
             // 9. Encounters, NPC routines, the background story director & autonomous clashes
             await step('encounters', async (emit) => {

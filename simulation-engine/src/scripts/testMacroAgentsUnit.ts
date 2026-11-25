@@ -294,6 +294,85 @@ function testMarketUnit() {
   console.log("6. stepMarket (no DB) skip on non-weekly tick, regional goods, aliasSupply & step math... PASSED");
 }
 
+import { stepGrindCanyon } from "../engine/macro/grindCanyon/step.js";
+
+function testGrindCanyonUnit() {
+  // Deterministic random stream: 0.0 -> floor(0*8)=0 -> 12 extracted stone on OPEN; 0.9 -> >=0.25 no spawn
+  const seq = [0.0, 0.9];
+  let idx = 0;
+  const rng = () => seq[idx++] ?? 0.9;
+
+  const deltas = stepGrindCanyon(
+    {
+      tick: 20,
+      loreDate: "Day 20 of Frost",
+      hasCorpoOutlaw: true,
+      activeCanyons: [
+        {
+          id: 1,
+          name: "The Jagged Chasm of Ignis (Flux)",
+          cellId: 500,
+          dragonName: "Ignis",
+          dragonDomain: "Flux",
+          dragonstoneRichness: 80,
+          stabilityTicksRemaining: 2,
+          status: "OPEN",
+          minerCrewName: "Crew #1",
+          localBurgId: 10,
+        },
+        {
+          id: 2,
+          name: "Old Chasm",
+          cellId: 501,
+          dragonName: "Vespera",
+          dragonDomain: "Omen",
+          dragonstoneRichness: 10,
+          stabilityTicksRemaining: 1,
+          status: "COLLAPSING",
+          minerCrewName: "Crew #2",
+          localBurgId: null,
+        },
+      ],
+      wildCells: [{ id: 900, x: 50, y: 50 }],
+      burgs: [{ burgId: 10, name: "Excelsis", cellId: 500, x: 10, y: 10 }],
+    },
+    rng
+  );
+
+  type D = (typeof deltas)[number];
+  const upd = deltas.filter((d): d is Extract<D, { kind: "grindCanyon.update" }> => d.kind === "grindCanyon.update");
+  assert.equal(upd.length, 2);
+  assert.equal(upd[0]?.status, "COLLAPSING");
+  assert.equal(upd[0]?.richnessDelta, -12);
+  assert.equal(upd[1]?.status, "SEALED");
+  assert.equal(upd[1]?.closedTick, 20);
+
+  const lairDel = deltas.find((d): d is Extract<D, { kind: "fringeLair.mutate" }> => d.kind === "fringeLair.mutate");
+  assert.ok(lairDel && lairDel.action === "deleteByFactionCell" && lairDel.cellId === 501);
+
+  const outlaw = deltas.find((d): d is Extract<D, { kind: "outlawFaction.adjust" }> => d.kind === "outlawFaction.adjust");
+  // 12 * 25 = 300g -> overhead 150 -> net 150
+  assert.equal(outlaw?.wealthDelta, 150);
+
+  // Spawn branch when < 3 active and roll < 0.25
+  const spawnDeltas = stepGrindCanyon(
+    {
+      tick: 21,
+      loreDate: "Day 21 of Frost",
+      hasCorpoOutlaw: true,
+      activeCanyons: [],
+      wildCells: [{ id: 900, x: 45, y: 45 }],
+      burgs: [{ burgId: 10, name: "Excelsis", cellId: 500, x: 40, y: 40 }],
+    },
+    () => 0.1
+  );
+  const created = spawnDeltas.find((d): d is Extract<D, { kind: "grindCanyon.create" }> => d.kind === "grindCanyon.create");
+  assert.ok(created && created.cellId === 900 && created.status === "OPEN");
+  const lairAdd = spawnDeltas.find((d): d is Extract<D, { kind: "fringeLair.mutate" }> => d.kind === "fringeLair.mutate");
+  assert.ok(lairAdd && lairAdd.action === "upsert" && lairAdd.burgId === 10);
+  console.log("7. stepGrindCanyon (no DB) extraction, collapse, seal & highland spawn... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
@@ -302,6 +381,7 @@ function main() {
   testCalendarUnit();
   testFactionCollapseUnit();
   testMarketUnit();
+  testGrindCanyonUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 

@@ -35,7 +35,7 @@ const QUERY_CEILINGS: Record<string, number> = {
   calendar: 15,
   scheduledEvents: 20,
   mandate: 15,
-  grindCanyon: 15,
+  grindCanyon: 8,
   encounters: 15,
   chronicler: 15,
   reaper: 20,
