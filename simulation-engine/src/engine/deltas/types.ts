@@ -268,12 +268,72 @@ export type Delta =
       source: string;
     }
   | {
+      kind: "diplomacy.endWars";
+      factionId: number;
+    }
+  | {
       kind: "standing.adjust";
       subjectRef: string;
       partyRef: string;
       delta: number;
       reason: string;
       tick?: number | undefined;
+    }
+  | {
+      kind: "market.setGoods";
+      marketId: number;
+      goods: Record<string, { price: number; stock: number; refStock: number }>;
+    }
+  | {
+      kind: "commodity.set";
+      commodity: string;
+      currentPrice: number;
+      globalSupply: number;
+      globalDemand: number;
+      lastUpdatedTick: number;
+    }
+  | {
+      kind: "grindCanyon.update";
+      canyonId: number;
+      richnessDelta?: number;
+      stabilityTicksRemaining?: number;
+      status?: "OPEN" | "COLLAPSING" | "SEALED";
+      closedTick?: number;
+    }
+  | {
+      kind: "grindCanyon.create";
+      name: string;
+      cellId: number;
+      sectorX: number;
+      sectorY: number;
+      dragonName: string;
+      dragonDomain: string;
+      depthMeters: number;
+      dragonstoneRichness: number;
+      artifactsRemaining: number;
+      stabilityTicksRemaining: number;
+      totalDurationTicks: number;
+      status: "OPEN" | "COLLAPSING" | "SEALED";
+      minerCrewName: string;
+      activeMiners: number;
+      openedTick: number;
+    }
+  | {
+      kind: "outlawFaction.adjust";
+      outlawId: number;
+      wealthDelta?: number;
+      manpowerDelta?: number;
+      heatDelta?: number;
+    }
+  | {
+      kind: "fringeLair.mutate";
+      action: "upsert" | "deleteByFactionCell";
+      factionId: number;
+      cellId: number;
+      burgId?: number | null;
+      lairType?: string;
+      manpower?: number;
+      heat?: number;
     };
 
 export type DeltaEmitter = (delta: Delta) => void;

@@ -100,6 +100,18 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   if (deltas.length === 0) return counts;
 
   const burgs = new Map<number, BurgMerged>();
+  const marketGoods = new Map<number, string>();
+  const commoditySets = new Map<string, { currentPrice: number; globalSupply: number; globalDemand: number; lastUpdatedTick: number }>();
+  const canyonUpdates = new Map<number, {
+    richnessDelta: number;
+    stabilityTicksRemaining?: number;
+    status?: "OPEN" | "COLLAPSING" | "SEALED";
+    closedTick?: number;
+  }>();
+  const canyonCreates: Array<Extract<Delta, { kind: "grindCanyon.create" }>> = [];
+  const outlawAdjusts = new Map<number, { wealthDelta: number; manpowerDelta: number; heatDelta: number }>();
+  const lairDeletes: Array<{ factionId: number; cellId: number }> = [];
+  const lairUpserts: Array<{ factionId: number; cellId: number; burgId: number | null; lairType: string; manpower: number; heat: number }> = [];
   const cells = new Map<number, CellMerged>();
   const cellFactions = new Map<number, number | null>();
   const citizenStatuses = new Map<number, { status: string; cause: string | null; motivation: string | null }>();
@@ -125,6 +137,7 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
   const infraAdjusts: Array<Extract<Delta, { kind: "infrastructure.adjust" }>> = [];
   const overlayAdds: Array<Extract<Delta, { kind: "overlay.add" }>> = [];
   const standingAdjusts: Array<Extract<Delta, { kind: "standing.adjust" }>> = [];
+  const endWarFactions = new Set<number>();
   let lastCalendar: Extract<Delta, { kind: "calendar.set" }> | null = null;
 
   for (const d of deltas) {
@@ -297,6 +310,60 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
         break;
       case "standing.adjust":
         standingAdjusts.push(d);
+        break;
+      case "diplomacy.endWars":
+        endWarFactions.add(d.factionId);
+        break;
+      case "market.setGoods":
+        marketGoods.set(d.marketId, JSON.stringify(d.goods));
+        break;
+      case "commodity.set":
+        commoditySets.set(d.commodity, {
+          currentPrice: d.currentPrice,
+          globalSupply: Math.round(d.globalSupply),
+          globalDemand: Math.round(d.globalDemand),
+          lastUpdatedTick: Math.round(d.lastUpdatedTick),
+        });
+        break;
+      case "grindCanyon.update": {
+        let cur = canyonUpdates.get(d.canyonId);
+        if (!cur) {
+          cur = { richnessDelta: 0 };
+          canyonUpdates.set(d.canyonId, cur);
+        }
+        if (d.richnessDelta !== undefined) cur.richnessDelta += Math.round(d.richnessDelta);
+        if (d.stabilityTicksRemaining !== undefined) cur.stabilityTicksRemaining = Math.round(d.stabilityTicksRemaining);
+        if (d.status !== undefined) cur.status = d.status;
+        if (d.closedTick !== undefined) cur.closedTick = Math.round(d.closedTick);
+        break;
+      }
+      case "grindCanyon.create":
+        canyonCreates.push(d);
+        break;
+      case "outlawFaction.adjust": {
+        let cur = outlawAdjusts.get(d.outlawId);
+        if (!cur) {
+          cur = { wealthDelta: 0, manpowerDelta: 0, heatDelta: 0 };
+          outlawAdjusts.set(d.outlawId, cur);
+        }
+        if (d.wealthDelta !== undefined) cur.wealthDelta += Math.round(d.wealthDelta);
+        if (d.manpowerDelta !== undefined) cur.manpowerDelta += Math.round(d.manpowerDelta);
+        if (d.heatDelta !== undefined) cur.heatDelta += Math.round(d.heatDelta);
+        break;
+      }
+      case "fringeLair.mutate":
+        if (d.action === "deleteByFactionCell") {
+          lairDeletes.push({ factionId: d.factionId, cellId: d.cellId });
+        } else {
+          lairUpserts.push({
+            factionId: d.factionId,
+            cellId: d.cellId,
+            burgId: d.burgId ?? null,
+            lairType: d.lairType || "HIDEOUT",
+            manpower: Math.round(d.manpower ?? 10),
+            heat: Math.round(d.heat ?? 10),
+          });
+        }
         break;
     }
   }
@@ -582,6 +649,16 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
       ]
     );
     counts.sim_cells = (counts.sim_cells || 0) + (res.rowCount || 0);
+  }
+
+  if (endWarFactions.size > 0) {
+    const fids = Array.from(endWarFactions).sort((a, b) => a - b);
+    const res = await db.query(
+      `UPDATE sim_diplomacy SET status = 'PEACE', tension = 0
+       WHERE (faction_a_id = ANY($1::int[]) OR faction_b_id = ANY($1::int[])) AND status = 'WAR'`,
+      [fids]
+    );
+    counts.sim_diplomacy = (counts.sim_diplomacy || 0) + (res.rowCount || 0);
   }
 
   if (cellFactions.size > 0) {
@@ -1089,6 +1166,163 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
       );
       counts.standing = (counts.standing || 0) + (res.rowCount || 1);
     }
+  }
+
+  // 19. regional markets
+  if (marketGoods.size > 0) {
+    const ids = Array.from(marketGoods.keys()).sort((a, b) => a - b);
+    const goodsJson = ids.map((id) => marketGoods.get(id)!);
+    const res = await db.query(
+      `UPDATE sim_markets AS m
+       SET goods = v.goods
+       FROM (
+         SELECT unnest($1::int[]) AS id, unnest($2::jsonb[]) AS goods
+       ) AS v
+       WHERE m.id = v.id`,
+      [ids, goodsJson]
+    );
+    counts.sim_markets = (counts.sim_markets || 0) + (res.rowCount || ids.length);
+  }
+
+  // 20. global commodity prices
+  if (commoditySets.size > 0) {
+    const names = Array.from(commoditySets.keys()).sort();
+    const res = await db.query(
+      `UPDATE sim_commodity_prices AS c
+       SET current_price = v.current_price,
+           global_supply = v.global_supply,
+           global_demand = v.global_demand,
+           last_updated_tick = v.last_updated_tick
+       FROM (
+         SELECT unnest($1::text[]) AS commodity,
+                unnest($2::float8[]) AS current_price,
+                unnest($3::int[]) AS global_supply,
+                unnest($4::int[]) AS global_demand,
+                unnest($5::int[]) AS last_updated_tick
+       ) AS v
+       WHERE c.commodity = v.commodity`,
+      [
+        names,
+        names.map((n) => commoditySets.get(n)!.currentPrice),
+        names.map((n) => commoditySets.get(n)!.globalSupply),
+        names.map((n) => commoditySets.get(n)!.globalDemand),
+        names.map((n) => commoditySets.get(n)!.lastUpdatedTick),
+      ]
+    );
+    counts.sim_commodity_prices = (counts.sim_commodity_prices || 0) + (res.rowCount || names.length);
+  }
+
+  // 21. grind canyons updates & creations
+  if (canyonUpdates.size > 0) {
+    const ids = Array.from(canyonUpdates.keys()).sort((a, b) => a - b);
+    const res = await db.query(
+      `UPDATE sim_grind_canyons AS g
+       SET dragonstone_richness = GREATEST(0, g.dragonstone_richness + v.richness_delta),
+           stability_ticks_remaining = COALESCE(v.stability, g.stability_ticks_remaining),
+           status = COALESCE(v.status, g.status),
+           closed_tick = COALESCE(v.closed_tick, g.closed_tick)
+       FROM (
+         SELECT unnest($1::int[]) AS id,
+                unnest($2::int[]) AS richness_delta,
+                unnest($3::int[]) AS stability,
+                unnest($4::text[]) AS status,
+                unnest($5::int[]) AS closed_tick
+       ) AS v
+       WHERE g.id = v.id`,
+      [
+        ids,
+        ids.map((id) => canyonUpdates.get(id)!.richnessDelta),
+        ids.map((id) => canyonUpdates.get(id)!.stabilityTicksRemaining ?? null),
+        ids.map((id) => canyonUpdates.get(id)!.status ?? null),
+        ids.map((id) => canyonUpdates.get(id)!.closedTick ?? null),
+      ]
+    );
+    counts.sim_grind_canyons = (counts.sim_grind_canyons || 0) + (res.rowCount || ids.length);
+  }
+
+  if (canyonCreates.length > 0) {
+    const res = await db.query(
+      `INSERT INTO sim_grind_canyons (
+         name, cell_id, sector_x, sector_y, dragon_name, dragon_domain,
+         depth_meters, dragonstone_richness, artifacts_remaining,
+         stability_ticks_remaining, total_duration_ticks, status,
+         miner_crew_name, active_miners, opened_tick
+       )
+       SELECT unnest($1::text[]), unnest($2::int[]), unnest($3::int[]), unnest($4::int[]),
+              unnest($5::text[]), unnest($6::text[]), unnest($7::int[]), unnest($8::int[]),
+              unnest($9::int[]), unnest($10::int[]), unnest($11::int[]), unnest($12::text[]),
+              unnest($13::text[]), unnest($14::int[]), unnest($15::int[])`,
+      [
+        canyonCreates.map((c) => c.name),
+        canyonCreates.map((c) => c.cellId),
+        canyonCreates.map((c) => Math.round(c.sectorX)),
+        canyonCreates.map((c) => Math.round(c.sectorY)),
+        canyonCreates.map((c) => c.dragonName),
+        canyonCreates.map((c) => c.dragonDomain),
+        canyonCreates.map((c) => Math.round(c.depthMeters)),
+        canyonCreates.map((c) => Math.round(c.dragonstoneRichness)),
+        canyonCreates.map((c) => Math.round(c.artifactsRemaining)),
+        canyonCreates.map((c) => Math.round(c.stabilityTicksRemaining)),
+        canyonCreates.map((c) => Math.round(c.totalDurationTicks)),
+        canyonCreates.map((c) => c.status),
+        canyonCreates.map((c) => c.minerCrewName),
+        canyonCreates.map((c) => Math.round(c.activeMiners)),
+        canyonCreates.map((c) => Math.round(c.openedTick)),
+      ]
+    );
+    counts.sim_grind_canyons = (counts.sim_grind_canyons || 0) + (res.rowCount || canyonCreates.length);
+  }
+
+  // 22. outlaw factions & fringe lairs
+  if (outlawAdjusts.size > 0) {
+    const ids = Array.from(outlawAdjusts.keys()).sort((a, b) => a - b);
+    const res = await db.query(
+      `UPDATE sim_outlaw_factions AS o
+       SET wealth = GREATEST(0, COALESCE(o.wealth, 0) + v.wealth_delta),
+           manpower = GREATEST(0, COALESCE(o.manpower, 0) + v.manpower_delta),
+           heat = LEAST(100, GREATEST(0, COALESCE(o.heat, 0) + v.heat_delta))
+       FROM (
+         SELECT unnest($1::int[]) AS id,
+                unnest($2::int[]) AS wealth_delta,
+                unnest($3::int[]) AS manpower_delta,
+                unnest($4::int[]) AS heat_delta
+       ) AS v
+       WHERE o.id = v.id`,
+      [
+        ids,
+        ids.map((id) => outlawAdjusts.get(id)!.wealthDelta),
+        ids.map((id) => outlawAdjusts.get(id)!.manpowerDelta),
+        ids.map((id) => outlawAdjusts.get(id)!.heatDelta),
+      ]
+    );
+    counts.sim_outlaw_factions = (counts.sim_outlaw_factions || 0) + (res.rowCount || ids.length);
+  }
+
+  if (lairDeletes.length > 0) {
+    const res = await db.query(
+      `DELETE FROM sim_fringe_lairs AS l
+       USING (SELECT unnest($1::int[]) AS faction_id, unnest($2::int[]) AS cell_id) AS v
+       WHERE l.faction_id = v.faction_id AND l.cell_id = v.cell_id`,
+      [lairDeletes.map((d) => d.factionId), lairDeletes.map((d) => d.cellId)]
+    );
+    counts.sim_fringe_lairs = (counts.sim_fringe_lairs || 0) + (res.rowCount || 0);
+  }
+
+  if (lairUpserts.length > 0) {
+    const res = await db.query(
+      `INSERT INTO sim_fringe_lairs (faction_id, cell_id, burg_id, lair_type, manpower, heat)
+       SELECT unnest($1::int[]), unnest($2::int[]), unnest($3::int[]),
+              unnest($4::text[]), unnest($5::int[]), unnest($6::int[])`,
+      [
+        lairUpserts.map((u) => u.factionId),
+        lairUpserts.map((u) => u.cellId),
+        lairUpserts.map((u) => u.burgId),
+        lairUpserts.map((u) => u.lairType),
+        lairUpserts.map((u) => u.manpower),
+        lairUpserts.map((u) => u.heat),
+      ]
+    );
+    counts.sim_fringe_lairs = (counts.sim_fringe_lairs || 0) + (res.rowCount || lairUpserts.length);
   }
 
   return counts;

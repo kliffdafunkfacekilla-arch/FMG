@@ -211,12 +211,177 @@ function testCalendarUnit() {
   console.log("4. stepCalendar (no DB) Day 1, Day 48 hemorrhage & Shadowfall... PASSED");
 }
 
+import { stepFactionCollapse } from "../engine/macro/factionCollapse/step.js";
+import { stepMarket } from "../engine/macro/market/step.js";
+
+function testFactionCollapseUnit() {
+  const deltas = stepFactionCollapse({
+    tick: 12,
+    loreDate: "Day 12 of Frost",
+    candidates: [
+      { id: 10, name: "Kragmere", treasury: 0, cellIds: [101, 102], wars: 2 },
+      { id: 11, name: "Ashen Pact", treasury: 500, cellIds: [], wars: 1 },
+      { id: 12, name: "Iron Horde", treasury: 250, cellIds: [201], wars: 1 },
+      { id: 13, name: "Quiet Remnant", treasury: 100, cellIds: [], wars: 0 },
+    ],
+  });
+
+  type D = (typeof deltas)[number];
+  const endWars = deltas.filter((d): d is Extract<D, { kind: "diplomacy.endWars" }> => d.kind === "diplomacy.endWars");
+  assert.deepEqual(endWars.map((d) => d.factionId), [10, 11]);
+
+  const wildCells = deltas.filter((d): d is Extract<D, { kind: "cell.setFaction" }> => d.kind === "cell.setFaction");
+  assert.deepEqual(
+    wildCells.map((d) => [d.cellId, d.factionId]),
+    [[101, null], [102, null]]
+  );
+
+  const events = deltas.filter((d): d is Extract<D, { kind: "event.log" }> => d.kind === "event.log");
+  assert.deepEqual(
+    events.map((d) => [d.type, d.factionId]),
+    [["FACTION_COLLAPSED", 10], ["FACTION_WARS_ENDED", 11]]
+  );
+  console.log("5. stepFactionCollapse (no DB) bankrupt collapse, landless peace & funded nomad skip... PASSED");
+}
+
+function testMarketUnit() {
+  const skipped = stepMarket({ tick: 2, due: false, goods: [], burgs: [], markets: [], prices: [] });
+  assert.equal(skipped.deltas.length, 0, "Non-weekly due:false tick must emit zero market deltas");
+
+  const res = stepMarket({
+    tick: 7,
+    due: true,
+    goods: [
+      { id: 1, key: "grain", value: 10 },
+      { id: 2, key: "wine", value: 20 },
+    ],
+    burgs: [
+      { burgId: 10, marketId: 1, food: 2500, complexInventory: { wine: 4, spices: 5 } },
+      { burgId: 11, marketId: 0, food: 500, complexInventory: { spices: 2 } },
+    ],
+    markets: [
+      { id: 1, centerBurgId: 10, goods: { "1": { price: 10, stock: 20, refStock: 25 } } },
+    ],
+    prices: [
+      { commodity: "grain", basePrice: 10, currentPrice: 10, globalDemand: 30 },
+      { commodity: "aromatics", basePrice: 25, currentPrice: 20, globalDemand: 0 },
+    ],
+  });
+
+  assert.equal(res.marketsUpdated, 1);
+  assert.equal(res.commoditiesUpdated, 2);
+  type D = (typeof res.deltas)[number];
+  const mkt = res.deltas.find((d): d is Extract<D, { kind: "market.setGoods" }> => d.kind === "market.setGoods");
+  assert.ok(mkt);
+  assert.equal(mkt.marketId, 1);
+  // Market 1 grain = 25 (from burg 10; burg 11 has marketId 0 so skipped locally), wine = 4
+  assert.equal(mkt.goods["1"]?.stock, 25);
+  assert.equal(mkt.goods["1"]?.refStock, 25);
+  assert.equal(mkt.goods["1"]?.price, 10);
+  assert.equal(mkt.goods["2"]?.stock, 4);
+
+  const comms = res.deltas.filter((d): d is Extract<D, { kind: "commodity.set" }> => d.kind === "commodity.set");
+  const grain = comms.find((c) => c.commodity === "grain");
+  const aromatics = comms.find((c) => c.commodity === "aromatics");
+  assert.ok(grain && aromatics);
+  // World grain = 25 + 5 = 30 == globalDemand -> price stays 10
+  assert.equal(grain.globalSupply, 30);
+  assert.equal(grain.currentPrice, 10);
+  // Aromatics aliases spices (5 + 2 = 7), globalDemand seeded from supply = 7 -> target 25, next = 20 + 5*0.25 = 21.25
+  assert.equal(aromatics.globalSupply, 7);
+  assert.equal(aromatics.globalDemand, 7);
+  assert.equal(aromatics.currentPrice, 21.25);
+  console.log("6. stepMarket (no DB) skip on non-weekly tick, regional goods, aliasSupply & step math... PASSED");
+}
+
+import { stepGrindCanyon } from "../engine/macro/grindCanyon/step.js";
+
+function testGrindCanyonUnit() {
+  // Deterministic random stream: 0.0 -> floor(0*8)=0 -> 12 extracted stone on OPEN; 0.9 -> >=0.25 no spawn
+  const seq = [0.0, 0.9];
+  let idx = 0;
+  const rng = () => seq[idx++] ?? 0.9;
+
+  const deltas = stepGrindCanyon(
+    {
+      tick: 20,
+      loreDate: "Day 20 of Frost",
+      hasCorpoOutlaw: true,
+      activeCanyons: [
+        {
+          id: 1,
+          name: "The Jagged Chasm of Ignis (Flux)",
+          cellId: 500,
+          dragonName: "Ignis",
+          dragonDomain: "Flux",
+          dragonstoneRichness: 80,
+          stabilityTicksRemaining: 2,
+          status: "OPEN",
+          minerCrewName: "Crew #1",
+          localBurgId: 10,
+        },
+        {
+          id: 2,
+          name: "Old Chasm",
+          cellId: 501,
+          dragonName: "Vespera",
+          dragonDomain: "Omen",
+          dragonstoneRichness: 10,
+          stabilityTicksRemaining: 1,
+          status: "COLLAPSING",
+          minerCrewName: "Crew #2",
+          localBurgId: null,
+        },
+      ],
+      wildCells: [{ id: 900, x: 50, y: 50 }],
+      burgs: [{ burgId: 10, name: "Excelsis", cellId: 500, x: 10, y: 10 }],
+    },
+    rng
+  );
+
+  type D = (typeof deltas)[number];
+  const upd = deltas.filter((d): d is Extract<D, { kind: "grindCanyon.update" }> => d.kind === "grindCanyon.update");
+  assert.equal(upd.length, 2);
+  assert.equal(upd[0]?.status, "COLLAPSING");
+  assert.equal(upd[0]?.richnessDelta, -12);
+  assert.equal(upd[1]?.status, "SEALED");
+  assert.equal(upd[1]?.closedTick, 20);
+
+  const lairDel = deltas.find((d): d is Extract<D, { kind: "fringeLair.mutate" }> => d.kind === "fringeLair.mutate");
+  assert.ok(lairDel && lairDel.action === "deleteByFactionCell" && lairDel.cellId === 501);
+
+  const outlaw = deltas.find((d): d is Extract<D, { kind: "outlawFaction.adjust" }> => d.kind === "outlawFaction.adjust");
+  // 12 * 25 = 300g -> overhead 150 -> net 150
+  assert.equal(outlaw?.wealthDelta, 150);
+
+  // Spawn branch when < 3 active and roll < 0.25
+  const spawnDeltas = stepGrindCanyon(
+    {
+      tick: 21,
+      loreDate: "Day 21 of Frost",
+      hasCorpoOutlaw: true,
+      activeCanyons: [],
+      wildCells: [{ id: 900, x: 45, y: 45 }],
+      burgs: [{ burgId: 10, name: "Excelsis", cellId: 500, x: 40, y: 40 }],
+    },
+    () => 0.1
+  );
+  const created = spawnDeltas.find((d): d is Extract<D, { kind: "grindCanyon.create" }> => d.kind === "grindCanyon.create");
+  assert.ok(created && created.cellId === 900 && created.status === "OPEN");
+  const lairAdd = spawnDeltas.find((d): d is Extract<D, { kind: "fringeLair.mutate" }> => d.kind === "fringeLair.mutate");
+  assert.ok(lairAdd && lairAdd.action === "upsert" && lairAdd.burgId === 10);
+  console.log("7. stepGrindCanyon (no DB) extraction, collapse, seal & highland spawn... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
   testWeatherUnit();
   testEcologyUnit();
   testCalendarUnit();
+  testFactionCollapseUnit();
+  testMarketUnit();
+  testGrindCanyonUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 

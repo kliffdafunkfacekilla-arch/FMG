@@ -35,15 +35,15 @@ const QUERY_CEILINGS: Record<string, number> = {
   calendar: 15,
   scheduledEvents: 20,
   mandate: 15,
-  grindCanyon: 15,
+  grindCanyon: 8,
   encounters: 15,
   chronicler: 15,
   reaper: 20,
-  factionCollapse: 15,
+  factionCollapse: 8,
   ecology: 20,
   burgExpansion: 20,
   cultureReligion: 25,
-  market: 20,
+  market: 10,
 };
 const DEFAULT_STEP_CEILING = 120;
 

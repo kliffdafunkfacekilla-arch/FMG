@@ -17,7 +17,8 @@ import { loadEncounter } from "./macro/encounter/load.js";
 import { stepEncounter } from "./macro/encounter/step.js";
 import { runChroniclerAgent } from "./agents/chroniclerAgent";
 import { runCartelAgent } from "./agents/cartelAgent";
-import { runGrindCanyonAgent } from "./agents/grindCanyonAgent";
+import { loadGrindCanyon } from "./macro/grindCanyon/load.js";
+import { stepGrindCanyon } from "./macro/grindCanyon/step.js";
 import { runBurgExpansionAgent } from "./agents/burgExpansionAgent";
 import { runInterFactionTradeEngine } from "./economy/interFactionTradeEngine";
 import { runTrophicEcologyAgent } from "./agents/trophicEcologyAgent";
@@ -31,8 +32,10 @@ import { backfillBlankPersonas } from "./agents/citizenPersonaHelper";
 import { initSpatialCache } from "./agents/agentMovementHelper";
 import { stepActiveRegions } from "../api/regionalRouter";
 import { DAYS_PER_MONTH } from "./canon/calendar.js";
-import { runMarketAgent } from "./economy/marketAgent.js";
-import { runFactionCollapse } from "./agents/factionCollapse.js";
+import { loadMarket } from "./macro/market/load.js";
+import { stepMarket } from "./macro/market/step.js";
+import { loadFactionCollapse } from "./macro/factionCollapse/load.js";
+import { stepFactionCollapse } from "./macro/factionCollapse/step.js";
 import { migrate } from "../db/migrate.js";
 import { flushStepDeltas, type Delta, type DeltaEmitter } from "./deltas/index.js";
 import { markEntitiesDeadBatch } from "./entities/registry.js";
@@ -207,12 +210,19 @@ async function runTick(): Promise<TickResult> {
 
             // 4-5. Paragons, factions, expansion, trade, market
             await step('paragons', () => runLocalParagonAgent(client, tick, loreDate));
-            await step('factionCollapse', () => runFactionCollapse(client, tick, loreDate));
+            await step('factionCollapse', async (emit) => {
+                const snap = await loadFactionCollapse(client, tick, loreDate);
+                for (const d of stepFactionCollapse(snap)) emit(d);
+            });
             await step('factionPlanning', () => runFactionPlanningAgent(client, tick, loreDate));
             await step('burgExpansion', () => runBurgExpansionAgent(client, tick, loreDate));
             await step('cultureReligion', () => runCultureReligionAgent(client, tick, loreDate));
             await step('trade', () => runInterFactionTradeEngine(client, tick, loreDate));
-            await step('market', () => runMarketAgent(client, tick));
+            await step('market', async () => {
+                const snap = await loadMarket(client, tick);
+                const out = stepMarket(snap);
+                if (out.deltas.length > 0) await flushStepDeltas(client, 'market', tick, out.deltas);
+            });
 
             // 6-8. Wardens, cultists, the Mandate, cartels, Grind Canyon
             await step('wardens', () => runWardenAgent(client, tick, loreDate));
@@ -225,7 +235,11 @@ async function runTick(): Promise<TickResult> {
                 await runCartelAgent(client, tick, loreDate);
                 await client.query('UPDATE sim_events SET outlaw_id = faction_id, faction_id = NULL WHERE id > $1 AND faction_id IS NOT NULL', [before]);
             });
-            await step('grindCanyon', () => runGrindCanyonAgent(client, tick, loreDate));
+            await step('grindCanyon', async () => {
+                const snap = await loadGrindCanyon(client, tick, loreDate);
+                const deltas = stepGrindCanyon(snap);
+                if (deltas.length > 0) await flushStepDeltas(client, 'grindCanyon', tick, deltas);
+            });
 
             // 9. Encounters, NPC routines, the background story director & autonomous clashes
             await step('encounters', async (emit) => {
@@ -236,8 +250,8 @@ async function runTick(): Promise<TickResult> {
             await step('backgroundDirector', () => runBackgroundDirectorAgent(client, tick, loreDate));
             await step('autonomousDrama', () => runAutonomousDramaAgent(client, tick, loreDate));
             await step('threadClocks', async () => {
-              await advanceThreadClocks(client, tick, loreDate);
-              await checkStoryEscalations(client, tick);
+                await advanceThreadClocks(client, tick, loreDate);
+                await checkStoryEscalations(client, tick);
             });
 
             // 10. Chronicler
@@ -336,11 +350,13 @@ async function runTick(): Promise<TickResult> {
             if (failedQueries.length) {
                 console.warn(`[tick ${tick}] ${failedQueries.length} quer${failedQueries.length === 1 ? 'y' : 'ies'} failed:\n  ` + failedQueries.slice(0, 12).join('\n  '));
             }
-            return { status: failedAgents.length ? "partial" : "success", currentTick: tick, failedAgents, timings, queries, totalMs,
-                profile: profiling ? [...shapes.values()].reduce((acc: any, s) => { (acc[s.step] ||= []).push({ sql: s.sql, ms: Math.round(s.ms), calls: s.calls }); acc[s.step].sort((a: any, b: any) => b.ms - a.ms); acc[s.step].splice(5); return acc; }, {}) : undefined } as TickResult;
+            return {
+                status: failedAgents.length ? "partial" : "success", currentTick: tick, failedAgents, timings, queries, totalMs,
+                profile: profiling ? [...shapes.values()].reduce((acc: any, s) => { (acc[s.step] ||= []).push({ sql: s.sql, ms: Math.round(s.ms), calls: s.calls }); acc[s.step].sort((a: any, b: any) => b.ms - a.ms); acc[s.step].splice(5); return acc; }, {}) : undefined
+            } as TickResult;
         });
     } catch (e) {
-        await rawQuery('ROLLBACK').catch(() => {});
+        await rawQuery('ROLLBACK').catch(() => { });
         console.error("Master tick failed:", e);
         throw e;
     } finally {
