@@ -18,7 +18,7 @@ function check(cond: unknown, msg: string): asserts cond {
 }
 
 const QUERY_CEILINGS: Record<string, number> = {
-  burgOperations: 120,
+  burgOperations: 55,
   chaosFlows: 25,
   cartels: 35,
   wardens: 25,

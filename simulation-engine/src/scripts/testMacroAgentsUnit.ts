@@ -25,6 +25,8 @@ import { stepFactionPlanning } from "../engine/macro/factions/step.js";
 import { stepCartels } from "../engine/macro/cartels/step.js";
 import { materializeTradeDispatchDeltas, stepTrade } from "../engine/macro/trade/step.js";
 import type { TradeRouter, TradeSnapshot } from "../engine/macro/trade/types.js";
+import { stepBurgOperations } from "../engine/macro/burgOperations/step.js";
+import type { BurgOperationsSnapshot, BurgOpSnap } from "../engine/macro/burgOperations/types.js";
 
 function testEncounterUnit() {
   const emptyDeltas = stepEncounter({ agents: [], cellIds: [10, 20, 30] }, { tick: 2, random: mulberry32(42) });
@@ -1998,6 +2000,227 @@ function testTradeUnit() {
   console.log("21. stepTrade (no DB) transit, embargo, raid, dispatch & cohort tokens... PASSED");
 }
 
+function testBurgOperationsUnit() {
+  const makeBurg = (overrides: Partial<BurgOpSnap>): BurgOpSnap => ({
+    burgId: 1,
+    name: "Testburg",
+    cellId: 100,
+    factionId: 29,
+    occupierFactionId: null,
+    occupationTicks: 0,
+    resistanceStrength: 0,
+    parentBurgId: null,
+    upstreamBurgId: null,
+    food: 2000,
+    wealth: 200,
+    health: 90,
+    unrest: 10,
+    crimeRate: 5,
+    urbanTier: 1,
+    biome: 4,
+    architectureType: "MIXED",
+    popNull: 100,
+    popAttuned: 20,
+    recordUnit: 10,
+    popGrowthPool: 0,
+    popDeparturePool: 0,
+    speciesDemographics: "{}",
+    militaryForces: {},
+    resourceProfile: {
+      primary: [
+        { goodId: 9, key: "grain", share: 0.5 },
+        { goodId: 1, key: "wood", share: 0.5 },
+      ],
+      crafted: [{ goodId: 59, key: "arms", targetOutput: 2 }],
+    },
+    production: [],
+    currentTemp: 15,
+    baseTemp: 15,
+    cellFlux: 10,
+    riverId: 0,
+    riverDischarge: 0,
+    cellEcoHealth: 100,
+    cellEcoMax: 100,
+    workforce: {},
+    inventory: {},
+    ...overrides,
+  });
+
+  const snap: BurgOperationsSnapshot = {
+    tick: 28,
+    loreDate: "Day 28",
+    currentSeason: "Greenspan",
+    goods: [
+      { id: 1, name: "Wood", key: "wood", value: 4, recipes: [] },
+      { id: 4, name: "Iron", key: "iron", value: 5, recipes: [] },
+      { id: 9, name: "Grain", key: "grain", value: 3, recipes: [] },
+      { id: 34, name: "Coal", key: "coal", value: 6, recipes: [] },
+      { id: 59, name: "Arms", key: "arms", value: 14, recipes: [{ "4": 1, "34": 1 }] },
+    ],
+    burgs: [
+      makeBurg({
+        burgId: 1,
+        name: "Craftburg",
+        urbanTier: 2,
+        workforce: {
+          Woodcutter: { records: 2, people: 20 },
+          Farmer: { records: 2, people: 20 },
+          Armorer: { records: 4, people: 40 },
+        },
+        inventory: { iron: 10, coal: 10 },
+      }),
+      makeBurg({
+        burgId: 2,
+        name: "Idleforge",
+        workforce: {
+          Farmer: { records: 2, people: 20 },
+          Armorer: { records: 2, people: 20 },
+        },
+        inventory: { wood: 10, iron: 0, coal: 0 },
+      }),
+      makeBurg({
+        burgId: 3,
+        name: "Deficitburg",
+        food: 10,
+        popNull: 100,
+        popAttuned: 0,
+        wealth: 10,
+        workforce: {},
+      }),
+      makeBurg({
+        burgId: 4,
+        name: "Overlogged",
+        cellId: 400,
+        workforce: { Woodcutter: { records: 15, people: 150 } },
+        inventory: { wood: 30 },
+        wealth: 50,
+        cellEcoHealth: 35,
+      }),
+      makeBurg({
+        burgId: 5,
+        name: "Boomgrow",
+        food: 5000,
+        health: 100,
+        unrest: 0,
+        popNull: 180,
+        popAttuned: 20,
+        popGrowthPool: 9.99,
+        recordUnit: 10,
+        speciesDemographics: JSON.stringify({ Human: 1 }),
+      }),
+      makeBurg({
+        burgId: 6,
+        name: "Emigrated",
+        food: 5000,
+        popNull: 50,
+        popAttuned: 50,
+        popDeparturePool: 21,
+        recordUnit: 10,
+      }),
+      makeBurg({
+        burgId: 7,
+        name: "FamineGhost",
+        factionId: 30,
+        wealth: 0,
+        food: 0,
+        popNull: 3,
+        popAttuned: 2,
+        popGrowthPool: -5,
+        recordUnit: 12,
+      }),
+      makeBurg({
+        burgId: 10,
+        name: "Breadbasket",
+        food: 5000,
+        popNull: 100,
+        popAttuned: 0,
+        upstreamBurgId: 12,
+      }),
+      makeBurg({
+        burgId: 12,
+        name: "CapitalHub",
+        food: 5000,
+        popNull: 100,
+        popAttuned: 0,
+      }),
+      makeBurg({
+        burgId: 20,
+        name: "OccupiedCity",
+        cellId: 200,
+        food: 5000,
+        unrest: 44,
+        occupierFactionId: 31,
+        occupationTicks: 2,
+        resistanceStrength: 50,
+        militaryForces: { infantry: 5 },
+      }),
+    ],
+    chaosIntensityEntries: [],
+    blockadedCellIds: [],
+    floodedCellIds: [],
+    droughtCellIds: [],
+    infrastructure: [{ burgId: 1, type: "FARM", level: 1 }],
+    activeProjects: [{ id: 1, burgId: 1, projectType: "URBAN_TIER", targetTier: 3, ticksRemaining: 1 }],
+    outlaws: [{ id: 1, manpower: 100 }],
+    occupierTraitsByFactionEntries: [[31, ["Bloodthirsty"]]],
+  };
+
+  const snapBefore = JSON.stringify(snap);
+  const out = stepBurgOperations(snap, { random: mulberry32(99) });
+  assert.equal(JSON.stringify(snap), snapBefore, "stepBurgOperations must not mutate snap");
+
+  // 1. Production & Active project completion
+  assert.ok(out.deltas.some((d) => d.kind === "activeProject.advanceAll"));
+  assert.ok(out.deltas.some((d) => d.kind === "event.log" && d.type === "BURG_URBAN_GROWTH" && d.burgId === 1));
+  const b1Set = out.deltas.find((d) => d.kind === "burg.set" && d.burgId === 1) as any;
+  assert.equal(b1Set?.fields.urban_tier, 3, "Completed active project should elevate urban_tier to 3");
+  const b1Inv = out.deltas.find((d) => d.kind === "burgStockpile.setInventory" && d.burgId === 1) as any;
+  assert.ok(b1Inv && b1Inv.inventory.arms > 0 && b1Inv.inventory.iron < 10 && b1Inv.inventory.coal < 10);
+
+  const b2Inv = out.deltas.find((d) => d.kind === "burgStockpile.setInventory" && d.burgId === 2) as any;
+  assert.equal(b2Inv?.inventory.wood, 10, "Zero woodcutters must yield 0 wood");
+  assert.ok(out.deltas.some((d) => d.kind === "event.log" && d.type === "WORKSHOP_INPUT_SHORTAGE" && d.burgId === 2));
+
+  // 2. Food relief + tribute flow
+  const b3Set = out.deltas.find((d) => d.kind === "burg.set" && d.burgId === 3) as any;
+  assert.ok(b3Set && b3Set.fields.food > 0, "Deficitburg must receive breadbasket grain relief");
+
+  // 3. Infrastructure auto-build + ecological collapse
+  assert.ok(
+    out.deltas.some((d) => d.kind === "infrastructure.adjust" && d.burgId === 4 && d.infraType === "CAMP" && d.upsert === true)
+  );
+  assert.ok(out.deltas.some((d) => d.kind === "cell.adjust" && d.cellId === 400 && d.ecoMax === -1 && d.ecoHealth === -15));
+  assert.ok(out.deltas.some((d) => d.kind === "event.log" && d.type === "ECOLOGICAL_COLLAPSE" && d.cellId === 400));
+
+  // 4. Occupation liberation + martial law tagging
+  assert.ok(out.deltas.some((d) => d.kind === "cell.setFaction" && d.cellId === 200 && d.factionId === null));
+  assert.ok(out.deltas.some((d) => d.kind === "event.log" && d.type === "LIBERATION" && d.burgId === 20));
+  const b20Set = out.deltas.find((d) => d.kind === "burg.set" && d.burgId === 20) as any;
+  assert.equal(b20Set?.fields.occupier_faction_id, null);
+
+  // 5. Population ledger: growth unit, departure retirement & famine wipeout
+  assert.equal(out.cohortGrowthOps.length, 1);
+  assert.equal(out.cohortGrowthOps[0]!.burgId, 5);
+  assert.equal(out.cohortGrowthOps[0]!.delta, 10);
+  const b5Set = out.deltas.find((d) => d.kind === "burg.set" && d.burgId === 5) as any;
+  assert.ok(b5Set && b5Set.fields.pop_null === 189 && b5Set.fields.pop_attuned === 21 && b5Set.fields.clear_workforce === true);
+
+  assert.ok(out.cohortRetireReqs.some((r) => r.burgId === 6 && r.people === 20));
+  const b6Set = out.deltas.find((d) => d.kind === "burg.set" && d.burgId === 6) as any;
+  assert.ok(b6Set && b6Set.fields.pop_departure_pool === 1 && b6Set.fields.clear_workforce === true);
+
+  assert.ok(out.emptiedFamineBurgs.includes(7) && out.emptiedRuinedBurgs.includes(7));
+  const b7Set = out.deltas.find((d) => d.kind === "burg.set" && d.burgId === 7) as any;
+  assert.ok(b7Set && b7Set.fields.pop_null === 0 && b7Set.fields.pop_attuned === 0);
+
+  // 6. Strict determinism
+  assert.equal(
+    JSON.stringify(stepBurgOperations(snap, { random: mulberry32(99) })),
+    JSON.stringify(stepBurgOperations(snap, { random: mulberry32(99) }))
+  );
+  console.log("22. stepBurgOperations (no DB) prod, food, health, infra, ledger... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
@@ -2021,6 +2244,7 @@ function main() {
   testFactionPlanningUnit();
   testCartelsUnit();
   testTradeUnit();
+  testBurgOperationsUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 
