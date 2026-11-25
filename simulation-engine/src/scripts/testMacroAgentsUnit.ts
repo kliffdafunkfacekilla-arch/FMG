@@ -22,6 +22,7 @@ import { stepBurgExpansion, uniqueBurgName } from "../engine/macro/burgExpansion
 import { stepChronicler } from "../engine/macro/chronicler/step.js";
 import { stepParagons } from "../engine/macro/paragons/step.js";
 import { stepFactionPlanning } from "../engine/macro/factions/step.js";
+import { stepCartels } from "../engine/macro/cartels/step.js";
 
 function testEncounterUnit() {
   const emptyDeltas = stepEncounter({ agents: [], cellIds: [10, 20, 30] }, { tick: 2, random: mulberry32(42) });
@@ -1634,6 +1635,80 @@ function testFactionPlanningUnit() {
   console.log("19. stepFactionPlanning (no DB) finances, border tension, actions & war conquest... PASSED");
 }
 
+function testCartelsUnit() {
+  // Even tick 10: covers Gilded Compass freight/blockade, Sky-Barons, Legion, Obsidian + Ghostspring cross-transfer,
+  // Otters intel, Hedge Wizards charm, lair militia bust + corrupt bribery, and upkeep attrition.
+  const baseSnap = {
+    tick: 10,
+    loreDate: "Day 10",
+    dayOfYear: 10,
+    cartels: [
+      { id: 1, name: "The Gilded Compass", type: "PRIVATEER", originCellId: 100, originBurgId: null, manpower: 100, wealth: 500, heat: 5, workerGroups: 3 },
+      { id: 2, name: "Free Sky-Barons", type: "SMUGGLER", originCellId: 200, originBurgId: null, manpower: 50, wealth: 500, heat: 5, workerGroups: 3 },
+      { id: 6, name: "The Obsidian Cartel", type: "CARTEL", originCellId: 300, originBurgId: null, manpower: 1800, wealth: 300, heat: 30, workerGroups: 3 },
+      { id: 7, name: "The Otters", type: "KREWE", originCellId: 400, originBurgId: null, manpower: 40, wealth: 300, heat: 5, workerGroups: 3 },
+      { id: 8, name: "The Ghostspring Subterrane", type: "OUTCAST", originCellId: 500, originBurgId: null, manpower: 40, wealth: 100, heat: 5, workerGroups: 3 },
+      { id: 10, name: "The Hedge Wizards", type: "NOMAD", originCellId: 600, originBurgId: null, manpower: 20, wealth: 100, heat: 0, workerGroups: 3 },
+    ],
+    targetBurgs: [
+      { burgId: 11, cellId: 101, name: "Goldport", unrest: 20, popNull: 500, wealth: 450, health: 90, food: 200, rawMaterials: 150, refinedGoods: 50, factionId: 1 },
+    ],
+    lairs: [
+      // Lair 50: heat 43 + 3 = 46 >= 45, milPower = 24 > 15 -> busted!
+      { id: 50, factionId: 6, cellId: 101, burgId: 11, lairType: "BUSINESS_FRONT", manpower: 15, heat: 43, burgName: "Goldport", militaryForces: { infantry: 2 }, cartelName: "The Obsidian Cartel" },
+      // Lair 51: heat 45 + 3 = 48 >= 45, corrupt commander -> heat reduced!
+      { id: 51, factionId: 1, cellId: 102, burgId: 12, lairType: "PUBLIC_TRADE_YARD", manpower: 10, heat: 45, burgName: "Bribeport", militaryForces: { infantry: 4 }, cartelName: "The Gilded Compass" },
+      // Lair 52: keeps Ghostspring at >= 1 lair
+      { id: 52, factionId: 8, cellId: 500, burgId: null, lairType: "CENTRAL_PEAK_SPRING_CAVERN", manpower: 40, heat: 5, burgName: null, militaryForces: {}, cartelName: "The Ghostspring Subterrane" },
+    ],
+    commandersByBurg: {
+      11: { traits: ["Stoic"], corruptionScore: 0 },
+      12: { traits: ["Corrupt"], corruptionScore: 60 },
+    },
+    activeCanyons: [],
+    pendingGhostwindDrops: [],
+    lastGhostwindStrikeTick: 0,
+    topPowers: [],
+    richestBurgByFaction: {},
+    outerBurgs: [],
+    capitalBurgByFaction: {},
+    hireableFactions: [],
+    mountainBurgs: [],
+    circusCandidates: [],
+    crackdownCrowns: [],
+    ghostspringOriginBurgId: null,
+  };
+
+  // roll = 0.5 -> avoids lair spawn (0.5 >= 0.35), Hedge Wizards roll=0.5 triggers Tier 2 Useful Remedy
+  const out = stepCartels(baseSnap, { random: () => 0.5 });
+  type T = (typeof out.deltas)[number];
+
+  assert.ok(out.deltas.some((d) => d.kind === "event.log" && d.type === "COMPASS_SHIPPING_CONTRACT" && d.outlawId === 1));
+  assert.ok(out.deltas.some((d) => d.kind === "event.log" && d.type === "COMPASS_TRADE_BLOCKADE" && d.outlawId === 1));
+  assert.ok(out.deltas.some((d) => d.kind === "event.log" && d.type === "SKY_BARON_STEALTH_TRANSPORT" && d.outlawId === 2));
+  assert.ok(out.deltas.some((d) => d.kind === "event.log" && d.type === "CARTEL_ARM_RIOTERS" && d.outlawId === 6));
+  // Obsidian started at 300 + 200 (arm rioters) = 500 >= 200 -> Ghostspring takes 90 on tick 10 (10 % 4 === 2)!
+  assert.ok(out.deltas.some((d) => d.kind === "event.log" && d.type === "GHOSTSPRING_CARTEL_BYPASS_RUN" && d.outlawId === 8));
+  assert.ok(out.deltas.some((d) => d.kind === "event.log" && d.type === "HEDGE_CHARM_USEFUL" && d.outlawId === 10));
+  assert.ok(out.deltas.some((d) => d.kind === "citizen.tagBurg" && d.tags.includes("#OtterDenPatron")));
+  assert.ok(out.deltas.some((d) => d.kind === "fringeLair.delete" && d.lairId === 50));
+  assert.ok(out.deltas.some((d) => d.kind === "event.log" && d.type === "LAIR_BUSTED"));
+  assert.ok(out.deltas.some((d) => d.kind === "fringeLair.update" && d.lairId === 51 && d.heat === 30));
+
+  const ghostAdj = out.deltas.find((d): d is Extract<T, { kind: "outlawFaction.adjust" }> => d.kind === "outlawFaction.adjust" && d.outlawId === 8);
+  assert.ok(ghostAdj && ghostAdj.wealthDelta === 90);
+
+  const obsidianAdj = out.deltas.find((d): d is Extract<T, { kind: "outlawFaction.adjust" }> => d.kind === "outlawFaction.adjust" && d.outlawId === 6);
+  // Upkeep: mp 1800 > 1500 -> neededUpkeep 900 > wealth (500-90=410) -> deserters 144 (-144), wealth -50, heat 30->28, wealth -25 greasePay
+  assert.ok(obsidianAdj && obsidianAdj.manpowerDelta === -144 && obsidianAdj.heatDelta === -2);
+
+  assert.equal(
+    JSON.stringify(stepCartels(baseSnap, { random: mulberry32(123) })),
+    JSON.stringify(stepCartels(baseSnap, { random: mulberry32(123) }))
+  );
+  console.log("20. stepCartels (no DB) split cartels, lair bust/bribe, upkeep & live transfers... PASSED");
+}
+
 function main() {
   console.log("=== Testing Pure Macro Agent step() Functions (No DB) ===");
   testEncounterUnit();
@@ -1655,6 +1730,7 @@ function main() {
   testChroniclerUnit();
   testParagonsUnit();
   testFactionPlanningUnit();
+  testCartelsUnit();
   console.log("\nALL PURE MACRO AGENT UNIT TESTS PASSED");
 }
 

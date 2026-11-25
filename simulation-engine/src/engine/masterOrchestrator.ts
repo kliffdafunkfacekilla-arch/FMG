@@ -241,13 +241,7 @@ async function runTick(): Promise<TickResult> {
             await step('wardens', () => runWardenAgent(client, tick, loreDate));
             await step('cultists', () => runCultistAgent(client, tick, loreDate));
             await step('mandate', () => runMandateAgent(client, tick, loreDate));
-            await step('cartels', async () => {
-                // The cartel agent writes its outlaw faction ids into sim_events.faction_id (sovereign ids);
-                // move them to outlaw_id so faction 1 is never both the Avian Empire and the Gilded Compass.
-                const before = Number((await client.query('SELECT COALESCE(MAX(id), 0) AS m FROM sim_events')).rows[0]?.m) || 0;
-                await runCartelAgent(client, tick, loreDate);
-                await client.query('UPDATE sim_events SET outlaw_id = faction_id, faction_id = NULL WHERE id > $1 AND faction_id IS NOT NULL', [before]);
-            });
+            await step('cartels', () => runCartelAgent(client, tick, loreDate));
             await step('grindCanyon', async () => {
                 const snap = await loadGrindCanyon(client, tick, loreDate);
                 const deltas = stepGrindCanyon(snap);
