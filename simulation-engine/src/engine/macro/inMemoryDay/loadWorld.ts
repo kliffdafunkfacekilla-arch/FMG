@@ -230,7 +230,7 @@ export async function loadWorldSnapshot(db: Db): Promise<WorldSnapshot> {
     db.query(`SELECT *, (updated_at >= NOW() - INTERVAL '1 day') AS recent FROM sim_npc_instances ORDER BY id ASC`),
     db.query(`SELECT cell_id, rx, ry, z_layer, npcs, props, features FROM sim_sector_layers ORDER BY cell_id, rx, ry, z_layer`),
     db.query(`SELECT id, tick, type, message, tier, lore_date, burg_id, cell_id, faction_id, outlaw_id FROM sim_events ORDER BY id ASC`),
-    db.query(`SELECT id, scale, state, cell_id, rx, ry, z, rule_id, question, stakes, actor_ids, hook, clock, clock_max FROM storylines ORDER BY id ASC`),
+    db.query(`SELECT id, scale, state, cell_id, rx, ry, z, rule_id, question, stakes, actor_ids, hook, clock, clock_max, resolved_tick FROM storylines ORDER BY id ASC`),
     db.query(`SELECT id, due_tick, due_minute, kind, payload, created_tick, fired_tick FROM scheduled_events ORDER BY id ASC`),
     db.query(`SELECT subject_ref, party_ref, value, reasons FROM standing`),
   ]);
@@ -792,6 +792,7 @@ export async function loadWorldSnapshot(db: Db): Promise<WorldSnapshot> {
       hook: parseJson(s.hook, {}),
       clock: Number(s.clock || 0),
       clockMax: Number(s.clock_max || 6),
+      resolvedTick: s.resolved_tick !== null && s.resolved_tick !== undefined ? Number(s.resolved_tick) : null,
     });
   }
 

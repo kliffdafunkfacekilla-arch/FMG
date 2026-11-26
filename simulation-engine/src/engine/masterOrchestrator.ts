@@ -267,8 +267,16 @@ async function runTick(): Promise<TickResult> {
             });
             await step('threadClocks', async () => {
                 const clocks = await advanceThreadClocks(client, tick, loreDate);
-                for (const expired of clocks.worldDeltasApplied) {
-                    await advanceArcForThread(client, expired.threadId, "expired");
+                // With no party in play, a calm town (unrest < 50) carries an arc's beat itself, so arcs can
+                // advance and resolve; in a troubled town the beat fails. Arcs used to fail every time.
+                const autonomous = String((await client.query(`SELECT mode FROM world_clock WHERE id = 1`).catch(() => ({ rows: [] as any[] }))).rows[0]?.mode || "live") === "live";
+                for (const ended of clocks.worldDeltasApplied) {
+                    let outcome: "party" | "expired" = "expired";
+                    if (autonomous && ended.burgId) {
+                        const u = await client.query(`SELECT unrest FROM sim_burg_economy WHERE burg_id = $1`, [ended.burgId]);
+                        if (Number(u.rows[0]?.unrest ?? 100) < 50) outcome = "party";
+                    }
+                    await advanceArcForThread(client, ended.threadId, outcome);
                 }
                 await checkStoryEscalations(client, tick);
                 if (tick % 10 === 0) await sweepStaleStorylines(client, tick);

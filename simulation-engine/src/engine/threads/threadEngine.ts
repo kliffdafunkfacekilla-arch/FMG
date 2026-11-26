@@ -808,6 +808,17 @@ export async function advanceThreadClocks(
     `SELECT * FROM sim_threads WHERE state IN ('open', 'escalated') ORDER BY id ASC`
   );
 
+  // In autonomous play (no session running) a world crisis thread that runs out is told, not applied:
+  // the simulation already models the famine or the raids, and applying the "nobody helped" outcome on
+  // top hit the same town every few ticks (+18 unrest, -200 food per famine thread) and fed the spiral.
+  let autonomous = true;
+  try {
+    const modeRes = await client.query(`SELECT mode FROM world_clock WHERE id = 1 LIMIT 1`);
+    autonomous = !modeRes.rows[0] || String(modeRes.rows[0].mode || "live") === "live";
+  } catch {
+    autonomous = true;
+  }
+
   for (const thread of openRes.rows) {
     summary.threadsTicked++;
 
@@ -869,7 +880,7 @@ export async function advanceThreadClocks(
       summary.threadsResolved++;
 
       // Parse thread-specific on_expire outcome
-      const onExpireOutcome: ThreadWorldDelta =
+      const declaredExpire: ThreadWorldDelta =
         thread.on_expire && typeof thread.on_expire === "object" && Object.keys(thread.on_expire).length > 0
           ? (typeof thread.on_expire === "string" ? JSON.parse(thread.on_expire) : thread.on_expire)
           : {
@@ -877,6 +888,10 @@ export async function advanceThreadClocks(
               wealthDelta: -100,
               narrativeSummary: `Clock expired at tick ${currentTick}: Unaddressed crisis resolved unfavorably. Stakes realized: ${thread.stakes}`
             };
+      const narrativeOnly = autonomous && String(thread.rule_id || "").startsWith("WORLD_");
+      const onExpireOutcome: ThreadWorldDelta = narrativeOnly
+        ? { narrativeSummary: declaredExpire.narrativeSummary }
+        : declaredExpire;
 
       const deltaResult = await applyThreadWorldDelta(
         client,

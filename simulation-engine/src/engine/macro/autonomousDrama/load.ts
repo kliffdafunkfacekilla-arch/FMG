@@ -1,4 +1,5 @@
 import type { PoolClient } from "pg";
+import { STORY_REOPEN_COOLDOWN_TICKS } from "../../threads/storyCooldowns.js";
 import { promoteFromCohort } from "../../lod/promote.js";
 import type {
   AutonomousDramaSnapshot,
@@ -24,10 +25,11 @@ export async function loadAutonomousDrama(
          SELECT 1 FROM sim_threads t
          WHERE t.cell_id = b.cell_id
            AND t.rule_id = 'AUTONOMOUS_CLASH'
-           AND t.state IN ('open', 'escalated')
+           AND (t.state IN ('open', 'escalated') OR t.resolved_tick >= $1::int - $2::int)
        )
      ORDER BY (b.unrest + b.crime_rate) DESC, b.food ASC, b.burg_id ASC
-     LIMIT 3`
+     LIMIT 3`,
+    [tick, STORY_REOPEN_COOLDOWN_TICKS]
   );
 
   if (burgRes.rows.length === 0) {

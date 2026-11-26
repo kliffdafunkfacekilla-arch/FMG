@@ -77,6 +77,7 @@ export function stepBurgOperations(
       crimeRate: b.crimeRate,
       urbanTier: b.urbanTier,
       origUrbanTier: b.urbanTier,
+      isCapital: Boolean(b.isCapital),
       biome: b.biome,
       architectureType: b.architectureType,
       popNull: b.popNull,

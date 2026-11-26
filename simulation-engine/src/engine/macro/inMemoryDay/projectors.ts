@@ -1,4 +1,5 @@
 import { dateForTick, DAYS_PER_WEEK, isChaosPeak, isYearEnd } from "../../canon/calendar.js";
+import { STORY_REOPEN_COOLDOWN_TICKS } from "../../threads/storyCooldowns.js";
 import type { Delta } from "../../deltas/types.js";
 import { GOOD_ROLE_BY_ID, goodKeyFromName } from "../../economy/goodCatalog.js";
 import type { OpposingAgentSnap } from "../shared/agentNav.js";
@@ -541,6 +542,7 @@ export function prepareAndProjectBurgOperations(
       unrest: b.unrest,
       crimeRate: b.crimeRate,
       urbanTier: b.urbanTier,
+      isCapital: b.isCapital,
       biome: b.biome,
       architectureType: b.architectureType,
       popNull: b.popNull,
@@ -2133,7 +2135,11 @@ export function projectAutonomousDramaSnapshot(
   const m = world.mutable;
   const openClashCells = new Set<number>();
   for (const st of m.storylines.values()) {
-    if (st.ruleId === "AUTONOMOUS_CLASH" && (st.state === "open" || st.state === "escalated")) {
+    if (
+      st.ruleId === "AUTONOMOUS_CLASH" &&
+      (st.state === "open" || st.state === "escalated" ||
+        (st.resolvedTick != null && st.resolvedTick >= tick - STORY_REOPEN_COOLDOWN_TICKS))
+    ) {
       openClashCells.add(st.cellId);
     }
   }

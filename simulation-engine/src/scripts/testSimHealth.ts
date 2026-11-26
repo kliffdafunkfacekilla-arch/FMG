@@ -10,6 +10,7 @@
  *  6. Cartel recruits are split across both groups.
  *  7. The grain market moves food from another faction's surplus granary and pays the seller.
  *  8. Farm hiring: a town that still cannot cover what it eats raises subsistence rations, up to a cap.
+ *  9. Capitals are not abandoned to chaos in one stroke.
  */
 import assert from "node:assert/strict";
 import { stepBurgPopulationLedger, ledgerForBurg } from "../engine/macro/burgOperations/populationLedger.js";
@@ -17,6 +18,7 @@ import { econPop } from "../engine/macro/burgOperations/types.js";
 import { scaleBuckets } from "./reconcileCohorts.js";
 import { recruitSplit } from "../engine/macro/cartels/types.js";
 import { applyFoodAndTributeFlows, GRAIN_PER_WEALTH, SUBSISTENCE_BASE, SUBSISTENCE_PER_FARM } from "../engine/macro/burgOperations/food.js";
+import { evaluateCivicAndCrisisEvents } from "../engine/macro/burgOperations/health.js";
 
 function burg(popNull: number, popAttuned: number, extra: Record<string, unknown> = {}): any {
   return {
@@ -142,6 +144,25 @@ function runLedger(b: any, o: { popNullDelta?: number; health?: number; unrest?:
   });
   assert.equal(rs.foodDelta, 0, "A small town can feed itself entirely from subsistence");
   console.log(`8. Farm hiring covers up to ${cap} rations a day; small towns feed themselves... PASSED`);
+}
+
+// 9. Capitals are not abandoned to chaos in one stroke
+{
+  const crisis = (isCapital: boolean) => {
+    const b = burg(30000, 30000, { burgId: 1, isCapital, urbanTier: 4 });
+    const events: any[] = [];
+    const r = evaluateCivicAndCrisisEvents({
+      burg: b, tick: 33, chaosIntensity: 100, foodDelta: -20000, newFood: 0, newHealth: 20, newUnrest: 90,
+      starvationDeaths: 0, banditDefectors: 0, receivedTribute: undefined, popNullDelta: 0, departedLeft: 0,
+      workingOutlaws: [], outlawManpowerDeltas: new Map(), events, tags: [], random: () => 0.5,
+    });
+    return { r, ruined: events.some((e) => e.type === "BURG_ABANDONED_TO_CHAOS"), name: b.name };
+  };
+  const town = crisis(false);
+  assert.ok(town.ruined && town.r.departedLeft > 0, "An ordinary town in chaos, famine and riot is abandoned");
+  const capital = crisis(true);
+  assert.ok(!capital.ruined && capital.r.departedLeft === 0 && !capital.name.startsWith("[Ruin]"), "A capital is not abandoned in one stroke");
+  console.log("9. Chaos abandonment ruins an ordinary town but spares a capital... PASSED");
 }
 
 console.log("\nALL SIM HEALTH TESTS PASSED");

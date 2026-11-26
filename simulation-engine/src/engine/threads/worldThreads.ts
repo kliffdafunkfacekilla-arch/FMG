@@ -16,6 +16,7 @@
  * Each thread declares what happens if it runs out (on_expire) and if a party resolves it.
  */
 import { Pool, PoolClient } from "pg";
+import { STORY_REOPEN_COOLDOWN_TICKS } from "./storyCooldowns.js";
 import { createThread, ThreadWorldDelta } from "./threadEngine.js";
 
 const MAX_NEW_PER_TICK = 2;
@@ -93,6 +94,13 @@ export async function openWorldEventThreads(client: Db, tick: number): Promise<n
   const openWorld = open.rows.filter((r: any) => String(r.rule_id || "").startsWith("WORLD_")).length;
   if (openWorld >= MAX_OPEN) return 0;
   const taken = new Set(open.rows.map((r: any) => `${r.cell_id}:${r.rule_id}`));
+  // A town's crisis thread that ended recently is not reopened (STORY_REOPEN_COOLDOWN_TICKS).
+  const recent = await client.query(
+    `SELECT DISTINCT cell_id, rule_id FROM storylines
+     WHERE scale = 'thread' AND rule_id LIKE 'WORLD\_%' AND resolved_tick >= $1::int - $2::int`,
+    [tick, STORY_REOPEN_COOLDOWN_TICKS]
+  );
+  for (const r of recent.rows) taken.add(`${r.cell_id}:${r.rule_id}`);
   let opened = 0;
 
   const tryOpen = async (input: Parameters<typeof createThread>[1]) => {

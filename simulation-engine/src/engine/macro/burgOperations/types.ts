@@ -88,6 +88,8 @@ export interface BurgOpSnap {
   unrest: number;
   crimeRate: number;
   urbanTier: number;
+  /** Seats of government are never abandoned to chaos in one stroke. */
+  isCapital?: boolean;
   biome: number | null;
   architectureType: string | null;
   popNull: number;
@@ -153,6 +155,7 @@ export interface WorkingBurg {
   crimeRate: number;
   urbanTier: number;
   origUrbanTier: number;
+  isCapital?: boolean;
   biome: number | null;
   architectureType: string | null;
   popNull: number;

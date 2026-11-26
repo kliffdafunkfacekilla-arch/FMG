@@ -242,6 +242,7 @@ export async function prepareAndLoadBurgOperations(
       unrest: Number(b.unrest) || 0,
       crimeRate: Number(b.crime_rate) || 0,
       urbanTier: Number(b.urban_tier) || 1,
+      isCapital: Boolean(b.is_capital),
       biome: b.biome !== null && b.biome !== undefined ? Number(b.biome) : null,
       architectureType: b.architecture_type ? String(b.architecture_type) : null,
       popNull: Number(b.pop_null) || 0,

@@ -379,6 +379,8 @@ export interface InMemoryStoryline {
   hook: Record<string, any>;
   clock: number;
   clockMax: number;
+  /** Tick the storyline ended, if it has; used for reopen cooldowns. */
+  resolvedTick?: number | null;
 }
 
 export interface InMemoryScheduledEvent {

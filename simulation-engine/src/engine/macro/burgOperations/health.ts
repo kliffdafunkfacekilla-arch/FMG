@@ -569,6 +569,7 @@ export function evaluateCivicAndCrisisEvents(opts: {
     newUnrest >= 85 &&
     newHealth <= 25 &&
     newFood === 0 &&
+    !burg.isCapital &&
     !burg.name.startsWith("[Ruin]")
   ) {
     const origName = burg.name;

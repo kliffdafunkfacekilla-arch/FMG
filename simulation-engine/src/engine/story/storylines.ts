@@ -764,7 +764,7 @@ export const ORPHAN_ARC_GRACE_TICKS = 30;
 /**
  * Clears storylines nothing will ever move: proposals nobody accepted within PROPOSAL_TTL_TICKS
  * become 'expired', and open arcs or sagas with no proposed, open or escalated child for
- * ORPHAN_ARC_GRACE_TICKS become 'failed'. Before this, items from tick 1 were still open at tick 6,794.
+ * ORPHAN_ARC_GRACE_TICKS end: 'resolved' if their town is calm, else 'failed'. Before this, items from tick 1 were still open at tick 6,794.
  */
 export async function sweepStaleStorylines(
   db: Db,
@@ -775,8 +775,12 @@ export async function sweepStaleStorylines(
      WHERE state = 'proposed' AND created_tick < $1::int - $2::int`,
     [currentTick, PROPOSAL_TTL_TICKS]
   );
+  // A calm town (unrest < 50) is taken to have contained the matter itself: the arc resolves. A
+  // troubled or empty town lets it fail.
   const arcs = await db.query(
-    `UPDATE storylines p SET state = 'failed', resolved_tick = $1::int
+    `UPDATE storylines p SET resolved_tick = $1::int,
+       state = CASE WHEN COALESCE((SELECT b.unrest FROM sim_burg_economy b WHERE b.cell_id = p.cell_id LIMIT 1), 100) < 50
+                    THEN 'resolved' ELSE 'failed' END
      WHERE p.scale IN ('arc', 'saga')
        AND p.state IN ('open', 'escalated')
        AND p.created_tick < $1::int - $2::int

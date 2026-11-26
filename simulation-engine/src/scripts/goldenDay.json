@@ -2,8 +2,8 @@
   "seed": "ostraka",
   "startTick": 1,
   "targetTick": 2,
-  "recordedAt": "2026-11-26T09:41:01.208Z",
-  "note": "reset-2026-11-26-sim-health",
+  "recordedAt": "2026-11-26T10:18:40.213Z",
+  "note": "story-cooldowns-capitals",
   "fingerprint": {
     "burgs": "61054d627cdbf1bc28178c82f17fae91",
     "cells": "cb62f2755fad84a6adf608ce24c95e5b",
