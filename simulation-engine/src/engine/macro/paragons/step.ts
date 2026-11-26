@@ -6,6 +6,7 @@ export interface ParagonBurgSnap {
   name: string;
   cellId: number;
   popNull: number;
+  popAttuned?: number;
   food: number;
   health: number;
   unrest: number;
@@ -110,7 +111,7 @@ export function stepParagons(
   };
 
   for (const burg of snap.burgs) {
-    const pop = burg.popNull || 0;
+    const pop = Math.floor(((burg.popNull || 0) + (burg.popAttuned || 0)) / 2);
     if (pop <= 0) continue;
 
     const cellId = Number(burg.cellId || 0);

@@ -69,6 +69,12 @@ async function testWorkerInIsolation() {
     const nextTick = (await readWorldClock(pool)).tick + 1;
 
     await pool.query(`DELETE FROM sim_weather_fronts`); // keep noise off this check
+    // Control run: the same seeded day without the event. The burg's food moves by thousands in a day
+    // (rations, grain market), so the event is measured against this control, not the starting food.
+    await pool.query("SAVEPOINT w_sched_control");
+    await runTrackedWorkerTick(pool);
+    const controlFood = Number((await pool.query(`SELECT food FROM sim_burg_economy WHERE burg_id = $1`, [burgId])).rows[0].food);
+    await pool.query("ROLLBACK TO SAVEPOINT w_sched_control");
     await pool.query(
       `INSERT INTO scheduled_events (due_tick, due_minute, kind, payload, created_tick)
        VALUES ($1, 0, 'delta', $2::jsonb, $3)`,
@@ -78,7 +84,8 @@ async function testWorkerInIsolation() {
     const foodAfterDue = Number((await pool.query(`SELECT food FROM sim_burg_economy WHERE burg_id = $1`, [burgId])).rows[0].food);
     const schedRow = (await pool.query(`SELECT fired_tick FROM scheduled_events WHERE due_tick = $1 AND kind = 'delta' ORDER BY id DESC LIMIT 1`, [nextTick])).rows[0];
     assert.equal(Number(schedRow?.fired_tick), nextTick, "scheduled event should stamp fired_tick");
-    assert.ok(foodAfterDue >= startFood + 50, `Expected scheduled +77 food effect on due day (${startFood} -> ${foodAfterDue})`);
+    const eventEffect = foodAfterDue - controlFood;
+    assert.ok(eventEffect >= 50 && eventEffect <= 100, `Expected the scheduled +77 food on the due day, measured ${eventEffect} (start ${startFood}, control ${controlFood}, with event ${foodAfterDue})`);
 
     await runTrackedWorkerTick(pool);
     const stillUnfiredDuplicate = await pool.query(`SELECT COUNT(*)::int AS c FROM world_deltas WHERE tick = $1 AND kind = 'burg.adjust' AND source = 'agent:scheduledEvents'`, [nextTick + 1]);

@@ -43,7 +43,7 @@ export function stepWeather(snap: WeatherSnapshot, ctx: WeatherStepContext): Del
 
   // Working copies for intra-step consistency (multiple fronts or NIGHTMARE)
   const burgs: WeatherBurgRow[] = snap.burgs.map((b) => ({ ...b }));
-  const activeFronts: Array<{ type: string; x: number; y: number; dx: number; dy: number; radius: number; lifetime: number }> = [];
+  const activeFronts: Array<{ type: string; x: number; y: number; dx: number; dy: number; radius: number; lifetime: number; isNew?: boolean }> = [];
 
   // ── 1. MOVE & AGE existing weather fronts ────────────────────────────────
   for (const f of snap.fronts) {
@@ -93,19 +93,36 @@ export function stepWeather(snap: WeatherSnapshot, ctx: WeatherStepContext): Del
 
     const created = { type: stormType, x: sx, y: sy, dx, dy, radius, lifetime };
     deltas.push({ kind: "weatherFront.create", ...created });
-    activeFronts.push(created);
+    activeFronts.push({ ...created, isNew: true });
   }
 
   // ── 3. APPLY active fronts to cells & burgs under them ────────────────────
   for (const front of activeFronts) {
     const { fx, fy, radiusMap } = frontToMapCircle(front, bounds);
     const r2 = radiusMap * radiusMap;
+    // Where this front stood last tick: a burg already under it then is weathering a lingering storm,
+    // which does a small fraction of the damage of the day the storm arrives (fronts last 8-24 ticks).
+    const prev = front.isNew ? null : frontToMapCircle({ x: front.x - front.dx, y: front.y - front.dy, radius: front.radius }, bounds);
 
     for (const burg of burgs) {
       if (burg.cell_id === null) continue;
       if (burg.pop_null <= 0 && burg.pop_attuned <= 0) continue;
       const dist2 = (burg.center_x - fx) * (burg.center_x - fx) + (burg.center_y - fy) * (burg.center_y - fy);
       if (dist2 > r2) continue;
+
+      // Damage scales with half the total population (Nulls and attuned alike), which matches the
+      // original pop_null scaling at world start without collapsing once one group shrinks.
+      const basePop = Math.floor((Math.max(0, burg.pop_null) + Math.max(0, burg.pop_attuned)) / 2);
+      if (prev) {
+        const pd2 = (burg.center_x - prev.fx) * (burg.center_x - prev.fx) + (burg.center_y - prev.fy) * (burg.center_y - prev.fy);
+        if (pd2 <= prev.radiusMap * prev.radiusMap) {
+          const lingerFood = -Math.floor(basePop * 0.03);
+          burg.food = Math.max(0, burg.food + lingerFood);
+          burg.unrest = Math.min(100, burg.unrest + 1);
+          deltas.push({ kind: "burg.adjust", burgId: burg.burg_id, food: lingerFood, unrest: 1 });
+          continue;
+        }
+      }
 
       let foodDelta = 0;
       let unrestDelta = 0;
@@ -126,10 +143,10 @@ export function stepWeather(snap: WeatherSnapshot, ctx: WeatherStepContext): Del
 
       if (front.type === "WILDFIRE") {
         if (isWood) {
-          foodDelta = -Math.floor(burg.pop_null * 0.9);
+          foodDelta = -Math.floor(basePop * 0.9);
           healthDelta = -18;
           unrestDelta = +28;
-          popDelta = -Math.floor(burg.pop_null * 0.03);
+          popDelta = -Math.floor(basePop * 0.03);
           weatherTags = ["#WildfireInferno", "#TimberQuarterAshes", "#BurnedHomes"];
           eventMsg = `🔥 CATASTROPHIC WILDFIRE: Raging wildfires swept into ${burg.name}! Because the town is built primarily of wood, the timber framing and thatched roofs ignited instantly. Entire residential quarters burned to nothing, leaving hundreds homeless amidst smoking ash!`;
           deltas.push({
@@ -143,7 +160,7 @@ export function stepWeather(snap: WeatherSnapshot, ctx: WeatherStepContext): Del
             randomSeed: rnd(),
           });
         } else {
-          foodDelta = -Math.floor(burg.pop_null * 0.2);
+          foodDelta = -Math.floor(basePop * 0.2);
           healthDelta = -2;
           unrestDelta = +5;
           weatherTags = ["#FireResisted", "#ScorchedWalls"];
@@ -151,10 +168,10 @@ export function stepWeather(snap: WeatherSnapshot, ctx: WeatherStepContext): Del
         }
       } else if (front.type === "EARTHQUAKE") {
         if (isStone) {
-          foodDelta = -Math.floor(burg.pop_null * 0.4);
+          foodDelta = -Math.floor(basePop * 0.4);
           healthDelta = -12;
           unrestDelta = +22;
-          popDelta = -Math.floor(burg.pop_null * 0.02);
+          popDelta = -Math.floor(basePop * 0.02);
           weatherTags = ["#EarthquakeRubble", "#CollapsedMasonry"];
           eventMsg = `A violent earthquake shook ${burg.name}! Brittle ashlar stone arches and heavy masonry towers cracked and collapsed into street rubble.`;
           deltas.push({
@@ -168,14 +185,14 @@ export function stepWeather(snap: WeatherSnapshot, ctx: WeatherStepContext): Del
             randomSeed: rnd(),
           });
         } else {
-          foodDelta = -Math.floor(burg.pop_null * 0.2);
+          foodDelta = -Math.floor(basePop * 0.2);
           healthDelta = -4;
           unrestDelta = +8;
           weatherTags = ["#TremorsFelt"];
           eventMsg = `Ground tremors shook ${burg.name}. The settlement's flexible timber framing swayed and absorbed the shock with minimal structural damage.`;
         }
       } else if (front.type === "BLIZZARD") {
-        foodDelta = -Math.floor(burg.pop_null * 0.8);
+        foodDelta = -Math.floor(basePop * 0.8);
         healthDelta = -5;
         unrestDelta = +8;
         weatherTags = ["#BlizzardGrounded", "#FrozenSupplyLine"];
@@ -193,7 +210,7 @@ export function stepWeather(snap: WeatherSnapshot, ctx: WeatherStepContext): Del
           });
         }
       } else if (front.type === "DROUGHT") {
-        foodDelta = -Math.floor(burg.pop_null * 0.5);
+        foodDelta = -Math.floor(basePop * 0.5);
         healthDelta = -3;
         unrestDelta = +5;
         weatherTags = ["#DroughtStricken", "#BarrenHarvest"];
@@ -220,10 +237,10 @@ export function stepWeather(snap: WeatherSnapshot, ctx: WeatherStepContext): Del
         }
       } else if (front.type === "HURRICANE") {
         if (isClay) {
-          foodDelta = -Math.floor(burg.pop_null * 0.7);
+          foodDelta = -Math.floor(basePop * 0.7);
           healthDelta = -10;
           unrestDelta = +16;
-          popDelta = -Math.floor(burg.pop_null * 0.02);
+          popDelta = -Math.floor(basePop * 0.02);
           weatherTags = ["#HurricaneGales", "#FloodedTerrain", "#AdobeErosion"];
           if (rnd() < 0.35) {
             eventMsg = `Torrential hurricane floods inundated ${burg.name}! Earthen adobe brickwork softened and eroded under relentless gale floods.`;
@@ -239,10 +256,10 @@ export function stepWeather(snap: WeatherSnapshot, ctx: WeatherStepContext): Del
             });
           }
         } else {
-          foodDelta = -Math.floor(burg.pop_null * 0.4);
+          foodDelta = -Math.floor(basePop * 0.4);
           healthDelta = -4;
           unrestDelta = +6;
-          popDelta = -Math.floor(burg.pop_null * 0.01);
+          popDelta = -Math.floor(basePop * 0.01);
           weatherTags = ["#HurricaneGales", "#FloodedTerrain"];
           if (rnd() < 0.25) {
             eventMsg = `A massive hurricane tore through ${burg.name}, damaging roofs and drowning surrounding lowlands.`;
@@ -267,10 +284,10 @@ export function stepWeather(snap: WeatherSnapshot, ctx: WeatherStepContext): Del
           eventMsg = `🌊 RIVER FLOOD: Hurricane stormwaters swelled ${rName} over its banks in ${burg.name}, drowning fields (-${floodLoss} food) and sweeping quays.`;
         }
       } else if (front.type === "CHAOS_STORM") {
-        foodDelta = -Math.floor(burg.pop_null * (0.3 + rnd() * 0.7));
+        foodDelta = -Math.floor(basePop * (0.3 + rnd() * 0.7));
         healthDelta = -Math.floor(5 + rnd() * 10);
         unrestDelta = +Math.floor(10 + rnd() * 20);
-        popDelta = -Math.floor(burg.pop_null * 0.02 * rnd());
+        popDelta = -Math.floor(basePop * 0.02 * rnd());
         weatherTags = ["#ChaosStormRift", "#RealityWarped", "#CrimsonAtmosphere"];
         if (rnd() < 0.35) {
           eventMsg = `A Chaos Storm — vomited from the Broken Moon Cruorbus — erupted over ${burg.name}. Gravity stutters, shadows detach, and crimson rain falls upwards.`;
@@ -286,7 +303,7 @@ export function stepWeather(snap: WeatherSnapshot, ctx: WeatherStepContext): Del
           });
         }
       } else {
-        foodDelta = -Math.floor(burg.pop_null * 0.2);
+        foodDelta = -Math.floor(basePop * 0.2);
         unrestDelta = +3;
         weatherTags = ["#HeavyRainfall", "#MuddyHighways"];
         if (hasMajorRiver) {
@@ -312,7 +329,12 @@ export function stepWeather(snap: WeatherSnapshot, ctx: WeatherStepContext): Del
       burg.food = Math.max(0, burg.food + foodDelta);
       burg.unrest = Math.min(100, Math.max(0, burg.unrest + unrestDelta));
       burg.health = Math.min(100, Math.max(0, burg.health + healthDelta));
-      burg.pop_null = Math.max(0, burg.pop_null + popDelta);
+      // Deaths fall on Nulls and attuned in proportion to their numbers.
+      const livePop = Math.max(0, burg.pop_null) + Math.max(0, burg.pop_attuned);
+      const nullLoss = popDelta < 0 && livePop > 0 ? Math.round((popDelta * Math.max(0, burg.pop_null)) / livePop) : 0;
+      const attunedLoss = popDelta - nullLoss;
+      burg.pop_null = Math.max(0, burg.pop_null + nullLoss);
+      burg.pop_attuned = Math.max(0, burg.pop_attuned + attunedLoss);
 
       if (foodDelta !== 0 || unrestDelta !== 0 || healthDelta !== 0 || popDelta !== 0) {
         deltas.push({
@@ -321,7 +343,8 @@ export function stepWeather(snap: WeatherSnapshot, ctx: WeatherStepContext): Del
           food: foodDelta,
           unrest: unrestDelta,
           health: healthDelta,
-          popNull: popDelta,
+          ...(nullLoss !== 0 ? { popNull: nullLoss } : {}),
+          ...(attunedLoss !== 0 ? { popAttuned: attunedLoss } : {}),
         });
       }
 

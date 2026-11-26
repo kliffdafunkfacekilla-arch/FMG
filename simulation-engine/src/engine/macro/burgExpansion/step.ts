@@ -125,8 +125,11 @@ export function stepBurgExpansion(
     const hamletName = uniqueBurgName(genHamletName(parent.name, satType, random), takenNames);
     takenNames.add(hamletName);
 
-    const migratePop = Math.min(120, Math.max(24, Math.floor(parent.popNull * 0.05)));
-    const migrateAttuned = Math.floor(migratePop * 0.2);
+    // Founders mirror the parent's Null/attuned mix (they used to be 80% Nulls, draining Nulls with
+    // every new hamlet). 2.5% of everyone equals the old 5%-of-Nulls at world start.
+    const parentTotal = Math.max(0, parent.popNull) + Math.max(0, parent.popAttuned);
+    const migratePop = Math.min(120, Math.max(24, Math.floor(parentTotal * 0.025)));
+    const migrateAttuned = parentTotal > 0 ? Math.round((migratePop * Math.max(0, parent.popAttuned)) / parentTotal) : 0;
     const migrateNull = migratePop - migrateAttuned;
     const startWealth = Math.min(300, Math.floor(parent.wealth * 0.1));
     const startFood = migratePop * 12;
@@ -159,7 +162,7 @@ export function stepBurgExpansion(
       kind: "burg.set",
       burgId: parent.burgId,
       fields: {
-        pop_null: Math.max(200, parent.popNull - migrateNull),
+        pop_null: Math.max(0, parent.popNull - migrateNull),
         pop_attuned: Math.max(0, parent.popAttuned - migrateAttuned),
         wealth: Math.max(100, parent.wealth - startWealth),
         food: Math.max(200, parent.food - startFood),

@@ -95,11 +95,9 @@ export function stepGhostwind(cartel: WorkingCartel, ctx: CartelRunContext): voi
       cartel.wealth += contract.bountyGold;
 
       const clanCut = Math.floor(plunderWealth * 0.35);
-      deltas.push({
-        kind: "faction.update",
-        factionId: 1,
-        treasuryDelta: clanCut,
-      });
+      // The clan keeps its cut. This used to go to sovereign faction 1, which does not exist, so the
+      // delta was rejected and the gold vanished.
+      cartel.wealth += clanCut;
 
       const ruralCut = plunderWealth - clanCut;
       const outerBurgs = snap.outerBurgs.filter((b) => b.burgId !== contract.targetBurgId).slice(0, 2);

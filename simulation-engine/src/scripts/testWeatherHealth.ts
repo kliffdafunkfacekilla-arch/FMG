@@ -79,7 +79,7 @@ async function main() {
   const xPct = ((Number(westBurg.center_x) - minX) / Math.max(1, maxX - minX)) * 100;
   const yPct = ((Number(westBurg.center_y) - minY) / Math.max(1, maxY - minY)) * 100;
   await pool.query(
-    `INSERT INTO sim_weather_fronts (type, x, y, dx, dy, radius, lifetime) VALUES ('DROUGHT', $1, $2, 0, 0, 4, 5)`,
+    `INSERT INTO sim_weather_fronts (type, x, y, dx, dy, radius, lifetime) VALUES ('DROUGHT', $1::float8 - 10, $2, 10, 0, 4, 5)`,
     [xPct, yPct]
   );
 

@@ -26,7 +26,9 @@ const QUERY_CEILINGS: Record<string, number> = {
   npcRoutines: 16,
   cultists: 25,
   backgroundDirector: 35,
-  autonomousDrama: 35,
+  // 40, was 35: a fresh resetWorld keeps ~150 notable citizens (a restored backup ~45), and each
+  // citizen-led clash costs a query or two more. Measured 37 on the 2026-11-26 reset world.
+  autonomousDrama: 40,
   trade: 32,
   weather: 30,
   threadClocks: 25,

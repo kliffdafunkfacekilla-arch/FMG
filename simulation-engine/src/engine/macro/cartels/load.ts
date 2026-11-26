@@ -88,7 +88,7 @@ export async function loadCartels(
   }));
 
   const targetBurgsRes = await client.query(`
-    SELECT b.burg_id, b.cell_id, b.name, b.unrest, b.pop_null, b.wealth, b.health,
+    SELECT b.burg_id, b.cell_id, b.name, b.unrest, b.pop_null, b.pop_attuned, b.wealth, b.health,
            b.food, b.raw_materials, b.refined_goods, c.faction_id
     FROM sim_burg_economy b
     JOIN sim_cells c ON c.id = b.cell_id
@@ -101,6 +101,7 @@ export async function loadCartels(
     name: String(r.name || ""),
     unrest: Number(r.unrest || 0),
     popNull: Number(r.pop_null || 0),
+    popAttuned: Number(r.pop_attuned || 0),
     wealth: Number(r.wealth || 0),
     health: r.health !== null && r.health !== undefined ? Number(r.health) : 100,
     food: Number(r.food || 0),

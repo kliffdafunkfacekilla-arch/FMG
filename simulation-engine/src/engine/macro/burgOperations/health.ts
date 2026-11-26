@@ -1,4 +1,5 @@
 import type { SystemicItemEffect } from "../../economy/itemSystemicMatrix.js";
+import { econPop } from "./types.js";
 import type {
   BurgEventSpec,
   BurgTagSpec,
@@ -83,7 +84,7 @@ export function evaluateCivilEquilibrium(opts: {
   systemicEffects: Pick<SystemicItemEffect, "healthDelta" | "unrestDelta" | "crimeDelta">;
 }): { healthDelta: number; unrestDelta: number; crimeDelta: number } {
   const { burg, foodDelta, wCivil, wSec, wSoc, systemicEffects } = opts;
-  const pop = burg.popNull;
+  const pop = econPop(burg);
   const currentUnrest = burg.unrest;
   const currentCrime = burg.crimeRate;
   const currentHealth = burg.health;
@@ -126,7 +127,9 @@ export function evaluateCivilEquilibrium(opts: {
     4,
     Math.max(
       -4,
-      -Math.floor(wSec * 0.08) + (currentUnrest > 70 ? 1 : 0) + (systemicEffects.crimeDelta || 0)
+      // Calm towns cool off by themselves; before, crime only fell where there were security workers,
+      // so small settlements ratcheted up to 100 and stayed there.
+      -Math.floor(wSec * 0.08) + (currentUnrest > 70 ? 1 : 0) - (currentUnrest < 50 ? 1 : 0) + (systemicEffects.crimeDelta || 0)
     )
   );
 
@@ -216,7 +219,7 @@ export function applyMaintenanceAndNeeds(opts: {
     random,
   } = opts;
   let { healthDelta, unrestDelta } = opts;
-  const pop = burg.popNull;
+  const pop = econPop(burg);
   const urbanTier = burg.urbanTier;
 
   let failedMaint = 0;
@@ -532,7 +535,8 @@ export function evaluateCivicAndCrisisEvents(opts: {
       });
     }
   } else if (starvationDeaths > 3 || (newFood === 0 && foodDelta < -150) || newUnrest >= 60) {
-    if ((tick + burg.burgId) % 5 === 0) {
+    // Announce when trouble starts, then about monthly while it lasts (was every 5 days per burg).
+    if (((burg.unrest || 0) < 60 && newUnrest >= 60) || (tick + burg.burgId) % 30 === 0) {
       events.push({
         tick,
         type: "BANDIT_RAIDERS_EMERGE",
@@ -568,7 +572,7 @@ export function evaluateCivicAndCrisisEvents(opts: {
     !burg.name.startsWith("[Ruin]")
   ) {
     const origName = burg.name;
-    const refugees = Math.floor((burg.origPopNull || 100) * 0.85);
+    const refugees = Math.floor((econPop({ popNull: burg.origPopNull, popAttuned: burg.popAttuned }) || 100) * 0.85);
     popNullDelta -= refugees;
     departedLeft += refugees;
     burg.name = `[Ruin] ${origName}`;

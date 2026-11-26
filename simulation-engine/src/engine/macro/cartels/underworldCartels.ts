@@ -1,5 +1,5 @@
 import { planLairEstablishment } from "./lairsAndUpkeep.js";
-import type { CartelRunContext, WorkingCartel } from "./types.js";
+import { recruitSplit, type CartelRunContext, type WorkingCartel } from "./types.js";
 
 /**
  * 4. The Silk-Sovereign Syndicate: Vice dens, Viper-Haze narcotics & street protection.
@@ -154,12 +154,12 @@ export function stepObsidianCartel(cartel: WorkingCartel, ctx: CartelRunContext)
   }
 
   if (tick % 4 === 0) {
-    const candBurg = burgs.find((b) => (b.popNull || 0) >= 12);
+    const candBurg = burgs.find((b) => (b.popNull || 0) + (b.popAttuned || 0) >= 100);
     if (candBurg) {
       deltas.push({
         kind: "burg.adjust",
         burgId: candBurg.burgId,
-        popNull: -12,
+        ...recruitSplit(candBurg, 12),
       });
       cartel.manpower += 1;
       deltas.push({

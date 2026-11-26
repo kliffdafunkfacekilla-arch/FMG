@@ -1,5 +1,5 @@
 import { planLairEstablishment } from "./lairsAndUpkeep.js";
-import { pickShuffled, type CartelRunContext, type WorkingCartel } from "./types.js";
+import { pickShuffled, recruitSplit, type CartelRunContext, type WorkingCartel } from "./types.js";
 
 /**
  * 1. The Gilded Compass: Armed privateers, merchant galleasses & trade blockades.
@@ -210,12 +210,12 @@ export function stepLegion(cartel: WorkingCartel, ctx: CartelRunContext): void {
 
   if (tick % 5 === 0) {
     const currentMp = cartel.manpower;
-    const recruitBurg = burgs.find((b) => (b.popNull || 0) >= 12 && (b.unrest || 0) >= 30);
+    const recruitBurg = burgs.find((b) => (b.popNull || 0) + (b.popAttuned || 0) >= 100 && (b.unrest || 0) >= 30);
     if (recruitBurg && currentMp < 2500) {
       deltas.push({
         kind: "burg.adjust",
         burgId: recruitBurg.burgId,
-        popNull: -12,
+        ...recruitSplit(recruitBurg, 12),
       });
       cartel.manpower = Math.min(2500, cartel.manpower + 12);
 

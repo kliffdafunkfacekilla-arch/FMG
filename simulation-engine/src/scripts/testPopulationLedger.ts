@@ -56,7 +56,9 @@ async function main() {
   check(pool2 < unit, `the departure pool kept ${pool2}, a full unit (${unit}) or more`);
   console.log(`3. ${unit * 3 + 1} people gone at ${unit} per unit retired ${retiredPeople} people from cohorts, ${pool2} left in the pool... PASSED`);
 
-  // 4. Famine-struck burgs can empty to 0 and stay on the map as ruins stripped by the Reaper
+  // 4. Famine-struck burgs can empty to 0 and stay on the map as ruins stripped by the Reaper.
+  //    The pool starts at -6 for 5 people: grain relief can now feed the town and allow a 0.1 birth,
+  //    so -5 sat exactly on the wipe-out line.
   await pool.query("SAVEPOINT ruin_reaper_test");
   const targetRes = await pool.query(`
     SELECT b.burg_id, b.name
@@ -73,7 +75,7 @@ async function main() {
   const tid = Number(targetBurg.burg_id);
   await pool.query(
     `UPDATE sim_burg_economy
-     SET pop_null = 3, pop_attuned = 2, food = 0, pop_growth_pool = -5, urban_tier = 1, workforce = '{}'::jsonb
+     SET pop_null = 3, pop_attuned = 2, food = 0, pop_growth_pool = -6, urban_tier = 1, workforce = '{}'::jsonb
      WHERE burg_id = $1`,
     [tid]
   );

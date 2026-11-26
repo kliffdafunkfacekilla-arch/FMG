@@ -50,15 +50,17 @@ async function main() {
   const realRiver = (await pool.query(`SELECT id, name, discharge FROM sim_rivers WHERE discharge >= 500 ORDER BY id ASC LIMIT 1`)).rows[0];
   assert.ok(realRiver, "Expected a high-discharge river in sim_rivers");
 
+  // A large stock keeps every run above zero, so the comparison measures the harvest: with 1,000 food a
+  // town that eats more than it grows ends all three runs at 0.
   await pool.query("SAVEPOINT river_harvest_warm");
-  await pool.query(`UPDATE sim_burg_economy SET food = 1000, unrest = 0, health = 100 WHERE burg_id = $1`, [farmBurg.burg_id]);
+  await pool.query(`UPDATE sim_burg_economy SET food = 500000, unrest = 0, health = 100 WHERE burg_id = $1`, [farmBurg.burg_id]);
   await pool.query(`UPDATE sim_cells SET current_temp = 18, flux = 50, river_id = $2 WHERE id = $1`, [farmBurg.cell_id, realRiver.id]);
   await runSeeded(tickSeed(probeTick), () => runBurgOperationsAgent(pool, probeTick, "Warm Alluvial"));
   const warmFood = Number((await pool.query(`SELECT food FROM sim_burg_economy WHERE burg_id = $1`, [farmBurg.burg_id])).rows[0].food);
   await pool.query("ROLLBACK TO SAVEPOINT river_harvest_warm");
 
   await pool.query("SAVEPOINT river_harvest_cold");
-  await pool.query(`UPDATE sim_burg_economy SET food = 1000, unrest = 0, health = 100 WHERE burg_id = $1`, [farmBurg.burg_id]);
+  await pool.query(`UPDATE sim_burg_economy SET food = 500000, unrest = 0, health = 100 WHERE burg_id = $1`, [farmBurg.burg_id]);
   await pool.query(`UPDATE sim_cells SET current_temp = -12, flux = 0, river_id = 0 WHERE id = $1`, [farmBurg.cell_id]);
   await addCellTags(pool, Number(farmBurg.cell_id), ["#DroughtStricken"]);
   await runSeeded(tickSeed(probeTick), () => runBurgOperationsAgent(pool, probeTick, "Frozen Arid"));
@@ -66,7 +68,7 @@ async function main() {
   await pool.query("ROLLBACK TO SAVEPOINT river_harvest_cold");
 
   await pool.query("SAVEPOINT river_harvest_flood");
-  await pool.query(`UPDATE sim_burg_economy SET food = 1000, unrest = 0, health = 100 WHERE burg_id = $1`, [farmBurg.burg_id]);
+  await pool.query(`UPDATE sim_burg_economy SET food = 500000, unrest = 0, health = 100 WHERE burg_id = $1`, [farmBurg.burg_id]);
   await pool.query(`UPDATE sim_cells SET current_temp = 18, flux = 50, river_id = $2 WHERE id = $1`, [farmBurg.cell_id, realRiver.id]);
   await addCellTags(pool, Number(farmBurg.cell_id), ["#RiverFlooding"]);
   await runSeeded(tickSeed(probeTick), () => runBurgOperationsAgent(pool, probeTick, "River Flooded"));
@@ -109,7 +111,7 @@ async function main() {
   await pool.query(`DELETE FROM sim_events WHERE tick = $1`, [probeTick]);
   const rCoord = toFrontXY(Number(riverBurg.center_x), Number(riverBurg.center_y));
   await pool.query(
-    `INSERT INTO sim_weather_fronts (type, x, y, dx, dy, radius, lifetime) VALUES ('HURRICANE', $1, $2, 0, 0, 1.5, 5)`,
+    `INSERT INTO sim_weather_fronts (type, x, y, dx, dy, radius, lifetime) VALUES ('HURRICANE', $1::float8 - 4, $2, 4, 0, 1.5, 5)`,
     [rCoord.fx, rCoord.fy]
   );
   await runSeeded(tickSeed(probeTick), () => runWeatherAgent(pool, probeTick, "Dimburn", 10, "Flood Probe", false));
@@ -125,7 +127,7 @@ async function main() {
   await pool.query(`UPDATE sim_burg_economy SET pop_null = 500, food = 2000, unrest = 0 WHERE burg_id IN ($1, $2)`, [riverBurg.burg_id, aridBurg.burg_id]);
   const aCoord = toFrontXY(Number(aridBurg.center_x), Number(aridBurg.center_y));
   await pool.query(
-    `INSERT INTO sim_weather_fronts (type, x, y, dx, dy, radius, lifetime) VALUES ('DROUGHT', $1, $2, 0, 0, 1.5, 5), ('DROUGHT', $3, $4, 0, 0, 1.5, 5)`,
+    `INSERT INTO sim_weather_fronts (type, x, y, dx, dy, radius, lifetime) VALUES ('DROUGHT', $1::float8 - 4, $2, 4, 0, 1.5, 5), ('DROUGHT', $3::float8 - 4, $4, 4, 0, 1.5, 5)`,
     [rCoord.fx, rCoord.fy, aCoord.fx, aCoord.fy]
   );
   await runSeeded(tickSeed(probeTick), () => runWeatherAgent(pool, probeTick, "Dryspell", 10, "Drought Probe", false));

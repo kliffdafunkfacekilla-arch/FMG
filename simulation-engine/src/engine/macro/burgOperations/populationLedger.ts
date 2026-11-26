@@ -116,7 +116,17 @@ export function stepBurgPopulationLedger(opts: {
     random,
   } = opts;
   let { popNullDelta, popAttunedDelta } = opts;
-  const pop = burg.origPopNull || 0;
+  const nullsNow = Math.max(0, Number(burg.origPopNull) || 0);
+  const pop = nullsNow + Math.max(0, Number(burg.popAttuned) || 0);
+
+  // Losses gathered earlier in the step (bandits, refugees, occupation, riots) arrive as a single
+  // pop_null figure; spread them over Nulls and attuned by headcount so neither group is singled out.
+  if (popNullDelta < 0 && pop > 0) {
+    const loss = Math.min(pop, -popNullDelta);
+    const nullLoss = Math.round((loss * nullsNow) / pop);
+    popNullDelta = -nullLoss;
+    popAttunedDelta -= loss - nullLoss;
+  }
 
   let births = 0;
   if (newFood > 0 && newHealth >= 40 && newUnrest < 70) {
@@ -128,7 +138,11 @@ export function stepBurgPopulationLedger(opts: {
     }
   }
 
-  let growthPool = (Number(burg.popGrowthPool) || 0) + (births - (starvationDeaths || 0));
+  // Natural deaths (age, illness): about 2% a year at full health, up to 3.2% when health is poor.
+  // Without them births were the only flow and only disasters ever removed people.
+  const naturalDeaths = (pop * 0.02 * (1.6 - Math.min(100, Math.max(0, newHealth)) / 100)) / DAYS_PER_YEAR;
+
+  let growthPool = (Number(burg.popGrowthPool) || 0) + (births - (starvationDeaths || 0) - naturalDeaths);
   const grown = splitByShare(ledger.unit, ledger.attunedShare);
 
   while (growthPool >= ledger.unit) {

@@ -18,6 +18,7 @@ export interface CartelBurgSnap {
   name: string;
   unrest: number;
   popNull: number;
+  popAttuned: number;
   wealth: number;
   health: number;
   food: number;
@@ -184,4 +185,15 @@ export function pickShuffled<T>(
   }));
   ranked.sort((a, b) => a.hash - b.hash || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   return ranked.slice(0, limit).map((r) => r.item);
+}
+
+/** Splits a recruitment of `people` across a burg's Nulls and attuned by headcount. */
+export function recruitSplit(b: { popNull: number; popAttuned: number }, people: number): { popNull?: number; popAttuned?: number } {
+  const n = Math.max(0, b.popNull || 0);
+  const a = Math.max(0, b.popAttuned || 0);
+  const total = n + a;
+  if (total <= 0) return {};
+  const fromNull = Math.round((people * n) / total);
+  const fromAttuned = people - fromNull;
+  return { ...(fromNull ? { popNull: -fromNull } : {}), ...(fromAttuned ? { popAttuned: -fromAttuned } : {}) };
 }

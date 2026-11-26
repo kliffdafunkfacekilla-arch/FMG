@@ -1,4 +1,16 @@
-import type { WorkingBurg } from "./types.js";
+import { econPop, type WorkingBurg } from "./types.js";
+
+/** Food bought per unit of wealth on the grain market (and from abroad). */
+export const GRAIN_PER_WEALTH = 25;
+/** Rations a day any town can scrape from its own land once hungry, before farms are counted. */
+export const SUBSISTENCE_BASE = 4000;
+/** Extra subsistence rations a day per level of FARM infrastructure. */
+export const SUBSISTENCE_PER_FARM = 150;
+
+/** Food a granary can spare: anything above eight days of its own needs. */
+function granaryExcess(b: WorkingBurg): number {
+  return Math.max(0, (b.food || 0) - (econPop(b) || 100) * 8);
+}
 
 /**
  * Computes food balance with faction breadbasket grain relief, trade blockade penalty,
@@ -13,7 +25,15 @@ export function applyFoodAndTributeFlows(opts: {
   foodProduced: number;
   wealthDelta: number;
   military: Record<string, number>;
-}): { foodDelta: number; wealthDelta: number; receivedTribute: { food: number; wealth: number } | undefined } {
+  /** FARM infrastructure level, which raises subsistence capacity. */
+  farmLevel?: number;
+}): {
+  foodDelta: number;
+  wealthDelta: number;
+  receivedTribute: { food: number; wealth: number } | undefined;
+  marketBought: number;
+  subsistence: number;
+} {
   const {
     burg,
     workingBurgs,
@@ -24,35 +44,94 @@ export function applyFoodAndTributeFlows(opts: {
     military,
   } = opts;
   let wealthDelta = opts.wealthDelta;
-  const pop = burg.popNull;
-  let foodDelta = foodProduced - pop;
+  let marketBought = 0;
+  let subsistence = 0;
+  const pop = econPop(burg);
+
+  // The garrison eats too. Rations used to be subtracted after the relief check below, so relief only
+  // covered civilians and garrisoned towns slid into famine every day.
+  const milInfantry = military.infantry || military.footmen || military.militia || 0;
+  const milRanged = military.ranged || military.archers || 0;
+  const milMounted = military.mounted || military.cavalry || 0;
+  const milAirship = military.airship || 0;
+  const milMage = military.mage || 0;
+  const milRationUpkeep = Math.round(
+    milInfantry * 1.2 +
+      milRanged * 1.2 +
+      milMounted * 2.0 +
+      milAirship * 2.5 +
+      milMage * 2.0
+  );
+  let foodDelta = foodProduced - pop - milRationUpkeep;
 
   if ((burg.food || 0) + foodDelta < pop * 2) {
-    const deficit = Math.round(pop * 2 - ((burg.food || 0) + foodDelta));
-    const breadbasket = workingBurgs.find(
-      (b) =>
-        b.burgId !== burg.burgId &&
-        (factionId ? (b.occupierFactionId || b.factionId) === factionId : true) &&
-        (b.food || 0) > (b.popNull || 100) * 8
-    );
-    if (breadbasket && !isTradeBlockaded) {
-      const grainRelief = Math.min(
-        deficit,
-        Math.floor(((breadbasket.food || 0) - (breadbasket.popNull || 100) * 4) * 0.15)
-      );
-      if (grainRelief > 0) {
-        foodDelta += grainRelief;
-        breadbasket.food = Math.max(0, (breadbasket.food || 0) - grainRelief);
-      }
-    } else if (isTradeBlockaded) {
+    let deficit = Math.round(pop * 2 - ((burg.food || 0) + foodDelta));
+    if (isTradeBlockaded) {
       wealthDelta = Math.min(0, wealthDelta - 4);
-    } else if ((burg.wealth || 0) > 25) {
-      const affordableGrain = Math.min(deficit, ((burg.wealth || 0) - 25) * 25);
-      if (affordableGrain > 0) {
-        foodDelta += affordableGrain;
-        wealthDelta -= Math.ceil(affordableGrain / 25);
+    } else {
+      // Relief comes from the faction's fullest granary (any granary for an unaligned town). It used to
+      // take the first match only, often already drained, so towns starved beside full stores.
+      const hasSurplus = (b: WorkingBurg) =>
+        b.burgId !== burg.burgId && (b.food || 0) > (econPop(b) || 100) * 8;
+      const sameFaction = (b: WorkingBurg) =>
+        factionId ? (b.occupierFactionId || b.factionId) === factionId : true;
+      const fullest = (pred: (b: WorkingBurg) => boolean) =>
+        workingBurgs.reduce<WorkingBurg | undefined>(
+          (best, b) => (pred(b) && hasSurplus(b) && (!best || (b.food || 0) > (best.food || 0)) ? b : best),
+          undefined
+        );
+      const breadbasket = fullest(sameFaction);
+      if (breadbasket) {
+        const grainRelief = Math.min(
+          deficit,
+          Math.floor(((breadbasket.food || 0) - (econPop(breadbasket) || 100) * 4) * 0.15)
+        );
+        if (grainRelief > 0) {
+          foodDelta += grainRelief;
+          deficit -= grainRelief;
+          breadbasket.food = Math.max(0, (breadbasket.food || 0) - grainRelief);
+        }
+      }
+      // Grain market: whatever relief did not cover, the town buys from the fullest surplus granary of
+      // any faction, and the seller is paid. Only when no granary anywhere has surplus does grain come
+      // "from abroad" (created), as all purchases used to.
+      if (deficit > 0 && (burg.wealth || 0) > 25) {
+        let budget = Math.min(deficit, ((burg.wealth || 0) - 25) * GRAIN_PER_WEALTH);
+        const seller = workingBurgs.reduce<WorkingBurg | undefined>(
+          (best, b) =>
+            b.burgId !== burg.burgId && granaryExcess(b) > 0 && (!best || (b.food || 0) > (best.food || 0)) ? b : best,
+          undefined
+        );
+        if (seller && budget > 0) {
+          const bought = Math.min(budget, Math.floor(granaryExcess(seller) * 0.25));
+          if (bought > 0) {
+            const price = Math.ceil(bought / GRAIN_PER_WEALTH);
+            foodDelta += bought;
+            deficit -= bought;
+            budget -= bought;
+            marketBought += bought;
+            wealthDelta -= price;
+            seller.food = Math.max(0, (seller.food || 0) - bought);
+            seller.wealth = (seller.wealth || 0) + price;
+          }
+        } else if (budget > 0) {
+          foodDelta += budget;
+          deficit -= budget;
+          marketBought += budget;
+          wealthDelta -= Math.ceil(budget / GRAIN_PER_WEALTH);
+        }
       }
     }
+  }
+
+  // Farm hiring: if the town still cannot cover what it eats today, idle hands work the land. Any town
+  // can raise SUBSISTENCE_BASE rations a day, more with farms. Big cities with little farmland used to
+  // starve outright; now they shrink toward what their land, faction and the market can feed.
+  const shortToday = -((burg.food || 0) + foodDelta);
+  if (shortToday > 0) {
+    const capacity = SUBSISTENCE_BASE + Math.max(0, opts.farmLevel || 0) * SUBSISTENCE_PER_FARM;
+    subsistence = Math.min(shortToday, capacity);
+    foodDelta += subsistence;
   }
 
   if (burg.upstreamBurgId) {
@@ -82,23 +161,7 @@ export function applyFoodAndTributeFlows(opts: {
     wealthDelta += receivedTribute.wealth;
   }
 
-  const milInfantry = military.infantry || military.footmen || military.militia || 0;
-  const milRanged = military.ranged || military.archers || 0;
-  const milMounted = military.mounted || military.cavalry || 0;
-  const milAirship = military.airship || 0;
-  const milMage = military.mage || 0;
-
-  const milRationUpkeep = Math.round(
-    milInfantry * 1.2 +
-      milRanged * 1.2 +
-      milMounted * 2.0 +
-      milAirship * 2.5 +
-      milMage * 2.0
-  );
-
-  foodDelta -= milRationUpkeep;
-
-  return { foodDelta, wealthDelta, receivedTribute };
+  return { foodDelta, wealthDelta, receivedTribute, marketBought, subsistence };
 }
 
 /**
@@ -141,7 +204,7 @@ export function resolveStarvation(opts: {
     if (shortfall > 0) {
       starvationDeaths = Math.min(totalPop, Math.max(1, Math.floor(shortfall * 0.001)));
       banditDefectors = Math.min(
-        Math.floor((burg.popNull || 0) * 0.04),
+        Math.floor(econPop(burg) * 0.04),
         Math.max(0, Math.floor(shortfall * 0.004))
       );
     }

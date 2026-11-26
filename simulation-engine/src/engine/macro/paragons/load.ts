@@ -11,7 +11,7 @@ export async function loadParagons(
   loreDate: string
 ): Promise<ParagonsSnapshot> {
   const burgRes = await client.query(
-    `SELECT burg_id, name, cell_id, pop_null, food, health, unrest, wealth, crime_rate, port
+    `SELECT burg_id, name, cell_id, pop_null, pop_attuned, food, health, unrest, wealth, crime_rate, port
      FROM sim_burg_economy
      ORDER BY burg_id`
   );
@@ -23,6 +23,7 @@ export async function loadParagons(
     name: String(b.name || `Burg #${b.burg_id}`),
     cellId: Number(b.cell_id || 0),
     popNull: Number(b.pop_null || 0),
+    popAttuned: Number(b.pop_attuned || 0),
     food: Number(b.food || 0),
     health: b.health !== null && b.health !== undefined ? Number(b.health) : 100,
     unrest: Number(b.unrest || 0),

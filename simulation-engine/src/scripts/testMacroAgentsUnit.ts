@@ -97,7 +97,8 @@ function testWeatherUnit() {
     isShadowWeek: false,
     phase: "HALO",
     bounds: baseBounds,
-    fronts: [{ id: 1, type: "WILDFIRE", x: 50, y: 50, dx: 0, dy: 0, radius: 10, lifetime: 3 }],
+    // The front moves 20 -> 50 this tick, so the burgs are hit on arrival (full damage).
+    fronts: [{ id: 1, type: "WILDFIRE", x: 20, y: 50, dx: 30, dy: 0, radius: 10, lifetime: 3 }],
     burgs: [
       makeWeatherBurg({ burg_id: 1, name: "Timberstead", cell_id: 10, architecture_type: "WOOD", center_x: 500, center_y: 500 }),
       makeWeatherBurg({ burg_id: 2, name: "Stonehold", cell_id: 11, architecture_type: "STONE", center_x: 520, center_y: 500 }),
@@ -114,10 +115,19 @@ function testWeatherUnit() {
   assert.ok(woodAdj && stoneAdj && !farAdj, "Wildfire must hit wood & stone inside circle and skip faraway");
   assert.ok(woodAdj.food! < stoneAdj.food!, "Wood burg must suffer heavier food loss in wildfire than stone");
 
+  // (a2) A front that already covered the burg last tick only lingers: small food loss, +1 unrest, no deaths.
+  const lingerDeltas = stepWeather(
+    { ...wildSnap, fronts: [{ id: 1, type: "WILDFIRE", x: 50, y: 50, dx: 0, dy: 0, radius: 10, lifetime: 3 }] },
+    { random: () => 0.99 }
+  );
+  const lingerWood = lingerDeltas.find((d) => d.kind === "burg.adjust" && d.burgId === 1) as any;
+  assert.ok(lingerWood && lingerWood.unrest === 1 && !lingerWood.popNull && !lingerWood.health, "A lingering front must do only light damage");
+  assert.ok(Math.abs(lingerWood.food) < Math.abs(woodAdj.food), "Lingering food loss must be far below the arrival hit");
+
   // (b) Drought: river-irrigated halves food penalty vs arid cell
   const droughtSnap: WeatherSnapshot = {
     ...wildSnap,
-    fronts: [{ id: 2, type: "DROUGHT", x: 50, y: 50, dx: 0, dy: 0, radius: 15, lifetime: 4 }],
+    fronts: [{ id: 2, type: "DROUGHT", x: 20, y: 50, dx: 30, dy: 0, radius: 15, lifetime: 4 }],
     burgs: [
       makeWeatherBurg({ burg_id: 10, name: "RiverTown", cell_id: 20, river_id: 4, river_discharge: 300, cell_flux: 40, center_x: 500, center_y: 500 }),
       makeWeatherBurg({ burg_id: 11, name: "DustTown", cell_id: 21, river_id: 0, river_discharge: 0, cell_flux: 1, center_x: 510, center_y: 500 }),
@@ -131,7 +141,7 @@ function testWeatherUnit() {
   // (c) Hurricane over major river triggers #RiverFlooding
   const hurrSnap: WeatherSnapshot = {
     ...wildSnap,
-    fronts: [{ id: 3, type: "HURRICANE", x: 50, y: 50, dx: 0, dy: 0, radius: 10, lifetime: 3 }],
+    fronts: [{ id: 3, type: "HURRICANE", x: 20, y: 50, dx: 30, dy: 0, radius: 10, lifetime: 3 }],
     burgs: [makeWeatherBurg({ burg_id: 20, name: "FloodQuay", cell_id: 30, river_id: 2, river_discharge: 200, river_name: "Great Wash" })],
   };
   const hDeltas = stepWeather(hurrSnap, { random: () => 0.99 });
@@ -1223,8 +1233,9 @@ function testBurgExpansionUnit() {
   const parent3Set = parentSets.find((b) => b.burgId === 12);
   assert.ok(
     parent3Set &&
-      parent3Set.fields.pop_null === 280 &&
-      parent3Set.fields.pop_attuned === 1 &&
+      // 24 founders mirror Oak Hold's mix (300 Nulls, 5 attuned): round(24 * 5 / 305) = 0 attuned.
+      parent3Set.fields.pop_null === 276 &&
+      parent3Set.fields.pop_attuned === 5 &&
       parent3Set.fields.wealth === 810 &&
       parent3Set.fields.food === 512
   );
@@ -1656,7 +1667,7 @@ function testCartelsUnit() {
       { id: 10, name: "The Hedge Wizards", type: "NOMAD", originCellId: 600, originBurgId: null, manpower: 20, wealth: 100, heat: 0, workerGroups: 3 },
     ],
     targetBurgs: [
-      { burgId: 11, cellId: 101, name: "Goldport", unrest: 20, popNull: 500, wealth: 450, health: 90, food: 200, rawMaterials: 150, refinedGoods: 50, factionId: 1 },
+      { burgId: 11, cellId: 101, name: "Goldport", unrest: 20, popNull: 500, popAttuned: 0, wealth: 450, health: 90, food: 200, rawMaterials: 150, refinedGoods: 50, factionId: 1 },
     ],
     lairs: [
       // Lair 50: heat 43 + 3 = 46 >= 45, milPower = 24 > 15 -> busted!
@@ -2105,7 +2116,7 @@ function testBurgOperationsUnit() {
         unrest: 0,
         popNull: 180,
         popAttuned: 20,
-        popGrowthPool: 9.99,
+        popGrowthPool: 9.995, // net of births and natural deaths for 200 people crosses one 10-person unit
         recordUnit: 10,
         speciesDemographics: JSON.stringify({ Human: 1 }),
       }),

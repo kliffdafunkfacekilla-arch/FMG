@@ -23,6 +23,7 @@ import {
   runPrimaryProduction,
   runWorkshopAndSpecialtyCrafting,
 } from "./production.js";
+import { econPop } from "./types.js";
 import type {
   ActiveProjectCreateSpec,
   BurgEventSpec,
@@ -150,6 +151,11 @@ export function stepBurgOperations(
 
   const incomingTributes = new Map<number, { food: number; wealth: number }>();
   const burgUpdates: BurgUpdateRecord[] = [];
+  // Food each burg had when its own update was computed; grain relief drawn from it afterwards by a
+  // later burg is subtracted below, so relief moves food instead of creating it.
+  const foodWhenProcessed = new Map<number, number>();
+  // Same for wealth: grain sold on the market pays the seller, possibly after the seller was processed.
+  const wealthWhenProcessed = new Map<number, number>();
   const stockpileUpdates: Array<{ burgId: number; inventory: Record<string, number> }> = [];
   const events: BurgEventSpec[] = [];
   const tags: BurgTagSpec[] = [];
@@ -240,6 +246,7 @@ export function stepBurgOperations(
       foodProduced: primaryRes.foodProduced,
       wealthDelta: primaryRes.wealthDelta,
       military,
+      farmLevel: bInfra.get("FARM") || 0,
     });
 
     let popNullDelta = 0;
@@ -329,6 +336,7 @@ export function stepBurgOperations(
     popNullDelta += occRes.popNullDeltaInc;
     departedDead += occRes.departedDeadInc;
 
+    wealthWhenProcessed.set(burg.burgId, burg.wealth || 0);
     const rawNewWealth = Math.floor(Math.max(0, (burg.wealth || 0) + foodFlowRes.wealthDelta));
     const upgradeRes = evaluateUrbanTierUpgrade({
       burg,
@@ -340,10 +348,11 @@ export function stepBurgOperations(
       events,
     });
 
+    foodWhenProcessed.set(burg.burgId, burg.food || 0);
     const capped = applyGranaryAndCirculationCaps(
       (burg.food || 0) + foodFlowRes.foodDelta,
       upgradeRes.newWealth,
-      burg.origPopNull || 0
+      econPop({ popNull: burg.origPopNull, popAttuned: burg.popAttuned })
     );
     let newFood = capped.newFood;
     const newWealth = capped.newWealth;
@@ -450,6 +459,13 @@ export function stepBurgOperations(
   }
 
   for (const u of burgUpdates) {
+    const drawnLater = (foodWhenProcessed.get(u.burgId) ?? 0) - (burgById.get(u.burgId)?.food ?? 0);
+    if (drawnLater > 0) u.food = Math.max(0, u.food - drawnLater);
+    const earnedLater = (burgById.get(u.burgId)?.wealth ?? 0) - (wealthWhenProcessed.get(u.burgId) ?? 0);
+    if (earnedLater > 0) u.wealth = Math.max(0, u.wealth + earnedLater);
+  }
+
+  for (const u of burgUpdates) {
     deltas.push({
       kind: "burg.set",
       burgId: u.burgId,
@@ -550,7 +566,8 @@ export function stepBurgOperations(
   for (const [cid, dmg] of ecoCollapseCells) {
     const curHealth = cellEcoHealthByCell.get(cid) ?? 100;
     const nextHealth = Math.max(0, curHealth - dmg);
-    if (nextHealth < 30) {
+    // Report the collapse once, when the cell first falls below 30, not on every tick it stays there.
+    if (nextHealth < 30 && curHealth >= 30) {
       deltas.push({
         kind: "event.log",
         tick,

@@ -2,9 +2,7 @@ import { PoolClient, Pool } from "pg";
 import { flushStepDeltas } from "../deltas/index.js";
 import { loadBackgroundDirector } from "../macro/backgroundDirector/load.js";
 import { BLEED_TAG, stepBackgroundDirector } from "../macro/backgroundDirector/step.js";
-import { advanceThreadClocks } from "../threads/threadEngine.js";
 import { openWorldEventThreads } from "../threads/worldThreads.js";
-import { advanceArcForThread } from "../threads/storyArcs.js";
 
 // =============================================================
 // HEADLESS BACKGROUND DIRECTOR AGENT
@@ -44,7 +42,7 @@ async function isolated<T>(
     if (savepoint) await client.query(`RELEASE SAVEPOINT ${name}`);
     return { ok: true, value };
   } catch (error) {
-    if (savepoint) await client.query(`ROLLBACK TO SAVEPOINT ${name}`).catch(() => {});
+    if (savepoint) await client.query(`ROLLBACK TO SAVEPOINT ${name}`).catch(() => { });
     return { ok: false, error };
   }
 }
@@ -63,13 +61,8 @@ export async function runBackgroundDirectorAgent(
     sectorsFailed: 0,
   };
 
-  // 0. Advance existing open thread clocks (STORY_AUDIT Step 3)
-  const clockSummary = await advanceThreadClocks(client, currentTick, loreDate);
-  summary.threadsTicked = clockSummary.threadsTicked;
-  summary.threadsResolved = clockSummary.threadsResolved;
-  for (const expired of clockSummary.worldDeltasApplied) {
-    await advanceArcForThread(client, expired.threadId, "expired");
-  }
+  // Thread clocks are advanced once per tick by the orchestrator's threadClocks step. They used to be
+  // advanced here as well, so every thread aged two days per tick.
 
   // 1. Evaluate sector layers via snapshot -> pure step -> validated deltas
   const snap = await loadBackgroundDirector(client, currentTick, loreDate);

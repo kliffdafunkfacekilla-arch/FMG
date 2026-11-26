@@ -822,7 +822,11 @@ export async function applyDeltas(deltas: Delta[], db: Db): Promise<Record<strin
            CASE WHEN v.arch_set THEN v.arch_val ELSE b.architecture_type END AS next_arch,
            CASE WHEN v.demo_set THEN v.demo_val ELSE b.demographics END AS next_demo,
            CASE WHEN v.gp_set THEN v.gp_val ELSE b.pop_growth_pool END AS next_gp,
-           CASE WHEN v.dp_set THEN v.dp_val ELSE b.pop_departure_pool END AS next_dp,
+           -- Population removed by an adjust (weather deaths, killings, recruits) joins the departure pool,
+           -- which burgOperations retires from population_cohorts, so the two ledgers stay in step.
+           (CASE WHEN v.dp_set THEN v.dp_val ELSE COALESCE(b.pop_departure_pool, 0) END)
+             + (CASE WHEN v.popn_act AND NOT v.popn_set AND v.popn_delta < 0 THEN LEAST(COALESCE(b.pop_null, 0), -v.popn_delta) ELSE 0 END)
+             + (CASE WHEN v.popa_act AND NOT v.popa_set AND v.popa_delta < 0 THEN LEAST(COALESCE(b.pop_attuned, 0), -v.popa_delta) ELSE 0 END) AS next_dp,
            v.wf_clr AS wf_clr,
            v.wf_empty AS wf_empty,
            CASE WHEN v.ru_set THEN LEAST(40, GREATEST(3, v.ru_val)) ELSE b.record_unit END AS next_ru

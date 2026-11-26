@@ -1,5 +1,6 @@
 import { type CommodityCategory, getGoodsByCategory } from "../../economy/factionSpecialties.js";
 import { tryConsume } from "./health.js";
+import { econPop } from "./types.js";
 import type {
   ActiveProjectCreateSpec,
   BurgActiveProjectSnap,
@@ -102,7 +103,7 @@ export function evaluateUrbanTierUpgrade(opts: {
 }): { newWealth: number; archType: string } {
   const { burg, tick, activeProjectsSet, inventory, newActiveProjects, events } = opts;
   let newWealth = opts.newWealth;
-  const pop = burg.popNull;
+  const pop = econPop(burg);
   const urbanTier = burg.urbanTier;
   const popThreshold =
     urbanTier === 1 ? 1200 : urbanTier === 2 ? 4500 : urbanTier === 3 ? 12000 : 999999;

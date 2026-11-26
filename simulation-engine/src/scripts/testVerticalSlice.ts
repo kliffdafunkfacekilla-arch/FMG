@@ -152,7 +152,11 @@ async function runVerticalSliceTest() {
     id: `npc_ward_${citRow.citizen_id}`,
     name: citRow.name,
     role: citRow.profession || "Citizen",
-    tags: [`temper:${String(citRow.temper || "curious").toLowerCase()}`]
+    // Map NPCs carry both temper and instinct tags (SectorMapGenerator), and motives depend on both.
+    tags: [
+      `temper:${String(citRow.temper || "curious").toLowerCase()}`,
+      ...(citRow.instinct ? [`instinct:${String(citRow.instinct).toLowerCase()}`] : []),
+    ]
   };
   seedNarrativeTags([seededCit], facts);
   const derivedCit = deriveCitizenMotives(citRow);

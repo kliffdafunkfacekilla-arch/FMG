@@ -126,6 +126,15 @@ export interface BurgOperationsSnapshot {
   occupierTraitsByFactionEntries: Array<[number, unknown]>;
 }
 
+/**
+ * The headcount the economy plans around: half of everyone living there. At world start pop_null and
+ * pop_attuned are equal, so this matches the old pop_null-based tuning, but it no longer reads zero
+ * when one group shrinks (only Nulls used to eat, so a town without Nulls stopped eating).
+ */
+export function econPop(b: { popNull?: number | null; popAttuned?: number | null }): number {
+  return Math.floor((Math.max(0, Number(b.popNull) || 0) + Math.max(0, Number(b.popAttuned) || 0)) / 2);
+}
+
 export interface WorkingBurg {
   burgId: number;
   name: string;

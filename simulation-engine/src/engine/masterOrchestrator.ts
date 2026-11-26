@@ -48,7 +48,8 @@ import { runSeeded, seedSql, tickSeed } from "./rng.js";
 import { loadAutonomousDrama } from "./macro/autonomousDrama/load.js";
 import { stepAutonomousDrama } from "./macro/autonomousDrama/step.js";
 import { advanceThreadClocks } from "./threads/threadEngine.js";
-import { checkStoryEscalations } from "./story/storylines.js";
+import { advanceArcForThread } from "./threads/storyArcs.js";
+import { checkStoryEscalations, sweepStaleStorylines } from "./story/storylines.js";
 import { getFocusedCellIds } from "./meso/region.js";
 import { runFocusedMesoDay } from "./meso/runMesoDay.js";
 
@@ -265,8 +266,12 @@ async function runTick(): Promise<TickResult> {
                 for (const d of out.deltas) emit(d);
             });
             await step('threadClocks', async () => {
-                await advanceThreadClocks(client, tick, loreDate);
+                const clocks = await advanceThreadClocks(client, tick, loreDate);
+                for (const expired of clocks.worldDeltasApplied) {
+                    await advanceArcForThread(client, expired.threadId, "expired");
+                }
                 await checkStoryEscalations(client, tick);
+                if (tick % 10 === 0) await sweepStaleStorylines(client, tick);
             });
 
             // 10. Chronicler

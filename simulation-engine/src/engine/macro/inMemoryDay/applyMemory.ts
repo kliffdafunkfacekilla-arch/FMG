@@ -1246,6 +1246,9 @@ export function applyDeltasInMemory(world: WorldSnapshot, deltas: Delta[]): Reco
     b.crimeRate = resolveNumFloat(a.crimeRate, b.crimeRate, 0, 100);
     b.rawMaterials = resolveNumInt(a.rawMaterials, b.rawMaterials, 0);
     b.refinedGoods = resolveNumInt(a.refinedGoods, b.refinedGoods, 0);
+    // Mirrors deltas/apply.ts: people removed by an adjust join the departure pool for cohort retirement.
+    const lostNull = !a.popNull.hasSet && a.popNull.delta < 0 ? Math.min(Math.max(0, b.popNull), -a.popNull.delta) : 0;
+    const lostAttuned = !a.popAttuned.hasSet && a.popAttuned.delta < 0 ? Math.min(Math.max(0, b.popAttuned), -a.popAttuned.delta) : 0;
     b.popNull = resolveNumInt(a.popNull, b.popNull, 0);
     b.popAttuned = resolveNumInt(a.popAttuned, b.popAttuned, 0);
     if (a.urbanTierSet !== undefined) b.urbanTier = a.urbanTierSet;
@@ -1258,6 +1261,7 @@ export function applyDeltasInMemory(world: WorldSnapshot, deltas: Delta[]): Reco
     if (a.demoSet !== undefined) b.demographics = a.demoSet;
     if (a.gpSet !== undefined) b.popGrowthPool = a.gpSet;
     if (a.dpSet !== undefined) b.popDeparturePool = a.dpSet;
+    if (lostNull + lostAttuned > 0) b.popDeparturePool = (Number(b.popDeparturePool) || 0) + lostNull + lostAttuned;
     if (a.wfClr) b.workforce = null;
     else if (a.wfEmpty) b.workforce = {};
     if (a.ruSet !== undefined) b.recordUnit = a.ruSet;

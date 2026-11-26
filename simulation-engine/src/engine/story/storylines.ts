@@ -273,12 +273,15 @@ export async function checkStoryEscalations(
      WHERE s.scale = 'thread'
        AND s.parent_id IS NULL
        AND (s.state = 'expired' OR (s.state = 'resolved' AND (s.resolution->>'expired')::boolean IS TRUE))
+       -- Only recently ended threads: this used to rescan every thread ever expired, on every tick.
+       AND COALESCE(s.resolved_tick, s.created_tick) >= $1::int - 30
        AND array_length(s.actor_ids, 1) > 0
        AND EXISTS (
          SELECT 1 FROM entities e WHERE e.ref = ANY(s.actor_ids) AND e.alive = true
        )
      ORDER BY s.id ASC
-     LIMIT 10`
+     LIMIT 10`,
+    [currentTick]
   );
 
   for (const row of expiredRes.rows) {
@@ -751,4 +754,37 @@ export async function autoAcceptTopProposal(
   const top = proposals[0];
   if (!top) return null;
   return decideProposal(db, top.id, { decision: "accept", tick });
+}
+
+/** Ticks a proposal waits on the story desk before it lapses. */
+export const PROPOSAL_TTL_TICKS = 60;
+/** Ticks an arc or saga may sit with no live child thread before it is marked failed. */
+export const ORPHAN_ARC_GRACE_TICKS = 30;
+
+/**
+ * Clears storylines nothing will ever move: proposals nobody accepted within PROPOSAL_TTL_TICKS
+ * become 'expired', and open arcs or sagas with no proposed, open or escalated child for
+ * ORPHAN_ARC_GRACE_TICKS become 'failed'. Before this, items from tick 1 were still open at tick 6,794.
+ */
+export async function sweepStaleStorylines(
+  db: Db,
+  currentTick: number
+): Promise<{ proposalsExpired: number; arcsFailed: number }> {
+  const proposals = await db.query(
+    `UPDATE storylines SET state = 'expired', resolved_tick = $1::int
+     WHERE state = 'proposed' AND created_tick < $1::int - $2::int`,
+    [currentTick, PROPOSAL_TTL_TICKS]
+  );
+  const arcs = await db.query(
+    `UPDATE storylines p SET state = 'failed', resolved_tick = $1::int
+     WHERE p.scale IN ('arc', 'saga')
+       AND p.state IN ('open', 'escalated')
+       AND p.created_tick < $1::int - $2::int
+       AND NOT EXISTS (
+         SELECT 1 FROM storylines c
+         WHERE c.parent_id = p.id AND c.state IN ('proposed', 'open', 'escalated')
+       )`,
+    [currentTick, ORPHAN_ARC_GRACE_TICKS]
+  );
+  return { proposalsExpired: proposals.rowCount || 0, arcsFailed: arcs.rowCount || 0 };
 }
