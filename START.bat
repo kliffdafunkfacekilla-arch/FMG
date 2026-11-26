@@ -1,14 +1,15 @@
 @echo off
 setlocal enabledelayedexpansion
 
-:: Ensure script always executes in its own directory
+:: One-click launcher: database, Ollama, simulation server, world-clock worker and observer dashboard.
+:: Run STOP.bat to shut everything down again.
 cd /d "%~dp0"
 
-title Fantasy Map Generator - Simulation & Observer Launcher
+title Ostraka Launcher
 color 0B
 
 echo ========================================================
-echo    OSTRAKA SIMULATION ENGINE & OBSERVER DASHBOARD
+echo    OSTRAKA SIMULATION ENGINE ^& OBSERVER DASHBOARD
 echo ========================================================
 echo.
 
@@ -32,7 +33,7 @@ if not exist "simulation-engine\.env" (
     )
 )
 
-:: 3. Check simulation-engine dependencies
+:: 3. Install dependencies on first run
 if not exist "simulation-engine\node_modules" (
     echo [INFO] Installing simulation-engine dependencies...
     cd simulation-engine
@@ -40,7 +41,7 @@ if not exist "simulation-engine\node_modules" (
     cd ..
 )
 
-:: 4. Compile TypeScript backend (always, so source edits take effect)
+:: 4. Compile the TypeScript backend (always, so source edits take effect)
 echo [INFO] Compiling simulation-engine TypeScript...
 cd simulation-engine
 call npx tsc
@@ -51,59 +52,83 @@ if %ERRORLEVEL% neq 0 (
     pause
     exit /b 1
 )
-
-:: 5. Build Observer Dashboard assets if missing
-if not exist "dist-client" (
-    echo [INFO] Building Observer Dashboard assets...
-    call npm run build:observer
-)
 cd ..
 
-:: 6. Check PostgreSQL on Port 5432
+:: 5. PostgreSQL on port 5432
 netstat -ano | findstr :5432 | findstr LISTENING >nul 2>nul
 if %ERRORLEVEL% neq 0 (
     echo [INFO] PostgreSQL not detected on port 5432. Starting database...
     if exist "%USERPROFILE%\scoop\apps\postgresql\current\bin\pg_ctl.exe" (
-        "%USERPROFILE%\scoop\apps\postgresql\current\bin\pg_ctl.exe" -D "%USERPROFILE%\scoop\persist\postgresql\data" start
+        "%USERPROFILE%\scoop\apps\postgresql\current\bin\pg_ctl.exe" -D "%USERPROFILE%\scoop\persist\postgresql\data" -l "%USERPROFILE%\scoop\persist\postgresql\postgres.log" start
         timeout /t 2 /nobreak >nul
-    ) else if exist "%USERPROFILE%\scoop\apps\postgresql\current\bin\postgres.exe" (
-        start "PostgreSQL Server" /min "%USERPROFILE%\scoop\apps\postgresql\current\bin\postgres.exe" -D "%USERPROFILE%\scoop\persist\postgresql\data"
-        timeout /t 3 /nobreak >nul
     ) else (
         net start postgresql >nul 2>nul
         net start postgresql-x64-16 >nul 2>nul
         net start postgresql-x64-15 >nul 2>nul
     )
+) else (
+    echo [OK] PostgreSQL is running.
 )
 
-:: 7. Clean up any stale processes on ports 3000 and 5174
+:: 6. Ollama on port 11434 (local LLM for narration)
+netstat -ano | findstr :11434 | findstr LISTENING >nul 2>nul
+if %ERRORLEVEL% neq 0 (
+    if exist "%LOCALAPPDATA%\Programs\Ollama\ollama.exe" (
+        echo [INFO] Starting Ollama...
+        start "Ollama" /min "%LOCALAPPDATA%\Programs\Ollama\ollama.exe" serve
+    ) else (
+        echo [WARN] Ollama not found. The simulation runs, but GM narration will not.
+    )
+) else (
+    echo [OK] Ollama is running.
+)
+
+:: 7. Stop anything left over from a previous run
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr :3000 ^| findstr LISTENING') do taskkill /f /pid %%a >nul 2>&1
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr :5174 ^| findstr LISTENING') do taskkill /f /pid %%a >nul 2>&1
+powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"name='node.exe'\" | Where-Object { $_.CommandLine -like '*simWorker.js*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" >nul 2>&1
 
-:: 8. Launch Simulation Engine Backend on Port 3000
-echo [1/2] Starting Simulation Engine Backend on Port 3000...
-start "FMG Simulation Engine (Port 3000)" cmd /k "cd /d ""%~dp0simulation-engine"" && node dist/server.js"
+:: 8. Simulation server (API + embedded dashboard) on port 3000
+echo [1/3] Starting simulation server on port 3000...
+start "Ostraka Server (Port 3000)" /min cmd /k "cd /d ""%~dp0simulation-engine"" && node dist/server.js"
 
-:: 9. Launch Observer Dashboard on Port 5174 (Vite Dev Server)
-echo [2/2] Starting Observer Dashboard on Port 5174...
-start "FMG Observer Dashboard (Port 5174)" cmd /k "cd /d ""%~dp0simulation-engine"" && npm run observer"
+:: 9. Wait until the server answers (it runs database migrations on start)
+set /a tries=0
+:waitserver
+set /a tries+=1
+powershell -NoProfile -Command "try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 http://127.0.0.1:3000/ | Out-Null; exit 0 } catch { if ($_.Exception.Response) { exit 0 } else { exit 1 } }" >nul 2>&1
+if %ERRORLEVEL% neq 0 (
+    if !tries! geq 30 (
+        color 0C
+        echo [ERROR] The server did not answer within 60 seconds. Check the "Ostraka Server" window.
+        pause
+        exit /b 1
+    )
+    timeout /t 2 /nobreak >nul
+    goto waitserver
+)
+echo [OK] Server is up.
 
-:: 10. Wait for servers to spin up and launch browser
-echo.
-echo Launching Observer Dashboard in default browser in 3 seconds...
-ping 127.0.0.1 -n 4 >nul
+:: 10. World-clock worker: runs ticks in the background (autoplay needs it)
+echo [2/3] Starting world-clock worker...
+start "Ostraka World Clock Worker" /min cmd /k "cd /d ""%~dp0simulation-engine"" && node dist/worker/simWorker.js"
+
+:: 11. Observer dashboard (Vite) on port 5174
+echo [3/3] Starting observer dashboard on port 5174...
+start "Ostraka Dashboard (Port 5174)" /min cmd /k "cd /d ""%~dp0simulation-engine"" && npm run observer"
+ping 127.0.0.1 -n 5 >nul
 start http://localhost:5174
 
 echo.
 echo ========================================================
-echo    SYSTEM ONLINE!
+echo    SYSTEM ONLINE
 echo ========================================================
-echo    - Observer Dashboard (Live HMR): http://localhost:5174
-echo    - Simulation Engine Backend:    http://localhost:3000
-echo    - Embedded Dashboard View:      http://localhost:3000/dashboard
+echo    - Observer dashboard:  http://localhost:5174
+echo    - Simulation server:   http://localhost:3000
+echo    - World-clock worker:  running (minimized window)
 echo.
-echo    Keep this window open or minimize it.
-echo    To stop all servers, run STOP.bat
+echo    The service windows are minimized on the taskbar.
+echo    To stop everything, run STOP.bat
 echo ========================================================
 echo.
 pause
