@@ -36,6 +36,22 @@ interface NpcItem {
   [key: string]: any;
 }
 
+interface NpcLife {
+  citizenId: number;
+  name: string;
+  age: number;
+  alive: boolean;
+  townName: string | null;
+  childhood: string | null;
+  summary: string[];
+  events: Array<{ tick: number; kind: string; text: string }>;
+}
+
+const LIFE_ICONS: Record<string, string> = {
+  born: '👶', came_of_age: '🎓', married: '💍', child_born: '👶', friend: '🤝', rival: '⚔️',
+  survived_raid: '🏴', hunger: '🍂', grief: '🕯️', death: '✝',
+};
+
 interface TacticalLayerData {
   success: boolean;
   cellId: number;
@@ -201,6 +217,21 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
   useEffect(() => {
     loadLayer(zLayer);
   }, [cellId, rx, ry, zLayer]);
+
+  // The full life of the selected townsperson (beasts, squads and paragons have none: 404, panel stays hidden).
+  const [npcLife, setNpcLife] = useState<NpcLife | null>(null);
+  const [lifeOpen, setLifeOpen] = useState(false);
+  useEffect(() => {
+    setNpcLife(null);
+    setLifeOpen(false);
+    if (!selectedNpc) return;
+    let cancelled = false;
+    fetch(`/api/people/npc/${encodeURIComponent(selectedNpc.id)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled && d && d.citizenId) setNpcLife(d); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [selectedNpc?.id]);
 
   // Render 256x256 tactical map onto 512x512 canvas using real terrain tile textures
   useEffect(() => {
@@ -849,6 +880,34 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
                     {selectedNpc.dialogue && (
                       <div style={{ color: '#fef08a', marginTop: 4, fontStyle: 'italic' }}>
                         "{selectedNpc.dialogue}"
+                      </div>
+                    )}
+                    {npcLife && (npcLife.summary.length > 0 || npcLife.events.length > 0) && (
+                      <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid #1e293b', fontSize: 10, color: '#cbd5e1', lineHeight: 1.4 }}>
+                        <div style={{ color: '#e2e8f0', fontWeight: 700, marginBottom: 2 }}>
+                          Life · age {npcLife.age}{npcLife.townName ? ` · ${npcLife.townName}` : ''}
+                        </div>
+                        {npcLife.summary.map((line, i) => <div key={i}>• {line}</div>)}
+                        {npcLife.events.length > 0 && (
+                          <>
+                            <button
+                              onClick={() => setLifeOpen((o) => !o)}
+                              style={{ marginTop: 4, background: 'none', border: 'none', color: '#38bdf8', cursor: 'pointer', padding: 0, fontSize: 10 }}
+                            >
+                              {lifeOpen ? '▾ Hide their story' : `▸ Their story (${npcLife.events.length} ${npcLife.events.length === 1 ? 'moment' : 'moments'})`}
+                            </button>
+                            {lifeOpen && (
+                              <div style={{ marginTop: 3, maxHeight: 160, overflowY: 'auto' }}>
+                                {npcLife.events.map((e, i) => (
+                                  <div key={i} style={{ display: 'flex', gap: 6 }}>
+                                    <span style={{ color: '#64748b', minWidth: 52 }}>Day {e.tick}</span>
+                                    <span>{LIFE_ICONS[e.kind] || '·'} {e.text}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </>
+                        )}
                       </div>
                     )}
                   </div>

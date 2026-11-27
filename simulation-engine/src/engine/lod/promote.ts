@@ -28,7 +28,7 @@ export interface PromotedPersonResult {
   cohortKey: string;
 }
 
-const FIRST_NAMES: Record<string, string[]> = {
+export const FIRST_NAMES: Record<string, string[]> = {
   Human: ["Elian", "Vaelen", "Mara", "Lucian", "Kenneth", "Cassian", "Theron", "Orla", "Danica", "Gareth", "Fiona", "Tobias", "Morwen", "Darek", "Brina", "Jarek", "Sylvia"],
   Avian: ["Corvus", "Aeron", "Peregrine", "Skye", "Talon", "Cirrus", "Zephyr", "Kestrel", "Osprey", "Altair", "Sora", "Gale"],
   "Bear-Folk": ["Bjorn", "Kaelis", "Ursan", "Torben", "Grizel", "Brant", "Hulda", "Bram", "Orson", "Valko", "Thora"],
@@ -48,7 +48,7 @@ const LAST_NAMES: Record<string, string[]> = {
   "Plant-Folk": ["Deep-Root", "Green-Bough", "Sap-Flow", "Briar-Twist", "Autumn-Leaf", "Iron-Bark"],
 };
 
-const CHILDHOOD_BACKGROUNDS = [
+export const CHILDHOOD_BACKGROUNDS = [
   "Apprenticed early at the forge; blistered palms taught them the stubborn value of endurance.",
   "Survived a bitter winter famine by foraging frozen marsh-moss with their elder siblings.",
   "Discovered strange sparks dancing along their fingertips while resting beside an ancient wardstone.",
@@ -59,8 +59,8 @@ const CHILDHOOD_BACKGROUNDS = [
   "Learned to sprint across rooftops carrying urgent missives for the merchant guild.",
 ];
 
-const TEMPERS = ["GREEDY", "FANATICAL", "DESPERATE", "SCHOLARLY", "STOIC", "VENGEFUL", "COMPASSIONATE", "CURIOUS"];
-const INSTINCTS = ["WARY", "CURIOUS", "AGGRESSIVE", "FEARFUL", "DEVOUT"];
+export const TEMPERS = ["GREEDY", "FANATICAL", "DESPERATE", "SCHOLARLY", "STOIC", "VENGEFUL", "COMPASSIONATE", "CURIOUS"];
+export const INSTINCTS = ["WARY", "CURIOUS", "AGGRESSIVE", "FEARFUL", "DEVOUT"];
 
 function pickSeeded<T>(arr: readonly T[], rng: () => number, fallback: T): T {
   if (arr.length === 0) return fallback;

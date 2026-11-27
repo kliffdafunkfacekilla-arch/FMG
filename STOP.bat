@@ -23,6 +23,10 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr :5174 ^| findstr LISTENING') 
     taskkill /f /pid %%a >nul 2>&1
 )
 
+:: Free the LLM's memory (taskkill above gives the server no chance to; Ollama itself keeps running)
+echo Unloading the Ollama model...
+powershell -NoProfile -Command "try { (Invoke-RestMethod http://127.0.0.1:11434/api/ps -TimeoutSec 3).models | ForEach-Object { Invoke-RestMethod http://127.0.0.1:11434/api/generate -Method Post -ContentType 'application/json' -Body (@{ model = $_.name; keep_alive = 0 } | ConvertTo-Json) -TimeoutSec 10 | Out-Null } } catch {}" >nul 2>&1
+
 :: Close the leftover service windows
 taskkill /f /fi "WINDOWTITLE eq Ostraka Server*" >nul 2>&1
 taskkill /f /fi "WINDOWTITLE eq Ostraka World Clock*" >nul 2>&1

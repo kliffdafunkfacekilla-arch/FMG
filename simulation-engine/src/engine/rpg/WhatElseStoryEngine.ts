@@ -92,6 +92,10 @@ export interface InjectedNPC {
   want?: string | undefined;
   flaw?: string | undefined;
   lineWontCross?: string | undefined;
+  /** The named townsperson behind this NPC, when there is one (engine/macro/lives keeps their life). */
+  citizenId?: number | undefined;
+  /** A few true lines from their life (family, losses, hardships), for the GM and their own voice. */
+  lifeStory?: string[] | undefined;
 }
 
 export interface InjectedWorldState {

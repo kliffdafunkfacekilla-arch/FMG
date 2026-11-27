@@ -14,6 +14,7 @@ import { SHADOWFALL_MONTH, isChaosPeak } from "../canon/calendar.js";
 
 import { ollamaGenerate, ollamaGenerateStrict } from "../llm.js";
 import { promoteFromCohort } from "../lod/promote.js";
+import { attachLivesToNpcs } from "../entities/lifeStory.js";
 import { Pool } from "pg";
 import { TagMatrixEngine, TaggedObject } from "./TagMatrixEngine.js";
 import { WhatElseStoryEngine, SectorContext, InjectedNPC, InjectedWorldState } from "./WhatElseStoryEngine.js";
@@ -806,6 +807,9 @@ Return ONLY valid JSON matching this schema:
 
     this.activeProps.clear();
     this.activeNPCs.clear();
+
+    // Named townsfolk carry their life into the scene; those who have died since the map was drawn are gone.
+    injected.npcs = await attachLivesToNpcs(this.pool, injected.npcs);
 
     injected.props.forEach(p => this.activeProps.set(p.id, p));
 

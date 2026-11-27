@@ -16,6 +16,7 @@ const DDL = `
 -- Drop only simulation tables, strictly preserving player character sheets, game saves, and memorials
 DROP TABLE IF EXISTS focused_regions CASCADE;
 DROP TABLE IF EXISTS sim_health_history CASCADE;
+DROP TABLE IF EXISTS sim_life_events CASCADE;
 DROP TABLE IF EXISTS standing, actions CASCADE;
 DROP TABLE IF EXISTS scheduled_events, sim_commands, world_clock CASCADE;
 DROP TABLE IF EXISTS promoted_slots, population_cohorts CASCADE;

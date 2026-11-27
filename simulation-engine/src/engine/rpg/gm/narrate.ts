@@ -171,7 +171,10 @@ export async function synthesizeNpcDialogue(params: {
   const motiveStr = targetNPC?.want || targetNPC?.flaw || targetNPC?.lineWontCross
     ? `\nPersonal Want: ${targetNPC.want || "N/A"}\nPersonal Flaw: ${targetNPC.flaw || "N/A"}\nLine You Will Never Cross: ${targetNPC.lineWontCross || "N/A"}`
     : "";
-  const dialoguePrompt = `You are ${npcName}, a ${npcRole} aligned with '${npcFaction}'. Your traits are: [${npcTagsStr}].${motiveStr}
+  const lifeStr = targetNPC?.lifeStory?.length
+    ? `\nYour own life so far (true; let it color what you say, and bring it up if the player asks about you or your town):\n${targetNPC.lifeStory.map((l) => `- ${l}`).join("\n")}`
+    : "";
+  const dialoguePrompt = `You are ${npcName}, a ${npcRole} aligned with '${npcFaction}'. Your traits are: [${npcTagsStr}].${motiveStr}${lifeStr}
 The player spoke: "${actionText}".
 Social result: ${hit ? "SUCCESS" : "FAILURE"} (${socialOutcomeNote}). Current disposition: ${targetNPC ? targetNPC.disposition : (hit ? 1 : -1)}.
 ${breakdownNote}

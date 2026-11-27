@@ -17,7 +17,7 @@ const SUITES = [
   "testCalendar", "testCanonMandates", "testTagMatrixFull", "testBrutalGMVisual", "testChaosFlows",
   "testThreadActors", "testThreadReactions", "testThreadClocks", "testQuestChainResolution", "testSystemicOutcomes",
   "testTacticalInteractions", "testStoryPipeline", "testStoryContext", "testStorylines", "testActionsAndStanding", "testMesoCalibration", "testMesoReplay", "testMicroObjectsAndClock", "testStoryMetricsAndSaves", "testSettlement", "testTickReplay", "testGoldenDay", "testMigrations", "testDeltas", "testMacroAgentsUnit", "testWorker", "testEntityRegistry", "testMicroWriteBack", "testTagRegistry", "testCohorts", "testLodRoundTrip", "testPopulationLedger", "testSimHealth", "testStoryCooldowns",
-  "testTTRPGRules", "testVerticalSlice", "testAutonomousDrama", "testStrictPartyLlm", "testOstrakaMapParser", "testCitizenEconomy", "testCitizenLogistics", "testObserverApi", "testWeatherHealth", "testFactionFinances", "testCivicFlags", "testRiversAndClimate", "testCultureReligion", "testInMemoryDay",
+  "testTTRPGRules", "testVerticalSlice", "testAutonomousDrama", "testStrictPartyLlm", "testOstrakaMapParser", "testCitizenEconomy", "testCitizenLogistics", "testObserverApi", "testWeatherHealth", "testFactionFinances", "testCivicFlags", "testRiversAndClimate", "testCultureReligion", "testInMemoryDay", "testNotableLives",
 ];
 const root = __dirname;
 

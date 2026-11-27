@@ -88,7 +88,12 @@ async function check() {
   try {
     await c.connect();
     const t = (await c.query(`SELECT COALESCE(MAX(tick), 0)::int AS t FROM sim_calendar`)).rows[0].t;
-    console.log(`Test world: database "${new URL(testUrl).pathname.slice(1)}" at tick ${t}.`);
+    // New numbered migrations are schema, not world state: bring the frozen world up to date, so suites
+    // (testMigrations among them) see the same schema a live world would.
+    const { migrate } = require("../db/migrate.js") as typeof import("../db/migrate.js");
+    const { applied } = await migrate(c);
+    const note = applied.length ? ` (applied migration ${applied.join(", ")})` : "";
+    console.log(`Test world: database "${new URL(testUrl).pathname.slice(1)}" at tick ${t}${note}.`);
   } catch (e: any) {
     console.error(`\nNo usable test world at ${new URL(testUrl).pathname.slice(1)} (${e?.message || e}).`);
     console.error(`Build it once with:  npm run test:world   then:  npm run test:golden -- --note="rebuilt test world"`);

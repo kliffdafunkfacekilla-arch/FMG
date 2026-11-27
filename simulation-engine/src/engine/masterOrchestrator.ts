@@ -43,6 +43,9 @@ import { stepFactionCollapse } from "./macro/factionCollapse/step.js";
 import { migrate } from "../db/migrate.js";
 import { flushStepDeltas, type Delta, type DeltaEmitter } from "./deltas/index.js";
 import { loadReaper } from "./macro/reaper/load.js";
+import { loadLives } from "./macro/lives/load.js";
+import { stepLives } from "./macro/lives/step.js";
+import { applyLives } from "./macro/lives/apply.js";
 import { stepReaper } from "./macro/reaper/step.js";
 import { runSeeded, seedSql, tickSeed } from "./rng.js";
 import { recordHealthSnapshot } from "./health/worldHealth.js";
@@ -285,6 +288,13 @@ async function runTick(): Promise<TickResult> {
 
             // 10. Chronicler
             await step('chronicler', () => runChroniclerAgent(client, tick, loreDate));
+
+            // 10b. Named people live through the day: what it did to their town, age, ties, weddings, children, grief
+            await step('lives', async () => {
+                const snap = await loadLives(client, tick);
+                const plan = stepLives(snap, Math.random);
+                await applyLives(client, plan, tick, loreDate, Math.random);
+            });
 
             // 11. The Reaper: a burg with nobody left stays as a ruin, stripped of its agents and assets
             await step('reaper', async (emit) => {

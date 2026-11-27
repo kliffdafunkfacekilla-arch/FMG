@@ -12,9 +12,11 @@ import directorRouter from './api/directorRouter';
 import storyRouter from './api/storyRouter';
 import { rulesRouter } from './api/rulesRouter';
 import { healthRouter } from './api/healthRouter';
+import { peopleRouter } from './api/peopleRouter';
 import { ensureCellTagsTable } from './engine/cellTags';
 import { ensureArcTable } from './engine/threads/storyArcs';
 import { migrate } from './db/migrate';
+import { unloadModel } from './engine/llm';
 
 // .env is loaded by db/pool (imported above) from simulation-engine/.env, wherever the server is started.
 dotenv.config({ path: path.join(__dirname, '../.env') });
@@ -43,6 +45,7 @@ app.use('/api/dm/story', directorRouter);
 app.use('/api/story', storyRouter);
 app.use('/api/rules', rulesRouter);
 app.use('/api/health', healthRouter);
+app.use('/api/people', peopleRouter);
 
 const PORT = Number(process.env.PORT) || 3000;
 // Bind to loopback by default so other machines on the network can't reach
@@ -55,4 +58,15 @@ app.listen(PORT, HOST, () => {
   ensureArcTable(pool).catch((e) => console.error(`[db] Could not ensure sim_story_arcs: ${e.message}`));
   migrate(pool).catch((e) => console.error(`[db] Could not run database migrations: ${e.message}`));
 });
+
+// Ctrl+C or closing the server: free the model's memory on the way out (STOP.bat's taskkill skips this,
+// so STOP.bat unloads it itself; LLM_KEEP_ALIVE is the last-resort timeout).
+let shuttingDown = false;
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGBREAK'] as const) {
+  process.on(sig, () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    unloadModel().finally(() => process.exit(0));
+  });
+}
 

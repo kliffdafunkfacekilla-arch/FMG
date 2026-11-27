@@ -10,7 +10,8 @@ import { generateGrindCanyonSectorMap, generateBurgSectorLayers, generateOutlyin
 import { regionalNeighborhood, TERRAIN_VERSION } from '../engine/maps/TacticalTerrain.js';
 import { generateWardDistrictMap, deriveWardLayers } from '../engine/maps/WardDistrict.js';
 import { seedLayerNarrative } from '../engine/rpg/narrativeSeeds.js';
-import { LlmError } from '../engine/llm.js';
+import { LlmError, warmModel, unloadModel } from '../engine/llm.js';
+import { attachLivesToNpcs } from '../engine/entities/lifeStory.js';
 import {
   PartySessionMember,
   PartySessionState,
@@ -1374,7 +1375,7 @@ router.get('/sector_layer', async (req, res) => {
         name: row.layer_name,
         grid: Array.from(grid),
         props: synced.props,
-        npcs: synced.npcs,
+        npcs: await attachLivesToNpcs(pool, synced.npcs),
         features: row.features || {},
         openThreads
       });
@@ -1525,7 +1526,7 @@ router.get('/sector_layer', async (req, res) => {
         name: chosen.name,
         grid: Array.from(chosen.grid),
         props: overlaidProps,
-        npcs: chosen.npcs,
+        npcs: await attachLivesToNpcs(pool, chosen.npcs),
         features: chosen.features,
         openThreads
       });
@@ -1670,7 +1671,7 @@ router.get('/sector_layer', async (req, res) => {
       name: tacticalMap.name,
       grid: Array.from(tacticalMap.grid),
       props: overlaidRegionalProps,
-      npcs: tacticalMap.npcs,
+      npcs: await attachLivesToNpcs(pool, tacticalMap.npcs),
       features: tacticalMap.features,
       openThreads
     });
@@ -2457,6 +2458,8 @@ router.get('/party_session/state', async (req, res) => {
  */
 router.post('/party_session/init', async (req, res) => {
   try {
+    // Start loading the model while the sector is built, so the first turn doesn't wait for it.
+    void warmModel();
     const { cellId = 30627, rx = 50, ry = 50, z = 0 } = req.body || {};
     const targetCellId = Number(cellId);
     const targetRx = Number(rx);
@@ -2934,7 +2937,9 @@ router.post('/party_session/close', async (_req, res) => {
     livePartySessionState.encounterRound = 0;
     livePartySessionState.encounterSeconds = 0;
     const worldClock = await setClockMode(pool, "live");
-    res.json({ success: true, worldClock });
+    // The session is over: free the model's memory now instead of waiting for LLM_KEEP_ALIVE.
+    const modelUnloaded = await unloadModel();
+    res.json({ success: true, worldClock, modelUnloaded });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err?.message || "Failed to close party session" });
   }

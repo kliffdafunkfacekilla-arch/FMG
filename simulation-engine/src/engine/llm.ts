@@ -6,6 +6,13 @@
  *                                            for llama3:latest, which isn't installed)
  *   STORY_LLM=off  no model calls at all (tests, or playing fully offline): callers use their
  *                  procedural fallbacks
+ *   LLM_KEEP_ALIVE default 30m   how long Ollama keeps the model in memory after the last call.
+ *                  Every call sends it, so it overrides the server's own OLLAMA_KEEP_ALIVE (which
+ *                  this process inherits, hence the different name). "-1" = until unloaded.
+ *
+ * Model lifetime: a party session warms the model when it starts (warmModel) and unloads it when it
+ * closes, as does the server on Ctrl+C and STOP.bat (unloadModel). LLM_KEEP_ALIVE is the backup that
+ * frees the memory anyway if nothing says "done" (a crash, a closed browser tab, taskkill).
  *
  * Gemini is gone: nothing here sends world data off this machine.
  * Every call returns null on any failure (Ollama not running, timeout, bad output), and every caller
@@ -25,6 +32,42 @@ export function getOllamaModel(): string {
 
 export function llmDisabled(): boolean {
   return String(process.env.STORY_LLM || "").toLowerCase() === "off";
+}
+
+/** Ollama's keep_alive: a duration ("30m") or seconds; a bare number like "-1" is sent as a number. */
+export function getKeepAlive(): string | number {
+  const v = String(process.env.LLM_KEEP_ALIVE || "30m").trim();
+  return /^-?\d+$/.test(v) ? Number(v) : v;
+}
+
+/** One request that only changes how long the model stays loaded (an empty prompt generates nothing). */
+async function setModelResidency(keepAlive: string | number, timeoutMs: number): Promise<boolean> {
+  if (llmDisabled()) return false;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${getOllamaUrl()}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({ model: getOllamaModel(), keep_alive: keepAlive }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Load the model now, so the first real prompt doesn't wait for it. Never throws. */
+export function warmModel(): Promise<boolean> {
+  return setModelResidency(getKeepAlive(), 120000);
+}
+
+/** Free the model's memory now (nothing else needs it). Never throws. */
+export function unloadModel(): Promise<boolean> {
+  return setModelResidency(0, 5000);
 }
 
 export class LlmError extends Error {
@@ -76,6 +119,7 @@ export async function ollamaGenerateStrict(
         ...(opts.system ? { system: opts.system } : {}),
         ...(opts.json ? { format: "json" } : {}),
         stream: false,
+        keep_alive: getKeepAlive(),
         options: { temperature: opts.temperature ?? 0.7, num_predict: opts.maxTokens ?? 300 },
       }),
     });
@@ -93,6 +137,17 @@ export async function ollamaGenerateStrict(
     warnedDown = false;
     const data: any = await res.json();
     const text = String(data.response || "").trim();
+    if (process.env.LLM_LOG === "1") {
+      // Ollama reports durations in nanoseconds; load_duration > 0 means this call (re)loaded the model.
+      const ms = (ns: any) => Math.round(Number(ns || 0) / 1e6);
+      const label = (opts.system || prompt).replace(/\s+/g, " ").slice(0, 60);
+      console.log(
+        `[llm] ${stage} | ${ms(data.total_duration)} ms total, load ${ms(data.load_duration)} ms | ` +
+        `prompt ${data.prompt_eval_count ?? "?"} tok in ${ms(data.prompt_eval_duration)} ms, ` +
+        `out ${data.eval_count ?? "?"}/${opts.maxTokens ?? 300} tok in ${ms(data.eval_duration)} ms` +
+        `${opts.json ? " | json" : ""} | "${label}"`
+      );
+    }
     if (!text.length) {
       throw new LlmError(stage, `Ollama returned an empty response for model '${model}'`, 502);
     }
