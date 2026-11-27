@@ -15,7 +15,9 @@
     "db:save": "node scripts/saveWorld.cjs",
     "db:branch": "node scripts/branchWorld.cjs",
     "db:migrate": "node dist/db/migrate.js",
-    "db:prune-population": "node dist/scripts/prunePopulationDemographics.js"
+    "db:prune-population": "node dist/scripts/prunePopulationDemographics.js",
+    "test:world": "tsc -p . && node dist/scripts/buildTestWorld.js",
+    "test:golden": "node run-tests.cjs --record-golden"
   },
   "keywords": [],
   "author": "",

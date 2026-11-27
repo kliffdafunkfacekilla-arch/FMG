@@ -45,6 +45,7 @@ import { flushStepDeltas, type Delta, type DeltaEmitter } from "./deltas/index.j
 import { loadReaper } from "./macro/reaper/load.js";
 import { stepReaper } from "./macro/reaper/step.js";
 import { runSeeded, seedSql, tickSeed } from "./rng.js";
+import { recordHealthSnapshot } from "./health/worldHealth.js";
 import { loadAutonomousDrama } from "./macro/autonomousDrama/load.js";
 import { stepAutonomousDrama } from "./macro/autonomousDrama/step.js";
 import { advanceThreadClocks } from "./threads/threadEngine.js";
@@ -324,6 +325,11 @@ async function runTick(): Promise<TickResult> {
             stepActiveRegions(tick);
 
             const totalMs = Math.round(performance.now() - started);
+            // One row of world-health numbers per committed day (dashboard trends and alarms). It uses the raw
+            // query function so it never counts against a step's query budget, and it never fails the day.
+            await recordHealthSnapshot({ query: rawQuery }, tick, {
+                totalMs, status: failedAgents.length ? "partial" : "success", failedAgents, timings, queries,
+            });
             if (failedQueries.length) {
                 console.warn(`[tick ${tick}] ${failedQueries.length} quer${failedQueries.length === 1 ? 'y' : 'ies'} failed:\n  ` + failedQueries.slice(0, 12).join('\n  '));
             }

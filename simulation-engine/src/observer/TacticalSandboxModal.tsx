@@ -55,13 +55,17 @@ interface TacticalSandboxModalProps {
   rx: number;
   ry: number;
   onClose: () => void;
+  /** Inside a dashboard pane instead of a full-screen popup: no overlay, no GM console, canvas fits the pane.
+   *  The header button then calls onClose to open the full view. */
+  embedded?: boolean;
 }
 
 export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
   cellId,
   rx,
   ry,
-  onClose
+  onClose,
+  embedded = false
 }) => {
   const [zLayer, setZLayer] = useState<number>(0);
   const [layerData, setLayerData] = useState<TacticalLayerData | null>(null);
@@ -160,8 +164,10 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
   };
 
   useEffect(() => {
+    // Embedded (dashboard pane) has no GM console; init would reset the shared party session to this square.
+    if (embedded) return;
     loadPartySession();
-  }, [cellId, rx, ry]);
+  }, [cellId, rx, ry, embedded]);
 
   useEffect(() => {
     if (!autoPlay) return;
@@ -426,7 +432,7 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
   };
 
   return (
-    <div style={{
+    <div style={embedded ? { height: '100%', display: 'flex', minHeight: 0 } : {
       position: 'fixed',
       top: 0,
       left: 0,
@@ -442,11 +448,11 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
     }}>
       <div style={{
         background: '#0a0f1d',
-        border: '1px solid #1e293b',
-        borderRadius: 12,
-        width: '96vw',
-        maxWidth: 1440,
-        height: '92vh',
+        border: embedded ? 'none' : '1px solid #1e293b',
+        borderRadius: embedded ? 0 : 12,
+        width: embedded ? '100%' : '96vw',
+        maxWidth: embedded ? undefined : 1440,
+        height: embedded ? '100%' : '92vh',
         display: 'flex',
         flexDirection: 'column',
         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.75)',
@@ -455,7 +461,7 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
       }}>
         {/* Header */}
         <div style={{
-          padding: '12px 20px',
+          padding: embedded ? '6px 10px' : '12px 20px',
           background: '#0f172a',
           borderBottom: '1px solid #1e293b',
           display: 'flex',
@@ -465,10 +471,10 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <span style={{ fontSize: 20 }}>⚔️</span>
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#38bdf8' }}>
+              <h2 style={{ margin: 0, fontSize: embedded ? 13 : 18, fontWeight: 700, color: '#38bdf8' }}>
                 {layerData?.name || `Tactical Map: Cell #${cellId} (rx: ${rx}, ry: ${ry})`}
               </h2>
-              <span style={{
+              {!embedded && <span style={{
                 background: '#0284c7',
                 color: '#fff',
                 fontSize: 10,
@@ -477,9 +483,9 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
                 borderRadius: 4
               }}>
                 256x256 Tactical Grid
-              </span>
+              </span>}
             </div>
-            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4, display: embedded ? 'none' : 'block' }}>
               Region Cell #{cellId} • Meso Coordinate ({rx}, {ry}) • Dynamic Discrete Step • 1 Tick = 1 Day
             </div>
           </div>
@@ -494,9 +500,9 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
               border: '1px solid #334155'
             }}>
               {[
-                { z: 1, label: 'Z = +1 (Upper)' },
-                { z: 0, label: 'Z = 0 (Surface)' },
-                { z: -1, label: 'Z = -1 (Subterranean)' }
+                { z: 1, label: embedded ? 'Upper' : 'Z = +1 (Upper)' },
+                { z: 0, label: embedded ? 'Surface' : 'Z = 0 (Surface)' },
+                { z: -1, label: embedded ? 'Below' : 'Z = -1 (Subterranean)' }
               ].map(item => (
                 <button
                   key={item.z}
@@ -519,25 +525,27 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
 
             <button
               onClick={onClose}
+              title={embedded ? 'Open the full tactical view with the GM console' : 'Close'}
               style={{
                 background: '#334155',
                 color: '#fff',
                 border: 'none',
-                width: 30,
+                width: embedded ? 'auto' : 30,
                 height: 30,
-                borderRadius: '50%',
+                padding: embedded ? '0 10px' : 0,
+                borderRadius: embedded ? 6 : '50%',
                 cursor: 'pointer',
                 fontWeight: 700,
-                fontSize: 14
+                fontSize: embedded ? 11 : 14
               }}
             >
-              ✕
+              {embedded ? '⤢ Full view' : '✕'}
             </button>
           </div>
         </div>
 
         {/* Controlled Instability Crisis Toolbar */}
-        <div style={{
+        <div style={embedded ? { display: 'none' } : {
           padding: '8px 20px',
           background: '#080d1a',
           borderBottom: '1px solid #1e293b',
@@ -651,7 +659,7 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
         {/* Main Content: Left 256x256 Canvas + Right GM & Story Panel */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: '540px 1fr',
+          gridTemplateColumns: embedded ? '1fr' : '540px 1fr',
           flex: 1,
           overflow: 'hidden'
         }}>
@@ -667,8 +675,10 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
           }}>
             <div style={{
               position: 'relative',
-              width: 512,
-              height: 512,
+              width: embedded ? '100%' : 512,
+              maxWidth: 512,
+              aspectRatio: '1 / 1',
+              height: embedded ? 'auto' : 512,
               borderRadius: 8,
               overflow: 'hidden',
               boxShadow: '0 0 20px rgba(0, 0, 0, 0.8)',
@@ -710,8 +720,8 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
                 height={512}
                 onClick={handleCanvasClick}
                 style={{
-                  width: 512,
-                  height: 512,
+                  width: embedded ? '100%' : 512,
+                  height: embedded ? '100%' : 512,
                   imageRendering: 'pixelated',
                   cursor: 'crosshair',
                   display: 'block'
@@ -848,6 +858,7 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
           </div>
 
           {/* Right Column: AI Story Director & B.R.U.T.A.L. GM Console */}
+          {!embedded && (
           <div style={{
             padding: 16,
             display: 'flex',
@@ -1427,6 +1438,7 @@ export const TacticalSandboxModal: React.FC<TacticalSandboxModalProps> = ({
               )}
             </div>
           </div>
+          )}
         </div>
       </div>
     </div>

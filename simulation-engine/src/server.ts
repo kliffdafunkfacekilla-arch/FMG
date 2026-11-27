@@ -11,6 +11,7 @@ import tellerRouter from './api/tellerRouter';
 import directorRouter from './api/directorRouter';
 import storyRouter from './api/storyRouter';
 import { rulesRouter } from './api/rulesRouter';
+import { healthRouter } from './api/healthRouter';
 import { ensureCellTagsTable } from './engine/cellTags';
 import { ensureArcTable } from './engine/threads/storyArcs';
 import { migrate } from './db/migrate';
@@ -41,6 +42,7 @@ app.use('/teller', tellerRouter);
 app.use('/api/dm/story', directorRouter);
 app.use('/api/story', storyRouter);
 app.use('/api/rules', rulesRouter);
+app.use('/api/health', healthRouter);
 
 const PORT = Number(process.env.PORT) || 3000;
 // Bind to loopback by default so other machines on the network can't reach

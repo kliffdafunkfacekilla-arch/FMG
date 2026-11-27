@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { RegionMap } from "./RegionMap";
+import { OverviewTab } from "./overview/OverviewTab";
 import { TacticalSandboxModal } from "./TacticalSandboxModal";
 import { RulesLabTab } from "./RulesLabTab";
 import { StoryDeskPanel } from "./components/StoryDeskPanel";
@@ -163,7 +164,7 @@ async function getJson(url: string, init?: RequestInit): Promise<any> {
   return body;
 }
 
-type MainTab = "MAP" | "SECTORS" | "FRINGE" | "ECOLOGY_CHAOS" | "EVENTS" | "ECONOMY" | "THREADS" | "RULES_LAB";
+type MainTab = "OVERVIEW" | "MAP" | "SECTORS" | "FRINGE" | "ECOLOGY_CHAOS" | "EVENTS" | "ECONOMY" | "THREADS" | "RULES_LAB";
 type ViewMode = "Political" | "Biome" | "Ecology" | "Unrest";
 type SectorCategory = "ALL_BURGS" | "PRISONS" | "VERGE";
 // One poll per POLL_MS: a tiny /status call. Everything else is refetched only when the tick changes.
@@ -1106,7 +1107,7 @@ export function Dashboard() {
   const [cells, setCells] = useState<Cell[]>([]);
   const [economyMap, setEconomyMap] = useState<Record<number, any>>({});
   const [factionMap, setFactionMap] = useState<Record<number, Faction>>({});
-  const [activeTab, setActiveTab] = useState<MainTab>("MAP");
+  const [activeTab, setActiveTab] = useState<MainTab>("OVERVIEW");
   const [viewMode, setViewMode] = useState<ViewMode>("Political");
   const [isPlaying, setIsPlaying] = useState(false);
   const [isBatchRunning, setIsBatchRunning] = useState(false);
@@ -1517,6 +1518,12 @@ export function Dashboard() {
         {/* Tab Switcher */}
         <div style={{ display: "flex", background: "#0f172a", borderRadius: 8, padding: 3, border: "1px solid #1e293b" }}>
           <button
+            onClick={() => setActiveTab("OVERVIEW")}
+            style={{ padding: "6px 14px", border: "none", borderRadius: 6, background: activeTab === "OVERVIEW" ? "#1e293b" : "transparent", color: activeTab === "OVERVIEW" ? "#3987e5" : "#94a3b8", cursor: "pointer", fontWeight: 600, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}
+          >
+            🩺 Overview &amp; Health
+          </button>
+          <button
             onClick={() => setActiveTab("SECTORS")}
             style={{ padding: "6px 14px", border: "none", borderRadius: 6, background: activeTab === "SECTORS" ? "#1e293b" : "transparent", color: activeTab === "SECTORS" ? "#38bdf8" : "#94a3b8", cursor: "pointer", fontWeight: 600, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}
           >
@@ -1621,6 +1628,43 @@ export function Dashboard() {
         {/* ------------------------------------------------------------- */}
         {/* TAB 1: TERRITORIAL SECTOR LOGS (BURGS, PRISONS, THE VERGE)    */}
         {/* ------------------------------------------------------------- */}
+        {activeTab === "OVERVIEW" && (
+          <OverviewTab
+            tick={state?.calendar?.tick}
+            regionCellId={focusedCellId}
+            onRegionCell={(id: number) => {
+              setFocusedCellId(id);
+              setRegionSelection({ rx: 50, ry: 50 });
+              const b = burgs.find(b => b.cell_id === id);
+              if (b) setSelectedBurg(b);
+            }}
+            groundCell={regionSelection}
+            onGroundCell={setRegionSelection}
+            cellLabel={(id: number) => burgs.find(b => b.cell_id === id)?.name || `Cell #${id}`}
+            onOpenTactical={(cellId: number, rx: number, ry: number) => setTacticalModalTarget({ cellId, rx, ry })}
+            renderWorldMap={() => (
+              <MapCanvas
+                cells={cells}
+                factions={factionMap}
+                viewMode={viewMode}
+                economy={economyMap}
+                burgs={burgs}
+                prisons={prisons}
+                shipments={activeShipments}
+                verge={verge}
+                selectedFactionId={selectedFactionId}
+                onCellClick={(id: number) => {
+                  setFocusedCellId(id);
+                  setRegionSelection({ rx: 50, ry: 50 });
+                  const b = burgs.find(b => b.cell_id === id);
+                  if (b) setSelectedBurg(b);
+                }}
+                selectedCellId={focusedCellId}
+              />
+            )}
+          />
+        )}
+
         {activeTab === "SECTORS" && (
           <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
             

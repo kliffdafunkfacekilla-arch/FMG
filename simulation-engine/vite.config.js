@@ -13,7 +13,8 @@ exports.default = (0, vite_1.defineConfig)({
         allowedHosts: true,
         proxy: {
             '/api': {
-                target: 'http://localhost:3000',
+                // API_TARGET points a second dashboard at another server (e.g. a soak copy); default is the live one.
+                target: process.env.API_TARGET || 'http://localhost:3000',
                 changeOrigin: true
             }
         }

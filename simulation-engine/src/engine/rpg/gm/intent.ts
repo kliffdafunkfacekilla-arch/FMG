@@ -92,9 +92,17 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
 
   // Heuristic Fallback
   const lower = text.toLowerCase();
+  // The verb comes from what the player does, not who they address: blank out the names of people in the
+  // scene first, or "I talk with Volf Grey-Pelt" reads as field-dressing a pelt. (`lower` keeps the names
+  // for target matching below.)
+  let verbText = lower;
+  for (const n of activeNPCs.values()) {
+    const name = String(n.name || "").toLowerCase().trim();
+    if (name.length >= 3) verbText = verbText.split(name).join(" ");
+  }
 
   // Helper for boundary-safe keyword matching
-  const hasWord = (...words: string[]) => words.some(w => new RegExp(`\\b${w}\\b`, "i").test(lower));
+  const hasWord = (...words: string[]) => words.some(w => new RegExp(`\\b${w}\\b`, "i").test(verbText));
 
   // Explicit combat check to avoid attacking innocent bystanders
   const isExplicitAttack = hasWord("attack", "slash", "strike", "stab", "shoot", "smash", "kill", "thrust", "cleave", "behead");
@@ -175,7 +183,7 @@ Parse the action into JSON. Output ONLY valid JSON with keys:
     category = "EXPLORATION";
     verb = "SEARCH";
     statUsed = "awareness";
-  } else if (hasWord("cross", "ford", "traverse", "leap", "jump", "fly", "dash", "swim") && (hasWord("river", "flow", "torrent", "cataract", "chasm", "water", "ford", "current", "chaos", "vein", "strand", "ribbon", "stones", "airship", "skyship") || lower.includes("ford") || lower.includes("flow"))) {
+  } else if (hasWord("cross", "ford", "traverse", "leap", "jump", "fly", "dash", "swim") && (hasWord("river", "flow", "torrent", "cataract", "chasm", "water", "ford", "current", "chaos", "vein", "strand", "ribbon", "stones", "airship", "skyship") || verbText.includes("ford") || verbText.includes("flow"))) {
     category = "EXPLORATION";
     verb = "CROSS_CHAOS_FLOW";
     statUsed = hasWord("fly", "airship", "skyship") ? "logic" : (hasWord("leap", "jump", "dash", "sprint") ? "reflex" : "endurance");
