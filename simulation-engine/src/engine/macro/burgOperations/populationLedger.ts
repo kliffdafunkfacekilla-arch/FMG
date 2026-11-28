@@ -6,6 +6,7 @@ import {
   type RecordLedger,
   type WorkingBurg,
 } from "./types.js";
+import { DEFAULT_SPECIES } from "../../canon/species.js";
 
 /** Calibrates people per citizen record and attuned share for a burg. */
 export function recordLedger(
@@ -48,7 +49,7 @@ function resolveSpecies(demographicsStr: string, random: () => number): string {
   try {
     const demo = JSON.parse(demographicsStr || "{}");
     const entries = Object.entries(demo);
-    if (entries.length === 0) return "Human";
+    if (entries.length === 0) return DEFAULT_SPECIES;
     const roll = random();
     let cumulative = 0;
     for (const [sp, weight] of entries) {
@@ -64,9 +65,9 @@ function resolveSpecies(demographicsStr: string, random: () => number): string {
       }
     }
   } catch {
-    return "Human";
+    return DEFAULT_SPECIES;
   }
-  return "Human";
+  return DEFAULT_SPECIES;
 }
 
 /**

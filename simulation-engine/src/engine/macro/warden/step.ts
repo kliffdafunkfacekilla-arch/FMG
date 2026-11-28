@@ -115,7 +115,7 @@ export function stepWardenAwakening(
     id: null,
     name: recruitWardenPersona(random).citizenName,
     profession: "Wayfarer",
-    species: "Human",
+    species: "Bear-Folk",
     sparkTier: "SENSITIVE",
     temper: "STOIC",
     instinct: "WARY",

@@ -14,26 +14,8 @@ import {
   getProfessionForGood,
   getWorkplaceForProfession,
 } from "../engine/economy/goodCatalog";
-
-const FIRST_NAMES: Record<string, string[]> = {
-  "Human": ["Elian", "Vaelen", "Mara", "Lucian", "Kenneth", "Cassian", "Theron", "Orla", "Danica", "Gareth", "Fiona", "Tobias", "Morwen", "Darek", "Brina", "Jarek", "Sylvia"],
-  "Avian": ["Corvus", "Aeron", "Peregrine", "Skye", "Talon", "Cirrus", "Zephyr", "Kestrel", "Osprey", "Altair", "Sora", "Gale"],
-  "Bear-Folk": ["Bjorn", "Kaelis", "Ursan", "Torben", "Grizel", "Brant", "Hulda", "Bram", "Orson", "Valko", "Thora"],
-  "Wolf-Kin": ["Fenrir", "Lupen", "Varik", "Kira", "Ragnar", "Skoll", "Volf", "Freki", "Torva", "Astrid"],
-  "Felid": ["Leona", "Raza", "Sabre", "Tigran", "Panthera", "Vesper", "Lynx", "Cleo", "Shadow", "Zara"],
-  "Saurian": ["Krag", "Ssys", "Xerxes", "Scales", "Gorgon", "Viper", "Drakon", "Slither", "Caiman", "Basil"],
-  "Plant-Folk": ["Rowan", "Bramble", "Thorn", "Moss", "Willow", "Oakley", "Sylvan", "Fern", "Petal", "Barkley"]
-};
-
-const LAST_NAMES: Record<string, string[]> = {
-  "Human": ["Thorne", "Vance", "Ironwood", "Miller", "Blackwood", "Fletcher", "Cooper", "Ashfall", "Clearwater", "Vane", "Frost", "Stone", "Cross", "Sterling", "Oakhaven", "Pike", "Weaver"],
-  "Avian": ["Wind-Rider", "Cloud-Crest", "Sky-Watcher", "Feather-Bound", "Gale-Walker", "Storm-Beak", "High-Roost"],
-  "Bear-Folk": ["Iron-Paw", "Rock-Cleaver", "Honey-Crag", "Heavy-Stride", "Frost-Fur", "Brawn-Hammer", "Stone-Back"],
-  "Wolf-Kin": ["Blood-Howl", "Moon-Stalker", "Grey-Pelt", "Swift-Fang", "Night-Tracker", "Pine-Runner", "Frost-Howl"],
-  "Felid": ["Silent-Paws", "Shadow-Pounce", "Sun-Basker", "Razor-Claw", "Night-Stalker", "Dune-Leaper"],
-  "Saurian": ["Iron-Scale", "Deep-Basker", "Mud-Crag", "Venom-Spit", "Swamp-Stalker", "Spire-Tail"],
-  "Plant-Folk": ["Deep-Root", "Green-Bough", "Sap-Flow", "Briar-Twist", "Autumn-Leaf", "Iron-Bark"]
-};
+import { familyName, NameBook } from "../engine/names/names";
+import { DEFAULT_SPECIES } from "../engine/canon/species";
 
 const ADULT_PROFESSIONS_MAINTENANCE = [
   "Stonemason", "Carpenter", "Cooper", "Cobbler", "Town Scribe", "Clockmaker", "Disenfranchised Laborer"
@@ -90,7 +72,7 @@ function resolveSpecies(demographicsStr: string): string {
   try {
     const demo = JSON.parse(demographicsStr || "{}");
     const entries = Object.entries(demo);
-    if (entries.length === 0) return "Human";
+    if (entries.length === 0) return DEFAULT_SPECIES;
     const roll = Math.random();
     let cumulative = 0;
     for (const [sp, weight] of entries) {
@@ -106,7 +88,7 @@ function resolveSpecies(demographicsStr: string): string {
       }
     }
   } catch (e) {}
-  return "Human";
+  return DEFAULT_SPECIES;
 }
 
 function generateAdultMotivation(profession: string, temper: string, species: string, burgName: string, childhood: string): string {
@@ -425,13 +407,13 @@ export async function prerenderWorldPopulation() {
       totalChildRecords += childRecordCount;
 
       const burgCitizens: { name: string; species: string; profession: string }[] = [];
+      // Every name in a town is its own (engine/names): no two neighbours share one.
+      const nameBook = new NameBook();
 
       // 1. Generate Adults grounded in this burg's real economic & logistics roles
       for (let a = 0; a < adultRecordCount; a++) {
         const species = resolveSpecies(burg.species_demographics);
-        const first = pickRandom(FIRST_NAMES[species] || FIRST_NAMES["Human"] || ["Val"], "Elian");
-        const last = pickRandom(LAST_NAMES[species] || LAST_NAMES["Human"] || ["Thorne"], "Thorne");
-        const name = `${first} ${last}`;
+        const name = nameBook.make(species, Math.random);
 
         let profession: string;
         if (a < profWeights.guaranteed.length) {
@@ -537,9 +519,9 @@ export async function prerenderWorldPopulation() {
       const foodChildren = profWeights.isAquatic ? [...CHILD_ROLES_FOOD, "Fisher Boy"] : CHILD_ROLES_FOOD;
       for (let c = 0; c < childRecordCount; c++) {
         const species = resolveSpecies(burg.species_demographics);
-        const first = pickRandom(FIRST_NAMES[species] || FIRST_NAMES["Human"] || ["Pip"], "Pip");
-        const last = burgCitizens.length > 0 ? pickRandom(burgCitizens, burgCitizens[0]!).name.split(" ")[1] || "Thorne" : "Thorne";
-        const name = `${first} ${last}`;
+        // A child takes the family name of one of the town's adults.
+        const family = burgCitizens.length > 0 ? familyName(pickRandom(burgCitizens, burgCitizens[0]!).name) : undefined;
+        const name = nameBook.make(species, Math.random, family);
 
         const childSlot = c % 12;
         let profession: string;
@@ -608,7 +590,7 @@ export async function prerenderWorldPopulation() {
         batchInstincts.push(instinct);
         batchMotivations.push(motivation);
         batchTraits.push(JSON.stringify([temper, instinct, "YOUTH"]));
-        batchSocialLinks.push(JSON.stringify([{ relationship: "KIN", name: last, trust: 0.9 }]));
+        batchSocialLinks.push(JSON.stringify([{ relationship: "KIN", name: familyName(name), trust: 0.9 }]));
         batchUnitSizes.push(12);
         batchLifeStages.push("CHILD");
         batchAges.push(age);

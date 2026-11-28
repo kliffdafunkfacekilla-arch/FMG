@@ -4,6 +4,7 @@ import { ensureEntity, getEntityByRef } from "../entities/registry.js";
 import { factTags } from "../facts/facts.js";
 import { deriveCitizenMotives, deriveParagonMotives } from "../rpg/paragonMotives.js";
 import { listRecentActionsForParty, listStandingForParty } from "./actions.js";
+import { DEFAULT_SPECIES } from "../canon/species.js";
 
 export const STORY_CONTEXT_WEIGHTS = {
   wDist: 3.0,
@@ -797,7 +798,7 @@ async function loadPartySection(
       ref,
       id: pid,
       name: String(r.name || "Adventurer"),
-      species: String(r.species || "Human"),
+      species: String(r.species || DEFAULT_SPECIES),
       lineage: String(r.lineage || "Freeborn"),
       institution: String(r.institution || "Independent"),
       inventory: invRaw.slice(0, 4).map((i: any) => (typeof i === "string" ? i : String(i?.name || "Item"))),

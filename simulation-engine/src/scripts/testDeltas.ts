@@ -325,7 +325,7 @@ async function main() {
           name: "Renamed Seer",
           citizen_name: "Elara",
           profession: "Scribe",
-          species: "Human",
+          species: "Wolf-Kin",
           personality_temper: "STOIC",
           personality_instinct: "WARY",
           motivation: "Keep watch",

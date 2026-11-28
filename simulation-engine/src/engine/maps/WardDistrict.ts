@@ -20,6 +20,7 @@ import { dressSite, TownKind } from "./SiteVariation.js";
 import { deriveCitizenMotives } from "../rpg/paragonMotives.js";
 import { extractBurgCivicFlags } from "./civicFlags.js";
 import { stampEntityRefsOnNpcs } from "../entities/refs.js";
+import { DEFAULT_SPECIES } from "../canon/species.js";
 
 const SIZE = 256;
 type Ward = "RESIDENTIAL" | "MARKET" | "ARTISAN" | "CITADEL";
@@ -380,7 +381,7 @@ export function generateWardDistrictMap(input: WardDistrictInput): SectorMapResu
       role: guard ? "Citadel Guard" : c.profession || "Townsfolk",
       pos,
       tags: [
-        `species:${String(c.species || "human").toLowerCase()}`, `temper:${String(c.temper || "steady").toLowerCase()}`,
+        `species:${String(c.species || DEFAULT_SPECIES).toLowerCase()}`, `temper:${String(c.temper || "steady").toLowerCase()}`,
         `spark:${String(c.spark_tier || "null").toLowerCase()}`, `profession:${String(c.profession || "townsfolk").toLowerCase().replace(/[\s-]+/g, "_")}`,
         `ward:${ward.toLowerCase()}`,
         cm.wantTag, cm.flawTag, cm.lineTag

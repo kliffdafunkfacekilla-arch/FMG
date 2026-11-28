@@ -315,7 +315,7 @@ ${scenePropsStr || "None"}
 NEARBY NPCS:
 ${sceneNPCsStr || "None"}
 
-ACTOR: ${player.name} (${player.species || "Humanoid"})
+ACTOR: ${player.name} (${player.species || "traveller of unknown kin"})
 SPOKEN WORDS: ${playerSpokenWords ? `"${playerSpokenWords}"` : "None"}
 ACTION: "${input.actionText}"
 NPC REPLY: ${inCharacterDialogue ? `"${inCharacterDialogue}"` : "None"}

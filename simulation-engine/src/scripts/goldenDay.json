@@ -2,16 +2,16 @@
   "seed": "ostraka",
   "startTick": 1,
   "targetTick": 2,
-  "recordedAt": "2026-11-27T01:20:53.402Z",
-  "note": "named people now live lives: deaths, ties, marriages, births (lives step)",
+  "recordedAt": "2026-11-28T00:18:06.886Z",
+  "note": "canon: no humans; Human cohorts and people moved into their towns own peoples",
   "fingerprint": {
-    "burgs": "84f55145a9fe2aff8c159691c8f5a343",
+    "burgs": "7b4365ef3acf74a113953f6ad4442d76",
     "cells": "cb62f2755fad84a6adf608ce24c95e5b",
     "agents": "0302487b167f71c9ff4103680356f2e2",
-    "people": "359bfd97f7060fea81b35e216417d984",
-    "events": "2860823552f26d9560efc6b38aac1479",
-    "shipments": "0c9c1856bea77ebdac43e74304650736",
-    "cohorts": "6718b970f943ee0a9f5395e183e7ffd3",
+    "people": "11e46d8f401d031fd06cacaea1060c5d",
+    "events": "a47daa038a23789a719e17da03c64450",
+    "shipments": "5dc0551b865eb98e01c9eee331e89ea6",
+    "cohorts": "ab05ffa47c8ce92f00ffde3ab73abe70",
     "scheduled": ""
   }
 }

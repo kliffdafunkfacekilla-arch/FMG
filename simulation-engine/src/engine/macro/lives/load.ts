@@ -1,6 +1,7 @@
 import type { Db } from "../../deltas/types.js";
-import { FIRST_NAMES } from "../../lod/promote.js";
+import { loadTownNameBooks } from "../../names/names.js";
 import type { ChildCohort, LifeLink, LifeNotable, LifeRaid, LivesSnapshot } from "./step.js";
+import { DEFAULT_SPECIES } from "../../canon/species.js";
 
 /** Town troubles this tick that can touch a named person (read from what earlier steps logged today). */
 const TROUBLE_TYPES = {
@@ -49,7 +50,7 @@ export async function loadLives(client: Db, tick: number): Promise<LivesSnapshot
     homeCellId: Number(r.home_cell_id),
     name: String(r.name || "Unnamed"),
     profession: String(r.profession || "Laborer"),
-    species: String(r.species || "Human"),
+    species: String(r.species || DEFAULT_SPECIES),
     isNull: Boolean(r.is_null),
     sparkTier: String(r.spark_tier),
     unitSize: Math.max(1, Number(r.unit_size) || 1),
@@ -124,6 +125,6 @@ export async function loadLives(client: Db, tick: number): Promise<LivesSnapshot
     stormBurgs: sets.storm,
     raids,
     childCohorts,
-    firstNames: FIRST_NAMES,
+    nameBooks: await loadTownNameBooks(client, burgIds),
   };
 }

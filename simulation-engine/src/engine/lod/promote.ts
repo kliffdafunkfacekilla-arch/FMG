@@ -4,6 +4,7 @@ import { adjustCohortCount, adjustCohortsBatch, type CohortKey } from "../entiti
 import { upsertEntitiesBatch, upsertEntity, type UpsertEntityInput } from "../entities/registry.js";
 import { hashSeed, mulberry32 } from "../rng.js";
 import { deriveCitizenMotives } from "../rpg/paragonMotives.js";
+import { loadTownNameBooks, NameBook } from "../names/names.js";
 
 export interface PromoteFilter {
   profession?: string | undefined;
@@ -27,26 +28,6 @@ export interface PromotedPersonResult {
   alreadyExisted: boolean;
   cohortKey: string;
 }
-
-export const FIRST_NAMES: Record<string, string[]> = {
-  Human: ["Elian", "Vaelen", "Mara", "Lucian", "Kenneth", "Cassian", "Theron", "Orla", "Danica", "Gareth", "Fiona", "Tobias", "Morwen", "Darek", "Brina", "Jarek", "Sylvia"],
-  Avian: ["Corvus", "Aeron", "Peregrine", "Skye", "Talon", "Cirrus", "Zephyr", "Kestrel", "Osprey", "Altair", "Sora", "Gale"],
-  "Bear-Folk": ["Bjorn", "Kaelis", "Ursan", "Torben", "Grizel", "Brant", "Hulda", "Bram", "Orson", "Valko", "Thora"],
-  "Wolf-Kin": ["Fenrir", "Lupen", "Varik", "Kira", "Ragnar", "Skoll", "Volf", "Freki", "Torva", "Astrid"],
-  Felid: ["Leona", "Raza", "Sabre", "Tigran", "Panthera", "Vesper", "Lynx", "Cleo", "Shadow", "Zara"],
-  Saurian: ["Krag", "Ssys", "Xerxes", "Scales", "Gorgon", "Viper", "Drakon", "Slither", "Caiman", "Basil"],
-  "Plant-Folk": ["Rowan", "Bramble", "Thorn", "Moss", "Willow", "Oakley", "Sylvan", "Fern", "Petal", "Barkley"],
-};
-
-const LAST_NAMES: Record<string, string[]> = {
-  Human: ["Thorne", "Vance", "Ironwood", "Miller", "Blackwood", "Fletcher", "Cooper", "Ashfall", "Clearwater", "Vane", "Frost", "Stone", "Cross", "Sterling", "Oakhaven", "Pike", "Weaver"],
-  Avian: ["Wind-Rider", "Cloud-Crest", "Sky-Watcher", "Feather-Bound", "Gale-Walker", "Storm-Beak", "High-Roost"],
-  "Bear-Folk": ["Iron-Paw", "Rock-Cleaver", "Honey-Crag", "Heavy-Stride", "Frost-Fur", "Brawn-Hammer", "Stone-Back"],
-  "Wolf-Kin": ["Blood-Howl", "Moon-Stalker", "Grey-Pelt", "Swift-Fang", "Night-Tracker", "Pine-Runner", "Frost-Howl"],
-  Felid: ["Silent-Paws", "Shadow-Pounce", "Sun-Basker", "Razor-Claw", "Night-Stalker", "Dune-Leaper"],
-  Saurian: ["Iron-Scale", "Deep-Basker", "Mud-Crag", "Venom-Spit", "Swamp-Stalker", "Spire-Tail"],
-  "Plant-Folk": ["Deep-Root", "Green-Bough", "Sap-Flow", "Briar-Twist", "Autumn-Leaf", "Iron-Bark"],
-};
 
 export const CHILDHOOD_BACKGROUNDS = [
   "Apprenticed early at the forge; blistered palms taught them the stubborn value of endurance.",
@@ -162,9 +143,7 @@ export async function promoteFromCohort(
   const isNull = Boolean(coh.is_null);
   const allegiance = String(coh.allegiance);
 
-  const first = pickSeeded(FIRST_NAMES[species] || FIRST_NAMES.Human!, rng, "Elian");
-  const last = pickSeeded(LAST_NAMES[species] || LAST_NAMES.Human!, rng, "Vance");
-  const name = `${first} ${last}`;
+  const name = (await loadTownNameBooks(db, [burgId])).get(burgId)!.make(species, rng);
   const temper = pickSeeded(TEMPERS, rng, "STOIC");
   const instinct = pickSeeded(INSTINCTS, rng, "WARY");
   const childhood = pickSeeded(CHILDHOOD_BACKGROUNDS, rng, CHILDHOOD_BACKGROUNDS[0]!);
@@ -415,6 +394,7 @@ export async function promoteBatchFromCohorts(
   const decOps: Array<CohortKey & { delta: number }> = [];
   const pending: PendingInsert[] = [];
   const dedupeIdx = new Map<string, number>();
+  const nameBooks = await loadTownNameBooks(db, missingBurgs);
 
   for (const i of missingIndices) {
     const tk = tupleKeys[i]!;
@@ -453,9 +433,8 @@ export async function promoteBatchFromCohorts(
     const ck = cohortKeys[i]!;
     const meta = burgMeta.get(spec.burgId) || { cellId: null, name: `Burg #${spec.burgId}` };
     const rng = mulberry32(hashSeed(`${spec.burgId}:${ck}:${spec.slotKey}`));
-    const first = pickSeeded(FIRST_NAMES[chosen.species] || FIRST_NAMES.Human!, rng, "Elian");
-    const last = pickSeeded(LAST_NAMES[chosen.species] || LAST_NAMES.Human!, rng, "Vance");
-    const name = `${first} ${last}`;
+    const book = nameBooks.get(spec.burgId) || new NameBook();
+    const name = book.make(chosen.species, rng);
     const temper = pickSeeded(TEMPERS, rng, "STOIC");
     const instinct = pickSeeded(INSTINCTS, rng, "WARY");
     const childhood = pickSeeded(CHILDHOOD_BACKGROUNDS, rng, CHILDHOOD_BACKGROUNDS[0]!);

@@ -1,4 +1,5 @@
 import { Pool, PoolClient } from "pg";
+import { DEFAULT_SPECIES } from "../canon/species";
 
 export interface OutlawSyndicateDef {
   id: number;
@@ -44,7 +45,7 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
     description: "Formidable armed merchant fleet and naval privateers always captained by Hippo-Kin. Establishes public, unhidden trade yards in foreign territories near major trade routes, offers commercial freight and passenger transport, enforces naval policing and customs inspections, and blockades trade routes to manipulate market flow.",
     contrabandTypes: ["Impounded Foreign Cargo", "Forged Sovereign Letters of Marque", "Clipped Meridian Bullion", "Price-Fixed Grain Manifests"],
     lairTypes: ["PUBLIC_TRADE_YARD", "SHIPPING_DEPOT"],
-    speciesDistribution: [{ species: "Hippo", weight: 0.8 }, { species: "Walrus", weight: 0.1 }, { species: "Human", weight: 0.1 }],
+    speciesDistribution: [{ species: "Hippo", weight: 0.889 }, { species: "Walrus", weight: 0.111 }],
     uniqueRoles: [
       {
         role: "Hippo Fleet Captain",
@@ -84,7 +85,7 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
     description: "High-altitude corsairs and independent airship captains operating from secret aeries. Offers stealth transport for goods and passengers beneath cloud ceilings, ambushes rival airships when holding tactical advantage, and brands prospected recruits on their core drive at the Verge Sky Dock.",
     contrabandTypes: ["Branded Core-Drive Cells", "Smuggled Aerolith Charges", "Barred Flight Charts", "Clandestine Passenger Manifests"],
     lairTypes: ["SECRET_AERIE_YARD", "VERGE_SKY_DOCK"],
-    speciesDistribution: [{ species: "Human", weight: 0.4 }, { species: "Avian", weight: 0.4 }, { species: "Felid", weight: 0.2 }],
+    speciesDistribution: [{ species: "Avian", weight: 0.667 }, { species: "Felid", weight: 0.333 }],
     uniqueRoles: [
       {
         role: "Prospected Sky Captain (Branded Core)",
@@ -124,7 +125,7 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
     description: "Formed by the Goats and Rhinos of the Ivory Pass who ambushed a trade wing in the canyon, forced captured engineers to teach them flight, and absorbed the Crimson Corsairs under Captain Valerius. Holding the three tall peaks in the southern channel—the only pass ships can cross below the Avian peaks—they operate a mercenary armada and canyon toll blockade with flat fees and iron escorts: 'The Sky Belongs to No Bank'.",
     contrabandTypes: ["Seized Merchant Tithes", "Unregistered Legion Pikes", "Heavy Catapult Munitions", "Blood Contract Seals", "Forged Ivory Pass Writs"],
     lairTypes: ["TOLL_BLOCKADE", "MERC_TRADE_BASTION", "IVORY_PASS_CITADEL"],
-    speciesDistribution: [{ species: "Goat", weight: 0.4 }, { species: "Rhino", weight: 0.4 }, { species: "Human", weight: 0.2 }],
+    speciesDistribution: [{ species: "Goat", weight: 0.5 }, { species: "Rhino", weight: 0.5 }],
     uniqueRoles: [
       {
         role: "Legion Drill Centurion",
@@ -164,7 +165,7 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
     description: "The women-led vice, extortion, and street protection wing of the Obsidian Syndicate Network. While the parent Obsidian Cartel handles clean municipal fronts, relic fencing, and high-level oligarch politics, the Silk-Sovereign Syndicate operates the vice dens, underground gambling halls, pleasure houses, and narcotics distribution (Viper-Haze), enforcing brutal public 'justice' to keep the Deep Hall Engine insulated from street blowback.",
     contrabandTypes: ["Euphoric Viper-Haze Narcotics", "Loaded Bone Dice & Marked Decks", "Vice Ledger Blackmail", "Protection Warrants"],
     lairTypes: ["VICE_DEN", "GAMBLING_HALL", "PLEASURE_HOUSE", "NARCOTIC_PARLOR"],
-    speciesDistribution: [{ species: "Human", weight: 0.4 }, { species: "Saurian", weight: 0.3 }, { species: "Armadillo", weight: 0.3 }],
+    speciesDistribution: [{ species: "Saurian", weight: 0.5 }, { species: "Armadillo", weight: 0.5 }],
     uniqueRoles: [
       {
         role: "Silk-Sovereign Vice Mistress",
@@ -204,7 +205,7 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
     description: "A single legendary ghost airship, The Ghostwind, operating from one covert hidden cove in Guerrilla Clan lands. Contracts via dead drops from 4 major sovereign powers—none of whom realize they are all hiring the same vessel to raid each other in a circle, nor that it's hitting them too! Once a season, executes a phantom strike where least expected, subdues the crew, loots the ship down to its bare hull, and leaves a single captive capable of freeing themselves after hours. Seized gold is routed back to the Guerrilla Clans, while the larger portion is dead-dropped to outer rural burgs where local smugglers distribute it.",
     contrabandTypes: ["Phantom Muffled Sails", "Dead-Drop Seal Cylinders", "Stripped Convoy Cargo", "Smuggled Arms for Guerrilla Clans"],
     lairTypes: ["CLAN_COVERT_COVE"],
-    speciesDistribution: [{ species: "Human", weight: 0.4 }, { species: "Seal", weight: 0.3 }, { species: "Otter", weight: 0.3 }],
+    speciesDistribution: [{ species: "Seal", weight: 0.5 }, { species: "Otter", weight: 0.5 }],
     uniqueRoles: [
       {
         role: "Ghostwind Rigging-Phantom",
@@ -244,7 +245,7 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
     description: "The elite relic-fencing, black-market arms, and sabotage arm of the Obsidian Syndicate Network, operating from the Deep Hall. Maintaining strict municipal respectability, the Cartel interfaces with magistrates and oligarchs through diverse, legitimate business fronts (licensed apothecaries, gem exchanges, counting houses, spice emporiums), delegating all street vice and narcotics down to the Silk-Sovereign Syndicate.",
     contrabandTypes: ["Pre-Cruor Titan Relics", "Unregistered Black-Glass Arms", "Magistrate Bribe Bonds", "Sabotage Blueprints"],
     lairTypes: ["LICENSED_APOTHECARY_FRONT", "GEM_EXCHANGE_FRONT", "COUNTING_HOUSE_FRONT", "SUBTERRANEAN_TUNNEL_FLUE"],
-    speciesDistribution: [{ species: "Human", weight: 0.4 }, { species: "Saurian", weight: 0.3 }, { species: "Armadillo", weight: 0.3 }],
+    speciesDistribution: [{ species: "Saurian", weight: 0.5 }, { species: "Armadillo", weight: 0.5 }],
     uniqueRoles: [
       {
         role: "Cartel Front Merchant (Magistrate's Confidant)",
@@ -324,7 +325,7 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
     description: "A single close-knit tribe of outcast Riverfolk dwelling in deep subterranean caves beneath the mainland's central mountain range. Flooded cavern flues connect geothermal hot springs on both sides of the continental mountain barrier, allowing them to swim beneath the peaks to retrieve and drop cargo. Their chalk-pale white skin from lifelong underground isolation started local ghost stories and legends of the misty springs being haunted. But the Obsidian Cartel and the Free Sky-Barons know they are not ghosts, contracting them as mountain bypass smugglers.",
     contrabandTypes: ["Trans-Mountain Smuggled Goods", "Hot-Spring Mineral Salts", "Waterproof Pitch-Casks", "Subterranean Flue Maps"],
     lairTypes: ["CENTRAL_PEAK_SPRING_CAVERN"],
-    speciesDistribution: [{ species: "Riverfolk", weight: 0.8 }, { species: "Human", weight: 0.1 }, { species: "Otter", weight: 0.1 }],
+    speciesDistribution: [{ species: "Riverfolk", weight: 0.889 }, { species: "Otter", weight: 0.111 }],
     uniqueRoles: [
       {
         role: "Pale-Skin Flue Swimmer",
@@ -364,7 +365,7 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
     description: "A loose, self-populating gypsy-like caravan community of chasm divers and treasure hunters. They only pitch camp around an active grinding canyon while working it (never more than 3 active in the world at once). When stationed near a canyon, their wild crews flood the nearest burg with raw dragonstone cash, wild tavern brawls, and municipal corruption until the chasm slams shut.",
     contrabandTypes: ["Uncut Chasm Dragonstone", "Pre-Cruor Titan Relics", "Heavy Blasting Caps", "Unregistered Smelted Slag"],
     lairTypes: ["CHASM_DIVE_CAMP"],
-    speciesDistribution: [{ species: "Wolf-Kin", weight: 0.4 }, { species: "Saurian", weight: 0.3 }, { species: "Human", weight: 0.3 }],
+    speciesDistribution: [{ species: "Wolf-Kin", weight: 0.571 }, { species: "Saurian", weight: 0.429 }],
     uniqueRoles: [
       {
         role: "Caravan Chasm Diver",
@@ -404,7 +405,7 @@ export const OUTLAW_SYNDICATES: OutlawSyndicateDef[] = [
     description: "Solitary nomadic snake-oil salesmen, bards, entertainers, and tinkerers (mending pots, sharpening knives, and peddling luck pebbles and bramble charms). They never team up or form covens. The sole exception is 'The Wonder-Wander Troupe'—a traveling carnival of eccentric hedge mages, fire-eaters, and acrobats who frequent each sovereign faction once a year to perform, spread joy, and peddle wonders.",
     contrabandTypes: ["Unsealed Wild-Spark Charms", "Curative Bramble Poultices", "Faulty Luck-Pebbles", "Carnival Curios"],
     lairTypes: ["TRAVELING_CIRCUS_CARAVAN"],
-    speciesDistribution: [{ species: "Human", weight: 0.5 }, { species: "Plant-Folk", weight: 0.3 }, { species: "Peacock", weight: 0.2 }],
+    speciesDistribution: [{ species: "Plant-Folk", weight: 0.6 }, { species: "Peacock", weight: 0.4 }],
     uniqueRoles: [
       {
         role: "Wandering Bard & Knife-Sharpener",
@@ -858,7 +859,7 @@ export function generateUniqueOutlawOperative(lair: any, slotIndex: number): any
   const fullName = `${first} "${nickname}" ${last}`;
 
   // Species selection from syndicate distribution
-  let species = "Human";
+  let species: string = DEFAULT_SPECIES;
   if (cartelId === 1 && (slotIndex === 0 || lair.lair_type.includes("TRADE_YARD"))) {
     // The Gilded Compass is ALWAYS captained by a Hippo
     species = "Hippo";
@@ -913,7 +914,7 @@ export function generateUniqueOutlawOperative(lair: any, slotIndex: number): any
     local_pos: [posX, posY],
     name: fullName,
     role: `${roleDef.role} (${lair.lair_type.replace(/_/g, " ")})`,
-    kingdom: species === "Otter" || species === "Frog" || species === "Walrus" ? "Aquatic" : "Humanoid",
+    kingdom: species === "Otter" || species === "Frog" || species === "Walrus" ? "Aquatic" : "Mammal",
     species,
     lineage: `${species}-Born Outlaw`,
     tags: ["outlaw", "underworld", lair.lair_type.toLowerCase(), "unique_individual", species.toLowerCase()],

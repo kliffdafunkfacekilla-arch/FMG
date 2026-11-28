@@ -5,6 +5,7 @@
  * Pure: a snapshot in (loadLives), a plan out (applied by applyLives). Every chance is a per-day rate in
  * RATES below, so the world can be tuned in one place.
  */
+import { familyName, NameBook } from "../../names/names.js";
 
 export interface LifeLink {
   targetNpcId: string;   // "citizen:<id>" (the shape npcMindPure's NPCSocialLink reads)
@@ -63,7 +64,8 @@ export interface LivesSnapshot {
   raids: LifeRaid[];
   /** The largest civilian CHILD cohort per burg + species (where a newborn notable is drawn from). */
   childCohorts: Map<string, ChildCohort>;
-  firstNames: Record<string, string[]>;
+  /** Names already used in each town, so a newborn never shares one with a neighbour. */
+  nameBooks: Map<number, NameBook>;
 }
 
 export interface LifeEventPlan {
@@ -133,11 +135,6 @@ const RIVAL_TEMPERS = new Set(["GREEDY", "VENGEFUL", "FANATICAL"]);
 
 function pick<T>(arr: readonly T[], random: () => number): T | undefined {
   return arr.length ? arr[Math.floor(random() * arr.length)] : undefined;
-}
-
-function surname(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  return parts.length > 1 ? parts.slice(1).join(" ") : parts[0] || "";
 }
 
 function hasLink(n: LifeNotable, otherId: number, relation?: string): boolean {
@@ -300,8 +297,9 @@ export function stepLives(snap: LivesSnapshot, random: () => number = Math.rando
       const cohort = snap.childCohorts.get(`${burgId}:${n.species}`);
       if (!cohort || cohort.count < 1) continue;
       cohort.count -= 1;
-      const first = pick(snap.firstNames[n.species] || snap.firstNames.Human || ["Elian"], random) || "Elian";
-      const name = `${first} ${surname(random() < 0.5 ? n.name : s.name)}`;
+      let book = snap.nameBooks.get(burgId);
+      if (!book) snap.nameBooks.set(burgId, (book = new NameBook(people.map((p) => p.name))));
+      const name = book.make(n.species, random, familyName(random() < 0.5 ? n.name : s.name));
       plan.births.push({ burgId, homeCellId: n.homeCellId, name, species: n.species, cohort, parentIds: [n.citizenId, s.citizenId] });
       life(n, "child_born", `Welcomed a child, ${name}.`);
       life(s, "child_born", `Welcomed a child, ${name}.`);

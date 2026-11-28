@@ -40,6 +40,7 @@ import {
   type WorldSnapshot,
   type WorldStatic,
 } from "./types.js";
+import { DEFAULT_SPECIES } from "../../canon/species.js";
 
 function parseJson<T>(raw: unknown, fallback: T): T {
   if (raw === null || raw === undefined) return fallback;
@@ -678,7 +679,7 @@ export async function loadWorldSnapshot(db: Db): Promise<WorldSnapshot> {
       homeCellId: Number(r.home_cell_id || 0),
       name: String(r.name || ""),
       profession: String(r.profession || "Laborer"),
-      species: String(r.species || "Human"),
+      species: String(r.species || DEFAULT_SPECIES),
       sparkTier: String(r.spark_tier || "NULL"),
       isNull: Boolean(r.is_null),
       lifeStage: String(r.life_stage || "ADULT"),

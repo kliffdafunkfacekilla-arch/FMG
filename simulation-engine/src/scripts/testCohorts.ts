@@ -81,7 +81,7 @@ async function main() {
     `INSERT INTO population_demographics (
        settlement_id, home_cell_id, name, profession, species, is_null, spark_tier,
        allegiance_status, unit_size, life_stage, age, want, flaw, line_wont_cross
-     ) VALUES (1, 30627, $1, 'Miller', 'Human', true, 'NULL', 'CIVILIAN', 1, 'ADULT', 32, 'w', 'f', 'l')
+     ) VALUES (1, 30627, $1, 'Miller', 'Wolf-Kin', true, 'NULL', 'CIVILIAN', 1, 'ADULT', 32, 'w', 'f', 'l')
      RETURNING citizen_id`,
     [uniqueName]
   );

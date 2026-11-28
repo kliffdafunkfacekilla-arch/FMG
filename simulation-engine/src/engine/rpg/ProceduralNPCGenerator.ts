@@ -626,7 +626,7 @@ export class ProceduralNPCGenerator {
               statAffinity: "willpower",
               stats,
               kingdom: wardenKingdom,
-              species: "Human Warden",
+              species: "Bear-Folk",
               inventory: [
                 "Cold Titanium Spear",
                 "Warden Field Bandages",
@@ -917,7 +917,7 @@ export class ProceduralNPCGenerator {
           statAffinity: "willpower",
           stats: this.generateStatsForProfile("might", "willpower", rng),
           kingdom: "Mammal",
-          species: "Human Warden",
+          species: "Bear-Folk",
           inventory: ["Cold Titanium Spear", "Warden Field Bandages", `${dragonPrison.domain} Ward Seal`]
         });
       }

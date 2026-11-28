@@ -19,17 +19,18 @@ import { provisionAllBurgParagons } from "./provisionAllBurgParagons";
 import { CANON_DRAGON_PRISONS, VERGE_COORD, canonFlowName } from "../engine/canon/dragonPrisons";
 import { enhanceAllCriminalSyndicates } from "./enhanceAllCriminalSyndicates";
 import { GOOD_ROLE_BY_ID, goodKeyFromName } from "../engine/economy/goodCatalog";
+import { DEFAULT_SPECIES } from "../engine/canon/species";
 
 // Lore Profiles for Factions (Aggression, Magic, Economy, Species)
 const FACTION_LORE_PROFILES: Record<string, { aggression: number; magic: number; economy: number; species: Record<string, number> }> = {
-  "Avian Empire": { aggression: 3, magic: 8, economy: 9, species: { "Avian": 0.7, "Human": 0.2, "Wolf-Kin": 0.1 } },
-  "Grey Wardens": { aggression: 2, magic: 10, economy: 5, species: { "Human": 0.4, "Avian": 0.2, "Bear-Folk": 0.2, "Felid": 0.2 } },
-  "Gilded Compass": { aggression: 1, magic: 3, economy: 10, species: { "Human": 0.6, "Felid": 0.3, "Saurian": 0.1 } },
+  "Avian Empire": { aggression: 3, magic: 8, economy: 9, species: { "Avian": 0.875, "Wolf-Kin": 0.125 } },
+  "Grey Wardens": { aggression: 2, magic: 10, economy: 5, species: { "Avian": 0.34, "Bear-Folk": 0.33, "Felid": 0.33 } },
+  "Gilded Compass": { aggression: 1, magic: 3, economy: 10, species: { "Felid": 0.75, "Saurian": 0.25 } },
   "Ursine Hegemony": { aggression: 7, magic: 2, economy: 5, species: { "Bear-Folk": 0.8, "Porcupine": 0.2 } },
-  "The Reliance": { aggression: 4, magic: 4, economy: 7, species: { "Mushroom-Folk": 0.8, "Human": 0.2 } },
+  "The Reliance": { aggression: 4, magic: 4, economy: 7, species: { "Mushroom-Folk": 1.0 } },
   "Sylvan Empire": { aggression: 3, magic: 9, economy: 6, species: { "Plant-Folk": 0.7, "Fae": 0.3 } },
   "Iron Caldera": { aggression: 8, magic: 4, economy: 7, species: { "Lizard-Folk": 0.6, "Shelled Reptile": 0.3, "Salamander": 0.1 } },
-  "Heartland Alliance": { aggression: 4, magic: 3, economy: 8, species: { "Horse": 0.4, "Wolf": 0.3, "Human": 0.3 } },
+  "Heartland Alliance": { aggression: 4, magic: 3, economy: 8, species: { "Horse": 0.57, "Wolf": 0.43 } },
   "Vaneer Concord": { aggression: 5, magic: 5, economy: 6, species: { "Arachnid": 0.6, "Insect": 0.3, "Mouse": 0.1 } },
   "Sump-Kin": { aggression: 6, magic: 6, economy: 4, species: { "Mutant Amphibian": 0.8, "Rat": 0.2 } },
   "River Folk": { aggression: 2, magic: 5, economy: 8, species: { "Frog": 0.5, "Otter": 0.3, "Penguin": 0.2 } },
@@ -39,18 +40,18 @@ const FACTION_LORE_PROFILES: Record<string, { aggression: number; magic: number;
   "Dust-Husk Riders": { aggression: 8, magic: 3, economy: 4, species: { "Dune Dog": 0.5, "Dust-Skipper": 0.3, "Fur-Wyrm": 0.2 } },
   "Hive Commonwealth": { aggression: 4, magic: 5, economy: 9, species: { "Bee": 0.6, "Ant": 0.4 } },
   "Prism-Scale Collective": { aggression: 3, magic: 7, economy: 7, species: { "Peacock": 0.8, "Scarred-Guard": 0.2 } },
-  "Opal-Wallow": { aggression: 2, magic: 5, economy: 7, species: { "Frog": 0.5, "Human": 0.3, "Red Panda": 0.2 } },
-  "Port Sunder": { aggression: 5, magic: 4, economy: 8, species: { "Human": 0.5, "Felid": 0.3, "Wolf-Kin": 0.2 } },
+  "Opal-Wallow": { aggression: 2, magic: 5, economy: 7, species: { "Frog": 0.71, "Red Panda": 0.29 } },
+  "Port Sunder": { aggression: 5, magic: 4, economy: 8, species: { "Felid": 0.6, "Wolf-Kin": 0.4 } },
   "Meridian Chain": { aggression: 3, magic: 4, economy: 8, species: { "Penguin": 0.4, "Walrus": 0.3, "Seal": 0.2, "Otter": 0.1 } },
   "Scute Confederacy": { aggression: 4, magic: 3, economy: 7, species: { "Armadillo": 0.5, "Pangolin": 0.5 } },
   "Guerrilla Clans": { aggression: 9, magic: 3, economy: 4, species: { "Simian": 0.8, "Tarsier": 0.2 } },
   "Coastal Theocracy": { aggression: 6, magic: 9, economy: 7, species: { "Avian": 0.5, "Reptile": 0.5 } },
   "Devil's Island": { aggression: 8, magic: 8, economy: 3, species: { "Demon-Kin": 0.6, "Outcast": 0.4 } },
-  "Skyroost Academy": { aggression: 1, magic: 10, economy: 7, species: { "Avian": 0.8, "Human": 0.2 } },
-  "Free Sky-Baronies": { aggression: 6, magic: 5, economy: 6, species: { "Avian": 0.6, "Human": 0.4 } },
-  "Free Sky Baronies": { aggression: 6, magic: 5, economy: 6, species: { "Avian": 0.6, "Human": 0.4 } },
-  "Fuvuiku Legions": { aggression: 9, magic: 4, economy: 5, species: { "Saurian": 0.8, "Human": 0.2 } },
-  "Neutrals": { aggression: 1, magic: 1, economy: 3, species: { "Human": 0.6, "Wolf-Kin": 0.2, "Felid": 0.2 } }
+  "Skyroost Academy": { aggression: 1, magic: 10, economy: 7, species: { "Avian": 1.0 } },
+  "Free Sky-Baronies": { aggression: 6, magic: 5, economy: 6, species: { "Avian": 1.0 } },
+  "Free Sky Baronies": { aggression: 6, magic: 5, economy: 6, species: { "Avian": 1.0 } },
+  "Fuvuiku Legions": { aggression: 9, magic: 4, economy: 5, species: { "Saurian": 1.0 } },
+  "Neutrals": { aggression: 1, magic: 1, economy: 3, species: { "Wolf-Kin": 0.5, "Felid": 0.5 } }
 };
 
 function diplomacyTension(status: string): number {
@@ -174,7 +175,7 @@ export async function ingestHolgalandMap() {
     const activeStateIds = new Set<number>(parsed.states.map((s) => Number(s.i)));
 
     for (const s of parsed.states) {
-      const lore = FACTION_LORE_PROFILES[s.name] || { aggression: 3, magic: 3, economy: 5, species: { "Human": 1.0 } };
+      const lore = FACTION_LORE_PROFILES[s.name] || { aggression: 3, magic: 3, economy: 5, species: { [DEFAULT_SPECIES]: 1.0 } };
       const treasuryVal = Math.max(1000, Math.round(Number(s.economy?.treasury) || 10000));
       await client.query(`
         INSERT INTO sim_factions (
@@ -396,7 +397,7 @@ export async function ingestHolgalandMap() {
 
     for (const b of parsed.burgs) {
       const stateName = stateNameById.get(Number(b.state)) || "Neutrals";
-      const lore = FACTION_LORE_PROFILES[stateName] || { species: { "Human": 1.0 } };
+      const lore = FACTION_LORE_PROFILES[stateName] || { species: { [DEFAULT_SPECIES]: 1.0 } };
       const rawPop = Math.max(100, Math.floor((Number(b.population) || 0.2) * 1000));
       const popNull = Math.max(50, Math.floor(rawPop * 0.5));
       const popAttuned = Math.max(50, Math.floor(rawPop * 0.5));

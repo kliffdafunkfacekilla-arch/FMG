@@ -5,6 +5,7 @@ import { markEntitiesDeadBatch, syncLayerEntities, upsertEntitiesBatch, type Ups
 import { ensureBurgMicroCast } from "../lod/promote.js";
 import { applyMapOverlays, loadTileOverlays } from "./overlays.js";
 import { isNotableEconomicProp, makeObjectEntityRef } from "./propEconomy.js";
+import { DEFAULT_SPECIES } from "../canon/species.js";
 
 export interface ResyncMapCastResult {
   npcs: any[];
@@ -31,7 +32,7 @@ function buildMissingResidentNpc(
     role: profession,
     pos: [px, py],
     tags: [
-      String(citizen.species || "human").toLowerCase(),
+      String(citizen.species || DEFAULT_SPECIES).toLowerCase(),
       "civilian",
       citizen.workplace_type ? String(citizen.workplace_type).toLowerCase() : "trade",
       citizen.temper ? String(citizen.temper).toLowerCase() : "sanguine",

@@ -6,6 +6,7 @@ import { facts, factTags } from '../facts/facts.js';
 import { mapNpcIdToEntityRef } from '../entities/refs.js';
 import { getEntityByRef } from '../entities/registry.js';
 import { buildStoryContext, renderStoryContext, type StoryContext } from '../story/context.js';
+import { DEFAULT_SPECIES } from "../canon/species.js";
 
 // =========================================================================
 // 1. DATA CONTRACTS (JSON-to-JSON Pipeline)
@@ -234,7 +235,7 @@ export async function buildDirectorInputPayload(
     // No hard-coded person: without a player character row the arc addresses "the party".
     const legalName = player.name || storyContext.party.characters[0]?.name || "the party";
     const backstoryHooks = [
-        `${player.species || 'Human'} from ${player.institution || 'Provincial Guild'}`,
+        `${player.species || DEFAULT_SPECIES} from ${player.institution || 'Provincial Guild'}`,
         ...(player.passive_traits || [])
     ];
     const inventoryNotable: string[] = Array.isArray(player.inventory) ? player.inventory.slice(0, 3).map((i: any) => typeof i === 'string' ? i : i.name || '#Artifact') : ['#BrassInkwell', '#IronBadge'];

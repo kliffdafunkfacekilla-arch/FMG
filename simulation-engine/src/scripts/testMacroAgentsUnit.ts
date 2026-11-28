@@ -996,7 +996,7 @@ function testWardenUnit() {
         id: 55,
         name: "Cassian",
         profession: "Scribe",
-        species: "Human",
+        species: "Wolf-Kin",
         sparkTier: "SENSITIVE",
         temper: "STOIC",
         instinct: "WARY",
@@ -2118,7 +2118,7 @@ function testBurgOperationsUnit() {
         popAttuned: 20,
         popGrowthPool: 9.995, // net of births and natural deaths for 200 people crosses one 10-person unit
         recordUnit: 10,
-        speciesDemographics: JSON.stringify({ Human: 1 }),
+        speciesDemographics: JSON.stringify({ "Wolf-Kin": 1 }),
       }),
       makeBurg({
         burgId: 6,

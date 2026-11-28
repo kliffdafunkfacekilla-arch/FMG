@@ -13,10 +13,12 @@ import { applyLives } from "../engine/macro/lives/apply.js";
 import { loadLives } from "../engine/macro/lives/load.js";
 import { stepLives, type LifeNotable, type LivesPlan, type LivesSnapshot } from "../engine/macro/lives/step.js";
 import { isolateTest } from "./testIsolation.js";
+import { cultureFor, familyName, NameBook, nameSpace, stripRole } from "../engine/names/names.js";
+import { mulberry32 } from "../engine/rng.js";
 
 function person(id: number, over: Partial<LifeNotable> = {}): LifeNotable {
   return {
-    citizenId: id, burgId: 1, homeCellId: 100, name: `Test${id} Stone`, profession: "Miller", species: "Human",
+    citizenId: id, burgId: 1, homeCellId: 100, name: `Test${id} Stone`, profession: "Miller", species: "Wolf-Kin",
     isNull: true, sparkTier: "NONE", unitSize: 1, lifeStage: "ADULT", age: 30, temper: "STOIC", status: "CIVILIAN",
     links: [], legacyLinks: [], ...over,
   };
@@ -26,8 +28,8 @@ function snapshot(notables: LifeNotable[], over: Partial<LivesSnapshot> = {}): L
   return {
     tick: 50, notables, burgNames: new Map([[1, "Testford"]]), famineBurgs: new Set(), battleBurgs: new Set(),
     murderBurgs: new Set(), witchHuntBurgs: new Set(), stormBurgs: new Set(), raids: [],
-    childCohorts: new Map([["1:Human", { burgId: 1, species: "Human", profession: "Farm Hand", sparkTier: "NONE", isNull: true, count: 5 }]]),
-    firstNames: { Human: ["Mara"] }, ...over,
+    childCohorts: new Map([["1:Wolf-Kin", { burgId: 1, species: "Wolf-Kin", profession: "Farm Hand", sparkTier: "NONE", isNull: true, count: 5 }]]),
+    nameBooks: new Map(), ...over,
   };
 }
 
@@ -81,7 +83,8 @@ async function main() {
   assert.ok(wed.townEvents.some((e) => e.type === "NOTABLE_WEDDING"), "the town should record the wedding");
   assert.equal(wed.births.length, 1, "the new couple should have a child on a low roll");
   assert.deepEqual(wed.births[0]!.parentIds, [30, 31]);
-  assert.match(wed.births[0]!.name, /^Mara /, "the child takes a species first name");
+  assert.match(wed.births[0]!.name, / Stone$/, "the child takes the family name");
+  assert.ok(!["Test30 Stone", "Test31 Stone"].includes(wed.births[0]!.name), "the child gets a name of their own");
   console.log("4. Two townsfolk marry, the town records it, and they have a child... PASSED");
 
   // 5. Coming of age at 16.
@@ -146,6 +149,25 @@ async function main() {
   assert.equal(shown[0]!.citizenId, p1.citizenId);
   assert.ok(shown[0]!.lifeStory?.some((l) => l.includes("Roundtrip Child")), "the NPC should carry its life into the scene");
   console.log("7. The player's view: life summaries, the dead leave the map, beasts pass through... PASSED");
+
+  // 8. Names: every species has a real name space, a town never repeats a name, a crowded town uses bynames.
+  for (const sp of ["Avian", "Wolf-Kin", "Felid", "Bear-Folk", "Saurian", "Plant-Folk", "Penguin", "Rat", "Demon-Kin"]) {
+    assert.ok(nameSpace(sp) >= 3000, `${sp} has only ${nameSpace(sp)} possible names`);
+  }
+  assert.notEqual(cultureFor("Penguin"), cultureFor("Wolf-Kin"), "Penguins should have sky names, not borrowed canid ones");
+  const book = new NameBook(["Skye Feather-Bound (Baker)"]);
+  const rng = mulberry32(7);
+  const town = Array.from({ length: 400 }, () => book.make("Avian", rng));
+  assert.equal(new Set(town.map((n) => n.toLowerCase())).size, 400, "400 Avians in one town should all have different names");
+  assert.ok(!town.includes("Skye Feather-Bound"), "an existing name (written with its role) must not be reused");
+  const crowded = new NameBook();
+  const tiny = () => 0; // the same draw every time: only bynames can keep them apart
+  const same = [crowded.make("Wolf-Kin", tiny), crowded.make("Wolf-Kin", tiny), crowded.make("Wolf-Kin", tiny)];
+  assert.equal(new Set(same).size, 3, `a crowded town should tell people apart: ${same.join(" / ")}`);
+  assert.match(same[1]!, / the (Younger|Elder)$/);
+  assert.equal(familyName("Mara Ashwood the Younger"), "Ashwood");
+  assert.equal(stripRole("Skye Feather-Bound (Baker)"), "Skye Feather-Bound");
+  console.log(`8. Names: thousands per species, ${town.length} unique Avians in one town, bynames when crowded... PASSED`);
 
   console.log("\nALL NOTABLE LIFE TESTS PASSED");
 }

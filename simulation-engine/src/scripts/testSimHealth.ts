@@ -29,7 +29,7 @@ function burg(popNull: number, popAttuned: number, extra: Record<string, unknown
     popAttuned,
     popGrowthPool: 0,
     popDeparturePool: 0,
-    speciesDemographics: '{"Human":1}',
+    speciesDemographics: '{"Wolf-Kin":1}',
     recordUnit: 10,
     ...extra,
   };

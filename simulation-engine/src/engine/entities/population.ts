@@ -1,5 +1,6 @@
 import type { Db } from "../deltas/types.js";
 import { upsertEntitiesBatch, type UpsertEntityInput } from "./registry.js";
+import { DEFAULT_SPECIES } from "../canon/species.js";
 
 export interface CohortKey {
   burgId: number;
@@ -264,7 +265,7 @@ export async function backfillPopulationCohorts(
      )
      SELECT
        COALESCE(settlement_id, 0) AS burg_id,
-       COALESCE(NULLIF(species, ''), 'Human') AS species,
+       COALESCE(NULLIF(species, ''), '${DEFAULT_SPECIES}') AS species,
        COALESCE(NULLIF(profession, ''), 'Commoner') AS profession,
        COALESCE(NULLIF(life_stage, ''), 'ADULT') AS age_band,
        COALESCE(NULLIF(spark_tier, ''), 'NONE') AS spark_tier,

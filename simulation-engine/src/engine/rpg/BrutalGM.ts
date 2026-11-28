@@ -53,6 +53,7 @@ import { resolveTurnMechanics } from "./gm/resolve.js";
 import { generateTacticalVisualSight, synthesizeNpcDialogue, synthesizeTurnNarration } from "./gm/narrate.js";
 import { applyTurnConsequences, recordTurnMemory } from "./gm/consequences.js";
 import type { ActionCategory, ActionInput, GMResolutionOutput, ParsedIntent } from "./gm/types.js";
+import { DEFAULT_SPECIES } from "../canon/species.js";
 
 export type { ActionCategory, ActionInput, GMResolutionOutput, ParsedIntent };
 
@@ -412,7 +413,7 @@ export class BrutalGameMaster {
             const citizenName = persona.citizen_name || persona.citizenName || "Vaelen Thorne";
             const profession = persona.profession || "Weaver";
             const temper = persona.personality_temper || persona.temper || "DESPERATE";
-            const species = persona.species || "Human";
+            const species = persona.species || DEFAULT_SPECIES;
             const motivation = persona.motivation || "Seeking salvation in the primordial dark";
 
             encounterNPC = {
@@ -431,7 +432,7 @@ export class BrutalGameMaster {
               statAffinity: "willpower",
               kingdom: "Mammal",
               species: species,
-              lineage: "Humanoid",
+              lineage: "Townsfolk",
               memoryNotes: [
                 `Citizen Identity: Former ${profession} (${species})`,
                 `Temperament: ${temper}`,
@@ -446,7 +447,7 @@ export class BrutalGameMaster {
             const citizenName = persona.citizen_name || persona.citizenName || "Cassian Stone";
             const profession = persona.profession || "Apothecary";
             const temper = persona.personality_temper || persona.temper || "STOIC";
-            const species = persona.species || "Human";
+            const species = persona.species || DEFAULT_SPECIES;
             const motivation = persona.motivation || "Swore an oath at the Spire to hold the dragon seals";
 
             encounterNPC = {
@@ -465,7 +466,7 @@ export class BrutalGameMaster {
               statAffinity: isCorrupted ? "fortitude" : "might",
               kingdom: "Mammal",
               species: species,
-              lineage: "Humanoid",
+              lineage: "Townsfolk",
               memoryNotes: [
                 `Citizen Identity: Former ${profession} (${species})`,
                 `Temperament: ${temper}`,
@@ -479,7 +480,7 @@ export class BrutalGameMaster {
             const citizenName = persona.citizen_name || persona.citizenName || "Lucian Cooper";
             const profession = persona.profession || "Stonemason";
             const temper = persona.personality_temper || persona.temper || "VENGEFUL";
-            const species = persona.species || "Human";
+            const species = persona.species || DEFAULT_SPECIES;
             const motivation = persona.motivation || "Believes sparks are an unholy plague destroying mortal peace";
 
             encounterNPC = {
@@ -498,7 +499,7 @@ export class BrutalGameMaster {
               statAffinity: "endurance",
               kingdom: "Mammal",
               species: species,
-              lineage: "Humanoid",
+              lineage: "Townsfolk",
               memoryNotes: [
                 `Citizen Identity: Former ${profession} (${species})`,
                 `Temperament: ${temper}`,
@@ -682,7 +683,7 @@ Return ONLY valid JSON matching this schema:
           name: en.name,
           role: en.role,
           pos: nPos,
-          tags: Array.isArray(en.tags) ? en.tags : ["human", "organic"],
+          tags: Array.isArray(en.tags) ? en.tags : ["mammal", "organic"],
           faction: context.factionOwner || "Frontier",
           hp: maxHp,
           maxHp,
@@ -693,7 +694,7 @@ Return ONLY valid JSON matching this schema:
           statAffinity: statKey,
           stats,
           kingdom: "Mammal",
-          species: "Human",
+          species: DEFAULT_SPECIES,
           inventory: Array.isArray(en.inventory) ? en.inventory : ["Trail Provisions"]
         };
         injected.npcs.push(npcObj);
@@ -716,7 +717,7 @@ Return ONLY valid JSON matching this schema:
           name: "Vanguard Line Outrider",
           role: "Faction Skirmisher",
           pos: [136, 128],
-          tags: ["human", "soldier", "vanguard", "armed"],
+          tags: ["mammal", "soldier", "vanguard", "armed"],
           faction: (context as any).warringFactions?.split(" vs ")?.[0] || "Border Guard",
           hp: 22,
           maxHp: 22,
@@ -727,7 +728,7 @@ Return ONLY valid JSON matching this schema:
           statAffinity: "finesse",
           stats: { might: 7, finesse: 8, reflex: 6, endurance: 6, vitality: 6, fortitude: 5, knowledge: 4, logic: 4, awareness: 7, intuition: 5, charm: 4, willpower: 5 },
           kingdom: "Mammal",
-          species: "Human",
+          species: DEFAULT_SPECIES,
           inventory: ["Frontline Rations", "Iron Dagger"]
         });
       }
@@ -748,7 +749,7 @@ Return ONLY valid JSON matching this schema:
           name: "Starving Bread-Rioter",
           role: "Desperate Outlaw",
           pos: [120, 134],
-          tags: ["human", "raider", "starving", "desperate"],
+          tags: ["mammal", "raider", "starving", "desperate"],
           faction: "Disenfranchised Peasants",
           hp: 14,
           maxHp: 14,
@@ -759,7 +760,7 @@ Return ONLY valid JSON matching this schema:
           statAffinity: "might",
           stats: { might: 6, finesse: 5, reflex: 5, endurance: 4, vitality: 4, fortitude: 4, knowledge: 4, logic: 4, awareness: 5, intuition: 5, charm: 3, willpower: 6 },
           kingdom: "Mammal",
-          species: "Human",
+          species: DEFAULT_SPECIES,
           inventory: ["Moldy Crusts", "Crude Shank"]
         });
       }
@@ -793,7 +794,7 @@ Return ONLY valid JSON matching this schema:
           stats: { might: 4, finesse: 5, reflex: 5, endurance: 5, vitality: 5, fortitude: 4, knowledge: 7, logic: 6, awareness: 6, intuition: 7, charm: 4, willpower: 8 },
           kingdom: "Mammal",
           species: persona.species,
-          lineage: "Humanoid",
+          lineage: "Townsfolk",
           memoryNotes: [
             `Citizen Identity: Former ${persona.profession} (${persona.species})`,
             `Temperament: ${persona.temper} [${persona.instinct}]`,
@@ -1001,7 +1002,7 @@ Return ONLY valid JSON matching this schema:
     const player = playerRes.rows[0] || {
       id: playerId,
       name: input.playerName || "Hero",
-      species: input.playerSpecies || "Humanoid",
+      species: input.playerSpecies || DEFAULT_SPECIES,
       might: 7,
       endurance: 6,
       finesse: 8,

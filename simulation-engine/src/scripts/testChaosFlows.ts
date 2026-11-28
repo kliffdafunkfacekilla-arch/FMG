@@ -127,6 +127,32 @@ async function main() {
     check(hits.length === 0, hits.join("; "));
   });
 
+  await run("No source file makes or names a human (the world has none)", () => {
+    // Canon: every people is an evolved mammal, aquatic, avian, reptile, insect or plant. A quoted "Human" is a
+    // species value, a fallback or a tag; prose like "humanoid" or a comment saying "no humans" is fine.
+    const srcDir = path.resolve(__dirname, "..", "..", "src");
+    const allowed = new Set([
+      path.join(srcDir, "scripts", "testChaosFlows.ts"),
+      path.join(srcDir, "scripts", "removeHumans.ts"),
+      path.join(srcDir, "engine", "canon", "species.ts"),
+    ]);
+    const pattern = /["'`](Humanoid|Human|human|Humans|humans)(\s[A-Z][a-z]+)?["'`:]/;
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (/\.(ts|tsx)$/.test(e.name) && !allowed.has(p)) {
+          fs.readFileSync(p, "utf8").split(/\r?\n/).forEach((line, i) => {
+            if (pattern.test(line) || /\bHuman\s*:/.test(line)) hits.push(`${path.relative(srcDir, p)}:${i + 1}`);
+          });
+        }
+      }
+    };
+    walk(srcDir);
+    check(hits.length === 0, hits.join("; "));
+  });
+
   await run("The Verge keeps its canon name (no invented Convergence Nexus / Spire)", () => {
     // Canon/03: the flows meet at the Verge; the Sacred Spire stands on its rim (rule 7: no invented entities).
     const srcDir = path.resolve(__dirname, "..", "..", "src");

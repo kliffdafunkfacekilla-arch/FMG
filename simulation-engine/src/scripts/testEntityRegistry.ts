@@ -57,7 +57,7 @@ async function main() {
     { burg_id: 1, name: "Excelsis", urban_tier: 2, pop_null: 200, wealth: 500, unrest: 10, walls: true, citadel: true },
     "Avian Empire",
     30627,
-    [{ citizen_id: 42, name: "Kaelen Test", profession: "Smith", species: "Human", spark_tier: "NONE" }],
+    [{ citizen_id: 42, name: "Kaelen Test", profession: "Smith", species: "Wolf-Kin", spark_tier: "NONE" }],
     [],
     [{ id: 7, name: "Lord Vance", title: "Mayor", corruption_score: 0 }]
   );
@@ -76,7 +76,7 @@ async function main() {
     ry: 50,
     ward: "CITADEL",
     biomeId: 4,
-    citizens: [{ citizen_id: 42, name: "Kaelen Test", profession: "Guard", species: "Human" }],
+    citizens: [{ citizen_id: 42, name: "Kaelen Test", profession: "Guard", species: "Wolf-Kin" }],
     paragons: [{ id: 8, name: "Captain Brandt", title: "Watch Commander" }],
   });
   for (const n of wardMap.npcs) {

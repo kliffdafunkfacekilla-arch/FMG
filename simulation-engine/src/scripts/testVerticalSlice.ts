@@ -218,7 +218,7 @@ async function runVerticalSliceTest() {
     name: "Corrupt Gate Enforcer",
     role: "Hiring Thug",
     pos: [130, 128],
-    tags: ["human", "military", "#Hostile"],
+    tags: ["mammal", "military", "#Hostile"],
     faction: "Garrison Syndicate",
     hp: 10,
     maxHp: 10,

@@ -1,4 +1,5 @@
 import pool from "./pool";
+import { DEFAULT_SPECIES } from "../engine/canon/species";
 
 /**
  * provisionAllBurgParagons.ts
@@ -80,7 +81,7 @@ export async function provisionAllBurgParagons() {
           `, [burg.cell_id]);
           cand = fallbackRes.rows[0] || {
             name: `${burg.name} Elder`,
-            species: "Human",
+            species: DEFAULT_SPECIES,
             temper: "STOIC",
             instinct: "WARY"
           };
@@ -129,7 +130,7 @@ export async function provisionAllBurgParagons() {
           `, [burg.cell_id]);
           guard = fallbackRes.rows[0] || {
             name: `Sergeant of ${burg.name}`,
-            species: "Human",
+            species: DEFAULT_SPECIES,
             temper: "RESOLUTE",
             instinct: "VIGILANT"
           };

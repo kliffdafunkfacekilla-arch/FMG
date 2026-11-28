@@ -14,6 +14,7 @@ import { BrutalGameMaster } from '../engine/rpg/BrutalGM.js';
 import { ollamaGenerateStrict } from '../engine/llm.js';
 import { TaggedObject } from '../engine/rpg/TagMatrixEngine.js';
 import { calculateDerivedPools, calculateDerivedSenses, Attributes } from '../engine/customRulesEngine.js';
+import { DEFAULT_SPECIES } from "../engine/canon/species.js";
 
 dotenv.config({ path: 'simulation-engine/.env' });
 
@@ -267,7 +268,7 @@ async function runSession() {
     title: "Watch Captain of Excelsis Citadel",
     role: "Garrison Watch Commander",
     pos: [128, 129] as [number, number],
-    tags: ["human", "military", "officer", "stern", "suspicious", "armed", "paragon"],
+    tags: ["mammal", "military", "officer", "stern", "suspicious", "armed", "paragon"],
     faction: "Municipal Watch",
     hp: 40,
     maxHp: 40,
@@ -277,8 +278,8 @@ async function runSession() {
     equippedArmor: "Corroded Steel Breastplate",
     statAffinity: "fortitude" as any,
     kingdom: "Mammal",
-    species: "Human",
-    lineage: "Humanoid",
+    species: DEFAULT_SPECIES,
+    lineage: "Townsfolk",
     memoryNotes: [
       "Furious about the Otter Canal Krewe jailbreak last night.",
       "Orders from Town Reeve Jarek Stone: No unauthorized passage through the sluice gate."

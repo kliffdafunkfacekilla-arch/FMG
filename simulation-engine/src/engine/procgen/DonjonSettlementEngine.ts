@@ -12,6 +12,7 @@
  */
 
 import { getFactionSpecialty } from "../economy/factionSpecialties.js";
+import { DEFAULT_SPECIES } from "../canon/species.js";
 
 export interface DonjonBusiness {
   id: string;
@@ -215,7 +216,7 @@ export function computeDonjonSettlementCensus(
     proprietorCitizenId: registryCitizen?.citizen_id,
     proprietorName: registryCitizen?.name,
     proprietorProfession: registryCitizen?.profession || "High Reeve",
-    proprietorSpecies: registryCitizen?.species || "Human",
+    proprietorSpecies: registryCitizen?.species || DEFAULT_SPECIES,
     proprietorTemper: registryCitizen?.temper || "Phlegmatic",
     atmosphere: "Polished oak magistrate benches, official wax tax rolls, and sovereignty seal scrolls.",
     specialty: "Provincial charter records, deed registrations, and judicial arbitrations.",
@@ -238,7 +239,7 @@ export function computeDonjonSettlementCensus(
     proprietorCitizenId: barracksCitizen?.citizen_id,
     proprietorName: barracksCitizen?.name,
     proprietorProfession: barracksCitizen?.profession || "Watch Commander",
-    proprietorSpecies: barracksCitizen?.species || "Human",
+    proprietorSpecies: barracksCitizen?.species || DEFAULT_SPECIES,
     proprietorTemper: barracksCitizen?.temper || "Choleric",
     atmosphere: "Crossbow bolt racks, heavy iron footlockers, weapon polishing oils, and muster whistles.",
     specialty: "Sovereign frontier patrol rosters, perimeter defense, and municipal order.",
@@ -262,7 +263,7 @@ export function computeDonjonSettlementCensus(
     proprietorCitizenId: priestCitizen?.citizen_id,
     proprietorName: priestCitizen?.name,
     proprietorProfession: priestCitizen?.profession || "High Seal-Ward Priest",
-    proprietorSpecies: priestCitizen?.species || "Human",
+    proprietorSpecies: priestCitizen?.species || DEFAULT_SPECIES,
     proprietorTemper: priestCitizen?.temper || "Melancholic",
     atmosphere: "Sandalwood incense, polished stone altar of the dragon constellations, and singing prayer bells.",
     specialty: "Cosmic seal observances, blessing of seasonal crops, and soothing of void dread.",
@@ -298,7 +299,7 @@ export function computeDonjonSettlementCensus(
       proprietorCitizenId: specialtyCitizen?.citizen_id,
       proprietorName: specialtyCitizen?.name,
       proprietorProfession: specialtyCitizen?.profession || factionSpec.artisanRole,
-      proprietorSpecies: specialtyCitizen?.species || "Human",
+      proprietorSpecies: specialtyCitizen?.species || DEFAULT_SPECIES,
       proprietorTemper: specialtyCitizen?.temper || "Sanguine",
       atmosphere: `${factionSpec.description} Active work on ${factionSpec.harvestMethod}.`,
       specialty: `${factionSpec.uniqueGoodName} (${factionSpec.progressRoleDescription})`,
@@ -397,7 +398,7 @@ export function computeDonjonSettlementCensus(
         proprietorCitizenId: citizen?.citizen_id,
         proprietorName: citizen?.name,
         proprietorProfession: citizen?.profession || svData.defaultTitle,
-        proprietorSpecies: citizen?.species || "Human",
+        proprietorSpecies: citizen?.species || DEFAULT_SPECIES,
         proprietorTemper: citizen?.temper || "Sanguine",
         atmosphere,
         specialty,
@@ -428,7 +429,7 @@ export function computeDonjonSettlementCensus(
     proprietorCitizenId: marketStallCitizen?.citizen_id,
     proprietorName: marketStallCitizen?.name,
     proprietorProfession: marketStallCitizen?.profession || "Guild Factor",
-    proprietorSpecies: marketStallCitizen?.species || "Human",
+    proprietorSpecies: marketStallCitizen?.species || DEFAULT_SPECIES,
     proprietorTemper: marketStallCitizen?.temper || "Sanguine",
     atmosphere: "Colorful linen canopies, crying vendors, balance scales, and carts heaped with turnips and wool.",
     specialty: "Regional grain tariffs, bulk vegetable barter, and dyed cloth bolts.",

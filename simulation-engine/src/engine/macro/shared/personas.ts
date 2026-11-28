@@ -1,3 +1,4 @@
+import { givenName, surname } from "../../names/names.js";
 /**
  * Pure procedural fallback persona generators for Cultists, Wardens, and Mandate Zealots.
  */
@@ -18,18 +19,6 @@ export interface CitizenPersona {
   witchHuntFerocity: number;
 }
 
-const FIRST_NAMES = [
-  "Elian", "Vaelen", "Mara", "Lucian", "Kenneth", "Kaelis", "Cassian", "Theron",
-  "Orla", "Bran", "Danica", "Jesse", "Althea", "Ronen", "Gareth", "Teresa",
-  "Fiona", "Tobias", "Silas", "Morwen", "Darek", "Brina", "Jarek", "Sylvia",
-];
-
-const LAST_NAMES = [
-  "Thorne", "Vance", "Ironwood", "Miller", "Blackwood", "Fletcher", "Cooper",
-  "Ashfall", "Clearwater", "Vane", "Frost", "Stone", "Cross", "Sterling",
-  "Oakhaven", "Gale", "Harrow", "Pike", "Weaver", "Rook",
-];
-
 const PROFESSIONS = [
   "Weaver", "Blacksmith", "Miller", "Baker", "Carpenter", "Cobbler", "Stonemason",
   "Tanner", "Fisherman", "Farmer", "City Watchman", "Gate Sentry", "Town Scribe",
@@ -37,7 +26,12 @@ const PROFESSIONS = [
   "Disenfranchised Laborer", "Ruined Merchant", "Beggar",
 ];
 
-const SPECIES = ["Human", "Bear-Folk", "Wolf-Kin", "Felid", "Saurian", "Avian"];
+/** Same two draws as the old name lists, so seeded runs keep their order; the name now fits the species. */
+function personaName(species: string, rolls: readonly [number, number]): string {
+  return `${givenName(species, () => rolls[0])} ${surname(species, () => rolls[1])}`;
+}
+
+const SPECIES = ["Simian", "Bear-Folk", "Wolf-Kin", "Felid", "Saurian", "Avian"];
 
 function pick<T>(arr: T[], fallback: T, random: () => number): T {
   const item = arr[Math.floor(random() * arr.length)];
@@ -46,11 +40,10 @@ function pick<T>(arr: T[], fallback: T, random: () => number): T {
 
 /** Recruits a fallback civilian persona into a Cultist cabal. */
 export function recruitCultistPersona(burgName: string, random: () => number = Math.random): CitizenPersona {
-  const first = pick(FIRST_NAMES, "Vaelen", random);
-  const last = pick(LAST_NAMES, "Thorne", random);
-  const citizenName = `${first} ${last}`;
+  const nameRolls = [random(), random()] as const;
   const profession = pick(PROFESSIONS, "Weaver", random);
-  const species = pick(SPECIES, "Human", random);
+  const species = pick(SPECIES, "Wolf-Kin", random);
+  const citizenName = personaName(species, nameRolls);
 
   const sparkRoll = random();
   let sparkTier: CitizenPersona["sparkTier"] = "DORMANT_SPARK";
@@ -111,9 +104,7 @@ export function recruitCultistPersona(burgName: string, random: () => number = M
 
 /** Recruits a fallback civilian persona into the Grey Wardens. */
 export function recruitWardenPersona(random: () => number = Math.random): CitizenPersona {
-  const first = pick(FIRST_NAMES, "Cassian", random);
-  const last = pick(LAST_NAMES, "Stone", random);
-  const citizenName = `${first} ${last}`;
+  const nameRolls = [random(), random()] as const;
   const profession = pick(
     [
       "Temple Guardian", "Apothecary", "Hedge Astrologer", "Former Watch Captain",
@@ -122,7 +113,8 @@ export function recruitWardenPersona(random: () => number = Math.random): Citize
     "Temple Guardian",
     random
   );
-  const species = pick(SPECIES, "Human", random);
+  const species = pick(SPECIES, "Wolf-Kin", random);
+  const citizenName = personaName(species, nameRolls);
 
   const sparkRoll = random();
   let sparkTier: CitizenPersona["sparkTier"] = "SENSITIVE";
@@ -178,9 +170,7 @@ export function recruitWardenPersona(random: () => number = Math.random): Citize
 
 /** Recruits a fallback Null civilian persona into the Mandate of the Chain. */
 export function recruitMandatePersona(burgName: string, random: () => number = Math.random): CitizenPersona {
-  const first = pick(FIRST_NAMES, "Lucian", random);
-  const last = pick(LAST_NAMES, "Cooper", random);
-  const citizenName = `${first} ${last}`;
+  const nameRolls = [random(), random()] as const;
   const profession = pick(
     [
       "Stonemason", "Cobbler", "Blacksmith", "Woodcutter", "Laborer",
@@ -189,7 +179,8 @@ export function recruitMandatePersona(burgName: string, random: () => number = M
     "Stonemason",
     random
   );
-  const species = pick(SPECIES, "Human", random);
+  const species = pick(SPECIES, "Wolf-Kin", random);
+  const citizenName = personaName(species, nameRolls);
 
   const sparkTier: CitizenPersona["sparkTier"] = "NULL";
 

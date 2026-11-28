@@ -27,6 +27,7 @@ import {
   generateCoralCrownSectorMap,
   generateGrindCanyonSectorMap,
 } from "./specialSites.js";
+import { DEFAULT_SPECIES } from "../canon/species.js";
 
 export type { SectorMapResult, DragonPrisonConfig };
 export {
@@ -947,7 +948,7 @@ export function generateBurgSectorLayers(
       citizen_id: b.biz.proprietorCitizenId || 999000 + placedBuildings.indexOf(b),
       name: b.biz.proprietorName,
       profession: b.biz.proprietorProfession,
-      species: b.biz.proprietorSpecies || "Human",
+      species: b.biz.proprietorSpecies || DEFAULT_SPECIES,
       temper: b.biz.proprietorTemper || "Sanguine",
       instinct: "Self-Preservation",
       motivation: "Craftsmanship & Commerce",
@@ -973,7 +974,7 @@ export function generateBurgSectorLayers(
 
       const cm = deriveCitizenMotives(c);
       const citizenTags = [
-        c.species ? c.species.toLowerCase() : "human",
+        (c.species || DEFAULT_SPECIES).toLowerCase(),
         "civilian",
         c.workplace_type ? c.workplace_type.toLowerCase() : (b.biz?.category || "trade"),
         c.temper ? c.temper.toLowerCase() : "sanguine",
@@ -1424,7 +1425,7 @@ export function generateBurgSectorLayers(
       name: `${burgName} Rampart Sentry`,
       role: "Wall Watchman",
       pos: [WALL_LEFT + 12, WALL_TOP + 1],
-      tags: ["human", "guard", "military"],
+      tags: ["mammal", "guard", "military"],
       faction: factionName,
       hp: 34,
       maxHp: 34,
@@ -2448,7 +2449,7 @@ export function generateTacticalRegionalSectorMap(config: TacticalRegionalSector
   ): SectorMapResult["npcs"][0] => {
     const name = citizen?.name || `${factionName} Resident #${citCounter + 1}`;
     const role = overrideRole || citizen?.profession || "Provincial Citizen";
-    const species = citizen?.species || "Human";
+    const species = citizen?.species || DEFAULT_SPECIES;
     const temper = citizen?.temper || "steady";
     const instinct = citizen?.instinct || "wary";
     const motivation = citizen?.motivation || "duty";
